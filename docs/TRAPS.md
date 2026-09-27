@@ -109,12 +109,15 @@ space in a `%s` format string instead of the id.
 
 Guarded by `scripts/test-luci-translations.sh`.
 
-## A button restores the label it had when the action started
+## A busy button keeps what the page decided about it
 
-`runAction` puts the button back once the action ends. A handler that sets a new
-label or `disabled` state before that point loses it: Pause came back as Pause
-after pausing, and the engine button showed the wrong mode. Change the button in
-`onSuccess` or `onError`, which run after the restore.
+A button stays busy until `onSuccess` has read the new state, then shows its
+outcome. Released before `onSuccess`, it flashed its idle look between the
+spinner and the result. Held through it, the restore overwrote what `onSuccess`
+had set: Pause came back as Pause, and a Save that `trackChanges` greyed out
+became usable again. `setBusy` now keeps a label changed while busy, and a
+busy button records a `disabled` write as the state to return to. Relabel or
+disable in `onSuccess` or `onError`, never inside `run`.
 
 Guarded by `scripts/test-luci-shared.js`.
 
@@ -268,3 +271,37 @@ connection and an unrelated control connection; exit status alone proves
 neither closure nor isolation.
 
 Guarded by `scripts/test-audit-regressions.py` and router data-plane checks.
+
+## Routes into an XFRM link need the link up first
+
+`ip route add ... dev ipsec-out` fails with "Device for nexthop is not up" on a
+link that is down. Turning managed mode off, or disabling the inbound server,
+leaves `ipsec-out` or `ipsec-in` down, so a later apply that installed the
+tunnel table before `/etc/init.d/ikev2-xfrm start` failed and rolled back:
+managed mode or the server could not be turned back on. Start the XFRM links
+before any routing sync, in every apply path.
+
+## A disabled inbound server leaves `ipsec-in` in place
+
+Deleting an XFRM link can block in the kernel on OpenWrt 25, so `ikev2-xfrm`
+only takes it down. A check that required the link to be gone failed every
+server disable and the rollback after it, which then reported that the
+rollback failed. Test the `UP` flag, not the link's existence.
+
+Guarded by `scripts/openwrt/scenarios.sh`.
+
+## Removing the app stops FakeIP before it restores DNS
+
+Restoring the original DNS while FakeIP ran re-pointed sing-box at it after the
+segment resolvers were stopped; sing-box still sent `.ru` to the stopped
+segment, the probe failed, and the reset refused. The reset deactivates FakeIP
+first and restores DNS without it.
+
+
+## Turning managed mode off must not change what turning it on restores
+
+Disabling used `ikev2-domain-router deactivate`, which rewrites the engine to
+`nftset`, and stopped the segment resolvers; enabling brought neither back, so
+the router came back matching by address with its segments down. Disabling
+now uses `shutdown`, which keeps the engine, and enabling restarts the
+segments and resumes FakeIP.

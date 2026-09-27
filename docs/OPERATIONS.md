@@ -237,16 +237,26 @@ stops answering is restarted and reported, not replaced by the other method.
 If it does not come back, DNS is left on the previous resolver and selected
 domains are not routed until it is fixed or the method is switched by hand.
 
-The overview page has a Manual recovery section for when the automatic repair
-is still backing off. Restart reliable mode restarts the FakeIP resolver the
-way the watcher does; it refuses while tunnel routing is paused. With PBR
-still routing, Restart PBR rebuilds the firewall and policy routing, stopping
-forwarding for about 20 seconds, then verifies forwarding, device and inbound
-policy and both fail-closed routes.
-Both run as background actions under the router action lock, so the watcher
-does not act on the runtime in the meantime. From a shell:
+The overview page has a Routing control section. Pause tunnel routing stops
+using the tunnel without letting anything leave through WAN in its place: the
+`inet ikev2_pause` table rejects whatever reaches `ipsec-out`, so selected
+destinations and full-tunnel devices lose their connection until Resume, as
+they would with the tunnel down. Routing, FakeIP, DNS and the device policy
+keep running unchanged, so Resume takes effect at once; the router's own pings
+still pass, so tunnel quality keeps being measured. The block follows
+`domains.paused`: the watcher puts it back after a reboot or if something
+removes it, and doctor reports `routing_pause=notice:blocking`.
+
+Restart reliable mode restarts the FakeIP resolver the way the watcher does,
+for when the automatic repair is still backing off. Restart policy routing
+rebuilds the rules and tables and verifies both fail-closed routes; with PBR
+still routing it rebuilds the firewall too and forwarding stops for about 20
+seconds. All of these run as background actions under the router action lock,
+so the watcher does not act on the runtime in the meantime. From a shell:
 
 ```sh
+/usr/libexec/ikev2-manager-system routing-pause-async
+/usr/libexec/ikev2-manager-system routing-resume-async
 /usr/libexec/ikev2-manager-system recover-reliable-async
 /usr/libexec/ikev2-manager-system pbr-restart-async
 ```
@@ -446,6 +456,13 @@ group and then the global primary group. The segment editor shows that
 effective list, because an empty field is the widest inheritance rather than
 none - with **Use WAN-provided DNS** enabled it includes the provider's
 plaintext resolver. Set an explicit segment fallback to stop inheriting.
+
+**Provider DNS as a last resort** adds the resolvers the WAN lease hands out
+after a segment's own fallback, for that segment alone. They are plain DNS and
+asked only when every other server of the segment has failed. The segment
+service records the ones it started with in
+`/var/run/ikev2-dns-segments.wan`; when the lease brings different ones, the
+watcher restarts the segments, unless a user action holds the router lock.
 
 inspect their state without changing configuration with:
 
