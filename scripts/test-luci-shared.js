@@ -238,17 +238,142 @@ assert.strictEqual(select.disabled, false, 'setBusy did not restore select state
 	// The result line is where a failure explains itself. Clipping it to one
 	// line turns the messages that say what to do into a fragment.
 	const styles = fsNode.readFileSync('luci-ikev2-manager/shared.js', 'utf8');
-	const resultRule = styles.slice(styles.indexOf('.ikev2-result {'),
-		styles.indexOf('.ikev2-result.busy'));
+	const resultStart = styles.search(/\n\s*\.ikev2-result \{/);
+	const resultRule = styles.slice(resultStart, styles.indexOf('.ikev2-result.busy'));
+	assert.ok(resultStart > 0, 'the result line rule is missing');
 	assert.ok(!/white-space:\s*nowrap/.test(resultRule),
 		'the result line is clipped to one line again');
 	assert.ok(!/text-overflow:\s*ellipsis/.test(resultRule),
 		'the result line still truncates with an ellipsis');
 
-	// Button lifecycle, as the pages use it. The busy label lives in the button
-	// and is not repeated beside it; a relabel or disable made in onSuccess
-	// survives the restore (Pause used to come back as Pause after pausing); the
-	// width is held while busy and released afterwards.
+	// Button lifecycle, as the pages use it. A button keeps to a spinner while
+	// its action runs, stays busy until onSuccess has read the new state, and
+	// then shows the outcome itself: a success for three seconds, a failure or a
+	// warning until it is used again. Only those two are also written out.
+	const timers = [];
+	const realSetTimeout = windowStub.setTimeout;
+	windowStub.setTimeout = (fn, ms) => { timers.push([ fn, ms ]); return timers.length; };
+	windowStub.clearTimeout = () => {};
+	function actionButton(label) {
+		const button = E('button', {}, [ label ]);
+		button.className = 'cbi-button';
+		button.offsetWidth = 120;
+		const listeners = {};
+		button.addEventListener = (type, fn) => { listeners[type] = fn; };
+		button.removeEventListener = type => { delete listeners[type]; };
+		button.click = () => listeners.click && listeners.click();
+		return button;
+	}
+	const result = common.inlineResult();
+
+	const pause = actionButton('Pause tunnel routing');
+	let labelWhileBusy = null, widthWhileBusy = null, busyDuringRefresh = null;
+	await common.runAction({
+		button: pause, result, busy: 'Pausing...', success: 'Paused.',
+		run() { labelWhileBusy = pause.textContent; widthWhileBusy = pause.style.minWidth; },
+		// The page reads the new state: Pause becomes Resume, and a form that
+		// now matches the router greys its button out.
+		onSuccess() {
+			busyDuringRefresh = pause.dataset.busy;
+			pause.textContent = 'Resume tunnel routing';
+			pause.disabled = true;
+		}
+	});
+	assert.ok(!labelWhileBusy.includes('Pausing'), 'the button grew its busy label');
+	assert.strictEqual(widthWhileBusy, '120px', 'the button width was not held while busy');
+	assert.strictEqual(busyDuringRefresh, '1', 'the button showed its idle look before the result');
+	assert.strictEqual(pause.textContent, '✓ Paused', 'the success was not shown on the button');
+	assert.ok(/ikev2-flash-ok/.test(pause.className), 'the success was not coloured');
+	assert.ok(/quiet/.test(result.node.className), 'the success was written out beside the button');
+	assert.strictEqual(pause.disabled, true, 'the restore overrode the state set in onSuccess');
+	const flashTimer = timers.find(item => item[1] === 3000);
+	assert.ok(flashTimer, 'the success did not return after three seconds');
+	flashTimer[0]();
+	assert.strictEqual(pause.textContent, 'Resume tunnel routing',
+		'the button did not return to the label the refresh gave it');
+	assert.strictEqual(pause.className, 'cbi-button', 'the success colour stayed');
+	assert.strictEqual(pause.style.minWidth, '', 'the width hold was not released');
+
+	// A failure: red, with the reason under the button, until it is used again.
+	timers.length = 0;
+	const restart = actionButton('Restart reliable mode');
+	await common.runAction({
+		button: restart, result, busy: 'Restarting...', failed: 'Failed',
+		run() { throw new Error('FakeIP resolver did not answer'); },
+		onError() { assert.ok(!restart.dataset.busy, 'onError saw a busy button'); }
+	});
+	assert.strictEqual(restart.textContent, '✕ Failed', 'the failure was not shown on the button');
+	assert.ok(/ikev2-flash-err/.test(restart.className), 'the failure was not coloured');
+	assert.strictEqual(restart.title, 'FakeIP resolver did not answer', 'the reason was lost');
+	assert.ok(/\berr\b/.test(result.node.className) && result.node.textContent.includes('did not answer'),
+		'the reason was not written under the button');
+	assert.ok(!timers.some(item => item[1] === 3000), 'a failure cleared itself');
+	restart.click();
+	assert.strictEqual(restart.textContent, 'Restart reliable mode', 'using the button again did not clear the failure');
+
+	// An action that ended by reporting a warning itself does not turn green.
+	const install = actionButton('Install');
+	await common.runAction({
+		button: install, result, busy: 'Installing...',
+		run() { result.warn('The operation continues in the background.'); }
+	});
+	assert.ok(/ikev2-flash-warn/.test(install.className), 'a warning showed as a success: ' + install.textContent);
+	assert.ok(result.node.textContent.includes('continues in the background'), 'the warning was not written out');
+
+	// A long success message gives way to a short word on the button.
+	const save = actionButton('Save');
+	await common.runAction({
+		button: save, result, busy: 'Saving...',
+		run() { result.ok('Saved. All names now resolve through the tunnel.'); }
+	});
+	assert.ok(save.textContent.endsWith('Done') && !save.textContent.includes('Saved'),
+		'a long message was squeezed onto the button: ' + save.textContent);
+	assert.strictEqual(save.title, 'Saved. All names now resolve through the tunnel.', 'the full message was lost');
+
+	// An icon-only button shows the mark alone.
+	const icon = E('button', {}, [ E('span', {}, []) ]);
+	icon.className = 'cbi-button';
+	await common.runAction({ button: icon, result, busy: 'Generating...', run() {} });
+	assert.strictEqual(icon.textContent, '✓', 'an icon button was blown up by its result: ' + icon.textContent);
+
+	// A form saved in onSuccess greys its Save button out once the action ends.
+	const applyButton = actionButton('Apply router settings');
+	const applyField = E('input', {}, []);
+	applyField.value = 'a';
+	const applyTracker = common.trackChanges(applyButton, [ applyField ], { read: () => applyField.value });
+	applyField.value = 'b';
+	applyTracker.update();
+	assert.strictEqual(applyButton.disabled, false, 'a changed form left Apply grey');
+	await common.runAction({
+		button: applyButton, result, busy: 'Applying...', success: 'Applied',
+		onSuccess() { applyTracker.reset(); }
+	});
+	assert.strictEqual(applyButton.disabled, true, 'Apply stayed usable after the form was saved');
+
+	// What the page writes to the same line after the action is written out.
+	result.ok('VPN user saved.');
+	assert.ok(!/quiet/.test(result.node.className), 'a later message was hidden with the button result');
+
+	// A ticked box shows its own success, so no line appears to move the
+	// section below; its failure is written out.
+	const checkbox = E('input', {}, []);
+	const boxResult = common.inlineResult();
+	await common.runAction({ button: checkbox, result: boxResult, busy: 'Saving...', success: 'Saved.' });
+	assert.ok(/quiet/.test(boxResult.node.className), 'a checkbox success was written out');
+	await common.runAction({ button: checkbox, result: boxResult, busy: 'Saving...',
+		run() { throw new Error('Device routing failed'); } });
+	// The .quiet rule spares .err, so this class alone keeps it on screen.
+	assert.ok(/\berr\b/.test(boxResult.node.className), 'a checkbox failure was hidden');
+
+	// A button too short for the word shows the mark alone.
+	const add = actionButton('Add');
+	Object.defineProperty(add, 'scrollWidth', { get: () => add.textContent.length > 2 ? 90 : 40 });
+	add.clientWidth = 60;
+	await common.runAction({ button: add, result, busy: 'Adding...', success: 'Saved' });
+	assert.strictEqual(add.textContent, '✓', 'a short button squeezed its result: ' + add.textContent);
+	assert.strictEqual(add.title, 'Saved', 'the word was lost from the tooltip');
+	windowStub.setTimeout = realSetTimeout;
+
 	const lines = [];
 	const line = {
 		clear() { lines.length = 0; },
@@ -257,38 +382,6 @@ assert.strictEqual(select.disabled, false, 'setBusy did not restore select state
 		err(text) { lines.push('err:' + text); },
 		warn(text) { lines.push('warn:' + text); }
 	};
-	const pause = E('button', {}, [ 'Pause tunnel routing' ]);
-	pause.offsetWidth = 120;
-	let labelWhileBusy = null, widthWhileBusy = null;
-	await common.runAction({
-		button: pause, result: line, busy: 'Pausing...', success: 'Paused.',
-		run() { labelWhileBusy = pause.textContent; widthWhileBusy = pause.style.minWidth; },
-		onSuccess() { pause.textContent = 'Resume tunnel routing'; pause.disabled = true; }
-	});
-	assert.ok(labelWhileBusy.includes('Pausing...'), 'the button did not show its busy label');
-	assert.strictEqual(widthWhileBusy, '120px', 'the button width was not held while busy');
-	assert.ok(!lines.includes('busy:Pausing...'), 'the busy label was repeated beside the button');
-	assert.deepStrictEqual(lines, [ 'ok:Paused.' ], 'unexpected result line: ' + lines.join(' | '));
-	assert.strictEqual(pause.textContent, 'Resume tunnel routing',
-		'the restore put the label from before the action back');
-	assert.strictEqual(pause.disabled, true, 'the restore overrode the state set in onSuccess');
-	assert.strictEqual(pause.style.minWidth, '', 'the width hold was not released');
-
-	// The same holds on failure: onError sees the restored button.
-	const failing = E('button', {}, [ 'Restart PBR' ]);
-	await common.runAction({
-		button: failing, result: line, busy: 'Restarting PBR...',
-		run() { throw new Error('PBR restart failed'); },
-		onError() { failing.textContent = 'Retry'; }
-	});
-	assert.strictEqual(failing.textContent, 'Retry', 'onError relabel was overwritten');
-	assert.deepStrictEqual(lines, [ 'err:PBR restart failed' ]);
-
-	// An icon-only button keeps to the spinner instead of growing a label.
-	const icon = E('button', {}, [ E('span', {}, []) ]);
-	common.setBusy(icon, true, 'Generating...');
-	assert.ok(!icon.textContent.includes('Generating'), 'an icon button was blown up by its busy label');
-	common.setBusy(icon, false);
 
 	// Progress beside the button skips the backend's "Queued..." and anything
 	// the button already says, and shows a genuinely new step.
@@ -329,12 +422,13 @@ assert.strictEqual(select.disabled, false, 'setBusy did not restore select state
 	tracker.update();
 	assert.strictEqual(apply.disabled, true, 'a blocking condition was ignored');
 	blocked = false;
-	// The form is changed, so an idle button would be enabled here.
-	apply.dataset.busy = '1';
-	apply.disabled = true;
+	// The form is changed, so an idle button would be enabled here. A busy
+	// button stays disabled and takes the tracker's word for afterwards.
+	common.setBusy(apply, true, 'Applying...');
 	tracker.update();
 	assert.strictEqual(apply.disabled, true, 'the tracker changed a button a running action owns');
-	delete apply.dataset.busy;
+	common.setBusy(apply, false);
+	assert.strictEqual(apply.disabled, false, 'a changed form left Apply grey after the action');
 	toggle.checked = false;
 	tracker.reset();
 	assert.strictEqual(apply.disabled, true, 'reset did not take the saved state as the baseline');

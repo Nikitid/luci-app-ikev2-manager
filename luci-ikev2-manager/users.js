@@ -3,7 +3,7 @@
 'require fs';
 'require ui';
 'require poll';
-'require ikev2-manager.shared-v10 as common';
+'require ikev2-manager.shared-v11 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 
@@ -122,8 +122,7 @@ function downloadProfile(platform, user, button, result) {
 				link.click();
 				link.remove();
 				window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
-				result.ok(platform === 'windows' ? _('Profile generated.') :
-					_('Profile generated. Treat the downloaded file as a password.'));
+				result.ok(_('Profile generated.'));
 			});
 		}
 	});
@@ -706,7 +705,7 @@ return view.extend({
 					installerButton
 				]),
 				common.section(_('Access list'),
-					_('Passwords are write-only. Set a new password if one is lost; router backups still contain secrets.'),
+					_('Passwords are write-only. Set a new password if one is lost. Router backups and downloaded iOS and Android profiles contain secrets; keep them like a password.'),
 					E('div', {}, [
 						customMode ? E('div', {
 							'class': 'ikev2-note warn',

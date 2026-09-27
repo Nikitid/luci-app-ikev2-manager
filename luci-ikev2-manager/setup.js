@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v10 as common';
+'require ikev2-manager.shared-v11 as common';
 
 var helper = '/usr/libexec/ikev2-manager-system';
 var devicesHelper = '/usr/libexec/ikev2-devices';
@@ -41,11 +41,12 @@ function pollDeps(actionId, deadline, result) {
 	});
 }
 
-function runDepsJob(button, cmd, result, doneMsg, refresh) {
+function runDepsJob(button, cmd, result, doneMsg, refresh, done) {
 	return common.runAction({
 		button: button,
 		result: result,
 		busy: _('Working...'),
+		done: done,
 		run: function() {
 			return common.execChecked(helper, [ cmd ], _('Operation failed')).then(function(response) {
 				var actionId = parseStatus(response.stdout || '').action_id;
@@ -128,6 +129,13 @@ function validateAddr(addr) {
 }
 
 function domainRuntimeStatus(value) {
+	// A pause refuses what reaches the tunnel on purpose; it is not a fault.
+	if (value.routing_paused === '1') {
+		return {
+			label: _('Paused'), tone: 'warn',
+			detail: _('Tunnel routing is paused: selected domains get no connection until you resume, and none of them goes through WAN.')
+		};
+	}
 	if (value.domain_engine !== 'fakeip') {
 		return {
 			label: _('Matching by address'),
@@ -199,6 +207,7 @@ function checkRows(doctor) {
 		pbr_service: _('PBR service'),
 		pbr_version: _('PBR version'),
 		policy_routing_runtime: _('Policy routing runtime'),
+		routing_pause: _('Tunnel pause'),
 		failclosed_route: _('Fail-closed route'),
 		failclosed_ipv6_route: _('IPv6 fail-closed route'),
 		xfrm_module: _('XFRM interface module'),
@@ -255,7 +264,7 @@ function rowPairs(rows) {
 	return rows.map(function(row) { return [ row.label, row.value ]; });
 }
 
-function dependencyOverview(rows) {
+function dependencyOverview(rows, detailsOpen) {
 	var useful = {
 		diagnostic_status: true,
 		openwrt: true,
@@ -272,6 +281,7 @@ function dependencyOverview(rows) {
 		tunnel_vip_placement: true,
 		pbr_version: true,
 		policy_routing_runtime: true,
+		routing_pause: true,
 		failclosed_route: true,
 		xfrm_module: true,
 		strongswan_eap_client_security: true,
@@ -286,12 +296,14 @@ function dependencyOverview(rows) {
 	return E('div', {}, [
 		issues.length ? E('div', { 'class': 'ikev2-dependency-issues' },
 			issues.map(function(row) {
+				// A copy: the same node also goes into the technical details, and
+				// a node inserted twice leaves this row empty.
 				return E('div', { 'class': 'ikev2-health-row' }, [
 					E('strong', {}, [ row.label ]),
-					row.value
+					row.value.cloneNode(true)
 				]);
 			})) : '',
-		E('details', { 'class': 'ikev2-diagnostics' }, [
+		E('details', { 'class': 'ikev2-diagnostics', 'open': detailsOpen ? '' : null }, [
 			E('summary', {}, [ _('Technical details') ]),
 			E('div', { 'class': 'ikev2-diagnostics-body' }, [
 				E('div', { 'class': 'ikev2-two-col' }, [
@@ -417,6 +429,11 @@ return view.extend({
 			}, [ control, E('span', {}) ]);
 			checks[field] = control;
 			control.addEventListener('change', function() {
+				// lockLastCheck keeps this from happening; a stale row is put back.
+				if (!checks.pbr.checked && !checks.dns.checked && !checks.dpi.checked) {
+					control.checked = true;
+					return;
+				}
 				var values = [ 'set-exclusions', entry.addr,
 					checks.pbr.checked ? '1' : '0',
 					checks.dns.checked ? '1' : '0',
@@ -428,6 +445,18 @@ return view.extend({
 				});
 			});
 			return node;
+		}
+
+		// An exclusion with nothing ticked has no effect and the router drops
+		// it, so unticking the last box made the row vanish under the pointer.
+		// That box stays ticked; Remove is what deletes the rule.
+		function lockLastCheck(checks) {
+			var ticked = Object.keys(checks).filter(function(key) { return checks[key].checked; });
+			if (ticked.length !== 1)
+				return;
+			var last = checks[ticked[0]];
+			last.disabled = true;
+			last.parentNode.title = _('An exclusion keeps at least one of routing, DNS or Zapret. Use Remove to delete the rule.');
 		}
 
 		function refreshList(stdout) {
@@ -469,7 +498,7 @@ return view.extend({
 					self.deviceAction([ 'clear-policy', entry.addr ], remove, result);
 				});
 				var checks = {};
-				return E('div', { 'class': 'ikev2-device-policy-row' }, [
+				var row = E('div', { 'class': 'ikev2-device-policy-row' }, [
 					E('span', { 'class': 'ikev2-device-policy-name' }, [
 						client && client.name ? E('strong', {}, [ client.name ]) : '',
 						E('code', {}, [ entry.addr ])
@@ -487,6 +516,9 @@ return view.extend({
 						_('%d packets').format(Number(hit.packets || 0)) ]),
 					remove
 				]);
+				if (!included)
+					lockLastCheck(checks);
+				return row;
 			}))));
 		}
 
@@ -559,7 +591,7 @@ return view.extend({
 		}, [ routingPaused ? _('Resume tunnel routing') : _('Pause tunnel routing') ]);
 		var pauseResult = common.inlineResult();
 		var pausePill = common.pill('', 'neutral');
-		var pauseDescription = E('span', {});
+		var pauseDescription = E('span', { 'class': 'ikev2-toggle-sub' });
 
 		function updatePauseState() {
 			pauseRouting.className = 'cbi-button ' +
@@ -569,8 +601,8 @@ return view.extend({
 			common.setPill(pausePill, routingPaused ? _('Paused') : _('Routing active'),
 				routingPaused ? 'warn' : 'good');
 			pauseDescription.textContent = routingPaused ?
-				_('Routing is paused. Selected destinations leave through WAN, and the fail-closed guarantee is not in effect. Policies, lists, DNS settings and device overrides stay exactly as configured.') :
-				_('Pause stops sending selected destinations into the tunnel and returns them to WAN, keeping everything configured. It gives up the fail-closed guarantee for as long as it lasts, which is why it is a deliberate action rather than a side effect.');
+				_('Paused: selected destinations and full-tunnel devices have no connection, and none of them goes through WAN. All settings stay as configured.') :
+				_('Stops using the tunnel without leaking: selected destinations and full-tunnel devices lose their connection until you resume. Other traffic is not affected.');
 		}
 
 		// Manual recovery: the same verified paths the watcher uses, for when
@@ -580,18 +612,21 @@ return view.extend({
 		var reliableDetail = E('span', { 'class': 'ikev2-toggle-sub' });
 		var pbrButton = E('button', { 'class': 'cbi-button cbi-button-action' }, [ _('Restart policy routing') ]);
 		var pbrResult = common.inlineResult();
+		var pbrDetail = E('span', { 'class': 'ikev2-toggle-sub' });
 
 		function updateRecoveryState() {
 			var fakeIp = value.domain_engine === 'fakeip';
 			var restarts = Number(value.domain_data_plane_restarts || 0);
 			var restartedAt = Number(value.domain_data_plane_restarted_at || 0);
 			reliableButton.textContent = _('Restart reliable mode');
-			reliableButton.disabled = routingPaused || !fakeIp;
+			reliableButton.disabled = !fakeIp;
 			pbrButton.disabled = value.configured !== '1';
+			if (value.routing_backend === 'native')
+				pbrDetail.textContent = _('Rebuilds the policy routing rules and tables, then verifies the fail-closed routes. Traffic keeps flowing.');
+			else
+				pbrDetail.textContent = _('Rebuilds the firewall and policy routing, then verifies the fail-closed routes. Forwarding stops for about 20 seconds.');
 			if (!fakeIp)
 				reliableDetail.textContent = _('Reliable mode is not enabled.');
-			else if (routingPaused)
-				reliableDetail.textContent = _('Tunnel routing is paused; resume it first.');
 			else if (restarts && restartedAt)
 				reliableDetail.textContent = _('Restarts the FakeIP resolver. Automatic restarts recently: %d, last at %s.')
 					.format(restarts, common.formatDateTime(restartedAt));
@@ -613,7 +648,9 @@ return view.extend({
 
 		function renderDependencyChecks() {
 			depRows = checkRows(doctor);
-			depsChecks.replaceChildren(dependencyOverview(depRows));
+			// Keep the details open across a refresh if the reader opened them.
+			var openDetails = depsChecks.querySelector && depsChecks.querySelector('details[open]');
+			depsChecks.replaceChildren(dependencyOverview(depRows, !!openDetails));
 		}
 
 		function updateSetupState() {
@@ -693,6 +730,10 @@ return view.extend({
 			var protectedVal = protectedField.value().split(/\s+/).filter(function(name) {
 				return name && name !== selectedWan;
 			}).join(' ');
+			// Policy routing needs a local network to take traffic from; the
+			// router refused an empty list with a message nobody could act on.
+			if (!protectedVal)
+				return common.refuse(save, applyResult, _('Keep at least one local network protected.'));
 			var args = [
 				'set',
 				enabled.checked ? '1' : '0',
@@ -726,7 +767,7 @@ return view.extend({
 			if (!window.confirm(_('Install missing runtime packages now? DNS/DHCP may restart briefly while dnsmasq-full replaces dnsmasq.')))
 				return;
 			runDepsJob(installDeps, 'install-deps', depsResult,
-				_('Dependencies installed. Rechecking...'), refreshSetupState);
+				_('Dependencies installed. Rechecking...'), refreshSetupState, _('Installed'));
 		});
 
 		// Read the new state back from the router instead of assuming it, so the
@@ -741,11 +782,13 @@ return view.extend({
 
 		// Pause and recovery are system actions: they report through the system
 		// action status, not the dependency installer's status file.
-		function runSystemAction(button, verb, result, busy, success, failure) {
+		// `done` is the short word the button shows for a moment on success.
+		function runSystemAction(button, verb, result, busy, success, failure, done) {
 			return common.runJob({
 				button: button,
 				result: result,
 				busy: busy,
+				done: done,
 				success: success,
 				failure: failure,
 				startPath: helper,
@@ -765,16 +808,16 @@ return view.extend({
 			return routingPaused ?
 				runSystemAction(pauseRouting, 'routing-resume-async', pauseResult,
 					_('Resuming tunnel routing...'), _('Tunnel routing resumed.'),
-					_('Could not resume tunnel routing')) :
+					_('Could not resume tunnel routing'), _('Resumed')) :
 				runSystemAction(pauseRouting, 'routing-pause-async', pauseResult,
-					_('Pausing tunnel routing...'), _('Tunnel routing paused; selected traffic uses WAN.'),
-					_('Could not pause tunnel routing'));
+					_('Pausing tunnel routing...'), _('Tunnel routing paused; selected traffic is blocked until you resume.'),
+					_('Could not pause tunnel routing'), _('Paused'));
 		});
 
 		reliableButton.addEventListener('click', function() {
 			return runSystemAction(reliableButton, 'recover-reliable-async', reliableResult,
 				_('Restarting reliable mode...'), _('Reliable mode restarted.'),
-				_('Could not restart reliable mode'));
+				_('Could not restart reliable mode'), _('Restarted'));
 		});
 
 		pbrButton.addEventListener('click', function() {
@@ -783,14 +826,14 @@ return view.extend({
 				return;
 			return runSystemAction(pbrButton, 'pbr-restart-async', pbrResult,
 				_('Restarting policy routing...'), _('Policy routing restarted; fail-closed routing verified.'),
-				_('Policy routing restart failed'));
+				_('Policy routing restart failed'), _('Restarted'));
 		});
 
 		removeDeps.addEventListener('click', function() {
 			if (!window.confirm(_('Reset the app and prepare it for removal? All app functions stop; its settings, users, secrets, generated files and app-owned dependencies are removed. Pre-install DNS/DHCP is restored. Shared packages required by other software are kept.')))
 				return;
 			runDepsJob(removeDeps, 'remove-deps', depsResult,
-				_('Application reset completed.'), refreshSetupState);
+				_('Application reset completed.'), refreshSetupState, _('Reset complete'));
 		});
 
 		// Apply is grey until one of the settings it sends differs from what the
@@ -824,32 +867,32 @@ return view.extend({
 					]),
 					qualityRow(quality)
 				]),
-				common.section(_('Tunnel routing'),
-					pauseDescription,
-					E('div', { 'class': 'ikev2-actions' }, [ pauseResult.node, pauseRouting ]),
-					pausePill),
-				common.section(_('Manual recovery'),
-					_('For when something is stuck and the automatic repair has not caught up yet. Each action runs in the background and reports its result here.'),
+				common.section(_('Routing control'),
+					_('Pause is a deliberate choice; the restarts are for when something is stuck and the automatic repair has not caught up yet. Each action runs in the background and reports its result under its button.'),
 					E('div', {}, [
-						E('div', { 'class': 'ikev2-health-row' }, [
+						E('div', { 'class': 'ikev2-health-row ikev2-action-row' }, [
+							E('span', { 'class': 'ikev2-health-copy' }, [
+								E('strong', {}, [ _('Tunnel routing') ]),
+								pauseDescription
+							]),
+							E('div', { 'class': 'ikev2-actions' }, [ pauseResult.node, pauseRouting ])
+						]),
+						E('div', { 'class': 'ikev2-health-row ikev2-action-row' }, [
 							E('span', { 'class': 'ikev2-health-copy' }, [
 								E('strong', {}, [ _('Reliable mode') ]),
 								reliableDetail
 							]),
 							E('div', { 'class': 'ikev2-actions' }, [ reliableResult.node, reliableButton ])
 						]),
-						E('div', { 'class': 'ikev2-health-row', 'style': 'margin-top:1rem' }, [
+						E('div', { 'class': 'ikev2-health-row ikev2-action-row' }, [
 							E('span', { 'class': 'ikev2-health-copy' }, [
 								E('strong', {}, [ _('Policy routing') ]),
-								E('span', { 'class': 'ikev2-toggle-sub' }, [
-									value.routing_backend === 'native' ?
-										_('Rebuilds the policy routing rules and tables, then verifies the fail-closed routes. Traffic keeps flowing.') :
-										_('Rebuilds the firewall and policy routing, then verifies the fail-closed routes. Forwarding stops for about 20 seconds.')
-								])
+								pbrDetail
 							]),
 							E('div', { 'class': 'ikev2-actions' }, [ pbrResult.node, pbrButton ])
 						])
-					])),
+					]),
+					pausePill),
 				common.section(_('Runtime dependencies'),
 					_('Required VPN, routing and DNS components. Only warnings and failures are shown until technical details are opened.'),
 					E('div', {}, [

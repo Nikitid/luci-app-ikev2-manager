@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v10 as common';
+'require ikev2-manager.shared-v11 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -243,7 +243,7 @@ return view.extend({
 				_('Custom mode replaces the generated inbound connection and pool blocks. Normal form values remain stored but do not change the active strongSwan profile until generated mode is restored.')
 			]),
 			rawText,
-			E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:.7rem' }, [
+			E('div', { 'class': 'ikev2-actions end', 'style': 'margin-top:.7rem' }, [
 				rawResult.node,
 				rawReset,
 				rawSave

@@ -1780,8 +1780,8 @@ msgstr "Пароль скопирован."
 msgid "Password is required."
 msgstr "Пароль обязателен."
 
-msgid "Passwords are write-only. Set a new password if one is lost; router backups still contain secrets."
-msgstr "Пароли доступны только для записи. Если пароль утерян, задайте новый; резервные копии роутера всё равно содержат секреты."
+msgid "Passwords are write-only. Set a new password if one is lost. Router backups and downloaded iOS and Android profiles contain secrets; keep them like a password."
+msgstr "Пароли доступны только для записи. Если пароль утерян, задайте новый. Резервные копии роутера и скачанные профили iOS и Android содержат секреты; храните их как пароль."
 
 msgid "Paste your API token here"
 msgstr "Вставьте сюда API-токен"
@@ -1866,9 +1866,6 @@ msgstr "Путь к приватному ключу вручную"
 
 msgid "Profile generated."
 msgstr "Профиль создан."
-
-msgid "Profile generated. Treat the downloaded file as a password."
-msgstr "Профиль создан. Обращайтесь со скачанным файлом как с паролем."
 
 msgid "Project policy"
 msgstr "Политика проекта"
@@ -2545,8 +2542,8 @@ msgstr "Профиль туннеля"
 msgid "Tunnel routing"
 msgstr "Маршрутизация в туннель"
 
-msgid "Tunnel routing paused; selected traffic uses WAN."
-msgstr "Маршрутизация приостановлена; выбранный трафик идёт через WAN."
+msgid "Tunnel routing paused; selected traffic is blocked until you resume."
+msgstr "Маршрутизация в туннель на паузе; выбранный трафик заблокирован до возобновления."
 
 msgid "Tunnel routing resumed."
 msgstr "Маршрутизация возобновлена."
@@ -3947,3 +3944,105 @@ msgstr "Пересобирает правила и таблицы маршрут
 
 msgid "Policy routing restart failed; see /tmp/ikev2-system-action.log."
 msgstr "Не удалось перезапустить маршрутизацию; подробности в /tmp/ikev2-system-action.log."
+
+msgid "Paused: selected destinations leave through WAN and the fail-closed guarantee is off. All settings stay as configured."
+msgstr "На паузе: выбранные адреса идут через WAN, защиты от утечки нет. Все настройки сохранены."
+
+msgid "Returns selected destinations to WAN without changing any settings. The fail-closed guarantee is off while paused."
+msgstr "Возвращает выбранные адреса в WAN, не меняя настроек. Пока пауза, защиты от утечки нет."
+
+msgid "Routing control"
+msgstr "Управление маршрутизацией"
+
+msgid "Pause is a deliberate choice; the restarts are for when something is stuck and the automatic repair has not caught up yet. Each action runs in the background and reports its result under its button."
+msgstr "Пауза — осознанное действие; перезапуски нужны, если что-то зависло, а автоматическое восстановление ещё не справилось. Каждое действие идёт в фоне, результат появляется под его кнопкой."
+
+msgid "DNS could not be switched back to the FakeIP resolver after resume"
+msgstr "После возобновления не удалось вернуть DNS на резолвер FakeIP"
+
+msgid "paused"
+msgstr "на паузе"
+
+msgid "Tunnel routing is paused; selected domains resolve normally and leave through WAN."
+msgstr "Маршрутизация на паузе: выбранные домены разрешаются обычным образом и идут через WAN."
+
+msgid "Resumed"
+msgstr "Возобновлено"
+
+msgid "Restarted"
+msgstr "Перезапущено"
+
+msgid "Reset complete"
+msgstr "Сброшено"
+
+msgid "Attention"
+msgstr "Внимание"
+
+msgid "Check the form"
+msgstr "Проверьте форму"
+
+msgid "Keep at least one local network protected."
+msgstr "Оставьте защищённой хотя бы одну локальную сеть."
+
+msgid "An exclusion keeps at least one of routing, DNS or Zapret. Use Remove to delete the rule."
+msgstr "У исключения должен остаться хотя бы один из пунктов: маршрутизация, DNS или Zapret. Чтобы удалить правило, нажмите «Удалить»."
+
+msgid "FakeIP routing is stopped while the app does not manage the router"
+msgstr "Маршрутизация FakeIP остановлена, пока приложение не управляет роутером"
+
+msgid "Unable to restore DNS before stopping FakeIP routing"
+msgstr "Не удалось восстановить DNS перед остановкой маршрутизации FakeIP"
+
+msgid "At most %d entries"
+msgstr "Не больше %d записей"
+
+msgid "Provider DNS as a last resort"
+msgstr "DNS провайдера как крайний резерв"
+
+msgid "Adds the DNS servers your internet provider hands out after the fallback servers. They answer in plain text and are asked only when every other server of this segment has failed."
+msgstr "Добавляет DNS-серверы, которые выдаёт интернет-провайдер, после резервных серверов. Они отвечают открытым текстом, и к ним обращаются, только когда все остальные серверы сегмента не ответили."
+
+msgid "Then the provider DNS servers: %s"
+msgstr "Затем DNS-серверы провайдера: %s"
+
+msgid "The provider has handed out no DNS servers yet."
+msgstr "Провайдер пока не выдал DNS-серверов."
+
+msgid "Invalid DNS segment provider fallback setting"
+msgstr "Неверная настройка резервного DNS провайдера для сегмента"
+
+msgid "Sources for each service"
+msgstr "Источники по сервисам"
+
+msgid "Saves the selected services and the custom lists, then rebuilds the routing list."
+msgstr "Сохраняет выбранные сервисы и свои списки, затем пересобирает список маршрутизации."
+
+msgid "Stopping FakeIP routing..."
+msgstr "Остановка маршрутизации FakeIP..."
+
+msgid "FakeIP routing could not be stopped; dependency removal stopped before removing packages"
+msgstr "Не удалось остановить маршрутизацию FakeIP; удаление зависимостей остановлено до удаления пакетов"
+
+msgid "Tunnel routing is paused: selected domains get no connection until you resume, and none of them goes through WAN."
+msgstr "Маршрутизация в туннель на паузе: выбранные домены недоступны до возобновления, и ни один из них не идёт через WAN."
+
+msgid "Tunnel pause"
+msgstr "Пауза туннеля"
+
+msgid "Paused: selected destinations and full-tunnel devices have no connection, and none of them goes through WAN. All settings stay as configured."
+msgstr "На паузе: выбранные адреса и устройства «весь трафик в туннель» без связи, и ничего из этого не идёт через WAN. Все настройки сохранены."
+
+msgid "Stops using the tunnel without leaking: selected destinations and full-tunnel devices lose their connection until you resume. Other traffic is not affected."
+msgstr "Перестаёт использовать туннель без утечек: выбранные адреса и устройства «весь трафик в туннель» теряют связь до возобновления. Остальной трафик не затронут."
+
+msgid "The tunnel could not be closed; routing was not paused"
+msgstr "Не удалось закрыть туннель; маршрутизация не поставлена на паузу"
+
+msgid "The tunnel block could not be removed"
+msgstr "Не удалось снять блокировку туннеля"
+
+msgid "blocking"
+msgstr "блокирует"
+
+msgid "block-missing"
+msgstr "блокировка отсутствует"

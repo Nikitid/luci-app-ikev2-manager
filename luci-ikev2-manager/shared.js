@@ -344,6 +344,24 @@ var CSS = `
 				border-bottom: 1px solid var(--ikev2-border);
 			}
 			.ikev2-health-row:last-child { border-bottom: 0; }
+			/* A row with an action reports on the button itself (flashButton),
+			   so progress and success take no space next to it. Only a failure
+			   adds its reason under the button, where it stays until retried. */
+			.ikev2-health-row.ikev2-action-row { padding: .7rem .15rem; }
+			.ikev2-action-row > .ikev2-actions {
+				flex: none;
+				flex-direction: column;
+				flex-wrap: nowrap;
+				align-items: flex-end;
+				gap: .35rem;
+				max-width: 24rem;
+			}
+			.ikev2-action-row > .ikev2-actions > .cbi-button {
+				min-width: 12.5rem;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
 			.ikev2-health-copy {
 				display: flex;
 				flex-direction: column;
@@ -518,7 +536,12 @@ var CSS = `
 			}
 
 			/* ── Key/value table ────────────────────────────────────── */
-			.ikev2-kv { width: 100%; border-collapse: collapse; }
+			/* Fixed layout keeps the label column at its width; a long value
+			   wraps inside its own column instead of widening the table past
+			   its card and squeezing the labels. */
+			.ikev2-kv { width: 100%; border-collapse: collapse; table-layout: fixed; }
+			.ikev2-kv td:last-child { overflow-wrap: anywhere; }
+			.ikev2-kv .ikev2-pill { white-space: normal; max-width: 100%; }
 			.ikev2-kv td {
 				padding: .58rem .25rem;
 				border-top: 1px solid var(--ikev2-border);
@@ -718,7 +741,16 @@ var CSS = `
 				text-transform: uppercase;
 			}
 			.ikev2-device-policy-name { display: grid; gap: .18rem; min-width: 0; }
-			.ikev2-device-policy-name code { overflow-wrap: anywhere; }
+			/* The address is a caption under the name, not a field: the theme's
+			   grey code box made it read as an input. */
+			.ikev2-page .ikev2-device-policy-name code {
+				overflow-wrap: anywhere;
+				padding: 0;
+				background: none;
+				border: 0;
+				color: var(--ikev2-muted);
+				font-size: .82rem;
+			}
 			.ikev2-device-policy-traffic {
 				color: var(--ikev2-muted);
 				font-size: .82rem;
@@ -1166,6 +1198,40 @@ var CSS = `
 			.ikev2-page .cbi-button-negative:hover {
 				background: color-mix(in srgb, var(--ikev2-bad) 12%, transparent);
 			}
+			/* A result on the button: tinted, with a mark, so colour is not the
+			   only signal. */
+			/* overflow:hidden lets a flex item shrink below its content, and a
+			   crowded row squeezed the button; it keeps the width it had. */
+			.ikev2-page .cbi-button.ikev2-flash {
+				flex-shrink: 0;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				background-image: none;
+				box-shadow: none;
+				transition: background-color .2s ease, color .2s ease, border-color .2s ease;
+			}
+			.ikev2-page .cbi-button.ikev2-flash-ok {
+				color: var(--ikev2-good);
+				background: color-mix(in srgb, var(--ikev2-good) 14%, transparent);
+				border-color: color-mix(in srgb, var(--ikev2-good) 55%, var(--ikev2-border));
+			}
+			.ikev2-page .cbi-button.ikev2-flash-err {
+				color: var(--ikev2-bad);
+				background: color-mix(in srgb, var(--ikev2-bad) 12%, transparent);
+				border-color: color-mix(in srgb, var(--ikev2-bad) 55%, var(--ikev2-border));
+			}
+			.ikev2-page .cbi-button.ikev2-flash-warn {
+				color: var(--ikev2-warn, #d97706);
+				background: color-mix(in srgb, var(--ikev2-warn, #d97706) 12%, transparent);
+				border-color: color-mix(in srgb, var(--ikev2-warn, #d97706) 55%, var(--ikev2-border));
+			}
+			/* A Save button greys out once the form is saved; its "Saved" must
+			   still read at full strength for the moment it is shown. */
+			.ikev2-page .cbi-button.ikev2-flash[disabled] { opacity: 1; }
+			@media (prefers-reduced-motion: reduce) {
+				.ikev2-page .cbi-button.ikev2-flash { transition: none; }
+			}
 			/* Only opacity was set here, so a disabled button kept the UA's own
 			   disabled colour - near-black at 30% - and vanished on a dark
 			   theme. The busy-state pattern disables the primary button while
@@ -1312,6 +1378,47 @@ var CSS = `
 				white-space: normal;
 				overflow-wrap: anywhere;
 			}
+			/* One place for every result: under the buttons it reports on,
+			   aligned with them. Beside a button it pushed the button away the
+			   moment it appeared; above it, it moved the button down. */
+			.ikev2-actions > .ikev2-result,
+			.ikev2-engine-action > .ikev2-result,
+			.ikev2-inline-form > .ikev2-result {
+				order: 99;
+				flex: 1 0 100%;
+				max-width: none;
+			}
+			.ikev2-actions.end > .ikev2-result,
+			.ikev2-actions.bar > .ikev2-result,
+			.ikev2-engine-action > .ikev2-result,
+			.ikev2-inline-form > .ikev2-result {
+				justify-content: flex-end;
+				text-align: right;
+			}
+			.ikev2-action-row > .ikev2-actions > .ikev2-result {
+				flex: none;
+				max-width: 24rem;
+				justify-content: flex-end;
+				text-align: right;
+			}
+			/* While an action runs, progress and success stay here only for
+			   screen readers, which a button colour or a ticked box does not
+			   reach. A line that appeared and faded moved the section below. */
+			.ikev2-result.quiet:not(.err):not(.warn) {
+				position: absolute;
+				width: 1px;
+				height: 1px;
+				overflow: hidden;
+				clip: rect(0 0 0 0);
+			}
+			.ikev2-result.idle { display: none; }
+			/* A success fades once read; the state it reports stays on the page
+			   in the pills and buttons. Failures stay: they say what to do. */
+			.ikev2-result { transition: opacity .6s ease; }
+			.ikev2-result.fading { opacity: 0; }
+			@media (prefers-reduced-motion: reduce) {
+				.ikev2-result { transition: none; }
+			}
 			.ikev2-result.busy { color: var(--ikev2-muted); }
 			.ikev2-result.ok { color: var(--ikev2-good, #16a34a); }
 			.ikev2-result.warn { color: var(--ikev2-warn, #d97706); }
@@ -1320,6 +1427,23 @@ var CSS = `
 				margin-top: 1.4rem;
 				padding-top: 1.1rem;
 				border-top: 1px solid var(--ikev2-border);
+			}
+			/* On its own under the sections the bar is a card like them. A lone
+			   rule line there matched no card edge and ran into the button. */
+			/* The note reads from the left and the button stays at the right, on
+			   one line while they fit. */
+			.ikev2-save-bar > .ikev2-field-help {
+				flex: 1 1 18rem;
+				margin: 0;
+				text-align: left;
+			}
+			.ikev2-page > .ikev2-save-bar {
+				margin: var(--ikev2-s4) 0;
+				padding: var(--ikev2-s4) var(--ikev2-s5);
+				border: 1px solid var(--ikev2-border);
+				border-radius: var(--ikev2-radius);
+				background: var(--ikev2-surface);
+				box-shadow: var(--ikev2-shadow);
 			}
 
 			/* ── Advanced disclosure ────────────────────────────────── */
@@ -1624,6 +1748,15 @@ var CSS = `
 			.ikev2-inline-form > select { flex: 1 1 15rem; min-width: 12rem; }
 			.ikev2-inline-form > .ikev2-device-picker { flex: 2 1 30rem; min-width: 20rem; }
 			.ikev2-inline-form > .ikev2-device-picker select { width: 100%; }
+			/* A custom address goes beside the picker, not under it, so the
+			   row keeps its height and the type and Add stay where they were. */
+			.ikev2-inline-form > .ikev2-device-picker .ikev2-choice-custom {
+				display: flex;
+				align-items: center;
+				gap: .55rem;
+			}
+			.ikev2-inline-form > .ikev2-device-picker .ikev2-choice-custom > select { flex: 1 1 auto; min-width: 0; }
+			.ikev2-inline-form > .ikev2-device-picker .ikev2-choice-custom > input { flex: 0 1 12rem; min-width: 8rem; }
 			.ikev2-inline-form > .ikev2-device-picker + select {
 				flex: 1 1 18rem;
 				max-width: 24rem;
@@ -1751,6 +1884,7 @@ var CSS = `
 				vertical-align: -.12em;
 				animation: ikev2-spin .6s linear infinite;
 			}
+			.ikev2-page button > .ikev2-spin:only-child { margin-right: 0; }
 			@keyframes ikev2-spin { to { transform: rotate(360deg); } }
 
 			/* ── Tunnel quality ─────────────────────────────────────── */
@@ -2308,6 +2442,91 @@ function fieldLabel(title, help) {
 	]);
 }
 
+// A button reports on itself: a spinner while its action runs, then the
+// outcome in its own colour and words. A busy label was longer than the idle
+// one, in Russian by half, and widened the button into what stood beside it.
+// A checkbox or a select cannot say anything, so its result stays in words.
+function reportsOnButton(button) {
+	return !!(button && String(button.tagName || '').toLowerCase() === 'button');
+}
+
+// The outcome shown on the button itself, where the eye already is: a success
+// for three seconds, a failure or a warning until the button is used again.
+// The width is held, so a short result does not shrink the button, and an
+// icon button keeps to the mark.
+function flashButton(button, kind, text, detail) {
+	if (!button)
+		return;
+	if (button.ikev2FlashRestore)
+		button.ikev2FlashRestore();
+	var mark = { ok: '✓', err: '✕', warn: '!' }[kind] || '';
+	var shown = String(button.textContent || '').trim() ? mark + ' ' + text : mark;
+	var html = button.innerHTML, title = button.title || '', width = button.style.width || '';
+	var cls = ' ikev2-flash ikev2-flash-' + kind;
+	var timer = null;
+	if (button.offsetWidth)
+		button.style.width = button.offsetWidth + 'px';
+	button.className += cls;
+	button.textContent = shown;
+	// A short button (Add) cannot hold the word: the mark alone, the word in
+	// the tooltip, rather than a squeezed label.
+	if (button.scrollWidth > button.clientWidth + 1)
+		button.textContent = shown = mark;
+	button.title = detail || text;
+	function restore() {
+		button.ikev2FlashRestore = null;
+		if (timer && typeof window !== 'undefined' && window.clearTimeout)
+			window.clearTimeout(timer);
+		button.className = String(button.className).split(cls).join('');
+		// A refresh may have relabelled the button meanwhile; keep that label.
+		if (button.textContent === shown)
+			button.innerHTML = html;
+		button.title = title;
+		button.style.width = width;
+		if (button.removeEventListener)
+			button.removeEventListener('click', restore, true);
+	}
+	button.ikev2FlashRestore = restore;
+	if (kind !== 'ok') {
+		if (button.addEventListener)
+			button.addEventListener('click', restore, true);
+	}
+	else if (typeof window !== 'undefined' && window.setTimeout)
+		timer = window.setTimeout(restore, 3000);
+}
+
+// A form the page refuses to send: the button says so and the reason goes
+// under it, the same as a failure the router reported.
+function refuse(button, result, message) {
+	if (result)
+		result.err(message);
+	if (reportsOnButton(button))
+		flashButton(button, 'err', _('Check the form'), message);
+}
+
+// A result short enough for a button, or nothing.
+function buttonWords(text) {
+	text = String(text || '').replace(/[.…]+$/, '').trim();
+	return text.length && text.length <= 22 ? text : '';
+}
+
+// A button stays busy until the page has read the new state, and that read
+// often decides whether the button is usable (a Save button greys out once the
+// form matches the router). Such a decision, made while busy, becomes the state
+// the button returns to instead of being overwritten by the one it started in.
+function holdDisabled(button) {
+	if (Object.prototype.hasOwnProperty.call(button, 'disabled') &&
+	    Object.getOwnPropertyDescriptor(button, 'disabled').set)
+		return;
+	Object.defineProperty(button, 'disabled', {
+		configurable: true,
+		enumerable: true,
+		get: function() { return true; },
+		set: function(value) { button.dataset.idleDisabled = value ? '1' : '0'; }
+	});
+	button.setAttribute('disabled', '');
+}
+
 function setBusy(button, busy, label) {
 	if (!button)
 		return;
@@ -2330,29 +2549,34 @@ function setBusy(button, busy, label) {
 		button.setAttribute('aria-busy', 'true');
 		// A disabled button alone reads as broken. The spinner says the action was
 		// accepted and is still running, which is the difference between "nothing
-		// happened" and "wait". An icon-only button keeps to the spinner: a text
-		// label would blow it up to several times its size.
+		// happened" and "wait". The words come with the outcome (flashButton).
 		if (rewritesContent) {
-			var spinner = E('span', { 'class': 'ikev2-spin', 'aria-hidden': 'true' });
-			if (String(button.dataset.idleLabel || '').trim())
-				button.replaceChildren(spinner, document.createTextNode(label || _('Working...')));
-			else
-				button.replaceChildren(spinner);
+			button.replaceChildren(E('span', { 'class': 'ikev2-spin', 'aria-hidden': 'true' }));
+			button.dataset.busyText = button.textContent;
+			holdDisabled(button);
 		}
 	}
 	else {
 		if (button.dataset.busy !== '1')
 			return;
 		delete button.dataset.busy;
+		if (rewritesContent)
+			delete button.disabled;
 		button.disabled = button.dataset.idleDisabled === '1';
 		delete button.dataset.idleDisabled;
 		button.style.minWidth = button.dataset.idleMinWidth || '';
 		delete button.dataset.idleMinWidth;
 		button.removeAttribute('aria-busy');
-		if (rewritesContent && button.dataset.idleHtml != null)
-			button.innerHTML = button.dataset.idleHtml;
-		else if (rewritesContent)
-			button.textContent = button.dataset.idleLabel || button.textContent;
+		// A relabel made while the button was still busy is the newer state.
+		var relabelled = button.dataset.busyText != null &&
+			button.textContent !== button.dataset.busyText;
+		delete button.dataset.busyText;
+		if (rewritesContent && !relabelled) {
+			if (button.dataset.idleHtml != null)
+				button.innerHTML = button.dataset.idleHtml;
+			else
+				button.textContent = button.dataset.idleLabel || button.textContent;
+		}
 	}
 }
 
@@ -2406,38 +2630,72 @@ function pollAction(path, args, actionId, options) {
 }
 
 // Standard action lifecycle for every button:
-// idle -> busy -> success/error/timeout -> idle.
-// The busy label lives in the button; the result beside it stays empty until
-// there is something the button does not already say - a progress step or the
-// outcome. The button is restored before onSuccess/onError run, so a handler
-// that relabels or disables it (Pause becoming Resume) is not overwritten by
-// the label saved when the action started, and navigation/reload is never
-// responsible for clearing "Saving...".
+// idle -> spinner -> outcome on the button -> idle.
+// The button stays busy until onSuccess has read the new state, so it goes
+// from the spinner straight to its outcome. A relabel or a disable made in
+// onSuccess (Pause becoming Resume, Save greying out) is kept, not overwritten
+// by the state saved when the action started. A failure and a warning are also
+// written out under the button; progress and success only for screen readers.
+// A checkbox or a select keeps its written result and is restored before
+// onSuccess, as before.
 function runAction(options) {
 	options = options || {};
 	var button = options.button;
 	var result = options.result;
+	var onButton = reportsOnButton(button);
 	setBusy(button, true, options.busy || _('Working...'));
-	if (result && result.clear)
+	if (result && result.quiet)
+		result.quiet(true);
+	if (result && onButton)
+		result.busy(options.busy || _('Working...'));
+	else if (result && result.clear)
 		result.clear();
+
+	// The button shows what the action last reported: a run that ended in a
+	// warning ("continues in the background") or a failure it wrote itself
+	// must not turn green.
+	function showOutcome() {
+		var last = result && result.last ? result.last() : { kind: 'ok', text: '' };
+		if (last.kind === 'err')
+			flashButton(button, 'err', options.failed || _('Failed'), last.text);
+		else if (last.kind === 'warn')
+			flashButton(button, 'warn', buttonWords(last.text) || _('Attention'), last.text);
+		else
+			flashButton(button, 'ok', options.done || buttonWords(last.kind === 'ok' ? last.text : '') ||
+				buttonWords(options.success) || _('Done'), last.text || options.success);
+	}
 
 	return Promise.resolve().then(options.run).then(function(value) {
 		if (options.success && result)
 			result.ok(options.success);
-		setBusy(button, false);
-		if (options.onSuccess)
-			return Promise.resolve(options.onSuccess(value)).then(function() { return value; });
-		return value;
+		// A button that shows its own outcome stays busy while onSuccess reads
+		// the new state, so it goes from the spinner straight to the result
+		// instead of flashing its idle look in between.
+		if (!onButton)
+			setBusy(button, false);
+		return Promise.resolve(options.onSuccess ? options.onSuccess(value) : null).then(function() {
+			setBusy(button, false);
+			if (onButton)
+				showOutcome();
+			return value;
+		});
 	}).catch(function(error) {
 		setBusy(button, false);
 		var message = errorMessage(error, options.failure);
 		if (result)
 			result.err(message);
+		// The reason does not fit on a button; it stays on the line under it.
+		if (onButton)
+			flashButton(button, 'err', options.failed || _('Failed'), message);
 		if (options.onError)
 			options.onError(message, error);
 		return null;
 	}).finally(function() {
 		setBusy(button, false);
+		// Only this action's own report is left to its button; whatever the
+		// page writes to the same line later is written out again.
+		if (result && result.quiet)
+			result.quiet(false);
 	});
 }
 
@@ -2462,6 +2720,8 @@ function runJob(options) {
 		result: options.result,
 		busy: options.busy,
 		failure: options.failure,
+		done: options.done,
+		failed: options.failed,
 		run: function() {
 			return execChecked(options.startPath, options.startArgs, options.failure)
 				.then(function(response) {
@@ -2551,10 +2811,10 @@ function trackChanges(buttons, nodes, options) {
 		},
 		update: function() {
 			var disabled = !tracker.dirty() || !!(options.blocked && options.blocked());
+			// A busy button takes this as the state to return to (holdDisabled),
+			// so a reset() in onSuccess greys the button out once it is done.
 			buttons.forEach(function(button) {
-				// A running action owns the button; setBusy restores it afterwards.
-				if (button.dataset.busy !== '1')
-					button.disabled = disabled;
+				button.disabled = disabled;
 			});
 		},
 		reset: function() {
@@ -2750,20 +3010,53 @@ function netPick(value, name, meta, checked) {
 // Inline status chip shown next to an action button instead of a top-of-page
 // notification. err() truncates with a hover tooltip carrying the full text.
 function inlineResult() {
-	var node = E('span', { 'class': 'ikev2-result', 'style': 'display:none' }, []);
+	var node = E('span', { 'class': 'ikev2-result idle' }, []);
+	var fadeTimer = null, hideTimer = null;
+	// While an action runs, only a failure or a warning is written out here:
+	// those are read. A success is seen on the button, or in the checkbox or
+	// select the operator just changed.
+	var onButton = '';
+	var last = { kind: '', text: '' };
+	function stopFade() {
+		if (typeof window === 'undefined' || !window.clearTimeout) return;
+		window.clearTimeout(fadeTimer);
+		window.clearTimeout(hideTimer);
+		fadeTimer = hideTimer = null;
+	}
 	function set(cls, text, full) {
-		node.className = 'ikev2-result ' + cls;
-		node.style.display = '';
+		stopFade();
+		node.className = 'ikev2-result ' + cls + onButton;
 		node.textContent = text;
 		node.title = full || text;
+		last = { kind: cls, text: full || '' };
+	}
+	// A success is read in a few seconds and then only takes space.
+	function fadeLater() {
+		if (typeof window === 'undefined' || !window.setTimeout) return;
+		fadeTimer = window.setTimeout(function() {
+			node.className += ' fading';
+			hideTimer = window.setTimeout(function() {
+				node.className = 'ikev2-result idle' + onButton;
+				node.textContent = '';
+				node.title = '';
+			}, 650);
+		}, 6000);
 	}
 	return {
 		node: node,
 		busy: function(msg) { set('busy', msg || _('Working...'), ''); },
-		ok: function(msg) { set('ok', '✓ ' + (msg || _('Done')), msg || ''); },
+		ok: function(msg) { set('ok', '✓ ' + (msg || _('Done')), msg || ''); if (!onButton) fadeLater(); },
 		warn: function(msg) { set('warn', '… ' + (msg || _('Still running')), msg || ''); },
 		err: function(msg) { set('err', '✕ ' + (msg || _('Failed')), msg || ''); },
-		clear: function() { node.style.display = 'none'; node.textContent = ''; node.title = ''; }
+		clear: function() {
+			stopFade();
+			node.className = 'ikev2-result idle' + onButton;
+			node.textContent = '';
+			node.title = '';
+			last = { kind: '', text: '' };
+		},
+		last: function() { return last; },
+		quiet: function(flag) { onButton = flag ? ' quiet' : ''; }
 	};
 }
 
@@ -2817,6 +3110,8 @@ return baseclass.extend({
 	execChecked: execChecked,
 	pollAction: pollAction,
 	runAction: runAction,
+	refuse: refuse,
+	flashButton: flashButton,
 	showProgress: showProgress,
 	runJob: runJob,
 	formState: formState,

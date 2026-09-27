@@ -14,7 +14,7 @@
 		"order": 5,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/setup-v6"
+			"path": "ikev2-manager/setup-v7"
 		}
 	},
 	"admin/services/ikev2-manager/users": {
@@ -22,7 +22,7 @@
 		"order": 50,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/users-v10"
+			"path": "ikev2-manager/users-v11"
 		}
 	},
 	"admin/services/ikev2-manager/server": {
@@ -30,7 +30,7 @@
 		"order": 40,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/settings-v6"
+			"path": "ikev2-manager/settings-v7"
 		}
 	},
 	"admin/services/ikev2-manager/client": {
@@ -38,7 +38,7 @@
 		"order": 20,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/client-v6"
+			"path": "ikev2-manager/client-v7"
 		}
 	},
 	"admin/services/ikev2-manager/routing": {
@@ -46,7 +46,7 @@
 		"order": 30,
 		"action": {
 			"type": "view",
-			"path": "ikev2-domains/editor-v7"
+			"path": "ikev2-domains/editor-v8"
 		}
 	}
 }

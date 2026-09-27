@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v10 as common';
+'require ikev2-manager.shared-v11 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -1133,6 +1133,7 @@ return view.extend({
 			var head = parsed.head;
 			var now = Number(head.now || Math.floor(Date.now() / 1000));
 			var rows = [];
+			var wasOpen = !!(body.querySelector && body.querySelector('details[open]'));
 			while (body.firstChild)
 				body.removeChild(body.firstChild);
 			body.appendChild(E('p', {}, [
@@ -1155,9 +1156,15 @@ return view.extend({
 					describeSourceList(record, 'domains', now),
 					describeSourceList(record, 'networks', now));
 			});
-			body.appendChild(E('div', {
-				'style': 'display:grid;grid-template-columns:minmax(7rem,1fr) 2fr 2fr;gap:.6rem 1rem;align-items:start;margin-top:.75rem'
-			}, rows));
+			// The table runs to a screen or more with every service selected; the
+			// last update and a failure stay in view, the per-service list folds.
+			body.appendChild(E('details', { 'class': 'ikev2-diagnostics', 'open': wasOpen ? '' : null }, [
+				E('summary', {}, [ _('Sources for each service') ]),
+				E('div', {
+					'class': 'ikev2-diagnostics-body',
+					'style': 'display:grid;grid-template-columns:minmax(7rem,1fr) 2fr 2fr;gap:.6rem 1rem;align-items:start;padding-top:.75rem'
+				}, rows)
+			]));
 		}
 
 		function buildSourcesSection(response) {
@@ -1235,7 +1242,11 @@ return view.extend({
 					_('Build the IPv4 VPN policy from curated services, custom destinations and per-device modes.'),
 					policyPill),
 				domainsContent,
-				E('div', { 'class': 'ikev2-actions end', 'style': 'margin-top:1.1rem' }, [
+				// A card like the other pages' save bars; left bare it sat on the
+				// LuCI footer rule.
+				E('div', { 'class': 'ikev2-actions end ikev2-save-bar' }, [
+					E('span', { 'class': 'ikev2-field-help' }, [
+						_('Saves the selected services and the custom lists, then rebuilds the routing list.') ]),
 					saveResult.node,
 					saveBtn
 				])

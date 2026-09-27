@@ -365,9 +365,26 @@ endpointRows.forEach(function(row) {
 if (!rowShapes['1'] || !rowShapes['2'])
 	fail('endpoint rows all render the same shape');
 // The fallback line under a segment must not repeat a list the fields above it
-// already show; it exists to spell out what an empty field inherits.
-if (source.indexOf('var fallbackEffective = !inherits') < 0)
-	fail('the segment fallback still restates an explicitly configured list');
+// already show; it exists to spell out what an empty field inherits, and the
+// provider's servers the router adds after a list of the segment's own.
+function renderSegment(fields) {
+	const copy = data.slice();
+	copy.ready = true;
+	copy[5] = { stdout: [
+		'id=ru\tname=RU\tenabled=1\tdomains=ru su\tprotocol=doh\tmode=load_balance',
+		'upstream=https://common.dot.dns.yandex.net/dns-query\tbootstrap=77.88.8.8:53',
+		fields, 'https_compat=1\tport=5550'
+	].join('\t') };
+	return textOf(view.render(copy));
+}
+const ownList = renderSegment('fallback=https://dns.google/dns-query\t' +
+	'fallback_effective=https://dns.google/dns-query\tinherits_fallback=0\twan_fallback=0');
+if (ownList.indexOf('Inherited from the global groups') >= 0)
+	fail('the segment fallback restates an explicitly configured list');
+const withProvider = renderSegment('fallback=https://dns.google/dns-query\t' +
+	'fallback_effective=https://dns.google/dns-query udp://10.0.0.1:53\tinherits_fallback=0\twan_fallback=1');
+if (withProvider.indexOf('Then the provider DNS servers: udp://10.0.0.1:53') < 0)
+	fail('the provider servers added after the segment list are not named');
 
 // Segments are edited as one block per segment, not through a picker that
 // opens on an empty creation form. A configured segment must be on screen
@@ -395,6 +412,27 @@ if (!addButton) fail('there is no full-width button to add a DNS segment');
 addButton.listeners.click();
 if (countClass('ikev2-segment-block') !== 2)
 	fail('the add button did not append another segment block');
+
+// The router takes at most four tunnel DoH servers; a fifth row only led to
+// a refusal on save. Two are configured, so two more fill the list.
+const addDoh = walk(page, []).find(function(node) {
+	return node.tagName === 'BUTTON' && textOf(node).trim() === 'Add DoH server';
+});
+if (!addDoh) fail('the tunnel DNS editor has no add button');
+function fillNewDoh(value) {
+	const field = walk(page, []).find(function(node) {
+		return node.tagName === 'INPUT' && node.attrs.placeholder === 'https://dns.example/dns-query' &&
+			!node.value;
+	});
+	if (!field) fail('the added tunnel DoH row has no empty field');
+	field.value = value;
+}
+addDoh.listeners.click();
+fillNewDoh('https://dns.quad9.net/dns-query');
+if (addDoh.disabled) fail('adding a third tunnel DoH server was refused');
+addDoh.listeners.click();
+fillNewDoh('https://dns.adguard-dns.com/dns-query');
+if (!addDoh.disabled) fail('a fifth tunnel DoH server can still be added');
 
 // A busy button must show that the action was accepted, not just go grey.
 const probe = makeNode('button', {});
@@ -435,11 +473,45 @@ try {
 if (!setupPage || !setupPage.children || !setupPage.children.length)
 	fail('setup.js render() produced an empty page');
 
-const setupSource = fs.readFileSync(path.join(root, 'luci-ikev2-manager', 'setup.js'), 'utf8');
-if (setupSource.indexOf("common.section(_('Tunnel routing')") < 0)
-	fail('overview has no tunnel routing section');
-if (setupSource.indexOf("'routing-resume-async'") < 0)
-	fail('overview cannot resume routing');
+// What the rendered overview shows, not what its source says.
+function nodesOf(node, out) {
+	out = out || [];
+	if (!node || typeof node !== 'object') return out;
+	out.push(node);
+	(node.children || []).forEach(function(child) { nodesOf(child, out); });
+	return out;
+}
+function textOf(node) {
+	if (node == null) return '';
+	if (typeof node !== 'object') return String(node);
+	// Like the DOM: textContent, once set, is the node's whole text.
+	if (node.textContent) return node.textContent;
+	return (node.children || []).map(textOf).join(' ');
+}
+const setupNodes = nodesOf(setupPage);
+const setupText = textOf(setupPage);
+function button(label) {
+	return setupNodes.find(function(node) {
+		return node.tagName === 'BUTTON' && textOf(node).trim() === label;
+	});
+}
+// Dependencies show only what needs attention; the rest sits behind a toggle.
+if (setupText.indexOf('Technical details') < 0)
+	fail('the dependency details are not behind their toggle');
+// Pause and the restarts are one block of rows, each with its button.
+if (setupText.indexOf('Routing control') < 0 || setupText.indexOf('Tunnel routing') < 0)
+	fail('the overview has no routing control block with the pause row');
+if (setupText.indexOf('Manual recovery') >= 0)
+	fail('the recovery actions are still a separate block');
+if (!button('Resume tunnel routing'))
+	fail('a paused router offers no resume button');
+// A pause leaves routing in place and only refuses what reaches the tunnel,
+// so a rebuild stays available, and the page says what the pause does.
+const rebuild = button('Restart policy routing');
+if (!rebuild || rebuild.disabled)
+	fail('the policy routing rebuild is withheld while routing is paused');
+if (setupText.indexOf('none of them goes through WAN') < 0)
+	fail('the paused overview does not say that nothing leaks to WAN');
 
 // The policy editor lives in its own application and had no render coverage at
 // all, which is where the raw status dump survived unnoticed.

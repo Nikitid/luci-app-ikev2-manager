@@ -56,15 +56,15 @@ upgraded, so a stable name would serve stale code to the browser.
 
 | page | source | installed as |
 | --- | --- | --- |
-| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v6.js` |
-| Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v6.js` |
-| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v7.js` |
-| Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v6.js` |
-| VPN Users | `luci-ikev2-manager/users.js` | `view/ikev2-manager/users-v10.js` |
+| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v7.js` |
+| Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v7.js` |
+| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v8.js` |
+| Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v7.js` |
+| VPN Users | `luci-ikev2-manager/users.js` | `view/ikev2-manager/users-v11.js` |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
 `luci-ikev2-manager/shared.js` is the design system and the action lifecycle
-used by all of them; it installs as `shared-v10.js`. Russian strings live in
+used by all of them; it installs as `shared-v11.js`. Russian strings live in
 `po/ru/ikev2-manager.po`, compiled by `scripts/po2lmo.py` into
 `/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo`, which LuCI's own `_()` reads.
 `luci-ikev2-manager/menu.json` wires the pages, `acl.json` grants every helper

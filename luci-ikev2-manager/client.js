@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v10 as common';
+'require ikev2-manager.shared-v11 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -249,6 +249,7 @@ function validBootstrapEndpoint(value) {
 // options.protocol   - fixed protocol for the whole editor (no protocol select)
 // options.choosable   - one protocol select per row
 // options.protocols   - restrict that select to these protocol ids
+// options.max         - the most entries the router accepts; Add greys out there
 // options.bootstrap   - literal IPv4 authorities, encrypted or plain
 function dnsEndpointEditor(value, placeholder, addLabel, emptyLabel, options) {
 	options = options || {};
@@ -264,6 +265,13 @@ function dnsEndpointEditor(value, placeholder, addLabel, emptyLabel, options) {
 		'type': 'button'
 	}, [ addLabel ]);
 	var rows = [];
+
+	// The router takes a fixed number of entries for some lists; offering a
+	// fifth row only led to a refusal whose wording blamed the addresses.
+	function syncAdd() {
+		add.disabled = !!options.max && rows.length >= options.max;
+		add.title = add.disabled ? _('At most %d entries').format(options.max) : '';
+	}
 
 	// A provider entry is a space-separated list; a row holds one endpoint, so
 	// offering the whole list would overwrite the row with several addresses.
@@ -362,6 +370,7 @@ function dnsEndpointEditor(value, placeholder, addLabel, emptyLabel, options) {
 			row.node.remove();
 			if (!rows.length)
 				render([]);
+			syncAdd();
 		});
 
 		fillProviders();
@@ -395,6 +404,7 @@ function dnsEndpointEditor(value, placeholder, addLabel, emptyLabel, options) {
 		list.replaceChildren();
 		if (!items.length) {
 			list.appendChild(E('div', { 'class': 'ikev2-dns-empty' }, [ emptyLabel ]));
+			syncAdd();
 			return;
 		}
 		items.forEach(function(item) {
@@ -402,6 +412,7 @@ function dnsEndpointEditor(value, placeholder, addLabel, emptyLabel, options) {
 			rows.push(row);
 			list.appendChild(row.node);
 		});
+		syncAdd();
 	}
 
 	function append(items) {
@@ -1069,6 +1080,10 @@ function qualitySection(initial) {
 	// the shorter bar looks shorter, and the tunnel's share of the direct rate.
 	// A transfer the path cut after a few kilobytes says so instead of drawing
 	// an empty bar; a service that takes no upload says that.
+	// Each redraw built the bars from zero, so a background refresh or a
+	// switch of period replayed the grow animation over unchanged figures. A
+	// bar starts from the share it last showed and moves only when it changes.
+	var shownShare = {};
 	function renderSpeed() {
 		var columns = [];
 		[ [ 'down', _('Download'), '↓' ], [ 'up', _('Upload'), '↑' ] ].forEach(function(direction) {
@@ -1076,6 +1091,7 @@ function qualitySection(initial) {
 				var key = 'speed_' + path + '_' + direction[0];
 				var raw = summary[key + '_bps'];
 				return {
+					key: key,
 					path: path,
 					raw: raw,
 					bps: qualityNumber(raw),
@@ -1086,11 +1102,14 @@ function qualitySection(initial) {
 				return;
 			var top = Math.max(values[0].bps || 0, values[1].bps || 0, 1);
 			var rows = values.map(function(item) {
-				var fill = E('span', { 'style': 'transform:scaleX(0)' });
 				var share = item.stalled ? 0 : Math.max(item.bps || 0, 0) / top;
-				window.requestAnimationFrame(function() {
-					fill.style.transform = 'scaleX(' + share + ')';
-				});
+				var from = shownShare[item.key] != null ? shownShare[item.key] : 0;
+				var fill = E('span', { 'style': 'transform:scaleX(' + from + ')' });
+				shownShare[item.key] = share;
+				if (from !== share)
+					window.requestAnimationFrame(function() {
+						fill.style.transform = 'scaleX(' + share + ')';
+					});
 				var value;
 				if (item.stalled)
 					value = E('b', { 'class': 'warn', 'title': _('The connection stopped after a few kilobytes: this path cuts transfers to that server.') },
@@ -1429,15 +1448,17 @@ return view.extend({
 			'https://dns.example/dns-query', _('Add DoH server'),
 			_('No tunnel DNS servers added'),
 			// The tunnel resolver is a sing-box server of type "https" bound to
-			// ipsec-out, so DoH is the only scheme it can carry.
-			{ protocol: 'doh' });
+			// ipsec-out, so DoH is the only scheme it can carry. The router
+			// takes at most four servers and four bootstrap addresses.
+			{ protocol: 'doh', max: 4 });
+		// Plain IPv4 on port 53 only: that is what the tunnel resolver accepts,
+		// and offering DoH, DoT or DoQ here led to a refusal on save.
 		var tunnelDnsBootstrap = dnsEndpointEditor(
 			value.tunnel_dns_bootstrap ||
 				'8.8.8.8:53 8.8.4.4:53 1.1.1.1:53 1.0.0.1:53',
 			'1.1.1.1:53', _('Add bootstrap server'),
 			_('No bootstrap servers added'),
-			{ bootstrap: true, choosable: true,
-				protocols: [ 'plain', 'doh', 'dot', 'doq' ] });
+			{ bootstrap: true, protocols: [ 'plain' ], max: 4 });
 		var connectResult = common.inlineResult();
 		var rawResult = common.inlineResult();
 		var rawToggle = E('button', { 'class': 'cbi-button' }, [ _('Edit raw config') ]);
@@ -1672,6 +1693,7 @@ return view.extend({
 			var name = input('text', item ? item.name : '', { 'placeholder': 'national' });
 			var enabled = input('checkbox', '1');
 			var httpsCompat = input('checkbox', '1');
+			var wanFallback = input('checkbox', '1');
 			var domains = input('text', item ? item.domains : '',
 				{ 'placeholder': 'ru su xn--p1ai' });
 			var mode = E('select', { 'class': 'cbi-input-select' }, [
@@ -1681,6 +1703,7 @@ return view.extend({
 			]);
 			enabled.checked = !item || item.enabled === '1';
 			httpsCompat.checked = !item || item.https_compat !== '0';
+			wanFallback.checked = !!item && item.wan_fallback === '1';
 			mode.value = item ? item.mode : 'load_balance';
 			var upstream = dnsEndpointEditor(item ? item.upstream : '',
 				'udp://77.88.8.8:53', _('Add DNS server'), _('No DNS servers added'),
@@ -1700,13 +1723,25 @@ return view.extend({
 			// as the global group leaking in whenever the two happen to coincide.
 			var inherits = !item || item.inherits_fallback === '1';
 			var effective = item ? (item.fallback_effective || '') : '';
-			var fallbackEffective = !inherits ? '' :
+			// With its own list, the provider's servers are what the router adds
+			// after it; the line names them, as the lease has them now.
+			var configured = item ? (item.fallback || '').split(' ').filter(Boolean) : [];
+			var provided = effective.split(' ').filter(function(endpoint) {
+				return endpoint && configured.indexOf(endpoint) < 0;
+			});
+			var fallbackEffective = inherits ?
 				E('div', { 'class': 'cbi-value-description' }, [
 					effective ?
 						_('Inherited from the global groups: %s')
 							.format(effective.split(' ').join(', ')) :
 						_('No fallback is available for this segment.')
-				]);
+				]) :
+				(item && item.wan_fallback === '1' ?
+					E('div', { 'class': 'cbi-value-description' }, [
+						provided.length ?
+							_('Then the provider DNS servers: %s').format(provided.join(', ')) :
+							_('The provider has handed out no DNS servers yet.')
+					]) : '');
 			// The stored protocol summarises the group rather than constraining
 			// it, exactly as it already does for the router resolver: dnsproxy
 			// parses each upstream by its own scheme.
@@ -1730,7 +1765,8 @@ return view.extend({
 					enabled.checked ? '1' : '0', domains.value.trim(),
 					segmentProtocol(), mode.value, upstream.values().join(' '),
 					bootstrap.values().join(' '), fallback.values().join(' '),
-					httpsCompat.checked ? '1' : '0' ].join('\n') + '\n';
+					httpsCompat.checked ? '1' : '0',
+					wanFallback.checked ? '1' : '0' ].join('\n') + '\n';
 				var token = common.inputToken();
 				// The input file is written before the job starts; a failed write
 				// must still end in a visible result rather than a silent click.
@@ -1744,7 +1780,12 @@ return view.extend({
 							startArgs: [ 'dns-segment-input', token ],
 							statusPath: systemHelper, statusArgs: [ 'action-status' ],
 							timeout: 120000,
-							onSuccess: function() { return refreshSegments(); }
+							// The list is drawn again from the router, so the
+							// outcome goes on the new block's button.
+							onSuccess: function() {
+								flashSegment = action === 'set' ? id : null;
+								return refreshSegments();
+							}
 						});
 					}, function(error) {
 						result.err(_('Could not save the DNS segment: %s').format(error.message || error));
@@ -1756,26 +1797,21 @@ return view.extend({
 				var bootstraps = bootstrap.values();
 				var fallbacks = fallback.values();
 				if (!/^[A-Za-z0-9_]+$/.test(name.value.trim())) {
-					result.err(_('Segment name may contain only letters, digits and underscores.'));
-					return;
+					return common.refuse(save, result, _('Segment name may contain only letters, digits and underscores.'));
 				}
 				if (!domains.value.trim() || !upstreams.length || !bootstraps.length) {
-					result.err(_('Domains, upstreams and bootstrap servers are required.'));
-					return;
+					return common.refuse(save, result, _('Domains, upstreams and bootstrap servers are required.'));
 				}
 				if (!upstreams.every(validDnsEndpointAny)) {
-					result.err(_('Invalid DNS upstream'));
-					return;
+					return common.refuse(save, result, _('Invalid DNS upstream'));
 				}
 				if (!bootstraps.every(validBootstrapEndpoint)) {
-					result.err(_('Bootstrap DNS must contain IPv4:port entries'));
-					return;
+					return common.refuse(save, result, _('Bootstrap DNS must contain IPv4:port entries'));
 				}
 				if (!fallbacks.every(function(value) {
 					return validDnsEndpoint(dnsEndpointProtocol(value), value);
 				})) {
-					result.err(_('Invalid fallback DNS endpoint'));
-					return;
+					return common.refuse(save, result, _('Invalid fallback DNS endpoint'));
 				}
 				return runSegment('set', save);
 			});
@@ -1810,18 +1846,24 @@ return view.extend({
 					common.fieldLabel(_('Bootstrap DNS')), bootstrap.node,
 					common.fieldLabel(_('Fallback DNS servers'),
 						_('Empty inherits the global resolver group, providing an independent recovery path.')),
-					fallback.node,
-					fallbackEffective
+					// One cell: the note belongs under the list, not in the
+					// next row of the label column.
+					E('div', {}, [ fallback.node, fallbackEffective ]),
+					common.fieldLabel(_('Provider DNS as a last resort'),
+						_('Adds the DNS servers your internet provider hands out after the fallback servers. They answer in plain text and are asked only when every other server of this segment has failed.')),
+					common.switchLabel(wanFallback)
 				]),
 				E('div', { 'class': 'ikev2-actions bar' }, [ result.node, remove, save ])
 			]);
 			// Grey until the segment differs from what was loaded; a new one
 			// until something is entered.
-			common.trackChanges(save, [ name, enabled, httpsCompat, domains, mode,
+			common.trackChanges(save, [ name, enabled, httpsCompat, wanFallback, domains, mode,
 				upstream.node, bootstrap.node, fallback.node ]);
+			node.saveButton = save;
 			return node;
 		}
 
+		var flashSegment = null;
 		function renderSegments() {
 			segmentList.replaceChildren();
 			if (!dnsSegments.length)
@@ -1829,8 +1871,12 @@ return view.extend({
 					_('No DNS segments configured.')
 				]));
 			dnsSegments.forEach(function(item) {
-				segmentList.appendChild(segmentBlock(item));
+				var block = segmentBlock(item);
+				segmentList.appendChild(block);
+				if (item.id === flashSegment)
+					common.flashButton(block.saveButton, 'ok', _('Saved'), _('DNS segment applied.'));
 			});
+			flashSegment = null;
 		}
 		segmentAdd.addEventListener('click', function() {
 			var empty = segmentList.querySelector('.ikev2-dns-empty');

@@ -122,8 +122,6 @@ apply_bar_line="$(grep -n "applyResult.node" 'luci-ikev2-manager/setup.js' | tai
 }
 grep -Fq "Network and DNS changes are applied together by the button at the bottom." \
 	'luci-ikev2-manager/setup.js'
-grep -Fq "dependencyOverview(depRows)" 'luci-ikev2-manager/setup.js'
-grep -Fq "_('Technical details')" 'luci-ikev2-manager/setup.js'
 grep -Fq "diagnostic_status=unavailable\\ndependencies_ok=unknown" \
 	'luci-ikev2-manager/setup.js'
 grep -Fq "installDeps.style.display = known && !ready ? '' : 'none'" \
