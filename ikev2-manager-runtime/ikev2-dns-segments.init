@@ -4,8 +4,27 @@ START=90
 STOP=4
 USE_PROCD=1
 
+# The resolvers the provider handed to the WAN interface, as plain DNS
+# endpoints. Recorded in $wan_dns_file so the health watcher can restart the
+# segments that use them when the lease brings different ones.
+wan_dns_file=/var/run/ikev2-dns-segments.wan
+
+wan_dns_endpoints() {
+	local interface address result=''
+	interface="$(uci -q get ikev2-manager.globals.wan_interface || echo wan)"
+	for address in $(ubus call "network.interface.$interface" status 2>/dev/null |
+		jsonfilter -e '@["dns-server"][*]' 2>/dev/null); do
+		case "$address" in
+			*[!0-9.]* | '') continue ;;
+			0.* | 127.* | 169.254.* | 22[4-9].* | 23[0-9].* | 24[0-9].* | 25[0-5].*) continue ;;
+		esac
+		result="${result:+$result }udp://$address:53"
+	done
+	printf '%s\n' "$result"
+}
+
 start_segment() {
-	local section="$1" enabled port protocol mode upstream bootstrap fallback endpoint binary inherited seen duplicate
+	local section="$1" enabled port protocol mode upstream bootstrap fallback endpoint binary inherited seen duplicate wan_fallback
 	config_get_bool enabled "$section" enabled 1
 	[ "$enabled" = 1 ] || return 0
 	config_get port "$section" port
@@ -29,6 +48,10 @@ $(uci -q get ikev2-manager.dns.upstream 2>/dev/null)"
 			fallback="${fallback:+$fallback }$endpoint"
 		done
 	fi
+	# The provider's resolvers come last: plain DNS, used only when every
+	# other server of the segment has failed.
+	config_get_bool wan_fallback "$section" wan_fallback 0
+	[ "$wan_fallback" = 0 ] || fallback="$fallback $wan_endpoints"
 	inherited=''
 	for endpoint in $fallback; do
 		duplicate=0
@@ -69,6 +92,8 @@ start_service() {
 	[ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || return 0
 	[ "$(uci -q get ikev2-manager.dns.managed)" = 1 ] || return 0
 	config_load ikev2-manager
+	wan_endpoints="$(wan_dns_endpoints)"
+	printf '%s\n' "$wan_endpoints" >"$wan_dns_file"
 	config_foreach start_segment dns_segment
 }
 

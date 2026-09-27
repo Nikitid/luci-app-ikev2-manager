@@ -62,7 +62,16 @@ cat >"$tmp/bin/netstat" <<'EOF'
 [ "${DNS_LISTENER_FAIL:-0}" = 1 ] && exit 0
 printf '%s\n' 'udp 0 0 127.0.0.1:5550 0.0.0.0:*'
 EOF
-chmod 755 "$tmp/bin/nslookup" "$tmp/bin/timeout" "$tmp/bin/netstat"
+# The provider's resolvers as netifd reports them for the WAN interface.
+cat >"$tmp/bin/ubus" <<'EOF'
+#!/bin/sh
+printf '%s\n' '{"dns-server":["10.0.0.53","127.0.0.1"]}'
+EOF
+cat >"$tmp/bin/jsonfilter" <<'EOF'
+#!/bin/sh
+sed -n 's/.*"dns-server":\[\(.*\)\].*/\1/p' | tr ',' '\n' | tr -d '"'
+EOF
+chmod 755 "$tmp/bin/nslookup" "$tmp/bin/timeout" "$tmp/bin/netstat" "$tmp/bin/ubus" "$tmp/bin/jsonfilter"
 
 run_system() {
 	PATH="$tmp/bin:$PATH" \
@@ -145,6 +154,7 @@ udp://1.1.1.1:53
 1.1.1.1:53
 
 1
+0
 unexpected
 EOF
 if run_system _action-run test-dns-extra dns-segment "$tmp/segment-extra.in"; then
@@ -211,6 +221,35 @@ run_system _dns-segment-update set mixed Mixed 1 '.COM, Org' udp load_balance \
 	'udp://1.1.1.1:53' '1.1.1.1:53' '' 0
 grep -Fxq 'dnsseg_mixed.domains=com org' "$tmp/uci/ikev2-manager"
 grep -Fxq 'dnsseg_mixed.https_compat=0' "$tmp/uci/ikev2-manager"
+grep -Fxq 'dnsseg_mixed.wan_fallback=0' "$tmp/uci/ikev2-manager"
+
+# A segment may fall back to the provider's resolvers after its own list; the
+# page names them, as the WAN lease has them, after the configured ones.
+run_system _dns-segment-update set mixed Mixed 1 'com org' udp load_balance \
+	'udp://1.1.1.1:53' '1.1.1.1:53' 'https://dns.google/dns-query' 0 1
+grep -Fxq 'dnsseg_mixed.wan_fallback=1' "$tmp/uci/ikev2-manager"
+mixed_line="$(run_system dns-segments-get | grep '^id=mixed	')"
+printf '%s\n' "$mixed_line" | grep -Fq '	wan_fallback=1	' || {
+	printf 'the page is not told a segment uses the provider resolvers\n' >&2
+	exit 1
+}
+printf '%s\n' "$mixed_line" |
+	grep -Fq '	fallback_effective=https://dns.google/dns-query udp://10.0.0.53:53	' || {
+	printf 'the provider resolver is missing from the effective fallback: %s\n' "$mixed_line" >&2
+	exit 1
+}
+cp "$tmp/uci/ikev2-manager" "$tmp/before-invalid-wan"
+if run_system _dns-segment-update set mixed Mixed 1 'com org' udp load_balance \
+	'udp://1.1.1.1:53' '1.1.1.1:53' '' 0 2 >/dev/null 2>&1; then
+	printf 'an invalid provider fallback setting was accepted\n' >&2
+	exit 1
+fi
+cmp -s "$tmp/before-invalid-wan" "$tmp/uci/ikev2-manager" || {
+	printf 'an invalid provider fallback update was not rolled back\n' >&2
+	exit 1
+}
+run_system _dns-segment-update set mixed Mixed 1 'com org' udp load_balance \
+	'udp://1.1.1.1:53' '1.1.1.1:53' '' 0 0
 run_system _validate-dns-segments
 cp "$tmp/uci/ikev2-manager" "$tmp/before-invalid-compat"
 if run_system _dns-segment-update set mixed Mixed 1 'com org' udp load_balance \

@@ -329,6 +329,7 @@ validate_dns_segments() {
 		[ "$enabled" = 1 ] || continue
 		https_compat="$(defaultv "$section" https_compat 1)"
 		[ "$https_compat" = 0 ] || [ "$https_compat" = 1 ] || return 1
+		case "$(defaultv "$section" wan_fallback 0)" in 0 | 1) ;; *) return 1 ;; esac
 		enabled_count=$((enabled_count + 1))
 		[ "$enabled_count" -le 8 ] || return 1
 		protocol="$(getv "$section" protocol)"
@@ -673,6 +674,33 @@ dns_wan_restart_proxy() {
 	/etc/init.d/dnsproxy restart >/dev/null 2>&1
 }
 
+# Segments that fall back to the provider's resolvers took the ones the WAN
+# lease had when they started. A new lease with different resolvers restarts
+# them; a user action in progress has priority and the next pass retries.
+dns_segments_wan_file=/var/run/ikev2-dns-segments.wan
+
+dns_segments_wan_refresh() {
+	local section used=0 current recorded
+	[ "$(defaultv dns managed 0)" = 1 ] || return 0
+	for section in $(dns_segment_sections); do
+		[ "$(defaultv "$section" enabled 1)" = 1 ] || continue
+		[ "$(defaultv "$section" wan_fallback 0)" = 1 ] && used=1
+	done
+	[ "$used" = 1 ] || return 0
+	/etc/init.d/ikev2-dns-segments running 2>/dev/null || return 0
+	current="$(wan_dns_fallbacks)"
+	# During an interface transition netifd can briefly publish none.
+	[ -n "$current" ] || return 0
+	recorded="$(cat "$dns_segments_wan_file" 2>/dev/null || true)"
+	[ "$(normalize_list "$current")" != "$(normalize_list "$recorded")" ] || return 0
+	action_lock_busy && return 0
+	if dns_wan_restart_segments; then
+		logger -t ikev2-manager "DNS segments took the provider's new resolvers endpoints=$current" 2>/dev/null || true
+	else
+		logger -t ikev2-manager 'DNS segments failed to restart with the provider resolvers' 2>/dev/null || true
+	fi
+}
+
 dns_wan_fallback_refresh() {
 	local provider_raw provider verified_provider configured desired current backup rollback_ok
 	[ "$(defaultv dns managed 0)" = 1 ] || return 0
@@ -880,6 +908,9 @@ dns_segment_effective_fallback() {
 	else
 		inherited="$(uci -q get dnsproxy.servers.fallback 2>/dev/null || true) $(getv dns upstream)"
 	fi
+	# The provider's resolvers, last, when the segment asks for them.
+	[ "$(defaultv "$section" wan_fallback 0)" != 1 ] ||
+		inherited="$inherited $(wan_dns_fallbacks)"
 	for endpoint in $inherited; do
 		duplicate=0
 		for seen in $upstream $result; do
@@ -894,7 +925,7 @@ dns_segment_effective_fallback() {
 dns_segments_show() {
 	local section
 	for section in $(dns_segment_sections); do
-		printf 'id=%s\tname=%s\tenabled=%s\tdomains=%s\tprotocol=%s\tmode=%s\tupstream=%s\tbootstrap=%s\tfallback=%s\tfallback_effective=%s\tinherits_fallback=%s\thttps_compat=%s\tport=%s\n' \
+		printf 'id=%s\tname=%s\tenabled=%s\tdomains=%s\tprotocol=%s\tmode=%s\tupstream=%s\tbootstrap=%s\tfallback=%s\tfallback_effective=%s\tinherits_fallback=%s\thttps_compat=%s\twan_fallback=%s\tport=%s\n' \
 			"${section#dnsseg_}" "$(getv "$section" name)" \
 			"$(defaultv "$section" enabled 1)" "$(getv "$section" domains)" \
 			"$(getv "$section" protocol)" "$(defaultv "$section" upstream_mode load_balance)" \
@@ -903,6 +934,7 @@ dns_segments_show() {
 			"$(dns_segment_effective_fallback "$section")" \
 			"$([ -n "$(normalize_list "$(getv "$section" fallback)")" ] && echo 0 || echo 1)" \
 			"$(defaultv "$section" https_compat 1)" \
+			"$(defaultv "$section" wan_fallback 0)" \
 			"$(getv "$section" port)"
 	done
 }
@@ -931,6 +963,7 @@ apply_saved_dns() {
 dns_segment_update() {
 	local action="$1" id="$2" name="$3" enabled="$4" domains="$5"
 	local protocol="$6" mode="$7" upstream="$8" bootstrap="$9" fallback="${10:-}" https_compat="${11:-1}"
+	local wan_fallback="${12:-0}"
 	local section backup port current_port restored=0 mutation_ok=1
 	case "$id" in '' | *[!A-Za-z0-9_]* ) die 'Invalid DNS segment identifier' ;; esac
 	[ "${#id}" -le 40 ] || die 'DNS segment identifier is too long'
@@ -946,6 +979,8 @@ dns_segment_update() {
 			[ "$enabled" = 0 ] || [ "$enabled" = 1 ] || { rm -f "$backup"; die 'Invalid DNS segment state'; }
 			[ "$https_compat" = 0 ] || [ "$https_compat" = 1 ] || {
 				rm -f "$backup"; die 'Invalid DNS segment browser compatibility mode'; }
+			[ "$wan_fallback" = 0 ] || [ "$wan_fallback" = 1 ] || {
+				rm -f "$backup"; die 'Invalid DNS segment provider fallback setting'; }
 			valid_dns_suffix_list "$domains" || { rm -f "$backup"; die 'Invalid DNS suffix list'; }
 			case "$mode" in load_balance | parallel | fastest_addr) ;;
 				*) rm -f "$backup"; die 'Invalid DNS segment query strategy' ;;
@@ -972,6 +1007,7 @@ dns_segment_update() {
 				uci set "$config.$section.bootstrap=$(normalize_list "$bootstrap")" &&
 				uci set "$config.$section.fallback=$(normalize_list "$fallback")" &&
 				uci set "$config.$section.https_compat=$https_compat" &&
+				uci set "$config.$section.wan_fallback=$wan_fallback" &&
 				uci set "$config.$section.port=$port" || mutation_ok=0
 			;;
 		*) rm -f "$backup"; die 'Expected DNS segment action: set or delete' ;;
