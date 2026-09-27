@@ -216,8 +216,7 @@ write_route_rules() {
 }
 
 fakeip_policy_enabled() {
-	[ "$(uci -q get "$config.domains.engine" 2>/dev/null || true)" = fakeip ] &&
-		[ "$(uci -q get "$config.domains.paused" 2>/dev/null || echo 0)" != 1 ]
+	[ "$(uci -q get "$config.domains.engine" 2>/dev/null || true)" = fakeip ]
 }
 
 write_fakeip_rules() {
@@ -238,9 +237,6 @@ write_fakeip_rules() {
 	printf '  }\n\n'
 }
 
-# A pause stops the device policy on purpose. The WAN hotplug and the PBR
-# include call sync as part of their own work, and each call used to bring the
-# table back in the middle of a pause.
 # Everything the configuration asks for, collected into WORK, with its
 # signature. Sets ike_clear ike_mark wan_clear wan_mark dpi_mark dpi_backend
 # dns_enforce block_dot signature.
@@ -289,19 +285,11 @@ desired_state() {
 	} | sha256sum | awk '{ print $1 }')"
 }
 
-routing_paused() {
-	[ "$(uci -q get "$config.domains.paused" 2>/dev/null || echo 0)" = 1 ]
-}
-
 sync_runtime() {
 	[ "$(uci -q get "$config.globals.configured" 2>/dev/null || echo 0)" = 1 ] || {
 		stop_runtime
 		return $?
 	}
-	if routing_paused; then
-		stop_runtime
-		return $?
-	fi
 	work="${TMPDIR:-/tmp}/ikev2-device-routing.$$"
 	mkdir -p "$work" || return 1
 	trap 'rm -rf "$work"' EXIT INT TERM
@@ -411,10 +399,6 @@ check_runtime() {
 		! runtime_exists
 		return
 	}
-	if routing_paused; then
-		! runtime_exists
-		return
-	fi
 	runtime_owned || return 1
 	work="${TMPDIR:-/tmp}/ikev2-device-check.$$"
 	mkdir -p "$work" || return 1

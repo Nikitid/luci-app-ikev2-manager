@@ -119,8 +119,8 @@ periodic_task() {
 dispatch_checks() {
 	periodic_task dns-segments "$dns_probe_state" "$dns_probe_interval" \
 		/usr/libexec/ikev2-manager-system dns-segments-check
-	# The tunnel resolver lives in the FakeIP runtime a pause has stopped; a
-	# provider switch would restart it.
+	# The tunnel resolver's probes go through the tunnel a pause refuses; their
+	# failures would switch providers for nothing.
 	[ "$paused" = 1 ] ||
 		periodic_task tunnel-dns "$tunnel_dns_probe_state" "$tunnel_dns_probe_interval" \
 			/usr/libexec/ikev2-domain-router tunnel-dns-check
@@ -273,17 +273,15 @@ while true; do
 	fi
 	last_pass="$loop_start"
 
-	# A pause is an operator decision, not a fault. Repairing the FakeIP runtime
-	# or the device policy through it would silently undo exactly what was asked
-	# for, and the pause would report success while traffic kept using the
-	# tunnel. Only the routing repairs stop, though: the tunnel, the inbound
-	# server and its user policy, and DNS keep being looked after. Skipping the
-	# whole pass left a dropped tunnel unreconnected for as long as a pause
-	# lasted.
+	# A pause changes nothing but the block at the tunnel, so everything else is
+	# looked after as usual. The block follows the setting here too: a reboot
+	# or a firewall tool that dropped it does not end a pause.
 	paused=0
 	[ "$(uci -q get ikev2-manager.domains.paused 2>/dev/null || echo 0)" != 1 ] || paused=1
+	/usr/libexec/ikev2-manager-system _pause-sync >/dev/null 2>&1 ||
+		logger -t ikev2-health 'the tunnel pause block could not be restored' 2>/dev/null || :
 
-	if [ "$paused" = 0 ] && [ "$(uci -q get ikev2-manager.domains.engine)" = fakeip ] &&
+	if [ "$(uci -q get ikev2-manager.domains.engine)" = fakeip ] &&
 	   [ -x /usr/libexec/ikev2-domain-router ]; then
 		/usr/libexec/ikev2-domain-router ensure >/dev/null 2>&1 || :
 	fi
@@ -291,14 +289,9 @@ while true; do
 	# releases disable forwarding while rebuilding; only an explicit Apply may
 	# start that router-wide transaction.
 	routing_policy_state=ok
-	if [ "$paused" = 1 ]; then
-		# The disabled policies are the pause itself, not a degraded policy.
-		routing_policy_state=paused
-	else
-		service_cidr_policy_healthy || routing_policy_state=degraded
-		ensure_discord_voice_policy
-		ensure_device_routing_policy
-	fi
+	service_cidr_policy_healthy || routing_policy_state=degraded
+	ensure_discord_voice_policy
+	ensure_device_routing_policy
 	ensure_inbound_user_policy
 
 	/etc/init.d/ikev2-xfrm start
@@ -309,7 +302,7 @@ while true; do
 		rm -f /var/run/ikev2-vip4
 		/usr/share/pbr/pbr.user.ikev2out || :
 		state=client-disabled
-		case "$routing_policy_state" in ok | paused) ;; *) state=degraded ;; esac
+		[ "$routing_policy_state" = ok ] || state=degraded
 		printf 'state=%s updated=%s routing_policy=%s\n' \
 			"$state" "$(date +%s)" "$routing_policy_state" >"$status_file"
 	fi
@@ -341,7 +334,7 @@ while true; do
 			# telemetry only and must not tear down an otherwise installed SA.
 			state=up
 			[ "$failures" = 0 ] && tunnel_up=1
-			case "$routing_policy_state:$failures" in ok:0 | paused:0) ;; *) state=degraded ;; esac
+			case "$routing_policy_state:$failures" in ok:0) ;; *) state=degraded ;; esac
 			printf 'state=%s updated=%s probe_failures=%s routing_policy=%s\n' \
 				"$state" "$now" "$failures" "$routing_policy_state" >"$status_file"
 		else
@@ -366,7 +359,8 @@ while true; do
 
 	# The resolver can outlive a tunnel outage in a state that no longer carries
 	# traffic. The helper paces its own checks; the watcher only says when the
-	# tunnel has just come back. There is nothing to learn while it is down.
+	# tunnel has just come back. There is nothing to learn while it is down, or
+	# while a pause refuses what would reach it.
 	if [ "$tunnel_up" = 1 ] && [ "$paused" = 0 ] &&
 	   [ "$(uci -q get ikev2-manager.domains.engine)" = fakeip ]; then
 		if [ "$tunnel_was_up" = 1 ]; then

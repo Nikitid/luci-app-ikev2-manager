@@ -76,9 +76,12 @@ backend() {
 
 active() {
 	[ "$(uci -q get "$config.globals.configured" 2>/dev/null || echo 0)" = 1 ] || return 1
-	[ "$(uci -q get "$config.domains.paused" 2>/dev/null || echo 0)" != 1 ] || return 1
 	[ "$(backend)" != pbr ]
 }
+
+# A pause keeps these rules: what they send to the tunnel is refused there
+# (ikev2_pause, installed by the system helper), so nothing selected leaves
+# through WAN while the tunnel is not used.
 
 valid_ifname() {
 	[ -n "${1:-}" ] && printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9_.:@-]+$'

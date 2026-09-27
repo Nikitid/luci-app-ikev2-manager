@@ -362,43 +362,12 @@ if awk '/^(sync_runtime|check_runtime|desired_state)\(\) \{/,/^}/' \
 fi
 
 cp "$tmp/uci.baseline" "$tmp/bin/uci"
-# A pause keeps the device policy stopped, whoever calls sync: the WAN hotplug
-# and the PBR include both do, and used to bring it back mid-pause.
+# A pause keeps the device policy: full-tunnel devices are refused at the
+# tunnel (ikev2_pause), and a sync during a pause leaves the policy in place.
 "$helper" sync
 [ -s "$TEST_NFT_STATE" ] || { printf '%s\n' 'device policy was not installed before the pause' >&2; exit 1; }
 TEST_PAUSED=1 "$helper" sync
-[ ! -s "$TEST_NFT_STATE" ] || { printf '%s\n' 'a sync during a pause kept the device policy' >&2; exit 1; }
-: >"$TEST_NFT_LOG"
-TEST_PAUSED=1 "$helper" sync
-[ ! -s "$TEST_NFT_LOG" ] || { printf '%s\n' 'a sync during a pause installed the device policy' >&2; exit 1; }
-TEST_PAUSED=1 "$helper" check || { printf '%s\n' 'a paused, stopped device policy reported unhealthy' >&2; exit 1; }
-rm -f "$IKEV2_DEVICE_SIGNATURE"
-"$helper" sync
-[ -s "$TEST_NFT_STATE" ] || { printf '%s\n' 'device policy did not return after the pause' >&2; exit 1; }
-
-# The watcher stops only the routing repairs during a pause. It used to skip its
-# whole pass, so a tunnel that dropped stayed down for as long as a pause lasted.
-awk '
-	/ikev2-manager.domains.paused/ && !pause { pause = NR }
-	pause && !done && /^[[:space:]]*continue$/ { early = 1 }
-	pause && /ensure-client/ { done = 1 }
-	END { exit !(pause && done && !early) }
-' "$root/ikev2-manager-runtime/ikev2-health.sh" ||
-	{ printf '%s\n' 'a routing pause still skips the tunnel reconnect' >&2; exit 1; }
-for guarded in 'domain-router ensure' \
-	'tunnel-dns-check$' 'ensure_device_routing_policy$'; do
-	awk -v guarded="$guarded" '
-		$0 ~ guarded && !/^[a-z_]+\(\)/ {
-			found = 1
-			# The guard is the paused test on this line or one of the six before.
-			window = $0
-			for (i = 1; i <= 6; i++) window = window "\n" last[(NR - i) % 6]
-			if (window !~ /paused/) bad = 1
-		}
-		{ last[NR % 6] = $0 }
-		END { exit !(found && !bad) }
-	' "$root/ikev2-manager-runtime/ikev2-health.sh" ||
-		{ printf 'the watcher runs %s during a pause\n' "$guarded" >&2; exit 1; }
-done
+[ -s "$TEST_NFT_STATE" ] || { printf '%s\n' 'a sync during a pause removed the device policy' >&2; exit 1; }
+TEST_PAUSED=1 "$helper" check || { printf '%s\n' 'the device policy reported unhealthy during a pause' >&2; exit 1; }
 
 printf '%s\n' 'device routing checks OK'

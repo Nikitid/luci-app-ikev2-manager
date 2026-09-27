@@ -206,19 +206,19 @@ if grep -q 'fakeip-retry\|fakeip_retry' "$health"; then
 	fail 'the watcher still retries FakeIP'
 fi
 
-# Manual recovery never overrides a pause and restarts a running resolver
-# through the verified path.
+# Manual recovery restarts a running resolver through the verified path, a
+# pause included: a pause only refuses what reaches the tunnel, the resolver
+# keeps running.
 setup
 (
 	eval "$stubs"
 	uci set ikev2-manager.domains.paused=1
-	if recover_reliable_mode; then fail 'manual recovery ran while routing was paused'; fi
-	grep -q '^error:Tunnel routing is paused' "$tmp/run/status" || fail 'paused recovery did not explain itself'
-	[ "$(restarts_run)" = 0 ] || fail 'manual recovery restarted the resolver during a pause'
+	recover_reliable_mode || fail 'manual resolver restart failed during a pause'
+	[ "$(restarts_run)" = 1 ] || fail 'manual recovery did not restart the resolver during a pause'
 
 	uci set ikev2-manager.domains.paused=0
 	recover_reliable_mode || fail 'manual resolver restart failed'
-	[ "$(restarts_run)" = 1 ] || fail 'manual recovery did not restart the resolver'
+	[ "$(restarts_run)" = 2 ] || fail 'manual recovery did not restart the resolver'
 	grep -q '^active:FakeIP resolver restarted on request' "$tmp/run/status" ||
 		fail 'manual restart was not reported'
 

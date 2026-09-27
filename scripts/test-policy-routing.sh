@@ -294,15 +294,16 @@ printf '# services\n203.0.113.0/24\n' >"$tmp/services"
 cmp -s "$rules" "$tmp/before" || fail 'a rejected ruleset replaced the installed one'
 rm -f "$S/nft-reject"
 
-# A pause and deselection remove everything it owns.
+# A pause keeps policy routing: what it sends to the tunnel is refused there,
+# so nothing selected leaves through WAN meanwhile.
 printf '1\n' >"$S/paused"
 "$helper" sync
-[ ! -s "$S/rules4" ] && [ ! -s "$S/rules6" ] && [ ! -e "$rules" ] ||
-	fail 'a pause left policy routing installed'
-[ ! -e "$S/route4-1601" ] || fail 'a pause left the tunnel table behind'
-"$helper" check || fail 'a paused, stopped runtime reported unhealthy'
+[ -s "$S/rules4" ] && [ -e "$rules" ] || fail 'a pause removed policy routing'
+[ -e "$S/route4-1601" ] || fail 'a pause removed the tunnel table'
+"$helper" check || fail 'a paused runtime reported unhealthy'
 rm -f "$S/paused"
 "$helper" sync
+# Deselection removes everything it owns.
 printf 'pbr\n' >"$S/backend"
 "$helper" sync
 [ ! -s "$S/rules4" ] && [ ! -e "$rules" ] || fail 'switching back to PBR left this installed'
