@@ -1710,12 +1710,19 @@ server_apply_action() {
 	if [ "$enabled" = 1 ]; then
 		swanctl --list-conns 2>/dev/null | grep -q 'ikev2-in:' || return 1
 		swanctl --list-pools 2>/dev/null | grep -q 'router_pool4' || return 1
-		ip link show ipsec-in >/dev/null 2>&1 || return 1
+		inbound_link_up || return 1
 	else
 		! swanctl --list-conns 2>/dev/null | grep -q 'ikev2-in:' || return 1
 		! "$sa_helper" present ikev2-in || return 1
-		! ip link show ipsec-in >/dev/null 2>&1 || return 1
+		# ikev2-xfrm leaves the link in place, down: deleting an XFRM link can
+		# block in the kernel on OpenWrt 25. Requiring it gone failed every
+		# disable, and the rollback after it.
+		! inbound_link_up || return 1
 	fi
+}
+
+inbound_link_up() {
+	ip -o link show ipsec-in 2>/dev/null | grep -q '[<,]UP[,>]'
 }
 
 run_action() {

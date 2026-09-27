@@ -154,8 +154,7 @@ rollback_dependency_install() {
 run_install_deps() {
 	DEPS_ACTION_ID="${1:-}"
 	exec >>/tmp/ikev2-manager-deps.log 2>&1
-	deps_status running 'Waiting for other router actions...'
-	if ! acquire_action_lock dependencies "$DEPS_ACTION_ID"; then
+	if ! acquire_action_lock_announced dependencies "$DEPS_ACTION_ID" deps_status; then
 		deps_status error 'Another router action is still running.'
 		return 1
 	fi
@@ -423,8 +422,7 @@ install_deps() {
 run_remove_deps() {
 	DEPS_ACTION_ID="${1:-}"
 	exec >>/tmp/ikev2-manager-deps.log 2>&1
-	deps_status running 'Waiting for other router actions...'
-	if ! acquire_action_lock dependencies "$DEPS_ACTION_ID"; then
+	if ! acquire_action_lock_announced dependencies "$DEPS_ACTION_ID" deps_status; then
 		deps_status error 'Another router action is still running.'
 		return 1
 	fi
@@ -433,10 +431,26 @@ run_remove_deps() {
 		deps_status error 'Dependency ownership is unavailable; install dependencies once with this version before using Remove'
 		return 1
 	fi
+	# FakeIP goes first. Restoring the original DNS with FakeIP still running
+	# re-pointed sing-box at it while the segment resolvers were already
+	# stopped, and the probe that followed failed on a name sing-box still
+	# sent to a stopped segment. Everything FakeIP holds is removed below.
+	fakeip_was_active=0
+	if [ "$(defaultv domains engine nftset)" = fakeip ] &&
+	   [ -x /usr/libexec/ikev2-domain-router ]; then
+		fakeip_was_active=1
+		deps_status running 'Stopping FakeIP routing...'
+		if ! /usr/libexec/ikev2-domain-router deactivate; then
+			deps_status error 'FakeIP routing could not be stopped; dependency removal stopped before removing packages'
+			return 1
+		fi
+	fi
 	if [ "$(defaultv dns managed 0)" = 1 ] ||
 	   { [ "$(defaultv dns saved 0)" = 1 ] && [ -d "$dns_original_dir" ]; }; then
 		deps_status running 'Restoring the DNS configuration used before this application...'
 		if ! "$0" _dns-apply-inner 0 '' '' '' '' '' ''; then
+			[ "$fakeip_was_active" = 0 ] ||
+				/usr/libexec/ikev2-domain-router activate >/dev/null 2>&1 || true
 			deps_status error 'Original DNS could not be restored; dependency removal stopped before removing packages'
 			return 1
 		fi
@@ -503,6 +517,9 @@ reset_application_state() {
 	rm -f /etc/ikev2-manager/domain-router-cache.db
 	rm -f /etc/ikev2-manager/domain-router-rules.json
 	rm -f /etc/ikev2-manager/domain-router.json /etc/ikev2-manager/pbr-set4.dump
+	# Addresses learned for the old selection, kept for the next boot; a
+	# reinstall would otherwise start routing them again.
+	rm -f /etc/ikev2-manager/routing-dst4.dump /etc/ikev2-manager/routing-dst6.dump
 	rm -rf /etc/ikev2-manager/dns-original /etc/pbr-ikev2-community-cache
 	rm -f /etc/swanctl/conf.d/20-proxy-out.conf
 	rm -f /etc/swanctl/conf.d/30-inbound.conf

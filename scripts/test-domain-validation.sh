@@ -38,6 +38,7 @@ done
 	selected_test_domain() { echo example.org; }
 	lookup_address() { echo 203.0.113.9; }
 	is_fakeip() { case "$1" in 198.18.*) return 0 ;; *) return 1 ;; esac; }
+	sleep() { :; }
 	. "$tmp/functions.sh"
 	if validate_dns_server 2>"$tmp/err"; then
 		fail 'a real address for a selected domain passed validation'
@@ -47,6 +48,25 @@ done
 	printf 'rolled back\n' >"$tmp/after"
 ) || fail 'validation ended the caller instead of returning'
 grep -qx 'rolled back' "$tmp/after" || fail 'the caller could not roll back'
+
+# A resolver that has just started answers with the real address until it has
+# loaded the selected domains; that settles within the retries and passes.
+(
+	domain_file="$tmp/domains"
+	dns_address=127.0.0.42
+	dns_probe_names=control.example
+	: >"$tmp/lookups"
+	selected_test_domain() { echo example.org; }
+	lookup_address() {
+		[ "$1" = example.org ] || { echo 203.0.113.20; return; }
+		echo x >>"$tmp/lookups"
+		[ "$(wc -l <"$tmp/lookups")" -ge 3 ] && echo 198.18.0.5 || echo 203.0.113.9
+	}
+	is_fakeip() { case "$1" in 198.18.*) return 0 ;; *) return 1 ;; esac; }
+	sleep() { :; }
+	. "$tmp/functions.sh"
+	validate_dns_server 2>"$tmp/err" || fail 'a resolver that settled after starting was refused'
+)
 
 # The reload proof picks a domain the new rule-set adds over the old one.
 mkdir -p "$tmp/bin"

@@ -133,6 +133,11 @@ doctor_checks() {
 				fi
 			elif dns_segments_check; then
 				printf 'dns_segments=ok\n'
+			elif [ "${IKEV2_DOCTOR_ALLOW_RUNTIME_REPAIR:-0}" = 1 ]; then
+				# Enabling managed mode starts the resolvers the segments use.
+				# Checked before that, every segment of a router that was just
+				# unmanaged reads as down, and managed mode could never come back.
+				printf 'dns_segments=warn:repair-required\n'
 			else
 				printf 'dns_segments=degraded:%s\n' \
 					"$(sed -n 's/^failure_ids=//p' "$dns_segments_status_file" | tail -n1)"
@@ -214,6 +219,15 @@ doctor_checks() {
 		[ "$(getv server enabled)" != 1 ] || printf 'security_ok=0\n'
 	fi
 	if [ "$(getv globals configured)" = 1 ]; then
+		# A pause leaves the fail-closed routes in place and refuses what reaches
+		# the tunnel; the block is reported, and the watcher restores it.
+		if [ "$(defaultv domains paused 0)" = 1 ]; then
+			if pause_block_present; then
+				printf 'routing_pause=notice:blocking\n'
+			else
+				printf 'routing_pause=warn:block-missing\n'
+			fi
+		fi
 		if failclosed_check; then
 			printf 'failclosed_route=ok\n'
 		else

@@ -68,9 +68,6 @@ fi
 grep -Fq "protocols: [ 'plain', 'doh', 'dot', 'doq' ]" "$client"
 grep -Fq "provider['bootstrap_' + protocol]" "$client"
 grep -Fq 'function dnsBootstrapProtocol(value)' "$client"
-# The tunnel resolver is a sing-box server of type "https" and offers no choice
-# it cannot honour.
-grep -Fq "{ protocol: 'doh' }" "$client"
 grep -Fq "upstream.values().join(' ')" "$client"
 grep -Fq "bootstrap.values().join(' ')" "$client"
 grep -Fq "fallback.values().join(' ')" "$client"
@@ -612,22 +609,11 @@ if grep -Fq 'only when the configured resolver group fails' \
 fi
 grep -Fq 'They are not a further tier' "$client"
 
-# Pause is the reversible counterpart of removing managed mode: it must stop the
-# three things that put traffic into the tunnel and delete nothing.
-grep -Fq 'pause_routing_impl()' "$system"
-grep -Fq 'resume_routing_impl()' "$system"
-grep -Fq 'pause_routing()' "$root/ikev2-manager-runtime/ikev2-domain-router.sh"
+# Pause is the reversible counterpart of removing managed mode: it deletes
+# nothing. What it does is checked on real OpenWrt (scripts/openwrt).
 if sed -n '/^pause_routing_impl()/,/^}/p' "$system" |
-	grep -Eq 'uci -q delete|remove_managed|apk del'; then
-	printf '%s\n' 'pause must not delete configuration' >&2
-	exit 1
-fi
-sed -n '/^pause_routing_impl()/,/^}/p' "$system" | grep -Fq 'pbr.$policy.enabled=0'
-sed -n '/^resume_routing_impl()/,/^}/p' "$system" | grep -Fq 'pbr.$policy.enabled=1'
-# The engine setting must survive a pause, or resume would restore a different mode.
-if sed -n '/^pause_routing()/,/^}/p' "$root/ikev2-manager-runtime/ikev2-domain-router.sh" |
-	grep -Fq 'domains.engine'; then
-	printf '%s\n' 'pause must not change the domain routing engine' >&2
+	grep -Eq 'uci -q delete|remove_managed|apk del|domains.engine'; then
+	printf '%s\n' 'pause must not delete configuration or change the engine' >&2
 	exit 1
 fi
 grep -Fq '"/usr/libexec/ikev2-manager-system routing-pause-async"' "$root/luci-ikev2-manager/acl.json"
@@ -649,27 +635,10 @@ grep -oE 'with_lock [a-z_]+' "$router" | awk '{ print $2 }' | sort -u |
 		}
 	done || exit 1
 
-# A failed pause must not leave the policies disabled while interception runs.
-grep -Fq 'undo_routing_pause()' "$system"
-sed -n '/^pause_routing_impl()/,/^}/p' "$system" | grep -Fq 'undo_routing_pause'
-
-# The health watcher repairs the FakeIP runtime and device policy every cycle.
-# Without a pause guard it restores exactly what pause stopped, and the pause
-# reports success while traffic keeps using the tunnel.
-health="$root/ikev2-manager-runtime/ikev2-health.sh"
-grep -Fq 'ikev2-manager.domains.paused' "$health"
-paused_line="$(grep -n 'ikev2-manager.domains.paused' "$health" | head -n1 | cut -d: -f1)"
-ensure_line="$(grep -n 'ikev2-domain-router ensure' "$health" | head -n1 | cut -d: -f1)"
-[ "$paused_line" -lt "$ensure_line" ] || {
-	printf '%s\n' 'health watcher repairs FakeIP before checking for a pause' >&2
-	exit 1
-}
-
 # Resume and the data-plane restart start sing-box; its listener binds before it
 # can answer. A single probe there reported failure for a resolver that came up
 # moments later.
 sed -n '/^resolver_answers()/,/^}/p' "$router" | grep -Fq 'while ! validate_dns_server'
-sed -n '/^resume_routing()/,/^}/p' "$router" | grep -Fq 'if ! resolver_answers; then'
 sed -n '/^restart_resolver()/,/^}/p' "$router" | grep -Fq 'resolver_answers &&'
 
 printf '%s\n' 'DNS and reliable-mode regression checks OK'

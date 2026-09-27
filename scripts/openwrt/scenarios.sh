@@ -201,6 +201,91 @@ sed -n '/^normalize_domains() {/,/^}/p; /^normalize_remote_domains() {/,/^}/p' \
 	done
 )
 
+# --- a pause refuses what reaches the tunnel ------------------------------
+
+step 'a pause closes the tunnel and resume opens it, with real nft'
+uci set ikev2-manager.domains.paused='1'
+uci commit ikev2-manager
+/usr/libexec/ikev2-manager-system _pause-sync || fail 'the pause block did not install'
+[ "$(nft list table inet ikev2_pause | grep -c 'oifname "ipsec-out".* reject')" = 2 ] ||
+	fail 'the pause does not refuse both forwarded and router traffic to the tunnel'
+nft list chain inet ikev2_pause output | grep -q 'l4proto != { icmp, ipv6-icmp }' ||
+	fail 'the pause stops the tunnel quality pings too'
+nft delete table inet ikev2_pause
+/usr/libexec/ikev2-manager-system _pause-sync || fail 'a dropped pause block was not restored'
+nft list table inet ikev2_pause >/dev/null 2>&1 || fail 'a dropped pause block was not restored'
+uci set ikev2-manager.domains.paused='0'
+uci commit ikev2-manager
+/usr/libexec/ikev2-manager-system _pause-sync || fail 'the pause block was not removed'
+nft list table inet ikev2_pause >/dev/null 2>&1 && fail 'resume left the tunnel closed'
+
+# --- a segment can fall back to the provider's resolvers -------------------
+
+step 'a segment that asks for the provider resolvers gets them after its own'
+uci -q batch <<'EOF2'
+set ikev2-manager.dns=dns
+set ikev2-manager.dns.managed='1'
+set ikev2-manager.dnsseg_withwan=dns_segment
+set ikev2-manager.dnsseg_withwan.enabled='1'
+set ikev2-manager.dnsseg_withwan.domains='ru'
+set ikev2-manager.dnsseg_withwan.upstream='udp://77.88.8.8:53'
+set ikev2-manager.dnsseg_withwan.fallback='https://dns.google/dns-query'
+set ikev2-manager.dnsseg_withwan.port='5550'
+set ikev2-manager.dnsseg_withwan.wan_fallback='1'
+set ikev2-manager.dnsseg_nowan=dns_segment
+set ikev2-manager.dnsseg_nowan.enabled='1'
+set ikev2-manager.dnsseg_nowan.domains='by'
+set ikev2-manager.dnsseg_nowan.upstream='udp://77.88.8.1:53'
+set ikev2-manager.dnsseg_nowan.fallback='https://dns.google/dns-query'
+set ikev2-manager.dnsseg_nowan.port='5551'
+commit ikev2-manager
+EOF2
+mkdir -p /tmp/segbin /var/run
+printf '#!/bin/sh\n' >/tmp/segbin/dnsproxy
+chmod 755 /tmp/segbin/dnsproxy
+: >/tmp/segments.cmd
+(
+	PATH="/tmp/segbin:$PATH"
+	# netifd is not running here; this is what it reports for the WAN.
+	ubus() { printf '%s\n' '{"dns-server":["10.0.0.53","127.0.0.1"]}'; }
+	procd_open_instance() { printf '== %s\n' "$1" >>/tmp/segments.cmd; }
+	procd_set_param() { printf '%s\n' "$*" >>/tmp/segments.cmd; }
+	procd_append_param() { printf '%s\n' "$*" >>/tmp/segments.cmd; }
+	procd_close_instance() { :; }
+	# OpenWrt's shell library reads unset variables.
+	set +u
+	. /lib/functions.sh
+	. /etc/init.d/ikev2-dns-segments
+	start_service
+)
+sed -n '/^== dnsseg_withwan$/,/^== /p' /tmp/segments.cmd | grep -Fxq 'command -f udp://10.0.0.53:53' ||
+	fail 'a segment that asks for the provider resolvers did not get them'
+sed -n '/^== dnsseg_nowan$/,$p' /tmp/segments.cmd | grep -Fq '10.0.0.53' &&
+	fail 'a segment that did not ask for the provider resolvers got them'
+grep -Fq 'udp://127.0.0.1' /tmp/segments.cmd && fail 'a loopback resolver from the lease was used'
+[ "$(cat /var/run/ikev2-dns-segments.wan)" = 'udp://10.0.0.53:53' ] ||
+	fail 'the provider resolvers the segments started with were not recorded'
+uci -q delete ikev2-manager.dnsseg_withwan
+uci -q delete ikev2-manager.dnsseg_nowan
+uci commit ikev2-manager
+
+# --- the inbound link, as a disabled server leaves it ----------------------
+
+step 'a disabled server passes with its link left in place but down'
+sed -n '/^inbound_link_up() {/,/^}/p' /usr/libexec/ikev2-manager >/tmp/inbound-link.sh
+grep -q 'inbound_link_up' /tmp/inbound-link.sh || fail 'the inbound link check is not installed'
+(
+	. /tmp/inbound-link.sh
+	ip link add ipsec-in type dummy
+	ip link set ipsec-in down
+	inbound_link_up && fail 'a link that is down read as up'
+	ip link set ipsec-in up
+	inbound_link_up || fail 'a link that is up read as down'
+	ip link del ipsec-in
+	inbound_link_up && fail 'a missing link read as up'
+	:
+)
+
 # --- teardown ---------------------------------------------------------------
 
 step 'stopping removes everything the routing installed'

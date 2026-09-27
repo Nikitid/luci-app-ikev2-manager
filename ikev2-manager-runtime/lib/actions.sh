@@ -156,6 +156,16 @@ acquire_action_lock() {
 	done
 }
 
+# Takes a free lock at once and says it is waiting only when it is. Written
+# unconditionally, the waiting line showed before every action.
+acquire_action_lock_announced() {
+	local owner="$1" id="$2"
+	shift 2
+	action_lock_try_acquire "$owner" "$id" && return 0
+	"$@" running 'Waiting for other router actions...'
+	acquire_action_lock "$owner" "$id"
+}
+
 release_action_lock() (
 	local owner_pid
 	flock -x 9 || return 1

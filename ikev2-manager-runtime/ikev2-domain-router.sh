@@ -921,10 +921,21 @@ wait_for_dns() {
 # Callers test the result and roll back on failure, so this reports and returns
 # instead of exiting: an exit here skipped every rollback that followed it.
 validate_dns_server() {
-	local server="${1:-$dns_address}" selected selected_ip control control_ip
+	local server="${1:-$dns_address}" selected selected_ip control control_ip tries
 	selected="$(selected_test_domain)"
 	if [ -n "$selected" ]; then
-		selected_ip="$(lookup_address "$selected" "$server")"
+		# A resolver that has just started can answer before it has loaded the
+		# selected domains: switching back from matching by address failed on
+		# the first try with a real address and passed on the second. It gets
+		# a few seconds to settle before the switch is refused.
+		tries=0
+		while :; do
+			selected_ip="$(lookup_address "$selected" "$server")"
+			is_fakeip "$selected_ip" && break
+			tries=$((tries + 1))
+			[ "$tries" -lt 5 ] || break
+			sleep 1
+		done
 		is_fakeip "$selected_ip" || {
 			printf 'Selected domain did not receive FakeIP: %s -> %s\n' \
 				"$selected" "${selected_ip:-none}" >&2
@@ -1330,14 +1341,9 @@ data_plane_check() {
 }
 
 # Manual recovery from the overview page: the FakeIP resolver is restarted
-# the same verified way the watcher does it. A pause is an operator decision
-# and is never undone from here.
+# the same verified way the watcher does it.
 recover_reliable_mode() {
 	init_config
-	if [ "$(getv domains paused)" = 1 ]; then
-		write_status error 'Tunnel routing is paused; resume it before restarting reliable mode'
-		return 1
-	fi
 	if [ "$(defaultv domains engine nftset)" = fakeip ]; then
 		logger -t ikev2-domain-router 'restarting resolver on operator request' 2>/dev/null || true
 		if restart_resolver && runtime_healthy; then
@@ -1574,44 +1580,18 @@ deactivate() {
 	write_status disabled 'Address-based domain routing is active'
 }
 
-# Pause differs from deactivate: deactivate switches the engine to nftset and
-# keeps routing selected traffic, while pause stops interception altogether and
-# leaves the engine setting untouched, so resume restores exactly what was
-# configured rather than a different mode.
-pause_routing() {
+# Managed mode turned off: stop interception and give dnsmasq its resolver
+# back, but keep the engine the operator chose. Deactivating here rewrote it to
+# nftset, so turning managed mode back on came back matching by address.
+shutdown() {
 	restore_dnsmasq || {
-		write_status error 'Unable to restore DNS before pausing FakeIP routing'
+		write_status error 'Unable to restore DNS before stopping FakeIP routing'
 		return 1
 	}
 	nft_stop
 	/etc/init.d/ikev2-domain-router stop >/dev/null 2>&1 || return 1
 	/etc/init.d/ikev2-domain-router disable >/dev/null 2>&1 || return 1
-	write_status paused 'FakeIP routing is paused; selected names resolve normally'
-}
-
-resume_routing() {
-	init_config
-	check_config
-	if ! /etc/init.d/ikev2-domain-router enable >/dev/null 2>&1 ||
-	   ! /etc/init.d/ikev2-domain-router restart; then
-		write_status error 'FakeIP service could not be resumed'
-		return 1
-	fi
-	# A single probe here failed on a cold start and the health watcher repaired
-	# it a cycle later, so resume reported an error for something that worked.
-	if ! wait_for_dns; then
-		write_status error 'FakeIP resolver did not come back after resume'
-		return 1
-	fi
-	if ! resolver_answers; then
-		write_status error 'FakeIP resolver did not answer after resume'
-		return 1
-	fi
-	if ! nft_start; then
-		write_status error 'TProxy could not be restored after resume'
-		return 1
-	fi
-	write_status active 'FakeIP routing resumed'
+	write_status disabled 'FakeIP routing is stopped while the app does not manage the router'
 }
 
 run_async() {
@@ -1679,6 +1659,7 @@ case "${1:-}" in
 	adopt-upstream) with_lock adopt_upstream >>"$log_file" 2>&1 ;;
 	activate) with_lock activate >>"$log_file" 2>&1 ;;
 	deactivate) with_lock deactivate >>"$log_file" 2>&1 ;;
+	shutdown) with_lock shutdown >>"$log_file" 2>&1 ;;
 	activate-async) schedule activate ;;
 	deactivate-async) schedule deactivate ;;
 	refresh-async) schedule refresh ;;
@@ -1703,12 +1684,10 @@ case "${1:-}" in
 	nft-start) nft_start ;;
 	nft-stop) nft_stop ;;
 	status) status ;;
-	pause) with_lock pause_routing ;;
-	resume) with_lock resume_routing ;;
 	router-traffic) init_config; with_lock set_router_traffic "${2:-}" ;;
 	tunnel-resolve) init_config; with_lock set_tunnel_resolve "${2:-}" ;;
 	log-level) init_config; with_lock set_log_level "${2:-}" ;;
 	*)
-		die 'Usage: ikev2-domain-router {render|check|prepare|refresh|refresh-rules|snapshot DIR|restore-snapshot DIR|adopt-upstream|activate|deactivate|pause|resume|activate-async|deactivate-async|refresh-async|diagnostic-start 30..300|ensure|tunnel-dns-check|data-plane-check [now]|data-plane-state|recover|nft-start|nft-stop|status|router-traffic 0|1|tunnel-resolve 0|1|log-level LEVEL}'
+		die 'Usage: ikev2-domain-router {render|check|prepare|refresh|refresh-rules|snapshot DIR|restore-snapshot DIR|adopt-upstream|activate|deactivate|shutdown|activate-async|deactivate-async|refresh-async|diagnostic-start 30..300|ensure|tunnel-dns-check|data-plane-check [now]|data-plane-state|recover|nft-start|nft-stop|status|router-traffic 0|1|tunnel-resolve 0|1|log-level LEVEL}'
 		;;
 esac

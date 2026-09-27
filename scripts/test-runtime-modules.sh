@@ -39,6 +39,14 @@ fi
 rm -f "$action_lock_status"
 rmdir "$action_lock_dir"
 
+# A free lock is taken without claiming to wait for anything.
+announced=''
+announce() { announced="$*"; }
+acquire_action_lock_announced tests test-free announce
+[ -z "$announced" ] || { echo "a free lock announced a wait: $announced" >&2; exit 1; }
+rm -f "$action_lock_status"
+rmdir "$action_lock_dir"
+
 sleep 30 &
 lock_holder=$!
 mkdir "$action_lock_dir"
@@ -52,6 +60,11 @@ fi
 elapsed=$(( $(date +%s) - started ))
 [ "$elapsed" -le 3 ] || {
 	echo "busy action lock did not fail promptly: ${elapsed}s" >&2
+	exit 1
+}
+IKEV2_ACTION_LOCK_WAIT_SECONDS=1 acquire_action_lock_announced tests test-busy announce || :
+[ "$announced" = "running Waiting for other router actions..." ] || {
+	echo "a held lock did not announce the wait: $announced" >&2
 	exit 1
 }
 

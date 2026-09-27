@@ -1119,102 +1119,74 @@ routing_paused() {
 	[ "$(defaultv domains paused 0)" = 1 ]
 }
 
-# Wait for PBR to come back with the Manager policy in the state we just asked
-# for, rather than trusting the init script's exit code.
-pbr_reload_awaiting() {
-	local wanted="$1" tries=0 present
-	/etc/init.d/pbr reload >/dev/null 2>&1 || true
-	while [ "$tries" -lt 30 ]; do
-		if /etc/init.d/pbr running >/dev/null 2>&1; then
-			present=0
-			nft list chain inet fw4 pbr_prerouting 2>/dev/null |
-				grep -Fq 'IKEv2 PBR domains' && present=1
-			[ "$present" = "$wanted" ] && return 0
-		fi
-		tries=$((tries + 1))
-		sleep 1
-	done
-	return 1
+# Pause stops using the tunnel without letting anything that would enter it
+# leave through WAN: a separate table refuses whatever reaches ipsec-out, so
+# selected destinations and full-tunnel devices lose access until resume, as
+# they would with the tunnel down. Nothing else changes - routing, FakeIP, DNS
+# and the device policy keep running as configured - so resume is immediate
+# and devices have no address cached from a different path. The router's own
+# pings still pass, so the tunnel quality keeps being measured.
+pause_table=ikev2_pause
+
+pause_block_install() {
+	nft -f - <<EOF
+table inet $pause_table
+delete table inet $pause_table
+table inet $pause_table {
+	chain ikev2_manager_owned {
+		comment "IKEv2 Manager tunnel pause"
+	}
+	chain forward {
+		type filter hook forward priority filter - 5; policy accept;
+		oifname "ipsec-out" counter reject with icmpx admin-prohibited
+	}
+	chain output {
+		type filter hook output priority filter - 5; policy accept;
+		oifname "ipsec-out" meta l4proto != { icmp, ipv6-icmp } counter reject with icmpx admin-prohibited
+	}
+}
+EOF
 }
 
-# Pause is the reversible alternative to removing managed mode. Nothing is
-# deleted: the policies, lists, DNS settings and device overrides stay exactly
-# as configured, and only the three things that put traffic into the tunnel are
-# stopped - the PBR policies, the FakeIP interception and the device policy
-# runtime.
-#
-# It deliberately gives up the fail-closed guarantee: while paused, selected
-# traffic leaves through WAN instead of being blocked. That is the point of
-# pausing, and the interface says so.
+pause_block_present() {
+	[ "$(nft list table inet "$pause_table" 2>/dev/null |
+		grep -c 'oifname "ipsec-out".* reject')" = 2 ]
+}
+
+pause_block_remove() {
+	nft delete table inet "$pause_table" 2>/dev/null || true
+	! nft list table inet "$pause_table" >/dev/null 2>&1
+}
+
+# The block follows the setting: the health watcher calls this every pass, so
+# a reboot, or a firewall tool that dropped the table, does not end a pause.
+pause_block_sync() {
+	if [ "$(getv globals configured)" = 1 ] && routing_paused; then
+		pause_block_present || pause_block_install
+		pause_block_present
+	else
+		nft list table inet "$pause_table" >/dev/null 2>&1 || return 0
+		pause_block_remove
+	fi
+}
+
 pause_routing_impl() {
 	[ "$(getv globals configured)" = 1 ] || die 'Managed mode is not configured'
-	routing_paused && return 0
 	uci set "$config.domains.paused=1"
 	uci commit "$config"
-	for policy in ikev2pbr_domains ikev2pbr_service_cidrs; do
-		uci -q get "pbr.$policy" >/dev/null 2>&1 || continue
-		uci set "pbr.$policy.enabled=0" || die 'Unable to pause the routing policy'
-	done
-	uci commit pbr || die 'Unable to pause the routing policy'
-	if [ "$(defaultv domains engine nftset)" = fakeip ] &&
-	   [ -x /usr/libexec/ikev2-domain-router ]; then
-		# A failure here leaves the policies already disabled, so put them back
-		# before reporting. A half-paused router routes nothing through the
-		# tunnel and still intercepts, which is the worst of both.
-		if ! /usr/libexec/ikev2-domain-router pause; then
-			undo_routing_pause
-			die 'Unable to pause FakeIP routing; the previous state was restored'
-		fi
+	if ! pause_block_install || ! pause_block_present; then
+		pause_block_remove >/dev/null 2>&1 || true
+		uci set "$config.domains.paused=0"
+		uci commit "$config"
+		die 'The tunnel could not be closed; routing was not paused'
 	fi
-	[ ! -x "$device_runtime_helper" ] || "$device_runtime_helper" stop >/dev/null 2>&1 || true
-	[ ! -x "$routing_runtime_helper" ] || "$routing_runtime_helper" stop >/dev/null 2>&1 || true
-	if ! pbr_reload_awaiting 0; then
-		undo_routing_pause
-		die 'Routing could not be paused; the previous state was restored'
-	fi
-	if ! dns_query_ok; then
-		undo_routing_pause
-		die 'Routing paused but DNS stopped resolving; the previous state was restored'
-	fi
-}
-
-# Best-effort return to the running state after a failed pause. It repeats the
-# resume steps without their verification, because the caller is already
-# reporting a failure and must not mask it with a second one.
-undo_routing_pause() {
-	uci set "$config.domains.paused=0"
-	uci commit "$config" || true
-	for policy in ikev2pbr_domains ikev2pbr_service_cidrs; do
-		uci -q get "pbr.$policy" >/dev/null 2>&1 || continue
-		uci set "pbr.$policy.enabled=1" || true
-	done
-	uci commit pbr || true
-	if [ "$(defaultv domains engine nftset)" = fakeip ] &&
-	   [ -x /usr/libexec/ikev2-domain-router ]; then
-		/usr/libexec/ikev2-domain-router resume >/dev/null 2>&1 || true
-	fi
-	[ ! -x "$device_runtime_helper" ] || "$device_runtime_helper" sync >/dev/null 2>&1 || true
-	/etc/init.d/pbr reload >/dev/null 2>&1 || true
 }
 
 resume_routing_impl() {
 	[ "$(getv globals configured)" = 1 ] || die 'Managed mode is not configured'
-	routing_paused || return 0
 	uci set "$config.domains.paused=0"
 	uci commit "$config"
-	for policy in ikev2pbr_domains ikev2pbr_service_cidrs; do
-		uci -q get "pbr.$policy" >/dev/null 2>&1 || continue
-		uci set "pbr.$policy.enabled=1" || die 'Unable to resume the routing policy'
-	done
-	uci commit pbr || die 'Unable to resume the routing policy'
-	if [ "$(defaultv domains engine nftset)" = fakeip ] &&
-	   [ -x /usr/libexec/ikev2-domain-router ]; then
-		/usr/libexec/ikev2-domain-router resume ||
-			die 'Unable to resume FakeIP routing'
-	fi
-	[ ! -x "$device_runtime_helper" ] || "$device_runtime_helper" sync >/dev/null 2>&1 || true
-	pbr_reload_awaiting 1 || die 'Routing resumed but PBR did not settle'
-	dns_query_ok || die 'Routing resumed but DNS is not resolving'
+	pause_block_remove || die 'The tunnel block could not be removed'
 }
 
 remove_managed() {
@@ -1231,7 +1203,7 @@ remove_managed() {
 		/usr/libexec/ikev2-discord-voice stop >/dev/null 2>&1 || return 1
 	fi
 	if [ -x /usr/libexec/ikev2-domain-router ]; then
-		/usr/libexec/ikev2-domain-router deactivate >/dev/null 2>&1 || return 1
+		/usr/libexec/ikev2-domain-router shutdown >/dev/null 2>&1 || return 1
 	fi
 	if [ -x /etc/init.d/ikev2-dns-segments ]; then
 		/etc/init.d/ikev2-dns-segments stop >/dev/null 2>&1 || return 1
@@ -1245,6 +1217,8 @@ remove_managed() {
 	release_pbr_config || return 1
 	rm -f /usr/share/nftables.d/chain-pre/forward/20-ikev2-killswitch.nft
 	rm -f /var/run/ikev2-vip4
+	# Without a tunnel to protect a pause has nothing to refuse.
+	pause_block_remove || return 1
 	# Drop the IPv6 fail-fast route only if we added it (no real v6 default).
 	ip -6 route show default 2>/dev/null | grep -q 'unreachable' &&
 		ip -6 route del unreachable default metric 2147483647 2>/dev/null || true
@@ -1297,13 +1271,17 @@ apply_system_inner() {
 		doctor >/tmp/ikev2-manager-doctor.last 2>&1 ||
 		die 'Dependency check failed; run ikev2-manager-system doctor'
 	sync_network
-	sync_pbr
 	# Fail-closed behavior has two native layers: an unreachable PBR default and
-	# XFRM policy drop when no matching SA exists.
+	# XFRM policy drop when no matching SA exists. The XFRM interfaces come up
+	# first: the tunnel table routes through ipsec-out, and after managed mode
+	# was turned off the interface is down, so installing the table first
+	# failed with "Device for nexthop is not up" and managed mode never came
+	# back. An interface with no route into it carries nothing.
 	rm -f /usr/share/nftables.d/chain-pre/forward/20-ikev2-killswitch.nft
 	/etc/init.d/ikev2-xfrm enable || die 'Failed to enable ikev2-xfrm'
 	/etc/init.d/ikev2-health enable || die 'Failed to enable ikev2-health'
 	/etc/init.d/ikev2-xfrm start || die 'Failed to start ikev2-xfrm'
+	sync_pbr
 	firewall_check_strict || die 'firewall4 validation failed'
 	pbr_restart_checked ||
 		die 'PBR failed to rebuild; check /tmp/ikev2-manager-doctor.last and logread'
@@ -1318,11 +1296,28 @@ apply_system_inner() {
 		die 'IPv6 fail-closed route validation failed'
 	ensure_ipv6_failfast
 	/etc/init.d/ikev2-health start >/dev/null 2>&1 || true
+	# Turning managed mode off stops the segment resolvers and the FakeIP
+	# service; turning it on brings them back, not only the routing.
+	if [ "$(defaultv dns managed 0)" = 1 ] && [ -x /etc/init.d/ikev2-dns-segments ]; then
+		/etc/init.d/ikev2-dns-segments enable >/dev/null 2>&1 &&
+			/etc/init.d/ikev2-dns-segments restart >/dev/null 2>&1 ||
+			die 'DNS segments failed to start'
+	fi
 	if [ "$(getv domains engine)" = fakeip ] &&
 	   [ -x /usr/libexec/ikev2-domain-router ]; then
-		/usr/libexec/ikev2-domain-router refresh ||
-			die 'FakeIP domain router refresh failed'
+		if ! /etc/init.d/ikev2-domain-router enabled 2>/dev/null; then
+			# Stopped with managed mode: resume starts it, points dnsmasq at
+			# it again and restores interception. A refresh only restarted
+			# the service and left dnsmasq on its previous resolver.
+			/usr/libexec/ikev2-domain-router resume ||
+				die 'FakeIP domain router failed to start'
+		else
+			/usr/libexec/ikev2-domain-router refresh ||
+				die 'FakeIP domain router refresh failed'
+		fi
 	fi
+	# A pause survives an apply: the block follows the setting.
+	pause_block_sync || die 'The tunnel pause could not be restored'
 	remove_unused_pbr
 }
 
@@ -1365,10 +1360,13 @@ apply_server_runtime() {
 		die 'Invalid server PBR-change flag'
 	validate_runtime_config
 	sync_firewall
+	# The interfaces first: enabling the server routes its pool through
+	# ipsec-in, which is down while the server is off, and installing the
+	# routes before it came up failed with "Device for nexthop is not up".
+	/etc/init.d/ikev2-xfrm start || die 'Failed to update inbound XFRM interface'
 	if [ "$needs_pbr" = 1 ]; then
 		sync_pbr
 	fi
-	/etc/init.d/ikev2-xfrm start || die 'Failed to update inbound XFRM interface'
 	firewall_check_strict || die 'firewall4 validation failed'
 	if [ "$needs_pbr" = 1 ]; then
 		pbr_restart_checked || die 'PBR failed to rebuild after server policy change'
@@ -1412,6 +1410,7 @@ show_config() {
 		domain_status="$(/usr/libexec/ikev2-domain-router status 2>/dev/null || true)"
 	fi
 	printf 'configured=%s\n' "$(getv globals configured)"
+	printf 'routing_backend=%s\n' "$(defaultv globals routing_backend pbr)"
 	printf 'routing_paused=%s\n' "$(defaultv domains paused 0)"
 	printf 'version=%s\n' \
 		"$(cat /usr/share/ikev2-manager/version 2>/dev/null || echo unknown)"
@@ -1675,8 +1674,7 @@ run_action() {
 	step_error="/tmp/ikev2-system-action-$id.error"
 	exec >>/tmp/ikev2-system-action.log 2>&1
 	printf '\n=== %s action=%s id=%s ===\n' "$(date)" "$kind" "$id"
-	action_status "$id" running 'Waiting for other router actions...'
-	if ! acquire_action_lock system "$id"; then
+	if ! acquire_action_lock_announced system "$id" action_status "$id"; then
 		action_status "$id" error 'Another router action is still running.'
 		return 1
 	fi
@@ -1729,7 +1727,7 @@ run_action() {
 		routing-pause)
 			action_status "$id" running 'Pausing tunnel routing...'
 			if ( pause_routing_impl ); then
-				action_status "$id" ok 'Tunnel routing paused; selected traffic uses WAN.'
+				action_status "$id" ok 'Tunnel routing paused; selected traffic is blocked until you resume.'
 			else
 				action_status "$id" error 'Could not pause tunnel routing; see /tmp/ikev2-system-action.log.'
 			fi
@@ -1797,7 +1795,9 @@ run_action() {
 			segment_fallback="$(sed -n '10p' "$segment_file")"
 			segment_https_compat="$(sed -n '11p' "$segment_file")"
 			[ -n "$segment_https_compat" ] || segment_https_compat=1
-			segment_extra="$(sed -n '12p' "$segment_file")"
+			segment_wan_fallback="$(sed -n '12p' "$segment_file")"
+			[ -n "$segment_wan_fallback" ] || segment_wan_fallback=0
+			segment_extra="$(sed -n '13p' "$segment_file")"
 			rm -f "$segment_file"
 			if [ -n "$segment_extra" ]; then
 				action_status "$id" error 'Destination DNS segment input has extra fields.'
@@ -1806,7 +1806,7 @@ run_action() {
 			if ( dns_segment_update "$segment_action" "$segment_id" "$segment_name" \
 				"$segment_enabled" "$segment_domains" "$segment_protocol" \
 				"$segment_mode" "$segment_upstream" "$segment_bootstrap" \
-				"$segment_fallback" "$segment_https_compat" ); then
+				"$segment_fallback" "$segment_https_compat" "$segment_wan_fallback" ); then
 				action_status "$id" ok 'Destination DNS segment applied.'
 			else
 				action_status "$id" error 'Destination DNS segment failed; previous resolver preserved.'
@@ -1930,7 +1930,7 @@ case "${1:-}" in
 		validate_dns_segments
 		;;
 	_dns-segment-update)
-		{ [ "$#" -eq 11 ] || [ "$#" -eq 12 ]; } ||
+		{ [ "$#" -ge 11 ] && [ "$#" -le 13 ]; } ||
 			die 'Expected DNS segment update arguments'
 		shift
 		dns_segment_update "$@"
@@ -1947,9 +1947,16 @@ case "${1:-}" in
 		[ "$#" -eq 1 ] || die 'Expected no arguments'
 		wan_dns_fallbacks
 		;;
+	_pause-sync)
+		[ "$#" -eq 1 ] || die 'Expected no arguments'
+		pause_block_sync
+		;;
 	_dns-wan-refresh)
 		[ "$#" -eq 1 ] || die 'Expected no arguments'
-		dns_wan_fallback_refresh
+		refresh_status=0
+		dns_wan_fallback_refresh || refresh_status=$?
+		dns_segments_wan_refresh || true
+		exit "$refresh_status"
 		;;
 	_dnsmasq-combined-servers)
 		[ "$#" -eq 2 ] || die 'Expected a base dnsmasq server'
