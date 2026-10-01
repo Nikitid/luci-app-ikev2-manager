@@ -87,29 +87,6 @@ valid_ifname() {
 	[ -n "${1:-}" ] && printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9_.:@-]+$'
 }
 
-network_device() {
-	local interface="$1" status device
-	status="$(ubus call "network.interface.$interface" status 2>/dev/null || true)"
-	device="$(printf '%s' "$status" | jsonfilter -e '@.l3_device' 2>/dev/null || true)"
-	[ -n "$device" ] || device="$(printf '%s' "$status" | jsonfilter -e '@.device' 2>/dev/null || true)"
-	[ -n "$device" ] || device="$(uci -q get "network.$interface.device" 2>/dev/null || true)"
-	valid_ifname "$device" && printf '%s\n' "$device"
-}
-
-# The devices whose traffic follows the destination lists, one per line.
-source_devices() {
-	local interface device
-	for interface in $(uci -q get "$config.globals.source_interface" 2>/dev/null || true); do
-		device="$(network_device "$interface")" ||
-			die "Protected network '$interface' has no usable device"
-		printf '%s\n' "$device"
-	done
-	if [ "$(uci -q get "$config.server.enabled" 2>/dev/null || echo 0)" = 1 ] &&
-	   [ "$(uci -q get "$config.globals.source_include_vpn" 2>/dev/null || echo 1)" = 1 ]; then
-		printf 'ipsec-in\n'
-	fi
-}
-
 # IPv4 networks and addresses of FILE, one per line, comments dropped.
 address_lines() {
 	[ -r "$1" ] || return 0
@@ -386,7 +363,7 @@ desired_state() {
 	# Materialised first: in a pipeline the failure to resolve a protected
 	# network was lost to sort's status, and routing went in with no sources,
 	# every selected packet from that network leaving past the tunnel.
-	source_devices >"$work/sources.raw" || return 1
+	device_source_devices >"$work/sources.raw" || return 1
 	sort -u "$work/sources.raw" >"$work/sources" || return 1
 	device_addresses domain >"$work/src4" || die 'Device routing configuration is not valid'
 	address_lines "$service_file" | sort -u >"$work/service4"

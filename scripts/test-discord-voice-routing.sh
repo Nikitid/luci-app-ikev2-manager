@@ -8,20 +8,32 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 mkdir -p "$tmp/bin"
 
+# The protected sources come from the application's own configuration, as
+# policy routing reads them. They used to be read from PBR's domain policy,
+# which the built-in routing deletes: the sync then failed and stopped the
+# routing sync that came after it.
 cat >"$tmp/bin/uci" <<'EOF'
 #!/bin/sh
 case "$*" in
 	'-q get ikev2-manager.globals.configured') echo 1 ;;
-	'-q get pbr.ikev2pbr_domains.src_addr') echo '@br-lan 192.168.50.4' ;;
-	'show pbr')
-		echo 'pbr.ikev2pbr_domains=policy'
-		echo 'pbr.pbr_dev_ex_192_168_50_9=policy'
+	'-q get ikev2-manager.globals.device_schema') echo 2 ;;
+	'-q get ikev2-manager.globals.source_interface') echo lan ;;
+	'-q get network.lan.device') echo br-lan ;;
+	'-q get ikev2-manager.server.enabled') echo 0 ;;
+	'show ikev2-manager')
+		echo 'ikev2-manager.device_192_168_50_4=device_policy'
+		echo 'ikev2-manager.device_192_168_50_9=device_policy'
 		;;
-	'-q get pbr.ikev2pbr_domains.name') echo 'IKEv2 PBR domains' ;;
-	'-q get pbr.pbr_dev_ex_192_168_50_9.name') echo 'VPN Exclude: 192.168.50.9' ;;
-	'-q get pbr.pbr_dev_ex_192_168_50_9.src_addr') echo '192.168.50.9' ;;
+	'-q get ikev2-manager.device_192_168_50_4.address') echo 192.168.50.4 ;;
+	'-q get ikev2-manager.device_192_168_50_4.route_mode') echo domain ;;
+	'-q get ikev2-manager.device_192_168_50_9.address') echo 192.168.50.9 ;;
+	'-q get ikev2-manager.device_192_168_50_9.route_mode') echo exclude ;;
 	*) exit 1 ;;
 esac
+EOF
+cat >"$tmp/bin/ubus" <<'EOF'
+#!/bin/sh
+exit 1
 EOF
 
 cat >"$tmp/bin/ip" <<'EOF'
@@ -61,7 +73,7 @@ case "$*" in
 	*) exit 1 ;;
 esac
 EOF
-chmod 755 "$tmp/bin/uci" "$tmp/bin/ip" "$tmp/bin/ipcalc.sh" "$tmp/bin/nft"
+chmod 755 "$tmp/bin/uci" "$tmp/bin/ubus" "$tmp/bin/ip" "$tmp/bin/ipcalc.sh" "$tmp/bin/nft"
 
 printf 'discord\n' >"$tmp/selected"
 : >"$tmp/nft.log"

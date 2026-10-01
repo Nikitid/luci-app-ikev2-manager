@@ -33,16 +33,6 @@ stop_runtime() {
 	rm -f "$signature_file"
 }
 
-valid_ipv4_source() {
-	case "$1" in
-		'' | *[!0-9./]*) return 1 ;;
-	esac
-	case "$1" in
-		*/*) ipcalc.sh "$1" >/dev/null 2>&1 ;;
-		*) ipcalc.sh "$1/32" >/dev/null 2>&1 ;;
-	esac
-}
-
 collect_sources() {
 	ifaces="$1"
 	addresses="$2"
@@ -51,22 +41,11 @@ collect_sources() {
 	: >"$addresses"
 	: >"$excluded"
 
-	for source in $(uci -q get pbr.ikev2pbr_domains.src_addr 2>/dev/null || true); do
-		case "$source" in
-			@*)
-				device="${source#@}"
-				case "$device" in
-					'' | *[!A-Za-z0-9_.:-]*) return 1 ;;
-				esac
-				printf '%s\n' "$device" >>"$ifaces"
-				;;
-			*)
-				valid_ipv4_source "$source" || return 1
-				printf '%s\n' "$source" >>"$addresses"
-				;;
-		esac
-	done
-
+	# The sources policy routing uses. They used to be read back from PBR's
+	# domain policy, which the built-in routing removes, so Discord voice
+	# failed and took the rest of the routing sync down with it.
+	device_source_devices >"$ifaces" || return 1
+	device_addresses domain >"$addresses" || return 1
 	device_addresses exclude >"$excluded" || return 1
 
 	for file in "$ifaces" "$addresses" "$excluded"; do

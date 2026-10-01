@@ -17,6 +17,39 @@ device_schema_version='2'
 device_legacy_fullroute_prefix='VPN Full Route: '
 device_legacy_exclude_prefix='VPN Exclude: '
 
+device_valid_ifname() {
+	[ -n "${1:-}" ] && printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9_.:@-]+$'
+}
+
+# The device of a logical network: its layer-3 device while it is up,
+# otherwise the one it is configured with.
+device_network_device() {
+	local interface="$1" status device
+	status="$(ubus call "network.interface.$interface" status 2>/dev/null || true)"
+	device="$(printf '%s' "$status" | jsonfilter -e '@.l3_device' 2>/dev/null || true)"
+	[ -n "$device" ] || device="$(printf '%s' "$status" | jsonfilter -e '@.device' 2>/dev/null || true)"
+	[ -n "$device" ] || device="$(uci -q get "network.$interface.device" 2>/dev/null || true)"
+	device_valid_ifname "$device" && printf '%s\n' "$device"
+}
+
+# The devices whose traffic follows the destination lists, one per line:
+# every protected network and, while the server is on and included, the
+# inbound link. Policy routing and Discord voice both route these.
+device_source_devices() {
+	local interface device
+	for interface in $(uci -q get "$device_config.globals.source_interface" 2>/dev/null || true); do
+		device="$(device_network_device "$interface")" || {
+			printf "Protected network '%s' has no usable device\n" "$interface" >&2
+			return 1
+		}
+		printf '%s\n' "$device"
+	done
+	if [ "$(uci -q get "$device_config.server.enabled" 2>/dev/null || echo 0)" = 1 ] &&
+	   [ "$(uci -q get "$device_config.globals.source_include_vpn" 2>/dev/null || echo 1)" = 1 ]; then
+		printf 'ipsec-in\n'
+	fi
+}
+
 device_sanitize() { printf '%s' "$1" | tr './:-' '____'; }
 device_section() { printf 'device_%s' "$(device_sanitize "$1")"; }
 

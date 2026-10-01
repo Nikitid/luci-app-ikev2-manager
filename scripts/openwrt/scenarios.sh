@@ -163,6 +163,26 @@ ip -4 route get 203.0.113.5 from 192.168.1.50 iif br-lan mark 0x1000000 2>&1 |
 ip -4 route get 192.168.1.20 from 192.168.1.50 iif br-lan mark 0x1000000 2>&1 |
 	grep -q 'dev br-lan' || fail 'a marked packet to the LAN left the LAN'
 
+# --- Discord voice, with nothing of PBR left ----------------------------------
+
+step 'Discord voice routing takes its sources from the application, not PBR'
+printf 'discord\n' >/etc/pbr-ikev2-community-selected.txt
+/usr/libexec/ikev2-discord-voice sync || fail 'Discord voice routing did not install without PBR'
+nft list set inet ikev2_discord_voice source_ifaces | grep -q '"br-lan"' ||
+	fail 'Discord voice routing did not protect the LAN'
+
+step 'a runtime that fails does not keep policy routing from being installed'
+/usr/libexec/ikev2-discord-voice stop
+"$routing" stop
+nft add table inet ikev2_discord_voice
+if /usr/share/pbr/pbr.user.ikev2out; then
+	fail 'a failed Discord voice sync was reported as success'
+fi
+rules4 | grep -q '^28001:' || fail 'policy routing was skipped after Discord voice failed'
+nft delete table inet ikev2_discord_voice
+: >/etc/pbr-ikev2-community-selected.txt
+/usr/libexec/ikev2-discord-voice sync || fail 'Discord voice routing did not stop when unselected'
+
 # --- device routing, where nft prints rules back differently --------------
 
 step 'device routing verifies what nft printed, not what it wrote'

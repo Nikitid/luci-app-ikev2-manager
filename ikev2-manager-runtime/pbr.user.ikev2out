@@ -86,20 +86,23 @@ if [ -n "$ikev2_table_id" ]; then
 	fi
 fi
 
+# Each runtime is synced even when one before it fails: a failing Discord
+# voice sync used to leave policy routing uninstalled after every boot.
+ikev2_failed=0
 # Learn Discord's literal UDP voice endpoints without static service or
 # Cloudflare ranges. The helper derives the current PBR mark and uses the same
 # unreachable tunnel table when the CHILD_SA is unavailable.
 [ ! -x /usr/libexec/ikev2-discord-voice ] ||
-	/usr/libexec/ikev2-discord-voice sync >/dev/null 2>&1 || return 1
+	/usr/libexec/ikev2-discord-voice sync >/dev/null 2>&1 || ikev2_failed=1
 [ ! -x /usr/libexec/ikev2-device-routing ] ||
-	/usr/libexec/ikev2-device-routing sync >/dev/null 2>&1 || return 1
+	/usr/libexec/ikev2-device-routing sync >/dev/null 2>&1 || ikev2_failed=1
 # The application's own policy routing follows the same triggers: every PBR
 # reload and every watcher pass. It stays stopped unless selected.
 ikev2_routing="${IKEV2_ROUTING_HELPER:-/usr/libexec/ikev2-routing}"
 [ ! -x "$ikev2_routing" ] ||
-	"$ikev2_routing" sync >/dev/null 2>&1 || return 1
+	"$ikev2_routing" sync >/dev/null 2>&1 || ikev2_failed=1
 
-return 0
+return "$ikev2_failed"
 }
 
 # PBR sources this include, while the manager and health service also execute

@@ -527,8 +527,9 @@ the pinned official Go 1.24.13 bootstrap archive and verifies its SHA-256 before
 use; `OPENWRT_GO_BOOTSTRAP_DIR` may point to the same exact toolchain locally.
 
 For the selected Discord service, literal UDP voice endpoints are learned from
-Discord's IP-discovery packet and routed as exact IPv4-address/port pairs. The
-runtime set is rebuilt automatically after a policy or firewall restart:
+Discord's IP-discovery packet and routed as exact IPv4-address/port pairs,
+from the same protected networks and devices as policy routing. The runtime set
+is rebuilt automatically after a policy or firewall restart:
 
 ```sh
 /usr/libexec/ikev2-discord-voice status
