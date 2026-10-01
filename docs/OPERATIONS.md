@@ -382,6 +382,14 @@ nft list chain inet ikev2_routing prerouting
 Setting it back to `pbr` and running `sync` removes every rule, route and
 table it installed.
 
+When selected domains are matched by address, dnsmasq adds every address it
+answers for them to `dst4` and `dst6`. An address stays for seven days after
+its last answer: clients may keep using it from their own cache, and the next
+answer moves the expiry on. A copy is kept on flash so that the warm caches of
+clients survive a reboot. When they are recognised by name, sing-box routes
+them, the sets stay empty and no copy is kept; addresses left by the other
+method or by PBR are dropped.
+
 ## Destination updates
 
 ```sh

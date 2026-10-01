@@ -57,8 +57,15 @@ wan_table=1602
 rule_main=28000
 rule_tunnel=28001
 rule_wan=28002
-# The domain sets are filled by dnsmasq, or copied from PBR in overlay mode.
+# The domain sets are filled by dnsmasq when matching by address, or copied
+# from PBR in overlay mode. With FakeIP sing-box routes by name and they stay
+# empty.
 runtime_volatile_sets='dst4 dst6'
+# An address dnsmasq answered with stays this long after its last answer: a
+# client may keep using it from its own cache, and the kernel moves the
+# expiry on whenever dnsmasq adds it again. Sets without a timeout kept every
+# address for good, including addresses a CDN had since given to other sites.
+dst_timeout=7d
 
 . "$runtime_lib_dir/nft-runtime.sh"
 . "$runtime_lib_dir/devices.sh"
@@ -66,6 +73,11 @@ runtime_volatile_sets='dst4 dst6'
 die() {
 	printf '%s\n' "$*" >&2
 	exit 1
+}
+
+# Selected domains are recognised by name (FakeIP) or by address.
+fakeip_engine() {
+	[ "$(uci -q get "$config.domains.engine" 2>/dev/null || echo nftset)" = fakeip ]
 }
 
 backend() {
@@ -199,21 +211,36 @@ sync_rules() {
 # The table is changed in place, never recreated: the domain sets hold what
 # dnsmasq learned, and a new table would start them empty.
 write_ruleset() {
-	local set_mark="counter meta mark set meta mark & 0xf0ffffff | $tunnel_mark"
+	local set_mark="counter meta mark set meta mark & 0xf0ffffff | $tunnel_mark" family
 	printf 'add table inet %s\n' "$table"
 	printf 'add chain inet %s ikev2_manager_owned { comment "IKEv2 Manager policy routing"; }\n' "$table"
-	printf 'add set inet %s src_ifaces { type ifname; }\n' "$table"
-	printf 'add set inet %s src4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
-	printf 'add set inet %s service4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
-	printf 'add set inet %s dst4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
-	printf 'add set inet %s dst6 { type ipv6_addr; flags interval; auto-merge; }\n' "$table"
 	# After every hook that decides a packet's path: the device table (-152),
 	# PBR and fw4 (-150) and the inbound users' WAN exclusion (-149).
 	printf 'add chain inet %s prerouting { type filter hook prerouting priority mangle + 2; policy accept; }\n' "$table"
 	printf 'flush chain inet %s prerouting\n' "$table"
+	# nft cannot give an existing set a timeout. A set from an earlier release
+	# is recreated, which drops what it held; restore_sets refills it.
+	for family in 4 6; do
+		dst_set_outdated "$family" || continue
+		printf 'delete set inet %s dst%s\n' "$table" "$family"
+	done
+	printf 'add set inet %s src_ifaces { type ifname; }\n' "$table"
+	printf 'add set inet %s src4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
+	printf 'add set inet %s service4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
+	# The keyword is an argument so that no line reads as a call of BusyBox's
+	# optional timeout applet to scripts/check-busybox-compat.sh.
+	for family in 4 6; do
+		printf 'add set inet %s dst%s { type ipv%s_addr; flags interval, timeout; %s %s; auto-merge; }\n' \
+			"$table" "$family" "$family" timeout "$dst_timeout"
+	done
 	for name in src_ifaces src4 service4; do
 		printf 'flush set inet %s %s\n' "$table" "$name"
 	done
+	# Whatever an address engine or PBR left there would be routed by address
+	# for good, with nothing to correct it.
+	if fakeip_engine; then
+		printf 'flush set inet %s dst4\nflush set inet %s dst6\n' "$table" "$table"
+	fi
 	[ ! -s "$work/sources" ] ||
 		printf 'add element inet %s src_ifaces { %s }\n' "$table" "$(quoted_elements "$work/sources")"
 	[ ! -s "$work/src4" ] ||
@@ -231,15 +258,25 @@ write_ruleset() {
 		printf 'add rule inet %s prerouting meta mark & 0x00ff0000 != 0 return\n' "$table"
 	fi
 	for match in 'iifname @src_ifaces' 'ip saddr @src4'; do
-		printf 'add rule inet %s prerouting %s ip daddr @dst4 %s\n' "$table" "$match" "$set_mark"
+		fakeip_engine ||
+			printf 'add rule inet %s prerouting %s ip daddr @dst4 %s\n' "$table" "$match" "$set_mark"
 		printf 'add rule inet %s prerouting %s ip daddr @service4 %s\n' "$table" "$match" "$set_mark"
 	done
-	printf 'add rule inet %s prerouting iifname @src_ifaces ip6 daddr @dst6 %s\n' "$table" "$set_mark"
+	fakeip_engine ||
+		printf 'add rule inet %s prerouting iifname @src_ifaces ip6 daddr @dst6 %s\n' "$table" "$set_mark"
+}
+
+# Whether destination set dst4 or dst6 predates the timeout it now carries.
+dst_set_outdated() {
+	local listing
+	listing="$("$nft_bin" list set inet "$table" "dst$1" 2>/dev/null)" || return 1
+	! printf '%s\n' "$listing" | grep -Eq "^[[:space:]]*timeout $dst_timeout\$"
 }
 
 # In overlay mode the domain sets follow PBR's, which dnsmasq fills.
 copy_pbr_sets() {
 	local family set elements
+	! fakeip_engine || return 0
 	for family in 4 6; do
 		set="$("$nft_bin" list table inet fw4 2>/dev/null |
 			sed -n "s/^[[:space:]]*set \(pbr_ikev2out_${family}_dst_ip_[^[:space:]]*\) {.*/\1/p" |
@@ -268,7 +305,7 @@ dnsmasq_confdirs() {
 # names itself.
 render_nftset() {
 	[ "$(backend)" = native ] || return 0
-	[ "$(uci -q get "$config.domains.engine" 2>/dev/null || echo nftset)" != fakeip ] || return 0
+	! fakeip_engine || return 0
 	# Until an Apply retires it, PBR's domain policy still has dnsmasq fill
 	# its sets, which are copied here; two nftset lines for one name would
 	# leave which set dnsmasq fills to its parser.
@@ -312,10 +349,18 @@ remove_dnsmasq() {
 	[ "$changed" = 0 ] || "$dnsmasq_init" restart >/dev/null 2>&1 || :
 }
 
+# One element per line, without the timeout and expiry nft prints after each.
 set_elements() {
 	"$nft_bin" list set inet "$table" "$1" 2>/dev/null |
 		sed -n '/elements = {/,/}/p' | tr -d '\n\t' |
-		sed 's/.*{//; s/}.*//' | tr ',' '\n' | tr -d ' ' | grep -v '^$'
+		sed -E 's/.*\{//; s/\}.*//; s/ (timeout|expires) [0-9a-z.]+//g' |
+		tr ',' '\n' | tr -d ' ' | grep -v '^$'
+}
+
+# Copies of the destination sets mean nothing when sing-box routes by name.
+drop_set_dumps() {
+	rm -f "$dump_dir/ikev2-routing-dst4.dump" "$dump_dir/ikev2-routing-dst6.dump" \
+		"$persist_dir/routing-dst4.dump" "$persist_dir/routing-dst6.dump"
 }
 
 # What dnsmasq taught the sets survives a firewall reload and, from the
@@ -323,6 +368,10 @@ set_elements() {
 # otherwise reach selected names directly until they ask again.
 dump_sets() {
 	local family
+	if fakeip_engine; then
+		drop_set_dumps
+		return 0
+	fi
 	runtime_owned || return 0
 	for family in 4 6; do
 		set_elements "dst$family" >"$dump_dir/ikev2-routing-dst$family.dump.new" || :
@@ -337,6 +386,7 @@ dump_sets() {
 persist_sets() {
 	local family
 	dump_sets
+	! fakeip_engine || return 0
 	mkdir -p "$persist_dir"
 	for family in 4 6; do
 		[ -s "$dump_dir/ikev2-routing-dst$family.dump" ] || continue
@@ -348,6 +398,10 @@ persist_sets() {
 
 restore_sets() {
 	local family dump elements
+	if fakeip_engine; then
+		drop_set_dumps
+		return 0
+	fi
 	for family in 4 6; do
 		[ -z "$(set_elements "dst$family" | head -n1)" ] || continue
 		dump="$dump_dir/ikev2-routing-dst$family.dump"
@@ -373,7 +427,8 @@ desired_state() {
 		pbr_tunnel="$(printf '0x%08x' "$(( ${values#* } & 0x00ff0000 ))")"
 	fi
 	signature="$({
-		printf 'backend=%s\npbr=%s\nsources\n' "$(backend)" "$pbr_tunnel"
+		printf 'backend=%s\npbr=%s\nfakeip=%s\nsources\n' "$(backend)" "$pbr_tunnel" \
+			"$(fakeip_engine && echo 1 || echo 0)"
 		cat "$work/sources"
 		printf 'src4\n'
 		cat "$work/src4"

@@ -105,7 +105,7 @@ set ikev2-manager.globals.configured='1'
 set ikev2-manager.globals.routing_backend='native'
 set ikev2-manager.globals.device_schema='2'
 set ikev2-manager.domains=domains
-set ikev2-manager.domains.engine='fakeip'
+set ikev2-manager.domains.engine='nftset'
 commit
 EOF
 printf '203.0.113.0/24\n198.51.100.7\n' >/etc/pbr-ikev2-service-cidrs.txt
@@ -141,6 +141,37 @@ nft add chain inet ikev2_routing probe
 "$routing" sync
 "$routing" check || fail 'the repaired runtime failed its check'
 nft list set inet ikev2_routing dst4 | grep -q 192.0.2.9 || fail 'a repair emptied what dnsmasq learned'
+
+step 'learned destinations expire, and a set without a timeout is replaced'
+nft list set inet ikev2_routing dst4 | grep -q 'timeout 7d' || fail 'the destination set has no timeout'
+"$routing" dump
+"$routing" stop
+nft -f - <<'EOF'
+table inet ikev2_routing {
+	chain ikev2_manager_owned { comment "IKEv2 Manager policy routing"; }
+	set dst4 { type ipv4_addr; flags interval; auto-merge; elements = { 192.0.2.9 } }
+}
+EOF
+"$routing" sync || fail 'a destination set from an earlier release stopped the install'
+nft list set inet ikev2_routing dst4 | grep -q 'timeout 7d' || fail 'the old destination set was kept'
+nft list set inet ikev2_routing dst4 | grep -q '192.0.2.9' ||
+	fail 'what dnsmasq had learned was lost with the old set'
+
+step 'recognising by name keeps no destination addresses'
+uci set ikev2-manager.domains.engine='fakeip'
+"$routing" sync
+nft list set inet ikev2_routing dst4 | grep -q '192.0.2.9' &&
+	fail 'FakeIP kept addresses learned by address'
+nft list chain inet ikev2_routing prerouting | grep -q '@dst4' &&
+	fail 'FakeIP still routes by destination address'
+"$routing" persist
+[ ! -e /var/run/ikev2-routing-dst4.dump ] && [ ! -e /etc/ikev2-manager/routing-dst4.dump ] ||
+	fail 'FakeIP kept a copy of the destination addresses'
+"$routing" check || fail 'the FakeIP runtime failed its check'
+uci set ikev2-manager.domains.engine='nftset'
+"$routing" sync
+nft list chain inet ikev2_routing prerouting | grep -q '@dst4' ||
+	fail 'matching by address did not route destination addresses again'
 
 step 'a rule another package deletes by pattern is noticed and restored'
 # Stopping PBR deletes every "lookup main suppress_prefixlength" rule.
