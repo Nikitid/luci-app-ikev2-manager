@@ -46,7 +46,7 @@ ABI.
 - a shared P-256 release key, signed APKs and signed `packages.adb` indexes;
 - a rollback-safe one-time bootstrap for the GitHub Release feed;
 - live validation of preflight, install, doctor, managed enable/disable,
-  Reliable mode, PBR rebuild, DNS rollback and guarded dependency removal.
+  Reliable mode, policy routing rebuild, DNS rollback and guarded dependency removal.
 
 ## Shared signed feed
 
@@ -99,7 +99,7 @@ For every OpenWrt 25.12 update or newly supported target:
 2. verify architecture, SDK identity, signatures and deterministic output;
 3. run bootstrap and dependency-plan simulation against current feeds;
 4. run `preflight`, dependency installation and `doctor` on the target;
-5. test DNS apply/rollback, managed enable/disable, Reliable mode and PBR
-   rebuild;
+5. test DNS apply/rollback, managed enable/disable, Reliable mode and policy
+   routing rebuild;
 6. test full dependency reset and confirm ordinary WAN/DNS remains available;
 7. reboot once and repeat `doctor` plus inbound/outbound smoke tests.

@@ -27,8 +27,6 @@ grep -Fq 'procd_set_param respawn' \
 	"$root/ikev2-manager-runtime/ikev2-user-policy.init"
 grep -Fq 'procd_send_signal ikev2-user-policy' \
 	"$root/ikev2-manager-runtime/ikev2-user-policy.init"
-grep -Fq 'dns_probe_interval=60' "$root/ikev2-manager-runtime/ikev2-health.sh"
-grep -Fq 'pbr_dump_interval=60' "$root/ikev2-manager-runtime/ikev2-health.sh"
 if grep -Fq '/usr/libexec/ikev2-domains-restart' \
 	"$root/ikev2-manager-runtime/ikev2-health.sh"; then
 	printf '%s\n' 'health watcher can still trigger a global PBR rebuild' >&2

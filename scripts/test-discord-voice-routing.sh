@@ -96,7 +96,7 @@ grep -Fq 'type ipv4_addr . inet_service' "$tmp/rules.nft"
 grep -Fq 'udp length 82 @th,64,32 0x00010046' "$tmp/rules.nft"
 grep -Fq 'ip daddr . udp dport @voice_endpoints update @voice_endpoints' "$tmp/rules.nft"
 grep -Fq 'update @voice_endpoints { ip daddr . udp dport timeout 6h }' "$tmp/rules.nft"
-grep -Fq 'meta mark & 0xff00ffff | 0x00020000' "$tmp/rules.nft"
+grep -Fq 'meta mark & 0xf0ffffff | 0x01000000' "$tmp/rules.nft"
 if grep -Eq '104\.25\.158\.178|104\.16\.0\.0|162\.159\.0\.0' "$tmp/rules.nft"; then
 	echo 'Discord voice routing contains a static Cloudflare address' >&2
 	exit 1

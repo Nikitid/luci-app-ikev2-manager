@@ -27,8 +27,7 @@ cat >"$tmp/bin/uci" <<'EOF'
 #!/bin/sh
 [ "$1" = -q ] && shift
 case "$*" in
-	'get ikev2-manager.globals.configured') echo 1 ;;
-	'get ikev2-manager.globals.routing_backend') cat "$S/backend" 2>/dev/null || exit 1 ;;
+	'get ikev2-manager.globals.configured') cat "$S/configured" 2>/dev/null || echo 1 ;;
 	'get ikev2-manager.domains.paused') cat "$S/paused" 2>/dev/null || echo 0 ;;
 	'get ikev2-manager.globals.source_interface') echo lan ;;
 	'get ikev2-manager.globals.wan_interface') echo wan ;;
@@ -200,14 +199,15 @@ restarts() { grep -c restart "$S/dnsmasq.log" 2>/dev/null || echo 0; }
 printf '10.20.20.10\n' >"$tmp/vip4"
 applies() { wc -l <"$S/nft.log" | tr -d ' '; }
 
-# Not selected: nothing is installed, and that is healthy.
-"$helper" sync || fail 'sync failed while not selected'
-[ ! -s "$S/rules4" ] && [ ! -e "$S/nft.rules" ] || fail 'routing was installed while not selected'
-"$helper" check || fail 'an unselected, absent runtime reported unhealthy'
+# Not managed: nothing is installed, and that is healthy.
+printf '0\n' >"$S/configured"
+"$helper" sync || fail 'sync failed while not managed'
+[ ! -s "$S/rules4" ] && [ ! -e "$S/nft.rules" ] || fail 'routing was installed while not managed'
+"$helper" check || fail 'an unmanaged, absent runtime reported unhealthy'
 
-printf 'overlay\n' >"$S/backend"
-"$helper" check && fail 'a selected runtime that is not installed passed the check'
-"$helper" sync || fail 'the overlay did not install'
+rm -f "$S/configured"
+"$helper" check && fail 'a managed runtime that is not installed passed the check'
+"$helper" sync || fail 'policy routing did not install'
 
 # Rules on bits of its own, ahead of PBR.
 grep -qx '28000:	from all lookup main suppress_prefixlength 1' "$S/rules4" || fail 'local routes are not kept ahead of the marks'
@@ -237,8 +237,9 @@ grep -Fq 'add element inet ikev2_routing_test src_ifaces { "br-lan", "ipsec-in" 
 grep -Fq 'add element inet ikev2_routing_test service4 { 198.51.100.7, 203.0.113.0/24 }' "$rules" ||
 	fail 'the service networks were not loaded'
 grep -q '^flush set inet ikev2_routing_test dst4' "$rules" && fail 'a sync would empty what dnsmasq learned'
+# A router moving off PBR keeps what PBR's domain set learned.
 grep -Fq 'add element inet ikev2_routing_test dst4 { 203.0.113.5,203.0.113.9 }' "$S/nft.added" ||
-	fail "the overlay did not copy PBR's domain set"
+	fail "PBR's domain set was not copied on the move off PBR"
 
 # Current, and a no-op to sync again.
 "$helper" check || fail 'a fresh runtime failed the check'
@@ -303,27 +304,28 @@ printf '1\n' >"$S/paused"
 "$helper" check || fail 'a paused runtime reported unhealthy'
 rm -f "$S/paused"
 "$helper" sync
-# Deselection removes everything it owns.
-printf 'pbr\n' >"$S/backend"
+# Leaving managed mode removes everything it owns.
+printf '0\n' >"$S/configured"
 "$helper" sync
-[ ! -s "$S/rules4" ] && [ ! -e "$rules" ] || fail 'switching back to PBR left this installed'
+[ ! -s "$S/rules4" ] && [ ! -e "$rules" ] || fail 'unmanaged mode left policy routing installed'
+rm -f "$S/configured"
 
-# Native: dnsmasq fills the domain sets through a file of ours.
-printf 'native\n' >"$S/backend"
-"$helper" sync || fail 'native mode did not install'
+# Matching by address: dnsmasq fills the domain sets through a file of ours.
+before="$(restarts)"
+"$helper" sync || fail 'policy routing did not install again'
 nftset="$S/dnsmasq.d/ikev2-routing"
 grep -qx 'nftset=/example.com/4#inet#ikev2_routing_test#dst4,6#inet#ikev2_routing_test#dst6' "$nftset" ||
 	fail 'selected names do not fill the domain sets'
 grep -q 'video.example.net' "$nftset" || fail 'a selected name is missing from dnsmasq'
 grep -q 'bad' "$nftset" && fail 'an invalid name reached dnsmasq'
-[ "$(restarts)" = 1 ] || fail 'dnsmasq was not restarted to read its new sets'
-"$helper" check || fail 'a fresh native runtime failed the check'
+[ "$(restarts)" = $((before + 1)) ] || fail 'dnsmasq was not restarted to read its new sets'
+"$helper" check || fail 'a fresh runtime failed the check'
 "$helper" sync
-[ "$(restarts)" = 1 ] || fail 'dnsmasq was restarted without a change'
+[ "$(restarts)" = $((before + 1)) ] || fail 'dnsmasq was restarted without a change'
 printf 'other.example\n' >>"$tmp/domains"
 "$helper" check && fail 'a changed destination list passed the check'
 "$helper" sync
-[ "$(restarts)" = 2 ] && grep -q other.example "$nftset" || fail 'a changed list did not reach dnsmasq'
+[ "$(restarts)" = $((before + 2)) ] && grep -q other.example "$nftset" || fail 'a changed list did not reach dnsmasq'
 
 # Before an Apply retires PBR's domain policy, dnsmasq keeps filling PBR's
 # sets, copied from there; a second nftset line for the same names is not
@@ -336,10 +338,11 @@ rm -f "$S/pbr-domains-policy"
 [ -e "$nftset" ] || fail 'our dnsmasq sets did not follow the retired PBR policy'
 
 # Reliable mode answers those names itself: no file, and dnsmasq told.
+before="$(restarts)"
 printf 'fakeip\n' >"$S/engine"
 "$helper" sync
 [ ! -e "$nftset" ] || fail 'reliable mode kept the dnsmasq sets'
-[ "$(restarts)" = 5 ] || fail 'dnsmasq kept sets that were removed'
+[ "$(restarts)" = $((before + 1)) ] || fail 'dnsmasq kept sets that were removed'
 rm -f "$S/engine"
 "$helper" sync
 
@@ -359,29 +362,26 @@ grep -qx 198.51.100.20 "$S/dst4" || fail 'an empty domain set was not refilled f
 	[ "$(routing_mark_rule tunnel)" = 0x01000000/0x0f000000 ] || fail 'the tunnel mark is not ours in native mode'
 	[ "$(routing_mark_rule wan)" = 0x02000000/0x0f000000 ] || fail 'the WAN mark is not ours in native mode'
 	[ "$(mark_values "$(routing_mark_rule wan)")" = '0xf0ffffff 0x02000000' ] || fail 'the WAN mark does not clear our bits'
-	printf 'pbr\n' >"$S/backend"
-	[ "$(routing_mark_rule tunnel)" = 0x20000/0xff0000 ] || fail "PBR's mark is not used without native routing"
 	. "$root/ikev2-manager-runtime/lib/routing.sh"
-	[ "$(routing_tunnel_table)" = pbr_ikev2out ] || fail "PBR's table is not checked without native routing"
-	printf 'native\n' >"$S/backend"
-	[ "$(routing_tunnel_table)" = 1601 ] || fail 'the fail-closed check does not follow native routing'
+	[ "$(routing_tunnel_table)" = 1601 ] || fail 'the fail-closed check does not check our tunnel table'
 )
 
 # Stopping removes the dnsmasq file too.
-printf 'pbr\n' >"$S/backend"
+printf '0\n' >"$S/configured"
 "$helper" sync
-[ ! -e "$nftset" ] || fail 'the dnsmasq sets outlived native routing'
+[ ! -e "$nftset" ] || fail 'the dnsmasq sets outlived policy routing'
+rm -f "$S/configured"
 
 # Apply with native routing: PBR loses everything of ours and gets the
 # operator's own settings back, restarts once, and a PBR that only this
 # application installed and used is removed at the end.
 (
-	for name in routing_native release_pbr_config pbr_holds_ours retire_pbr_policies \
+	for name in release_pbr_config pbr_holds_ours retire_pbr_policies \
 		remove_unused_pbr pbr_restart_checked; do
 		awk -v name="$name" 'index($0, name "() {") == 1 { body = 1 } body { print } body && $0 == "}" { exit }' \
 			"$root/ikev2-manager-runtime/ikev2-manager-system.sh"
 	done >"$tmp/apply.sh"
-	for name in routing_native release_pbr_config pbr_holds_ours retire_pbr_policies remove_unused_pbr; do
+	for name in release_pbr_config pbr_holds_ours retire_pbr_policies remove_unused_pbr; do
 		grep -q "^$name() {" "$tmp/apply.sh" || fail "the Apply function $name is missing"
 	done
 	config=ikev2-manager
@@ -391,7 +391,6 @@ printf 'pbr\n' >"$S/backend"
 	cp "$root/scripts/uci-stub.sh" "$tmp/apply-bin-uci"
 	chmod 755 "$tmp/apply-bin-uci"
 	uci() { "$tmp/apply-bin-uci" "$@"; }
-	defaultv() { cat "$S/backend"; }
 	device_pbr_clear() { :; }
 	logger() { printf '%s\n' "$*" >>"$S/apply.log"; }
 	pkg_installed() { [ -e "$S/pbr-installed" ]; }
@@ -430,7 +429,6 @@ globals.pbr_saved=1
 globals.pbr_prev_enabled=0
 globals.pbr_prev_ipv6=0
 EOF
-	printf 'native\n' >"$S/backend"
 	retire_pbr_policies || fail 'the PBR configuration could not be released'
 	for section in ikev2pbr_domains ikev2pbr_service_cidrs ikev2pbr_include; do
 		grep -q "^$section" "$UCI_STUB_DIR/pbr" && fail "PBR kept $section"
@@ -458,10 +456,6 @@ EOF
 	remove_unused_pbr
 	[ -e "$S/pbr-installed" ] || fail 'a PBR with an enabled policy of its own was removed'
 	sed -i.bak '/^sample.enabled=1$/d' "$UCI_STUB_DIR/pbr"
-	printf 'pbr\n' >"$S/backend"
-	remove_unused_pbr
-	[ -e "$S/pbr-installed" ] || fail 'PBR was removed while it still routes'
-	printf 'native\n' >"$S/backend"
 	remove_unused_pbr
 	[ ! -e "$S/pbr-installed" ] || fail 'an unused PBR this application installed was kept'
 	grep -qx pbr "$S/owned" && fail 'a removed PBR stayed in the dependency record'
@@ -470,25 +464,7 @@ EOF
 	exit 0
 )
 
-# Without PBR installed the include that the watcher runs every pass still
-# maintains this routing; with PBR selected it needs PBR's table.
-cat >"$tmp/bin/routing-probe" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$1" >>"$S/include.log"
-EOF
-chmod 755 "$tmp/bin/routing-probe"
-if [ ! -e /etc/iproute2/rt_tables ] || ! grep -q pbr_ikev2out /etc/iproute2/rt_tables; then
-	printf 'native\n' >"$S/backend"
-	IKEV2_ROUTING_HELPER="$tmp/bin/routing-probe" sh "$root/ikev2-manager-runtime/pbr.user.ikev2out" ||
-		fail 'the watcher include failed without PBR installed'
-	grep -qx sync "$S/include.log" || fail 'the watcher include skipped the routing without PBR'
-	printf 'pbr\n' >"$S/backend"
-	IKEV2_ROUTING_HELPER="$tmp/bin/routing-probe" sh "$root/ikev2-manager-runtime/pbr.user.ikev2out" &&
-		fail 'the include accepted PBR routing without a PBR table'
-fi
-
 # A table of the same name that is not ours is never taken over.
-printf 'overlay\n' >"$S/backend"
 printf 'table inet ikev2_routing_test { }\n' >"$rules"
 "$helper" sync 2>/dev/null && fail 'a foreign table was taken over'
 grep -q ikev2_manager_owned "$rules" && fail 'a foreign table was replaced'

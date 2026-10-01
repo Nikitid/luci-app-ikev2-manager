@@ -14,10 +14,6 @@ action_lock_status="${IKEV2_ACTION_LOCK_STATUS:-/var/run/ikev2-action.lock.statu
 . "$runtime_lib_dir/tunnel.sh"
 
 status_file='/var/run/ikev2-health.status'
-volatile_set_dump='/var/run/pbr-ikev2-set4.dump'
-persistent_set_dump='/etc/ikev2-manager/pbr-set4.dump'
-volatile_set6_dump='/var/run/pbr-ikev2-set6.dump'
-persistent_set6_dump='/etc/ikev2-manager/pbr-set6.dump'
 probe_state='/var/run/ikev2-health-probe.state'
 probe_interval=20
 dns_probe_state='/var/run/ikev2-dns-segments-probe.state'
@@ -26,8 +22,8 @@ tunnel_dns_probe_state='/var/run/ikev2-tunnel-dns-probe.state'
 tunnel_dns_probe_interval=60
 wan_dns_probe_state='/var/run/ikev2-wan-dns-probe.state'
 wan_dns_probe_interval=60
-pbr_dump_state='/var/run/ikev2-pbr-dump.state'
-pbr_dump_interval=60
+set_dump_state='/var/run/ikev2-set-dump.state'
+set_dump_interval=60
 community_refresh_state='/var/run/ikev2-community-refresh.state'
 community_refresh_interval=900
 quality_sample_state='/var/run/ikev2-quality-sample.state'
@@ -126,11 +122,12 @@ dispatch_checks() {
 			/usr/libexec/ikev2-domain-router tunnel-dns-check
 	periodic_task wan-dns "$wan_dns_probe_state" "$wan_dns_probe_interval" \
 		/usr/libexec/ikev2-manager-system _dns-wan-refresh
-	# The PBR set is copied only between transactions: a copy taken while a
-	# restart refills it would replace a complete snapshot with a partial one.
-	if periodic_due "$(date +%s)" "$pbr_dump_state" "$pbr_dump_interval"; then
-		dump_pbr_sets
-		mark_periodic "$(date +%s)" "$pbr_dump_state"
+	# The destination sets are copied only between transactions: a copy taken
+	# while a restart refills them would replace a complete snapshot with a
+	# partial one.
+	if periodic_due "$(date +%s)" "$set_dump_state" "$set_dump_interval"; then
+		"$routing_helper" dump >/dev/null 2>&1 || :
+		mark_periodic "$(date +%s)" "$set_dump_state"
 	fi
 	# Service lists refresh on their own schedule. The helper decides whether a
 	# refresh is due (after boot, then daily) and queues it detached.
@@ -139,64 +136,10 @@ dispatch_checks() {
 			/usr/libexec/ikev2-domains-community refresh-if-due
 }
 
-domain_set_name() {
-	local family="$1"
-	nft list table inet fw4 2>/dev/null |
-		sed -n "s/^[[:space:]]*set \(pbr_ikev2out_${family}_dst_ip_[^[:space:]]*\) {.*/\1/p" |
-		grep -v '_user$' | head -n1
-}
-
-# Persist the PBR domain set so pbr.user.ikev2out can restore it after a
-# firewall/pbr restart. Without this, clients with warm DNS caches can bypass
-# policy until dnsmasq repopulates the IPv4 and IPv6 sets.
-dump_pbr_set() {
-	local family="$1" dump="$2" set_name
-	set_name="$(domain_set_name "$family")"
-	[ -n "$set_name" ] || return 0
-	nft list set inet fw4 "$set_name" 2>/dev/null |
-		sed -n '/elements = {/,/}/p' | tr -d '\n\t' |
-		sed 's/.*{//; s/}.*//' | tr ',' '\n' |
-		tr -d ' ' | grep -v '^$' >"${dump}.new" || :
-	if [ -s "${dump}.new" ]; then
-		mv "${dump}.new" "$dump"
-	else
-		rm -f "${dump}.new"
-	fi
-}
-
 routing_helper="${IKEV2_ROUTING_HELPER:-/usr/libexec/ikev2-routing}"
 
-dump_pbr_sets() {
-	dump_pbr_set 4 "$volatile_set_dump"
-	dump_pbr_set 6 "$volatile_set6_dump"
-	[ ! -x "$routing_helper" ] || "$routing_helper" dump >/dev/null 2>&1 || :
-}
-
-persist_pbr_sets() {
-	dump_pbr_sets
-	[ ! -x "$routing_helper" ] || "$routing_helper" persist >/dev/null 2>&1 || :
-	mkdir -p "${persistent_set_dump%/*}"
-	if [ -s "$volatile_set_dump" ]; then
-		cp "$volatile_set_dump" "${persistent_set_dump}.new"
-		chmod 600 "${persistent_set_dump}.new"
-		mv "${persistent_set_dump}.new" "$persistent_set_dump"
-	fi
-	if [ -s "$volatile_set6_dump" ]; then
-		cp "$volatile_set6_dump" "${persistent_set6_dump}.new"
-		chmod 600 "${persistent_set6_dump}.new"
-		mv "${persistent_set6_dump}.new" "$persistent_set6_dump"
-	fi
-}
-
 service_cidr_policy_healthy() {
-	if [ "$(uci -q get ikev2-manager.globals.routing_backend 2>/dev/null)" = native ]; then
-		"$routing_helper" check
-		return
-	fi
-	[ -s /etc/pbr-ikev2-service-cidrs.txt ] || return 0
-	[ "$(uci -q get pbr.ikev2pbr_service_cidrs.enabled)" = 1 ] || return 1
-	nft list chain inet fw4 pbr_prerouting 2>/dev/null |
-		grep -q 'comment "IKEv2 PBR service networks"'
+	"$routing_helper" check
 }
 
 ensure_discord_voice_policy() {
@@ -235,7 +178,7 @@ fi
 
 health_cleanup() {
 	trap - EXIT INT TERM
-	persist_pbr_sets
+	"$routing_helper" persist >/dev/null 2>&1 || :
 	pid_lock_release "$health_lock"
 }
 
@@ -259,7 +202,7 @@ while true; do
 		periodic_task quality "$quality_sample_state" "$quality_sample_interval" \
 			/usr/libexec/ikev2-tunnel-quality sample
 	# Configuration transactions own the global action lock. Leave their DNS,
-	# PBR, nftables and strongSwan snapshots untouched; the next watcher pass
+	# routing, nftables and strongSwan snapshots untouched; the next watcher pass
 	# reconciles runtime after the transaction has committed or rolled back.
 	if action_lock_busy; then
 		sleep "$tick"
@@ -285,9 +228,6 @@ while true; do
 	   [ -x /usr/libexec/ikev2-domain-router ]; then
 		/usr/libexec/ikev2-domain-router ensure >/dev/null 2>&1 || :
 	fi
-	# Missing PBR policy is reported, never rebuilt by the watchdog. Current PBR
-	# releases disable forwarding while rebuilding; only an explicit Apply may
-	# start that router-wide transaction.
 	routing_policy_state=ok
 	service_cidr_policy_healthy || routing_policy_state=degraded
 	ensure_discord_voice_policy
@@ -300,7 +240,7 @@ while true; do
 	client_enabled="$(uci -q get ikev2-manager.client.enabled || echo 0)"
 	if [ "$client_enabled" != 1 ]; then
 		rm -f /var/run/ikev2-vip4
-		/usr/share/pbr/pbr.user.ikev2out || :
+		"$routing_helper" sync-all || :
 		state=client-disabled
 		[ "$routing_policy_state" = ok ] || state=degraded
 		printf 'state=%s updated=%s routing_policy=%s\n' \
@@ -317,12 +257,12 @@ while true; do
 
 	if [ "$client_enabled" = 1 ] && has_proxy4; then
 		if /usr/libexec/ikev2-sync-vips &&
-			/usr/share/pbr/pbr.user.ikev2out; then
+			"$routing_helper" sync-all; then
 			now="$(date +%s)"
 			failures="$(probe_failures)"
 			if probe_due "$now"; then
 				# Both endpoints can stall. Keep the probe bounded so a slow
-				# uplink cannot delay the DNS, PBR and fail-closed checks below.
+				# uplink cannot delay the DNS, routing and fail-closed checks below.
 				if tunnel_https_reachable 3 5; then
 					failures=0
 				else
@@ -343,7 +283,7 @@ while true; do
 	elif [ "$client_enabled" = 1 ]; then
 		rm -f "$probe_state"
 		rm -f /var/run/ikev2-vip4
-		/usr/share/pbr/pbr.user.ikev2out || :
+		"$routing_helper" sync-all || :
 		printf 'state=down updated=%s\n' "$(date +%s)" >"$status_file"
 	fi
 

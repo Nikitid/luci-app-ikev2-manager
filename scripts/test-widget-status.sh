@@ -53,7 +53,7 @@ esac
 EOF
 cat >"$tmp/bin/ip" <<'EOF'
 #!/bin/sh
-[ "$*" = '-4 route show table pbr_ikev2out' ] &&
+[ "$*" = '-4 route show table 1601' ] &&
 	echo 'unreachable default metric 32767'
 EOF
 cat >"$tmp/bin/nft" <<'EOF'
@@ -79,9 +79,9 @@ cat >"$tmp/bin/lsmod" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-cat >"$tmp/root/etc/init.d/pbr" <<'EOF'
+cat >"$tmp/root/usr/libexec/ikev2-routing" <<'EOF'
 #!/bin/sh
-[ "$1" = running ]
+[ "$1" = check ]
 EOF
 cat >"$tmp/root/usr/libexec/ikev2-domain-router" <<'EOF'
 #!/bin/sh
@@ -99,7 +99,7 @@ chmod 755 \
 	"$tmp/bin/ip" \
 	"$tmp/bin/nft" \
 	"$tmp/bin/lsmod" \
-	"$tmp/root/etc/init.d/pbr" \
+	"$tmp/root/usr/libexec/ikev2-routing" \
 	"$tmp/root/usr/libexec/ikev2-domain-router"
 
 cat >"$tmp/root/var/run/ikev2-health.status" <<'EOF'
@@ -134,7 +134,7 @@ fi
 for expected in \
 	'health=up' \
 	'configured=1' \
-	'pbr=running' \
+	'routing=running' \
 	'client_enabled=1' \
 	'server_enabled=1' \
 	'interface_present=1' \

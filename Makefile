@@ -30,7 +30,7 @@ endef
 
 define Package/luci-app-ikev2-manager/description
  LuCI application and runtime for an IPv4 IKEv2 client, an optional
- road-warrior IKEv2 server, domain-based PBR, device overrides and
+ road-warrior IKEv2 server, domain-based policy routing, device overrides and
  fail-closed routing on OpenWrt 24.10 and 25.12.
 endef
 
@@ -219,7 +219,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./luci-ikev2-manager/status-widget.js $(1)/www/luci-static/resources/view/status/include/06_ikev2-manager.js
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-manager
-	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v7.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v8.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/view/ikev2-manager/users-v11.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/view/ikev2-manager/settings-v7.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/view/ikev2-manager/client-v7.js
@@ -279,7 +279,8 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v6.js \
 	/www/luci-static/resources/view/ikev2-manager/settings-v6.js \
 	/www/luci-static/resources/view/ikev2-manager/users-v10.js \
-	/www/luci-static/resources/view/ikev2-domains/editor-v7.js
+	/www/luci-static/resources/view/ikev2-domains/editor-v7.js \
+	/www/luci-static/resources/view/ikev2-manager/setup-v7.js
 # Refresh rpcd's ACL registry without restarting the daemon or invalidating
 # active LuCI sessions. New file/exec permissions otherwise remain unavailable
 # until rpcd is reloaded manually or the router is rebooted.
@@ -321,7 +322,7 @@ fi
 # feed-migration end
 # runtime-reconcile begin
 # Install newly introduced owned nftables rules without restarting the network,
-# PBR, strongSwan, dnsmasq or fw4. The helper removes obsolete generated UCI
+# strongSwan, dnsmasq or fw4. The helper removes obsolete generated UCI
 # DNS/DoT sections only after the replacement runtime validates and loads.
 if [ "$$(uci -q get ikev2-manager.globals.configured)" = 1 ]; then
 	if /usr/libexec/ikev2-manager-system _upgrade-reconcile >/dev/null 2>&1 &&

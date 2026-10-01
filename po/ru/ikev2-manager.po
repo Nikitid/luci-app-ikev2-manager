@@ -304,8 +304,8 @@ msgstr "Применяю конфигурацию межсетевого экр�
 msgid "Applying configuration..."
 msgstr "Применяю конфигурацию..."
 
-msgid "Applying firewall, PBR and strongSwan..."
-msgstr "Применяю правила межсетевого экрана, PBR и strongSwan..."
+msgid "Applying firewall, policy routing and strongSwan..."
+msgstr "Применяю правила межсетевого экрана, маршрутизации и strongSwan..."
 
 msgid "Applying inbound server settings..."
 msgstr "Применяю настройки входящего сервера..."
@@ -3190,8 +3190,8 @@ msgstr "Во входных данных DNS-сегмента есть лишн�
 msgid "Destination DNS segment input is incomplete."
 msgstr "Входные данные DNS-сегмента неполные."
 
-msgid "Device routing failed; previous PBR configuration was restored."
-msgstr "Не удалось применить правила устройств; прежняя конфигурация PBR восстановлена."
+msgid "Device routing failed; the previous device settings were restored."
+msgstr "Не удалось применить правила устройств; прежние настройки устройств восстановлены."
 
 msgid "Device routing updated."
 msgstr "Правила устройств обновлены."
@@ -3271,8 +3271,8 @@ msgstr "Не удалось сохранить сведения о владел�
 msgid "Installed strongSwan packages do not form one version cohort"
 msgstr "Установленные пакеты strongSwan относятся к разным версиям"
 
-msgid "Installing strongSwan, PBR, sing-box and XFRM packages..."
-msgstr "Установка пакетов strongSwan, PBR, sing-box и XFRM..."
+msgid "Installing strongSwan, sing-box and XFRM packages..."
+msgstr "Установка пакетов strongSwan, sing-box и XFRM..."
 
 msgid "Legacy dependency ownership could not be upgraded safely"
 msgstr "Устаревшие сведения о владельце компонентов не удалось безопасно обновить"
@@ -4049,3 +4049,9 @@ msgstr "блокирует"
 
 msgid "block-missing"
 msgstr "блокировка отсутствует"
+
+msgid "Policies left in PBR"
+msgstr "Политики, оставшиеся в PBR"
+
+msgid "retired-at-next-apply"
+msgstr "будут сняты при следующем применении"

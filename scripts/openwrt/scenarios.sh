@@ -239,6 +239,88 @@ nft delete table inet ikev2_discord_voice
 : >/etc/pbr-ikev2-community-selected.txt
 /usr/libexec/ikev2-discord-voice sync || fail 'Discord voice routing did not stop when unselected'
 
+# --- a router that routed through PBR ---------------------------------------
+
+step 'an upgrade from a release that routed through PBR routes on its own and leaves PBR alone'
+# What such a release left: our policies, include and interface in PBR, the
+# operator's own PBR settings saved, and no routing of our own.
+"$routing" stop
+cat >/etc/config/pbr <<'EOF'
+config pbr 'config'
+	option enabled '1'
+	option ipv6_enabled '1'
+	option resolver_set 'dnsmasq.nftset'
+	option strict_enforcement '1'
+	list supported_interface 'ikev2out'
+
+config policy 'ikev2pbr_domains'
+	option name 'IKEv2 PBR domains'
+	option interface 'ikev2out'
+	option src_addr '@br-lan'
+	option dest_addr 'file:///etc/pbr-ikev2-domains.txt'
+	option enabled '1'
+
+config policy 'ikev2pbr_service_cidrs'
+	option name 'IKEv2 PBR service networks'
+	option interface 'ikev2out'
+	option src_addr '@br-lan'
+	option dest_addr 'file:///etc/pbr-ikev2-service-cidrs.txt'
+	option enabled '1'
+
+config include 'ikev2pbr_include'
+	option path '/usr/share/pbr/pbr.user.ikev2out'
+	option enabled '1'
+
+config policy 'operator_own'
+	option name 'Operator policy'
+	option interface 'wan'
+	option enabled '0'
+EOF
+cp /etc/config/pbr /tmp/pbr.before
+uci -q batch <<'EOF'
+delete ikev2-manager.globals.routing_backend
+set ikev2-manager.globals.runtime_schema='3'
+set ikev2-manager.globals.pbr_saved='1'
+set ikev2-manager.globals.pbr_prev_enabled='0'
+set ikev2-manager.globals.pbr_prev_ipv6='0'
+commit ikev2-manager
+EOF
+/usr/libexec/ikev2-manager-system _upgrade-reconcile || fail 'the upgrade reconcile failed'
+rules4 | grep -q '^28001:' || fail 'the upgrade did not install policy routing'
+cmp -s /etc/config/pbr /tmp/pbr.before || fail 'the upgrade changed PBR instead of leaving it to the next Apply'
+/usr/libexec/ikev2-manager-system doctor 2>/dev/null | grep -qx 'pbr_policies=notice:retired-at-next-apply' ||
+	fail 'doctor does not say that PBR still holds our policies'
+# PBR sources the include on every reload until the Apply retires it.
+/usr/share/pbr/pbr.user.ikev2out || fail 'the include PBR still runs failed'
+
+step 'the next Apply takes our policies out of PBR and gives the operator theirs back'
+/usr/libexec/ikev2-manager-system _sync-pbr || fail 'the PBR policies could not be retired'
+for section in ikev2pbr_domains ikev2pbr_service_cidrs ikev2pbr_include; do
+	uci -q get "pbr.$section" >/dev/null && fail "PBR kept $section"
+done
+uci -q get pbr.operator_own >/dev/null || fail "the operator's own PBR policy was removed"
+[ "$(uci -q get pbr.config.enabled)" = 0 ] || fail "the operator's PBR switch was not restored"
+uci -q get pbr.config.supported_interface | grep -q ikev2out && fail 'our interface stayed in PBR'
+uci -q get ikev2-manager.globals.pbr_saved >/dev/null && fail 'the saved PBR settings were kept after use'
+rules4 | grep -q '^28001:' || fail 'policy routing was lost when PBR was retired'
+/usr/libexec/ikev2-manager-system doctor 2>/dev/null | grep -q '^pbr_policies=' &&
+	fail 'doctor still reports PBR policies after they were retired'
+rm -f /etc/config/pbr /tmp/pbr.before
+
+step 'device settings change on a router that never had PBR'
+# The rootfs has no conntrack, which every router has; answer as it does when
+# nothing matched.
+if ! command -v conntrack >/dev/null 2>&1; then
+	printf '#!/bin/sh\necho "conntrack v1.4.8 (conntrack-tools): 0 flow entries have been deleted." >&2\nexit 1\n' \
+		>/usr/sbin/conntrack
+	chmod 755 /usr/sbin/conntrack
+fi
+out="$(/usr/libexec/ikev2-devices set-exclusions 192.168.1.61 1 0 0 2>&1)" ||
+	fail "a device setting could not be changed without /etc/config/pbr: $out"
+[ "$(uci -q get ikev2-manager.device_192_168_1_61.route_mode)" = exclude ] ||
+	fail 'the device setting was not saved'
+/usr/libexec/ikev2-devices clear-policy 192.168.1.61 >/dev/null 2>&1 || fail 'the device setting could not be cleared'
+
 # --- device routing, where nft prints rules back differently --------------
 
 step 'device routing verifies what nft printed, not what it wrote'

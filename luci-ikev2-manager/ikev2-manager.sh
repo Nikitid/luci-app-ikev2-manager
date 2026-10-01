@@ -964,7 +964,7 @@ load_profile() {
 				swanctl_quiet --terminate --ike proxy-out --timeout 5 >/dev/null || :
 				initiate_outbound
 				/usr/libexec/ikev2-sync-vips
-				/usr/share/pbr/pbr.user.ikev2out
+				/usr/libexec/ikev2-routing sync-all
 			fi
 			;;
 		*)
@@ -1124,7 +1124,7 @@ apply_all() {
 	"$system_helper" apply
 	swanctl_quiet --load-all >/dev/null
 	/usr/libexec/ikev2-sync-vips || :
-	/usr/share/pbr/pbr.user.ikev2out || :
+	/usr/libexec/ikev2-routing sync-all || :
 }
 
 upgrade_server_profile() {
@@ -1210,10 +1210,7 @@ widget_status_live() {
 	printf 'health=%s\n' \
 		"$(sed -n 's/^state=\([^ ]*\).*/\1/p' "$root/var/run/ikev2-health.status" 2>/dev/null || echo unknown)"
 	printf 'configured=%s\n' "$configured"
-	printf 'pbr=%s\n' \
-		"$([ -x "$root/etc/init.d/pbr" ] &&
-			"$root/etc/init.d/pbr" running && echo running || echo stopped)"
-	printf 'routing_backend=%s\n' "$(getv_default globals routing_backend pbr)"
+	printf 'routing_backend=native\n'
 	printf 'routing=%s\n' "$(routing_state)"
 	printf 'client_enabled=%s\n' "$(getv client enabled)"
 	printf 'server_enabled=%s\n' "$(getv server enabled)"
@@ -1268,22 +1265,15 @@ widget_status_write_cache() {
 	mv "${cache}.new.$$" "$cache"
 }
 
-# Whether the policy routing that sends selected traffic into the tunnel runs:
-# the application's own when it is selected, PBR otherwise.
+# Whether the policy routing that sends selected traffic into the tunnel runs.
 routing_state() {
-	if [ "$(getv_default globals routing_backend pbr)" = native ]; then
-		"${IKEV2_ROUTING_HELPER:-$root/usr/libexec/ikev2-routing}" check >/dev/null 2>&1 &&
-			echo running || echo stopped
-	else
-		[ -x "$root/etc/init.d/pbr" ] && "$root/etc/init.d/pbr" running >/dev/null 2>&1 &&
-			echo running || echo stopped
-	fi
+	"${IKEV2_ROUTING_HELPER:-$root/usr/libexec/ikev2-routing}" check >/dev/null 2>&1 &&
+		echo running || echo stopped
 }
 
-# The table holding the tunnel's unreachable default: the application's own
-# when it routes, PBR's otherwise.
+# The table holding the tunnel's unreachable default.
 killswitch_table() {
-	if [ "$(getv_default globals routing_backend pbr)" = native ]; then echo 1601; else echo pbr_ikev2out; fi
+	echo 1601
 }
 
 widget_status() {
@@ -1335,8 +1325,7 @@ overview() {
 	[ -n "$configured" ] || configured=0
 	[ "$configured" = 1 ] && runtime_mode=managed || runtime_mode=unconfigured
 	printf 'health=%s\n' "$(sed -n 's/^state=\([^ ]*\).*/\1/p' /var/run/ikev2-health.status 2>/dev/null || echo unknown)"
-	printf 'pbr=%s\n' "$([ -x "$root/etc/init.d/pbr" ] && "$root/etc/init.d/pbr" running && echo running || echo stopped)"
-	printf 'routing_backend=%s\n' "$(getv_default globals routing_backend pbr)"
+	printf 'routing_backend=native\n'
 	printf 'routing=%s\n' "$(routing_state)"
 	printf 'configured=%s\n' "$configured"
 	printf 'runtime_mode=%s\n' "$runtime_mode"
@@ -1601,7 +1590,7 @@ connect_action() {
 		/usr/libexec/ikev2-sync-vips || return 1
 		# The policy itself did not change. Refresh only the live PBR table route;
 		# a full PBR restart would rebuild firewall4 and add ~20 seconds.
-		/usr/share/pbr/pbr.user.ikev2out || return 1
+		/usr/libexec/ikev2-routing sync-all || return 1
 		# Apply a changed tunnel-DNS list immediately after the XFRM path exists.
 		# Resolver failure remains fail-closed and must not misreport the healthy
 		# IKEv2 connection itself as failed.
@@ -1609,7 +1598,7 @@ connect_action() {
 		return 0
 	else
 		/usr/libexec/ikev2-sync-vips || :
-		/usr/share/pbr/pbr.user.ikev2out || :
+		/usr/libexec/ikev2-routing sync-all || :
 		return 1
 	fi
 }
@@ -1690,13 +1679,13 @@ ensure_client_action() {
 		# healthy replacement while the VICI request was completing.
 		if has_outbound_sa; then
 			/usr/libexec/ikev2-sync-vips || return 1
-			/usr/share/pbr/pbr.user.ikev2out || return 1
+			/usr/libexec/ikev2-routing sync-all || return 1
 			return 0
 		fi
 	fi
 	initiate_outbound || return 1
 	/usr/libexec/ikev2-sync-vips || return 1
-	/usr/share/pbr/pbr.user.ikev2out || return 1
+	/usr/libexec/ikev2-routing sync-all || return 1
 }
 
 disable_client_action() {
@@ -1707,7 +1696,7 @@ disable_client_action() {
 	swanctl_quiet --terminate --ike proxy-out --timeout 5 >/dev/null 2>&1 || :
 	rm -f /var/run/ikev2-vip4
 	ip -4 addr flush dev ipsec-out scope global 2>/dev/null || :
-	/usr/share/pbr/pbr.user.ikev2out || return 1
+	/usr/libexec/ikev2-routing sync-all || return 1
 	tries=0
 	while [ "$tries" -lt 10 ]; do
 		if ! swanctl --list-conns 2>/dev/null | grep -q 'proxy-out:' &&
@@ -1738,7 +1727,7 @@ server_apply_action() {
 	if [ "$(getv_default client enabled 0)" = 1 ] && has_outbound_sa; then
 		/usr/libexec/ikev2-sync-vips || return 1
 	fi
-	/usr/share/pbr/pbr.user.ikev2out || return 1
+	/usr/libexec/ikev2-routing sync-all || return 1
 	if [ "$enabled" = 1 ]; then
 		swanctl --list-conns 2>/dev/null | grep -q 'ikev2-in:' || return 1
 		swanctl --list-pools 2>/dev/null | grep -q 'router_pool4' || return 1
@@ -1773,7 +1762,7 @@ run_action() {
 
 	case "$kind" in
 		apply)
-			action_status "$id" running 'Applying firewall, PBR and strongSwan...'
+			action_status "$id" running 'Applying firewall, policy routing and strongSwan...'
 			if apply_action; then
 				action_status "$id" ok 'Configuration applied.'
 			else

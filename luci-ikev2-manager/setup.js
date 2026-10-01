@@ -204,8 +204,7 @@ function checkRows(doctor) {
 		fakeip_data_plane: _('FakeIP data plane'),
 		tunnel_vip_placement: _('Tunnel address placement'),
 		nft_tproxy: _('nftables TProxy support'),
-		pbr_service: _('PBR service'),
-		pbr_version: _('PBR version'),
+		pbr_policies: _('Policies left in PBR'),
 		policy_routing_runtime: _('Policy routing runtime'),
 		routing_pause: _('Tunnel pause'),
 		failclosed_route: _('Fail-closed route'),
@@ -279,7 +278,7 @@ function dependencyOverview(rows, detailsOpen) {
 		sing_box_fakeip: true,
 		fakeip_data_plane: true,
 		tunnel_vip_placement: true,
-		pbr_version: true,
+		pbr_policies: true,
 		policy_routing_runtime: true,
 		routing_pause: true,
 		failclosed_route: true,
@@ -621,10 +620,7 @@ return view.extend({
 			reliableButton.textContent = _('Restart reliable mode');
 			reliableButton.disabled = !fakeIp;
 			pbrButton.disabled = value.configured !== '1';
-			if (value.routing_backend === 'native')
-				pbrDetail.textContent = _('Rebuilds the policy routing rules and tables, then verifies the fail-closed routes. Traffic keeps flowing.');
-			else
-				pbrDetail.textContent = _('Rebuilds the firewall and policy routing, then verifies the fail-closed routes. Forwarding stops for about 20 seconds.');
+			pbrDetail.textContent = _('Rebuilds the policy routing rules and tables, then verifies the fail-closed routes. Traffic keeps flowing.');
 			if (!fakeIp)
 				reliableDetail.textContent = _('Reliable mode is not enabled.');
 			else if (restarts && restartedAt)
@@ -821,9 +817,6 @@ return view.extend({
 		});
 
 		pbrButton.addEventListener('click', function() {
-			if (value.routing_backend !== 'native' &&
-			    !window.confirm(_('Restart PBR now? Forwarding stops for about 20 seconds while the firewall and policy routing are rebuilt.')))
-				return;
 			return runSystemAction(pbrButton, 'pbr-restart-async', pbrResult,
 				_('Restarting policy routing...'), _('Policy routing restarted; fail-closed routing verified.'),
 				_('Policy routing restart failed'), _('Restarted'));

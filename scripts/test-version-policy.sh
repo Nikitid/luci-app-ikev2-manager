@@ -40,22 +40,6 @@ printf '%s\n' 'https://downloads.openwrt.org/releases/26.03.1/targets/x/packages
 printf '%s\n' 'https://downloads.openwrt.org/releases/25.12.5/targets/x/packages.adb' |
 	grep -Eq "$(cat "$tmp/pattern")" && fail 'another release series passed the 26.03 feed check'
 
-awk '
-	index($0, "pbr_version_newer() {") == 1 { body = 1 }
-	body { print }
-	body && $0 == "}" { exit }
-' "$root/ikev2-manager-runtime/lib/system-doctor.sh" >"$tmp/pbr.sh"
-grep -q '^pbr_version_newer() {' "$tmp/pbr.sh" || fail 'pbr_version_newer is missing'
-. "$tmp/pbr.sh"
-for version in 1.3.0 1.3.0-r1 2.0.1; do
-	pbr_version_newer "$version" || fail "PBR $version was not treated as newer"
-done
-for version in 1.2.2-r5 1.1.9 garbage ''; do
-	pbr_version_newer "$version" && fail "PBR '$version' was treated as newer"
-done
-grep -q "pbr_version=warn:%s-untested" "$root/ikev2-manager-runtime/lib/system-doctor.sh" ||
-	fail 'a newer PBR is not reported as a warning'
-
 # Both copies of the package preinst: the standalone script and the SDK one.
 mkdir -p "$tmp/bin"
 for command in apk opkg uci ubus fw4; do

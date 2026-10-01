@@ -167,7 +167,7 @@ finding instead of treating application repair as a dependency security fix.
 /usr/libexec/ikev2-manager-system failclosed-check
 /usr/libexec/ikev2-domain-router status
 /usr/libexec/ikev2-user-policy check
-/etc/init.d/pbr status
+/usr/libexec/ikev2-routing status
 swanctl --list-sas
 ```
 
@@ -182,8 +182,8 @@ Healthy outbound routing has:
 
 - an installed `proxy4` CHILD_SA;
 - the assigned virtual IPv4 on `ipsec-out`;
-- a tunnel default and unreachable fallback in `pbr_ikev2out`;
-- PBR, FakeIP and health services running.
+- a tunnel default and unreachable fallback in table 1601;
+- policy routing installed, FakeIP and health services running.
 
 The health watcher performs a small data-plane probe through `ipsec-out`.
 Probe failures are telemetry only: public check endpoints can fail independently
@@ -266,9 +266,8 @@ removes it, and doctor reports `routing_pause=notice:blocking`.
 
 Restart reliable mode restarts the FakeIP resolver the way the watcher does,
 for when the automatic repair is still backing off. Restart policy routing
-rebuilds the rules and tables and verifies both fail-closed routes; with PBR
-still routing it rebuilds the firewall too and forwarding stops for about 20
-seconds. All of these run as background actions under the router action lock,
+rebuilds the rules and tables and verifies both fail-closed routes; traffic
+keeps flowing. All of these run as background actions under the router action lock,
 so the watcher does not act on the runtime in the meantime. From a shell:
 
 ```sh
@@ -287,7 +286,7 @@ the log, not rekeys) and restores are kept as events. History lives in
 
 Operator actions mark themselves in `/var/run/ikev2-quality/marks`. An action
 that can interrupt the tunnel or forwarding - applying router settings,
-changing networks or device routing, restarting PBR, reconnecting or saving
+changing networks or device routing, restarting policy routing, reconnecting or saving
 the tunnel, the raw strongSwan config, the inbound server - opens a window when
 it starts and closes it when its own verification ends, failed or not. A
 sample taken inside a window is maintenance: it is drawn as such and counts
@@ -363,31 +362,31 @@ for IPv4 and IPv6, table 1602 the WAN default. Its chain runs after the
 device table, fw4 and the inbound users' WAN exclusion, and leaves any packet
 another of them has already marked alone.
 
-`globals.routing_backend` selects it. `native`, the default for new installs
-and set by the upgrade to this release, routes with it alone: device modes,
-inbound users' WAN exclusions and Discord voice use its marks, and in Standard
-mode dnsmasq fills its domain sets through `ikev2-routing` in each instance's
-confdir. The upgrade does not rebuild PBR; until the next Apply both route the
-same destinations and the domain sets are copied from PBR's. That Apply takes
+It is the only routing the application does; the pbr package is not needed.
+Device modes, inbound users' WAN exclusions and Discord voice use its marks,
+and when domains are matched by address dnsmasq fills its domain sets through
+a file of `ikev2-routing` in each instance's confdir. `ikev2-routing sync-all`
+syncs it, then device routing and Discord voice, each even when one before
+it fails; the watcher, the WAN hotplug and every apply path run it.
+
+A router upgraded from a release that routed through PBR starts this routing
+at the upgrade, without rebuilding PBR: until the next Apply both route the
+same destinations, ours first, and the domain sets are copied from PBR's;
+doctor reports `pbr_policies=notice:retired-at-next-apply`. That Apply takes
 this application's policies, include and interface out of PBR, restores the
 `pbr.config` options it had changed, and restarts PBR once - or stops it, if
-the operator had it off. When the dependency installer added PBR and it has no
-enabled policy and no package depending on it, the same Apply removes it; a
-PBR the operator installed or still uses stays. `pbr` keeps this stopped and
-routes through PBR as before.
-`overlay` runs it beside PBR at a higher priority, with the domain sets copied
-from PBR's, so both paths can be compared on a live router:
+the operator had it off. When the dependency installer added PBR and it has
+no enabled policy and no package depending on it, the same Apply removes it;
+a PBR the operator installed or still uses stays. `globals.routing_backend`
+from those releases is no longer read. The include
+`/usr/share/pbr/pbr.user.ikev2out` stays installed, since PBR runs it until
+the retirement; it only calls `ikev2-routing sync-all`.
 
 ```sh
-uci set ikev2-manager.globals.routing_backend=overlay
-uci commit ikev2-manager
-/usr/libexec/ikev2-routing sync
+/usr/libexec/ikev2-routing status
 ip route get 149.154.167.50 from 192.168.1.100 iif br-lan mark 0x1000000
 nft list chain inet ikev2_routing prerouting
 ```
-
-Setting it back to `pbr` and running `sync` removes every rule, route and
-table it installed.
 
 When selected domains are matched by address, dnsmasq adds every address it
 answers for them to `dst4` and `dst6`. An address stays for seven days after
@@ -406,9 +405,10 @@ method or by PBR are dropped.
 
 Selected services, custom domains and custom IPv4/CIDR entries are rebuilt
 atomically. In Reliable mode, a domain-only change hot-reloads the local
-sing-box rule-set without restarting DNS or rebuilding PBR. Changes to service
-networks or shared interfaces still reload PBR. Per-device overrides use the
-independent early nftables table and do not reload PBR. Existing
+sing-box rule-set without restarting DNS. Changes to service networks or
+shared interfaces update the policy routing sets; neither rebuilds the
+firewall. Per-device overrides use the independent early nftables table.
+Existing
 matching conntrack sessions are removed after a successful update so they
 cannot retain an older WAN route.
 
@@ -552,7 +552,7 @@ nft list set inet ikev2_discord_voice voice_endpoints
 ```
 
 Full route and Exclude rules are applied atomically and can be checked without
-restarting PBR:
+restarting policy routing:
 
 ```sh
 /usr/libexec/ikev2-device-routing check
@@ -599,7 +599,7 @@ override each managed EAP user:
 - Internet access: inherit, allow or deny;
 - local access: inherit, all configured local zones, selected IPv4/CIDR
   destinations or deny;
-- PBR: inherit the project domain policy or use direct WAN.
+- policy routing: inherit the project domain policy or use direct WAN.
 
 DNS on the router remains reachable for authenticated inbound clients even
 when router access is denied. An additional router-port allowlist can expose a
@@ -709,7 +709,7 @@ switch on the pages.
 The package installs `06_ikev2-manager.js` in the LuCI Status Overview include
 directory, before the standard system widgets that start at `10`. Its three
 summary blocks cover the outbound tunnel, policy routing and inbound server.
-They report live outbound SA state, PBR/domain-routing and fail-closed state,
+They report live outbound SA state, policy and domain routing, fail-closed state,
 policy and excluded-device counts, excluded traffic, inbound-server readiness
 and the active inbound-session count.
 The outbound traffic counters are the accumulated `ipsec-out` interface RX/TX
@@ -770,10 +770,10 @@ phase for more than two minutes as a fault and inspect the status, logs and
 process state before retrying the action.
 
 Policy-list rebuild phases are preparation, optional service-list download,
-combined-list generation and PBR restart. The PBR restart is normally the
-longest phase and can take tens of seconds. Saving an unchanged managed setup
-or unchanged policy list returns after a live health check instead of restarting
-PBR; a failed health check automatically falls back to the full apply path.
+combined-list generation and the policy routing refresh. Saving an unchanged
+managed setup or unchanged policy list returns after a live health check
+instead of refreshing; a failed health check automatically falls back to the
+full apply path.
 
 ## UPnP and dynamic DNS
 
@@ -845,7 +845,7 @@ only from the domain router's saved upstream or from the saved configuration of
 a dnsproxy service that was already running before management began. If neither
 source is available, the reset stops and keeps the working managed DNS state.
 
-XFRM interfaces are brought down after live PBR, firewall and strongSwan
+XFRM interfaces are brought down after live routing, firewall and strongSwan
 references are removed. They are not forcibly deleted during a live cleanup:
 on affected OpenWrt 25 kernels, `ip link del` can block in kernel D-state. A
 down interface has no forwarding path and disappears when its package/module

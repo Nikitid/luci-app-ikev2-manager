@@ -351,7 +351,7 @@ run_install_deps() {
 		cleanup_dnsmasq_transaction
 	fi
 
-	deps_status running 'Installing strongSwan, PBR, sing-box and XFRM packages...'
+	deps_status running 'Installing strongSwan, sing-box and XFRM packages...'
 	install_args="$(runtime_install_arguments $packages | tr '\n' ' ')" || {
 		rollback_dependency_install || true
 		deps_status error 'Installed strongSwan packages do not form one version cohort'

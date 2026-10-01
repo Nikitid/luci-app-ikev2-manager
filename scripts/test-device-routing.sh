@@ -98,8 +98,8 @@ case "$*" in
 	'-f '*)
 		if [ -n "${TEST_NFT_CANONICAL:-}" ]; then
 			# The kernel keeps a mark bit in the AND mask when the OR sets it.
-			sed -e 's/0xff00ffff | 0x00010000/0xff01ffff | 0x00010000/g' \
-				-e 's/0xff00ffff | 0x00020000/0xff02ffff | 0x00020000/g' "$2" >"$TEST_NFT_RULESET"
+			sed -e 's/0xf0ffffff | 0x02000000/0xf2ffffff | 0x02000000/g' \
+				-e 's/0xf0ffffff | 0x01000000/0xf1ffffff | 0x01000000/g' "$2" >"$TEST_NFT_RULESET"
 		else
 			cp "$2" "$TEST_NFT_RULESET"
 		fi
@@ -128,8 +128,8 @@ export IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib"
 grep -Fq 'chain ikev2_manager_owned' "$tmp/rules.nft"
 grep -Fq 'elements = { 192.168.50.4 }' "$tmp/rules.nft"
 grep -Fq 'elements = { 192.168.50.9 }' "$tmp/rules.nft"
-grep -Fq 'ip saddr 192.168.50.9 meta mark set meta mark & 0xff00ffff | 0x00010000 counter accept comment "ikev2-device:exclude:192.168.50.9"' "$tmp/rules.nft"
-grep -Fq 'ip saddr 192.168.50.4 meta mark set meta mark & 0xff00ffff | 0x00020000 counter accept comment "ikev2-device:fullroute:192.168.50.4"' "$tmp/rules.nft"
+grep -Fq 'ip saddr 192.168.50.9 meta mark set meta mark & 0xf0ffffff | 0x02000000 counter accept comment "ikev2-device:exclude:192.168.50.9"' "$tmp/rules.nft"
+grep -Fq 'ip saddr 192.168.50.4 meta mark set meta mark & 0xf0ffffff | 0x01000000 counter accept comment "ikev2-device:fullroute:192.168.50.4"' "$tmp/rules.nft"
 "$helper" check
 "$helper" sync
 [ "$(wc -l <"$tmp/nft.log" | tr -d ' ')" = 1 ]
@@ -181,8 +181,8 @@ grep -Fq 'elements = { 192.168.60.5 }' "$tmp/rules.nft"
 grep -Fq 'elements = { 192.168.60.9 }' "$tmp/rules.nft"
 grep -Fq 'ct original ip saddr @dpi_bypass_ipv4 ct mark & 0x40000000 != 0 meta mark set meta mark | 0x40000000 counter comment "ikev2-device:dpi-restore"' "$tmp/rules.nft"
 grep -Fq 'ip saddr 192.168.60.9 ct mark set ct mark | 0x40000000 meta mark set meta mark | 0x40000000 counter comment "ikev2-device:dpi:192.168.60.9"' "$tmp/rules.nft"
-grep -Fq 'ip saddr 192.168.60.9 meta mark set meta mark & 0xff00ffff | 0x00010000 counter accept comment "ikev2-device:exclude:192.168.60.9"' "$tmp/rules.nft"
-grep -Fq 'ip saddr 192.168.60.5 meta mark set meta mark & 0xff00ffff | 0x00020000 counter accept comment "ikev2-device:fullroute:192.168.60.5"' "$tmp/rules.nft"
+grep -Fq 'ip saddr 192.168.60.9 meta mark set meta mark & 0xf0ffffff | 0x02000000 counter accept comment "ikev2-device:exclude:192.168.60.9"' "$tmp/rules.nft"
+grep -Fq 'ip saddr 192.168.60.5 meta mark set meta mark & 0xf0ffffff | 0x01000000 counter accept comment "ikev2-device:fullroute:192.168.60.5"' "$tmp/rules.nft"
 grep -Fq 'elements = { 192.168.60.5, 192.168.60.9 }' "$tmp/rules.nft"
 grep -Fq 'elements = { "br-lan", "ipsec-in" }' "$tmp/rules.nft"
 grep -Fq 'elements = { "eth0" }' "$tmp/rules.nft"
@@ -222,7 +222,7 @@ TEST_NFT_CANONICAL=1
 export TEST_NFT_CANONICAL
 rm -f "$IKEV2_DEVICE_SIGNATURE"
 "$helper" sync
-grep -Fq '0xff02ffff | 0x00020000' "$tmp/rules.nft"
+grep -Fq '0xf1ffffff | 0x01000000' "$tmp/rules.nft"
 "$helper" check || { printf '%s\n' "the kernel's rendering of a rule failed the check" >&2; exit 1; }
 "$helper" sync
 [ "$(wc -l <"$tmp/nft.log" | tr -d ' ')" = 3 ] ||
@@ -287,7 +287,7 @@ fi
 "$helper" sync
 grep -Fq 'comment "ikev2-device:fullroute:192.168.60.5"' "$tmp/rules.nft"
 [ "$(wc -l <"$tmp/nft.log" | tr -d ' ')" = 7 ]
-sed 's/0x00020000 counter accept comment "ikev2-device:fullroute:192.168.60.5"/0x00030000 counter accept comment "ikev2-device:fullroute:192.168.60.5"/' \
+sed 's/0x01000000 counter accept comment "ikev2-device:fullroute:192.168.60.5"/0x03000000 counter accept comment "ikev2-device:fullroute:192.168.60.5"/' \
 	"$tmp/rules.nft" >"$tmp/rules.wrong-mark"
 mv "$tmp/rules.wrong-mark" "$tmp/rules.nft"
 if "$helper" check >/dev/null 2>&1; then

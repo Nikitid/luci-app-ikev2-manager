@@ -111,10 +111,6 @@ add_list_unique() {
 	uci add_list "$package.$section.$option=$value"
 }
 
-domain_file_has_entries() {
-	awk 'NF && $1 !~ /^#/ { found = 1 } END { exit found ? 0 : 1 }' "$1" 2>/dev/null
-}
-
 delete_prefixed_sections() {
 	local package prefix section
 	package="$1"
@@ -194,14 +190,10 @@ reconcile_upgrade_runtime() {
 	   [ -x "$domain_router_helper" ]; then
 		"$domain_router_helper" refresh || return 1
 	fi
-	# Routing moves off PBR on upgrade. PBR is not rebuilt now: until the next
-	# Apply retires our policies there, both route the same destinations and
-	# the domain sets are copied from PBR's. The device and inbound runtimes
-	# below then take the new marks.
-	if [ -z "$(getv globals routing_backend)" ]; then
-		uci set "$config.globals.routing_backend=native" || return 1
-		uci commit "$config" || return 1
-	fi
+	# A release that routed through PBR is moved off it here. PBR is not
+	# rebuilt now: until the next Apply retires our policies there, both route
+	# the same destinations, ours first, and the domain sets are copied from
+	# PBR's. The device and inbound runtimes below then take the new marks.
 	[ ! -x "$routing_runtime_helper" ] || "$routing_runtime_helper" sync || return 1
 	sync_device_runtime || return 1
 	sync_inbound_user_policy || return 1
@@ -767,9 +759,6 @@ sync_inbound_user_policy() {
 	fi
 }
 
-routing_native() {
-	[ "$(defaultv globals routing_backend pbr)" = native ]
-}
 
 # Takes this application's policies, include and interface out of PBR and
 # puts back the pbr.config options it changed on first use, as the operator
@@ -823,7 +812,6 @@ retire_pbr_policies() {
 # with an enabled policy or a package depending on it, stays.
 remove_unused_pbr() {
 	local policies
-	routing_native || return 0
 	pkg_installed pbr || return 0
 	deps_state_has owned-packages pbr || return 0
 	policies="$(uci -q show pbr 2>/dev/null |
@@ -844,115 +832,13 @@ remove_unused_pbr() {
 		logger -t ikev2-manager 'policy routing could not be restored after removing PBR' 2>/dev/null || true
 }
 
+# The application routes on its own (ikev2-routing). What a release that
+# routed through PBR left there is released first: our policies, include and
+# interface leave PBR, and pbr.config gets back the options it had; PBR is
+# restarted once without them by pbr_restart_checked.
 sync_pbr() {
-	if routing_native; then
-		retire_pbr_policies || die 'Unable to release the PBR configuration'
-		"$routing_runtime_helper" sync || die 'Policy routing failed to load'
-		return 0
-	fi
-	domain_file='/etc/pbr-ikev2-domains.txt'
-	service_cidr_file='/etc/pbr-ikev2-service-cidrs.txt'
-	manual_file='/etc/pbr-ikev2-domains.manual.txt'
-	source_interfaces="$(get_list globals source_interface)"
-	src=''
-	for interface in $source_interfaces; do
-		device="$(network_device "$interface" || true)"
-		[ -n "$device" ] || die "Unable to resolve network device for '$interface'"
-		src="${src:+$src }@$device"
-	done
-	# Inbound VPN-server clients (ipsec-in) follow the domain policy like local
-	# networks only when both the server is enabled and the "VPN server" network
-	# is selected in Network Integration (globals.source_include_vpn, default on).
-	if [ "$(getv server enabled)" = 1 ] &&
-		[ "$(defaultv globals source_include_vpn 1)" = 1 ]; then
-		src="${src:+$src }@ipsec-in"
-	fi
-	# Per-device settings live in the application's own sections. Importing the
-	# previous representation here means an upgraded package converts on its
-	# first apply, without a separate migration step the operator has to run.
-	if ! device_schema_ready; then
-		device_migrate || die 'Unable to import device routing policies'
-		uci commit "$config" || die 'Unable to save device routing policies'
-	fi
-	device_sources="$(device_addresses domain)" ||
-		die 'Device routing configuration is not valid'
-	for device_source in $device_sources; do
-		case " $src " in
-			*" $device_source "*) ;;
-			*) src="${src:+$src }$device_source" ;;
-		esac
-	done
-
-	# Snapshot the user's original pbr.config once, so disabling managed mode can
-	# restore it. Enabling PBR globally and not reverting it broke routers where
-	# PBR was intentionally disabled.
-	if [ "$(uci -q get "$config.globals.pbr_saved" 2>/dev/null)" != 1 ]; then
-		uci set "$config.globals.pbr_prev_enabled=$(uci -q get pbr.config.enabled 2>/dev/null || echo 0)"
-		uci set "$config.globals.pbr_prev_ipv6=$(uci -q get pbr.config.ipv6_enabled 2>/dev/null || echo 0)"
-		uci set "$config.globals.pbr_prev_resolver=$(uci -q get pbr.config.resolver_set 2>/dev/null || true)"
-		uci set "$config.globals.pbr_prev_strict=$(uci -q get pbr.config.strict_enforcement 2>/dev/null || true)"
-		uci set "$config.globals.pbr_saved=1"
-		uci commit "$config"
-	fi
-	uci set pbr.config.enabled='1'
-	# The IKEv2 tunnel is IPv4-only. Enabling IPv6 processing makes PBR create
-	# an unreachable IPv6 route for this interface, so selected AAAA destinations
-	# fail closed and clients fall back to IPv4 through the tunnel.
-	uci set pbr.config.ipv6_enabled='1'
-	uci set pbr.config.resolver_set='dnsmasq.nftset'
-	uci set pbr.config.strict_enforcement='1'
-	add_list_unique pbr config supported_interface ikev2out
-
-	# PBR 1.2.x reads file:// policies through curl. Keep the active merged
-	# file present before PBR starts, and avoid enabling an empty domain policy.
-	if [ ! -s "$domain_file" ]; then
-		if [ -x /usr/libexec/ikev2-domains-community ]; then
-			/usr/libexec/ikev2-domains-community apply >/dev/null 2>&1 || true
-		fi
-		if [ ! -s "$domain_file" ] && [ -s "$manual_file" ]; then
-			cp "$manual_file" "${domain_file}.tmp"
-			chmod 600 "${domain_file}.tmp"
-			mv "${domain_file}.tmp" "$domain_file"
-		fi
-	fi
-
-	uci -q delete pbr.ikev2pbr_domains || true
-	uci set pbr.ikev2pbr_domains=policy
-	uci set pbr.ikev2pbr_domains.name='IKEv2 PBR domains'
-	uci set pbr.ikev2pbr_domains.interface='ikev2out'
-	uci set "pbr.ikev2pbr_domains.src_addr=$src"
-	uci set pbr.ikev2pbr_domains.dest_addr='file:///etc/pbr-ikev2-domains.txt'
-	uci set pbr.ikev2pbr_domains.proto='all'
-	if domain_file_has_entries "$domain_file"; then
-		uci set pbr.ikev2pbr_domains.enabled='1'
-	else
-		uci set pbr.ikev2pbr_domains.enabled='0'
-	fi
-
-	uci -q delete pbr.ikev2pbr_service_cidrs || true
-	uci set pbr.ikev2pbr_service_cidrs=policy
-	uci set pbr.ikev2pbr_service_cidrs.name='IKEv2 PBR service networks'
-	uci set pbr.ikev2pbr_service_cidrs.interface='ikev2out'
-	uci set "pbr.ikev2pbr_service_cidrs.src_addr=$src"
-	uci set pbr.ikev2pbr_service_cidrs.dest_addr='file:///etc/pbr-ikev2-service-cidrs.txt'
-	uci set pbr.ikev2pbr_service_cidrs.proto='all'
-	if domain_file_has_entries "$service_cidr_file"; then
-		uci set pbr.ikev2pbr_service_cidrs.enabled='1'
-	else
-		uci set pbr.ikev2pbr_service_cidrs.enabled='0'
-	fi
-
-	uci -q delete pbr.ikev2pbr_include || true
-	uci set pbr.ikev2pbr_include=include
-	uci set pbr.ikev2pbr_include.path='/usr/share/pbr/pbr.user.ikev2out'
-	uci set pbr.ikev2pbr_include.enabled='1'
-
-	# Device overrides live in the independent early nftables table. Remove the
-	# legacy duplicate PBR sections so they cannot lengthen global rebuilds.
-	device_pbr_render ikev2pbr_domains \
-		'file:///etc/pbr-ikev2-domains.txt file:///etc/pbr-ikev2-service-cidrs.txt' ||
-		die 'Unable to remove legacy per-device PBR policies'
-	uci commit pbr
+	retire_pbr_policies || die 'Unable to release the PBR configuration'
+	"$routing_runtime_helper" sync || die 'Policy routing failed to load'
 }
 
 backup_root="${IKEV2_BACKUP_ROOT:-/etc/ikev2-manager/backups}"
@@ -1051,8 +937,8 @@ restore_uci_state() {
 			/etc/init.d/"$service" stop >/dev/null 2>&1 || restored=0
 		fi
 	done <"$dir/services.state"
-	[ ! -x /usr/share/pbr/pbr.user.ikev2out ] ||
-		/usr/share/pbr/pbr.user.ikev2out >/dev/null 2>&1 || restored=0
+	[ ! -x /usr/libexec/ikev2-routing ] ||
+		/usr/libexec/ikev2-routing sync-all >/dev/null 2>&1 || restored=0
 	sync_inbound_user_policy >/dev/null 2>&1 || restored=0
 	if [ "$(getv globals configured)" = 1 ]; then
 		[ ! -x "$device_runtime_helper" ] ||
@@ -1071,12 +957,10 @@ pbr_restart_checked() {
 	local tries=0
 	# Nothing of ours is left in PBR to rebuild, unless it was just retired;
 	# then PBR restarts without it, or stops if the operator had it off.
-	if routing_native; then
-		[ "${pbr_restart_needed:-0}" = 1 ] && [ -x /etc/init.d/pbr ] || return 0
-		if [ "$(uci -q get pbr.config.enabled 2>/dev/null || echo 0)" != 1 ]; then
-			/etc/init.d/pbr stop >/dev/null 2>&1 || :
-			return 0
-		fi
+	[ "${pbr_restart_needed:-0}" = 1 ] && [ -x /etc/init.d/pbr ] || return 0
+	if [ "$(uci -q get pbr.config.enabled 2>/dev/null || echo 0)" != 1 ]; then
+		/etc/init.d/pbr stop >/dev/null 2>&1 || :
+		return 0
 	fi
 	logger -t ikev2-pbr-action "begin owner=manager action=restart pid=$$" 2>/dev/null || true
 	/etc/init.d/pbr restart >/dev/null 2>&1 || true
@@ -1101,29 +985,17 @@ pbr_restart_checked() {
 # routes.
 pbr_restart_manual() {
 	[ "$(getv globals configured)" = 1 ] || die 'Managed mode is not configured'
-	# With the application's own routing there is nothing to rebuild in PBR:
-	# the routing runtime is reinstalled from scratch instead, and the checks
-	# are the same. Forwarding does not stop.
-	if routing_native; then
-		logger -t ikev2-manager 'manual policy routing rebuild requested' 2>/dev/null || true
-		"$routing_runtime_helper" stop >/dev/null 2>&1 || die 'Policy routing could not be stopped for the rebuild'
-		"$routing_runtime_helper" sync >/dev/null 2>&1 || die 'Policy routing did not come back after the rebuild'
-		sync_device_runtime || die 'Device policy failed to load after the rebuild'
-		sync_inbound_user_policy || die 'Inbound user policy failed to load after the rebuild'
-		failclosed_check >/dev/null || die 'Fail-closed route validation failed after the rebuild'
-		failclosed_ipv6_check >/dev/null ||
-			die 'IPv6 fail-closed route validation failed after the rebuild'
-		return 0
-	fi
-	logger -t ikev2-pbr-action 'manual PBR restart requested' 2>/dev/null || true
-	pbr_restart_checked || die 'PBR did not come back after the restart'
-	ensure_forward_chain || die 'fw4 forward chain has no zone forwarding after the PBR restart'
-	sync_device_runtime || die 'Device policy failed to load after the PBR restart'
-	sync_inbound_user_policy || die 'Inbound user policy failed to load after the PBR restart'
-	/usr/share/pbr/pbr.user.ikev2out >/dev/null 2>&1 || true
-	failclosed_check >/dev/null || die 'PBR fail-closed route validation failed after the restart'
+	# There is nothing to rebuild in PBR: the routing runtime is reinstalled
+	# from scratch instead and checked as Apply checks it. Forwarding does not
+	# stop.
+	logger -t ikev2-manager 'manual policy routing rebuild requested' 2>/dev/null || true
+	"$routing_runtime_helper" stop >/dev/null 2>&1 || die 'Policy routing could not be stopped for the rebuild'
+	"$routing_runtime_helper" sync >/dev/null 2>&1 || die 'Policy routing did not come back after the rebuild'
+	sync_device_runtime || die 'Device policy failed to load after the rebuild'
+	sync_inbound_user_policy || die 'Inbound user policy failed to load after the rebuild'
+	failclosed_check >/dev/null || die 'Fail-closed route validation failed after the rebuild'
 	failclosed_ipv6_check >/dev/null ||
-		die 'PBR IPv6 fail-closed route validation failed after the restart'
+		die 'IPv6 fail-closed route validation failed after the rebuild'
 }
 
 routing_paused() {
@@ -1295,8 +1167,8 @@ apply_system_inner() {
 	sync_pbr
 	firewall_check_strict || die 'firewall4 validation failed'
 	pbr_restart_checked ||
-		die 'PBR failed to rebuild; check /tmp/ikev2-manager-doctor.last and logread'
-	fw4 -q reload || die 'firewall4 reload failed after PBR restart'
+		die 'PBR did not come back after the application left it; check logread'
+	fw4 -q reload || die 'firewall4 reload failed'
 	sync_device_runtime || die 'Device policy failed to load'
 	sync_inbound_user_policy || die 'Inbound user policy failed to load'
 	ensure_forward_chain ||
@@ -1368,7 +1240,7 @@ apply_server_runtime() {
 	[ "$(getv globals configured)" = 1 ] ||
 		die 'Base setup is not enabled'
 	[ "$needs_pbr" = 0 ] || [ "$needs_pbr" = 1 ] ||
-		die 'Invalid server PBR-change flag'
+		die 'Invalid server routing-change flag'
 	validate_runtime_config
 	sync_firewall
 	# The interfaces first: enabling the server routes its pool through
@@ -1380,9 +1252,9 @@ apply_server_runtime() {
 	fi
 	firewall_check_strict || die 'firewall4 validation failed'
 	if [ "$needs_pbr" = 1 ]; then
-		pbr_restart_checked || die 'PBR failed to rebuild after server policy change'
+		pbr_restart_checked || die 'PBR did not come back after the application left it; check logread'
 		failclosed_ipv6_check >/dev/null ||
-			die 'PBR IPv6 fail-closed route validation failed after server change'
+			die 'IPv6 fail-closed route validation failed after the server change'
 	fi
 	fw4 -q reload || die 'firewall4 reload failed'
 	sync_device_runtime || die 'Device policy failed to load'
@@ -1421,7 +1293,7 @@ show_config() {
 		domain_status="$(/usr/libexec/ikev2-domain-router status 2>/dev/null || true)"
 	fi
 	printf 'configured=%s\n' "$(getv globals configured)"
-	printf 'routing_backend=%s\n' "$(defaultv globals routing_backend pbr)"
+	printf 'routing_backend=native\n'
 	printf 'routing_paused=%s\n' "$(defaultv domains paused 0)"
 	printf 'version=%s\n' \
 		"$(cat /usr/share/ikev2-manager/version 2>/dev/null || echo unknown)"
@@ -1729,10 +1601,12 @@ run_action() {
 			;;
 		device)
 			action_status "$id" running 'Applying and verifying device routing...'
-			if /usr/libexec/ikev2-devices "$@"; then
+			if /usr/libexec/ikev2-devices "$@" 2>"$step_error"; then
+				rm -f "$step_error"
 				action_status "$id" ok 'Device routing updated.'
 			else
-				action_status "$id" error 'Device routing failed; previous PBR configuration was restored.'
+				action_status "$id" error "$(action_error_message "$step_error" \
+					'Device routing failed; the previous device settings were restored.')"
 			fi
 			;;
 		routing-pause)

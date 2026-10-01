@@ -168,9 +168,6 @@ fi
 # The stored timeout is a request; the effective one is reported beside it.
 grep -Fq 'timeout_effective=' "$system"
 grep -Fq 'dns_runtime_timeout "$current_fallback"' "$system"
-grep -Fq "uci set pbr.config.ipv6_enabled='1'" "$system"
-grep -Fq 'ensure_failclosed_default 6' \
-	"$root/ikev2-manager-runtime/pbr.user.ikev2out"
 
 grep -Fq "field in engine service dnsmasq_upstream dnsmasq_cache nft rule healthy data_plane data_plane_restarts data_plane_restarted_at state message" "$system"
 grep -Fq "Reliable-mode nftables rules are missing." \
@@ -260,10 +257,13 @@ case "$command:$*" in
 	'get:ikev2-manager.dnsseg_private.https_compat') echo 0 ;;
 	'get:ikev2-manager.dnsseg_private.domains') echo 'internal.example' ;;
 	'get:ikev2-manager.dnsseg_private.port') echo 5551 ;;
-	'get:pbr.ikev2pbr_domains.src_addr') echo 192.168.1.0/24 ;;
+	'get:ikev2-manager.globals.device_schema') echo 2 ;;
+	'get:ikev2-manager.device_192_168_1_0_24.address') echo 192.168.1.0/24 ;;
+	'get:ikev2-manager.device_192_168_1_0_24.route_mode') echo domain ;;
 	'show:ikev2-manager')
 		echo 'ikev2-manager.dnsseg_national=dns_segment'
 		echo 'ikev2-manager.dnsseg_private=dns_segment'
+		echo 'ikev2-manager.device_192_168_1_0_24=device_policy'
 		;;
 	'show:pbr') ;;
 	*) exit 1 ;;
@@ -273,8 +273,9 @@ cat >"$tmp/bin/sing-box" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = check ] && [ "${2:-}" = -c ] && [ -s "${3:-}" ]
 EOF
+printf '#!/bin/sh\nexit 0\n' >"$tmp/bin/ipcalc.sh"
 chmod 755 "$tmp/bin/uci"
-chmod 755 "$tmp/bin/sing-box"
+chmod 755 "$tmp/bin/sing-box" "$tmp/bin/ipcalc.sh"
 printf '%s\n' example.com >"$tmp/domains.txt"
 PATH="$tmp/bin:$PATH" \
 IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib" \

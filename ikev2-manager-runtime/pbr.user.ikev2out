@@ -1,110 +1,16 @@
 #!/bin/sh
 
+# PBR includes this file. Releases that routed through PBR registered it as an
+# include, and a router keeps that registration until its next Apply retires
+# the application's PBR policies; PBR would fail to start if the file were
+# gone. It maintains nothing of PBR's any more: it syncs the application's own
+# routing, as every PBR reload did before.
+
 ikev2_pbr_main() {
-. "${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}/routing.sh"
-ikev2_table_id=''
-for ikev2_rt_file in /etc/iproute2/rt_tables /etc/iproute2/rt_tables.d/*; do
-	[ -r "$ikev2_rt_file" ] || continue
-	ikev2_table_id="$(awk '$2 == "pbr_ikev2out" { print $1; exit }' "$ikev2_rt_file")"
-	[ -z "$ikev2_table_id" ] || break
-done
-# Without PBR only the application's own routing is left to maintain.
-if [ -z "$ikev2_table_id" ]; then
-	[ "$(uci -q get ikev2-manager.globals.routing_backend 2>/dev/null)" = native ] || return 1
-fi
 [ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || return 0
-if [ -n "$ikev2_table_id" ]; then
-	ensure_failclosed_default 4 "$ikev2_table_id" || return 1
-	if [ "$(uci -q get pbr.config.ipv6_enabled 2>/dev/null || echo 0)" = 1 ]; then
-		ensure_failclosed_default 6 "$ikev2_table_id" || return 1
-	fi
-
-	# Refill the domain set from the ikev2-health dump after a firewall/pbr
-	# restart flushed it. Restore happens regardless of tunnel state: marked
-	# traffic is held by the unreachable PBR default instead of leaking.
-	# IPv6 destinations are restored too. PBR marks them into an unreachable IPv6
-	# table because the outbound tunnel is IPv4-only.
-	# This file is sourced by PBR, so variables are prefixed to avoid clashes.
-	# PBR overrides the `nft` command while sourcing includes (it appends every
-	# `nft ...` call into its generated ruleset, which breaks `nft -f` and makes
-	# PBR fail to start). Call the binary by full path to actually execute, the
-	# same way PBR's own pbr.user.dnsprefetch example does.
-	ikev2_nft='/usr/sbin/nft'
-	for ikev2_family in 4 6; do
-		ikev2_set="$(
-			"$ikev2_nft" list table inet fw4 2>/dev/null |
-				sed -n "s/^[[:space:]]*set \(pbr_ikev2out_${ikev2_family}_dst_ip_[^[:space:]]*\) {.*/\1/p" |
-				grep -v '_user$' | head -n1
-		)"
-		ikev2_dump="/var/run/pbr-ikev2-set${ikev2_family}.dump"
-		[ -s "$ikev2_dump" ] ||
-			ikev2_dump="/etc/ikev2-manager/pbr-set${ikev2_family}.dump"
-		if [ -n "$ikev2_set" ] &&
-			[ -s "$ikev2_dump" ] &&
-			! "$ikev2_nft" list set inet fw4 "$ikev2_set" 2>/dev/null | grep -q 'elements'; then
-			ikev2_elements="$(tr '\n' ',' <"$ikev2_dump" | sed 's/,$//')"
-			[ -n "$ikev2_elements" ] &&
-				"$ikev2_nft" add element inet fw4 "$ikev2_set" "{ $ikev2_elements }" 2>/dev/null || :
-		fi
-	done
-
-	for ikev2_interface in $(uci -q get ikev2-manager.globals.source_interface); do
-		ikev2_device="$(ubus call "network.interface.$ikev2_interface" status 2>/dev/null |
-			jsonfilter -e '@.l3_device' 2>/dev/null || true)"
-		[ -n "$ikev2_device" ] ||
-			ikev2_device="$(ubus call "network.interface.$ikev2_interface" status 2>/dev/null |
-				jsonfilter -e '@.device' 2>/dev/null || true)"
-		[ -n "$ikev2_device" ] ||
-			ikev2_device="$(uci -q get "network.$ikev2_interface.device" 2>/dev/null || true)"
-		[ -n "$ikev2_device" ] || continue
-		ikev2_subnet="$(
-			ip -4 route show dev "$ikev2_device" scope link 2>/dev/null |
-				awk '$1 ~ /^[0-9.]+\/[0-9]+$/ { print $1; exit }'
-		)"
-		if [ -n "$ikev2_subnet" ]; then
-			ip -4 route replace "$ikev2_subnet" dev "$ikev2_device" table "$ikev2_table_id" || return 1
-		fi
-	done
-
-	if [ "$(uci -q get ikev2-manager.server.enabled)" = 1 ]; then
-		ikev2_inbound_subnet="$(/usr/libexec/ikev2-manager-system gateway-network 2>/dev/null || true)"
-		if [ -n "$ikev2_inbound_subnet" ]; then
-			ip -4 route replace "$ikev2_inbound_subnet" dev ipsec-in table "$ikev2_table_id" || return 1
-		fi
-	fi
-
-	if [ -s /var/run/ikev2-vip4 ] &&
-		ip link show ipsec-out 2>/dev/null | grep -q 'UP' &&
-	   /usr/libexec/ikev2-sa installed proxy-out proxy4 &&
-	   ip -4 addr show dev ipsec-out 2>/dev/null |
-		grep -Fq "$(cat /var/run/ikev2-vip4)/"; then
-		ip -4 route replace default dev ipsec-out metric 10 table "$ikev2_table_id" || return 1
-	else
-		if ip -4 route show table "$ikev2_table_id" | grep -q '^default dev ipsec-out'; then
-			ip -4 route del default dev ipsec-out table "$ikev2_table_id" || return 1
-		fi
-	fi
-fi
-
-# Each runtime is synced even when one before it fails: a failing Discord
-# voice sync used to leave policy routing uninstalled after every boot.
-ikev2_failed=0
-# Learn Discord's literal UDP voice endpoints without static service or
-# Cloudflare ranges. The helper derives the current PBR mark and uses the same
-# unreachable tunnel table when the CHILD_SA is unavailable.
-[ ! -x /usr/libexec/ikev2-discord-voice ] ||
-	/usr/libexec/ikev2-discord-voice sync >/dev/null 2>&1 || ikev2_failed=1
-[ ! -x /usr/libexec/ikev2-device-routing ] ||
-	/usr/libexec/ikev2-device-routing sync >/dev/null 2>&1 || ikev2_failed=1
-# The application's own policy routing follows the same triggers: every PBR
-# reload and every watcher pass. It stays stopped unless selected.
-ikev2_routing="${IKEV2_ROUTING_HELPER:-/usr/libexec/ikev2-routing}"
-[ ! -x "$ikev2_routing" ] ||
-	"$ikev2_routing" sync >/dev/null 2>&1 || ikev2_failed=1
-
-return "$ikev2_failed"
+[ ! -x /usr/libexec/ikev2-routing ] || /usr/libexec/ikev2-routing sync-all >/dev/null 2>&1
 }
 
-# PBR sources this include, while the manager and health service also execute
-# it directly. Keeping all returns inside a function makes both modes valid.
+# PBR sources this include, while older call sites also execute it directly.
+# Keeping all returns inside a function makes both modes valid.
 ikev2_pbr_main "$@"

@@ -135,7 +135,7 @@ cat >"$tmp/bin/ip" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$TEST_IP_LOG"
 case "$*" in
-	"-4 route show table pbr_ikev2out")
+	"-4 route show table 1601")
 		if [ "${MOCK_FAILCLOSED_MISSING:-0}" != 1 ]; then
 			echo 'unreachable default metric 32767'
 			[ "${MOCK_TUNNEL_ROUTE:-0}" != 1 ] || echo 'default dev ipsec-out metric 10'
@@ -143,14 +143,14 @@ case "$*" in
 		;;
 	"-4 rule show")
 		[ "${MOCK_FAILCLOSED_RULE_MISSING:-0}" = 1 ] ||
-			echo '30000: from all fwmark 0x10000/0xff0000 lookup pbr_ikev2out'
+			echo '28001: from all fwmark 0x1000000/0xf000000 lookup 1601'
 		;;
-	"-6 route show table pbr_ikev2out")
+	"-6 route show table 1601")
 		[ "${MOCK_FAILCLOSED6_MISSING:-0}" = 1 ] || echo 'unreachable default metric 32767'
 		;;
 	"-6 rule show")
 		[ "${MOCK_FAILCLOSED6_RULE_MISSING:-0}" = 1 ] ||
-			echo '30000: from all fwmark 0x10000/0xff0000 lookup pbr_ikev2out'
+			echo '28001: from all fwmark 0x1000000/0xf000000 lookup 1601'
 		;;
 	"-6 route get "*)
 		echo 'RTNETLINK answers: Network is unreachable' >&2
@@ -158,7 +158,7 @@ case "$*" in
 		;;
 	"-4 route get "*)
 		if [ "${MOCK_TUNNEL_ROUTE:-0}" = 1 ]; then
-			echo '203.0.113.77 dev ipsec-out src 10.20.20.14 mark 0x20000'
+			echo '203.0.113.77 dev ipsec-out src 10.20.20.14 mark 0x1000000'
 			exit 0
 		fi
 		echo 'RTNETLINK answers: Network is unreachable' >&2
@@ -590,10 +590,6 @@ grep -Fq 'STOP=90' "$root/ikev2-manager-runtime/ikev2-user-policy.init"
 grep -Fq 'ikev2-user-policy.init' "$root/Makefile"
 grep -Fq 'sync_inbound_user_policy || die' \
 	"$system_source"
-grep -Fq '[ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || return 0' \
-	"$root/ikev2-manager-runtime/pbr.user.ikev2out"
-grep -Fq 'ensure_failclosed_default 4' \
-	"$root/ikev2-manager-runtime/pbr.user.ikev2out"
 if grep -Fq 'reconnect-client' "$root/ikev2-manager-runtime/ikev2-health.sh"; then
 	echo 'health watcher still reconnects an installed SA after public probe failures' >&2
 	exit 1

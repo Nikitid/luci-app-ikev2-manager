@@ -41,7 +41,7 @@ rpcd `file exec` ACL in `luci-ikev2-manager/acl.json`.
 | `ikev2-devices` | `luci-ikev2-domains/ikev2-devices.sh` | LAN inventory the pages read |
 | `ikev2-domains-community` | `luci-ikev2-domains/community-domains.sh` | service catalogue and destination lists |
 | `ikev2-sync-vips` | `ikev2-manager-runtime/ikev2-sync-vips.sh` | virtual IP reconciliation |
-| `ikev2-routing` | `ikev2-manager-runtime/ikev2-routing.sh` | the application's own policy routing (replacing PBR; off unless `globals.routing_backend` selects it) |
+| `ikev2-routing` | `ikev2-manager-runtime/ikev2-routing.sh` | the application's own policy routing, the only routing it does; `sync-all` also syncs device routing and Discord voice |
 | `ikev2-sa` | `ikev2-manager-runtime/ikev2-sa.sh`, `lib/sa.uc` | every question about active SAs, from a bounded `swanmon list-sas` |
 | `ikev2-discord-voice` | `ikev2-manager-runtime/ikev2-discord-voice.sh` | Discord voice range handling |
 
@@ -56,7 +56,7 @@ upgraded, so a stable name would serve stale code to the browser.
 
 | page | source | installed as |
 | --- | --- | --- |
-| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v7.js` |
+| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v8.js` |
 | Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v7.js` |
 | Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v8.js` |
 | Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v7.js` |

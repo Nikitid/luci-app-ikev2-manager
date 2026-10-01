@@ -27,7 +27,7 @@ EOF
 cat >"$tmp/bin/routing-runtime" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = sync ] || exit 1
-printf '%s\n' "$(uci -q get ikev2-manager.globals.routing_backend)" >>"$TEST_ROUTING_LOG"
+printf '%s\n' sync >>"$TEST_ROUTING_LOG"
 EOF
 chmod 755 "$tmp/bin/uci" "$tmp/bin/domain-router" "$tmp/bin/device-runtime" "$tmp/bin/routing-runtime"
 
@@ -78,12 +78,10 @@ write_firewall
 run_reconcile
 [ "$(wc -l <"$TEST_DOMAIN_ROUTER_LOG" | tr -d ' ')" = 1 ]
 grep -Fxq 'globals.runtime_schema=4' "$tmp/uci/ikev2-manager"
-# An upgrade moves routing off PBR and starts it before the device policy
-# takes the new marks; PBR itself is left to the next Apply.
-grep -Fxq 'globals.routing_backend=native' "$tmp/uci/ikev2-manager" ||
-	{ printf '%s\n' 'an upgrade kept routing on PBR' >&2; exit 1; }
-[ "$(cat "$TEST_ROUTING_LOG")" = native ] ||
-	{ printf '%s\n' 'the upgrade did not start the new routing' >&2; exit 1; }
+# An upgrade starts the application's own routing before the device policy
+# takes its marks; PBR itself is left to the next Apply.
+[ "$(cat "$TEST_ROUTING_LOG")" = sync ] ||
+	{ printf '%s\n' 'the upgrade did not start policy routing' >&2; exit 1; }
 if grep -Eq '^ikev2pbr_(dns|dot)_' "$tmp/uci/firewall"; then
 	printf '%s\n' 'obsolete DNS/DoT firewall sections survived upgrade reconcile' >&2
 	exit 1
@@ -133,12 +131,13 @@ if grep -q '^domains.fakeip_retry=' "$tmp/uci/ikev2-manager"; then
 	exit 1
 fi
 
-# A router the operator put back on PBR stays there.
-sed -i.bak 's/^globals.routing_backend=native$/globals.routing_backend=pbr/' "$tmp/uci/ikev2-manager"
+# A router that was put on PBR by hand routes on its own after the upgrade
+# too: PBR is no longer a way of routing.
+printf 'globals.routing_backend=pbr\n' >>"$tmp/uci/ikev2-manager"
 force_reconcile
 : >"$TEST_ROUTING_LOG"
 run_reconcile || { printf '%s\n' 'reconcile failed on a PBR router' >&2; exit 1; }
-grep -Fxq 'globals.routing_backend=pbr' "$tmp/uci/ikev2-manager" ||
-	{ printf '%s\n' 'an upgrade overrode an explicit routing choice' >&2; exit 1; }
+[ "$(cat "$TEST_ROUTING_LOG")" = sync ] ||
+	{ printf '%s\n' 'a router set to PBR did not get policy routing' >&2; exit 1; }
 
 printf '%s\n' 'upgrade reconcile tests OK'

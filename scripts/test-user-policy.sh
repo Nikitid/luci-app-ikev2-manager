@@ -335,7 +335,7 @@ grep -Fq 'ip saddr @inbound_pool counter drop' "$tmp/rules.nft"
 grep -A5 'set public_client_1' "$tmp/rules.nft" | grep -Fq '10.20.30.10'
 grep -Fq 'iifname "ipsec-in" ip saddr @public_client_1 meta l4proto { tcp, udp } th dport { 1443, 8443-8445 } return' \
 	"$tmp/rules.nft"
-grep -Fq 'meta mark set meta mark & 0xff00ffff | 0x00010000' "$tmp/rules.nft"
+grep -Fq 'meta mark set meta mark & 0xf0ffffff | 0x02000000' "$tmp/rules.nft"
 grep -Fq 'tproxy ip to 127.0.0.1:1603' "$tmp/rules.nft"
 grep -Fq 'type filter hook prerouting priority -149' "$tmp/rules.nft"
 grep -Fq 'meta mark & 0x00ff0000 != 0x00400000' "$tmp/rules.nft"
@@ -504,19 +504,6 @@ if PATH="$tmp/bin:$PATH" \
 fi
 "$tmp/bin/uci" set \
 	"ikev2-manager.$section.public_ports=1443 8443-8445"
-
-if PATH="$tmp/bin:$PATH" \
-	MOCK_WAN_MARK_MISSING=1 \
-	IKEV2_UCI_BIN="$tmp/bin/uci" \
-	IKEV2_UCI_CONFIG_DIR="$tmp/root/etc/config" \
-	IKEV2_USERS_DB="$tmp/root/etc/ikev2-manager/users.db" \
-	IKEV2_SA_JSON="$tmp/sa.json" \
-	IKEV2_NFT="$tmp/bin/nft" \
-	IKEV2_RULES_OUT="$tmp/rules-no-wan-mark.nft" \
-	sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" sync >/dev/null 2>&1; then
-	printf '%s\n' 'PBR exclusion was accepted without an active WAN mark' >&2
-	exit 1
-fi
 
 # A reauthenticating or rekeying client is listed twice by swanctl for a short
 # while. The duplicate must collapse: a repeated nftables set element aborts the

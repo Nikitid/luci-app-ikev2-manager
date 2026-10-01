@@ -122,15 +122,10 @@ ensure_ipv6_failfast() {
 	ip -6 route replace unreachable default metric 2147483647 2>/dev/null || true
 }
 
-# The routing table of the tunnel, unreachable when it is down: the
-# application's own (ikev2-routing) when globals.routing_backend is native,
-# PBR's otherwise.
+# The routing table of the tunnel, unreachable when it is down, which
+# ikev2-routing installs.
 routing_tunnel_table() {
-	if [ "$(uci -q get ikev2-manager.globals.routing_backend 2>/dev/null)" = native ]; then
-		printf '1601\n'
-	else
-		printf 'pbr_ikev2out\n'
-	fi
+	printf '1601\n'
 }
 
 failclosed_check() (

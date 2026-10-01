@@ -12,6 +12,6 @@ case "$ACTION" in
 	ifup | ifupdate)
 		/etc/init.d/ikev2-xfrm start
 		/usr/libexec/ikev2-sync-vips || true
-		/usr/share/pbr/pbr.user.ikev2out || true
+		/usr/libexec/ikev2-routing sync-all || true
 		;;
 esac

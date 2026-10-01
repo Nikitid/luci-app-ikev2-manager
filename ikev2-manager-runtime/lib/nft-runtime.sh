@@ -59,26 +59,12 @@ pbr_mark_rule() {
 		'
 }
 
-# Who routes selected traffic: "native" is the application's own policy
-# routing (ikev2-routing), anything else PBR.
-routing_backend_native() {
-	[ "$(uci -q get ikev2-manager.globals.routing_backend 2>/dev/null)" = native ]
-}
-
-# The fwmark/mask that sends a packet into the tunnel ("tunnel") or out of
-# the WAN ("wan"), from whichever routes them.
+# The fwmark/mask of policy routing (ikev2-routing) that sends a packet into
+# the tunnel ("tunnel") or out of the WAN ("wan").
 routing_mark_rule() {
-	if routing_backend_native; then
-		case "$1" in
-			tunnel) printf '0x01000000/0x0f000000\n' ;;
-			wan) printf '0x02000000/0x0f000000\n' ;;
-			*) return 1 ;;
-		esac
-		return 0
-	fi
 	case "$1" in
-		tunnel) pbr_mark_rule pbr_ikev2out ;;
-		wan) pbr_mark_rule pbr_wan ;;
+		tunnel) printf '0x01000000/0x0f000000\n' ;;
+		wan) printf '0x02000000/0x0f000000\n' ;;
 		*) return 1 ;;
 	esac
 }

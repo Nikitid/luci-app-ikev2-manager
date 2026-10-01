@@ -90,21 +90,16 @@ doctor_checks() {
 		ok=0
 		dependencies_ok=0
 	fi
-	# With the application's own routing PBR is not needed at all; its
-	# runtime is checked instead.
-	if [ "$(defaultv globals routing_backend pbr)" = native ]; then
-		if [ "$(getv globals configured)" != 1 ]; then
-			:
-		elif [ -x "$routing_runtime_helper" ] && "$routing_runtime_helper" check >/dev/null 2>&1; then
-			printf 'policy_routing_runtime=ok\n'
-		elif [ "${IKEV2_DOCTOR_ALLOW_RUNTIME_REPAIR:-0}" = 1 ]; then
-			printf 'policy_routing_runtime=warn:repair-required\n'
-		else
-			printf 'policy_routing_runtime=missing\n'
-			ok=0
-		fi
+	# The application routes on its own; PBR is not needed at all.
+	if [ "$(getv globals configured)" != 1 ]; then
+		:
+	elif [ -x "$routing_runtime_helper" ] && "$routing_runtime_helper" check >/dev/null 2>&1; then
+		printf 'policy_routing_runtime=ok\n'
+	elif [ "${IKEV2_DOCTOR_ALLOW_RUNTIME_REPAIR:-0}" = 1 ]; then
+		printf 'policy_routing_runtime=warn:repair-required\n'
 	else
-		check_file pbr_service /etc/init.d/pbr
+		printf 'policy_routing_runtime=missing\n'
+		ok=0
 	fi
 	if command -v fw4 >/dev/null 2>&1; then
 		if firewall_check_strict; then
@@ -146,26 +141,11 @@ doctor_checks() {
 		fi
 	fi
 
-	# The fail-closed apply sequence is coupled to PBR 1.2.x fw4 behavior.
-	# Unknown or unsupported versions are a hard compatibility failure.
-	# A newer PBR is judged by what it does - the fail-closed route and the
-	# forward chain are checked below - rather than refused for its number.
-	pbr_version="$(pkg_version pbr)"
-	[ "$(defaultv globals routing_backend pbr)" != native ] || pbr_version=native
-	case "$pbr_version" in
-		native) ;;
-		1.2.*) printf 'pbr_version=ok:%s\n' "$pbr_version" ;;
-		'') printf 'pbr_version=missing\n'; ok=0; dependencies_ok=0 ;;
-		*)
-			if pbr_version_newer "$pbr_version"; then
-				printf 'pbr_version=warn:%s-untested\n' "$pbr_version"
-			else
-				printf 'pbr_version=unsupported:%s\n' "$pbr_version"
-				ok=0
-				dependencies_ok=0
-			fi
-			;;
-	esac
+	# PBR still holding policies of a release that routed through it routes
+	# the same destinations behind ours until the next Apply retires them.
+	if [ "$(getv globals configured)" = 1 ] && pbr_holds_ours; then
+		printf 'pbr_policies=notice:retired-at-next-apply\n'
+	fi
 	sing_box_version="$(pkg_version sing-box)"
 	if pkg_version_at_least sing-box 1.13.19; then
 		printf 'sing_box_fakeip=ok:%s-upstream-fix\n' "$sing_box_version"
@@ -331,18 +311,6 @@ doctor_checks() {
 	printf 'dependencies_ok=%s\n' "$dependencies_ok"
 	printf 'doctor_ok=%s\n' "$ok"
 	[ "$ok" -eq 1 ]
-}
-
-# Whether a PBR version is newer than the 1.2 series this release was built
-# against. Anything unparsable is not newer.
-pbr_version_newer() {
-	local major minor rest
-	major="${1%%.*}"
-	rest="${1#*.}"
-	minor="${rest%%[!0-9]*}"
-	major="${major%%[!0-9]*}"
-	case "$major:$minor" in '' | :* | *:) return 1 ;; esac
-	[ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -gt 2 ]; }
 }
 
 doctor_ui_cache_invalidate() {

@@ -3,12 +3,12 @@
 ## Traffic paths
 
 ```text
-Selected domain
+Selected domain, recognised by name
 client -> dnsmasq -> sing-box FakeIP -> nftables TProxy
-       -> source policy -> PBR mark -> ipsec-out -> IKEv2 gateway
+       -> sing-box, bound to ipsec-out -> IKEv2 gateway
 
-Selected IPv4/CIDR
-client -> PBR destination rule -> ipsec-out -> IKEv2 gateway
+Selected domain matched by address, selected IPv4/CIDR
+client -> ikev2_routing mark -> table 1601 -> ipsec-out -> IKEv2 gateway
 
 Ordinary destination
 client -> normal OpenWrt routing -> WAN
@@ -24,23 +24,30 @@ also requires the output mark and `iif lo`; unmarked local packets must first
 traverse the nftables output hook. This keeps marked reverse-path validation
 from consulting the TProxy table when Tailscale 1.98 enables it.
 
-Direct-IP service networks and administrator-defined IPv4/CIDR entries use a
-separate PBR destination policy. Both paths share the same covered networks,
-device exclusions and fail-closed routing table.
+Direct-IP service networks and administrator-defined IPv4/CIDR entries are
+marked by the application's own policy routing, `ikev2-routing`, in the
+`inet ikev2_routing` table: mark `0x01000000/0x0f000000` selects table 1601,
+the tunnel, and `0x02000000/0x0f000000` table 1602, the WAN, for exclusions.
+When domains are matched by address instead of by name, dnsmasq adds the
+addresses it answers for them to the same table's destination sets, which
+expire seven days after the last answer. Both paths share the same covered
+networks, device exclusions and fail-closed routing table. The pbr package is
+not used. A router upgraded from a release that routed through PBR keeps
+PBR's copy of the application's policies until the next Apply retires them;
+until then both route the same destinations, ours first.
 
 When Discord is selected, its UDP voice IP-discovery packet is classified
 before routing. The exact destination IPv4 address and UDP port are retained in
-a timeout-backed nftables set and marked for the same fail-closed PBR table.
+a timeout-backed nftables set and marked for the same fail-closed tunnel table.
 This covers literal media endpoints without static Discord or Cloudflare
 address ranges and without routing unrelated traffic hosted by Cloudflare.
 
 Full route and Exclude device overrides are persisted only in application-owned
 `device_policy` sections and compiled into the `inet ikev2_device_policy`
-nftables table. Its prerouting hook runs immediately before PBR and sets the
-active WAN or `pbr_ikev2out` mark. PBR retains ownership of routing tables and
-the fail-closed default, but no duplicate per-device PBR policies enlarge a
-global rebuild. A single device change does not require a service, DNS, XFRM or
-tunnel restart. FakeIP TCP and UDP overrides select the direct or always-tunnel
+nftables table. Its prerouting hook runs before policy routing and sets the
+WAN or tunnel mark of `ikev2-routing`, whose tables and fail-closed default
+then route the packet. A single device change does not require a service,
+DNS, XFRM or tunnel restart. FakeIP TCP and UDP overrides select the direct or always-tunnel
 TProxy inbound in the same atomic nftables transaction; generated sing-box
 source exclusions no longer duplicate device intent. The transaction verifies
 the installed nftables program before publishing its signature. It then closes
@@ -51,7 +58,9 @@ reports an error; a failed rollback retains the previous configuration snapshot.
 
 ## Fail-closed boundary
 
-PBR table `pbr_ikev2out` always contains an unreachable default. A lower-metric
+Tunnel table 1601 always contains an unreachable default, for IPv4 and IPv6.
+Rules 28000-28002 select it: 28000 keeps local routes, 28001 and 28002 send
+the tunnel and WAN marks to tables 1601 and 1602. A lower-metric
 default through `ipsec-out` exists only while the outbound CHILD_SA and virtual
 IPv4 are usable. Reconciliation creates the metric-32767 guard before retiring
 an obsolete metric-zero IPv4 guard. It never deletes the current guard and
@@ -67,10 +76,10 @@ ipsec-in   if_id 43  inbound server
 ```
 
 strongSwan does not install routes into the main table. The runtime owns the
-XFRM interfaces, synchronizes virtual addresses and lets PBR own route
-selection.
+XFRM interfaces, synchronizes virtual addresses and leaves route selection to
+`ikev2-routing`.
 
-Shutdown removes live PBR and firewall references before bringing XFRM links
+Shutdown removes live routing and firewall references before bringing XFRM links
 down. Runtime and package cleanup do not require `ip link del`: deleting an
 XFRM link can block in kernel D-state on the validated OpenWrt 25 kernel. Down
 links cannot forward and are discarded when the module unloads or the router
@@ -276,9 +285,9 @@ removed and the XFRM interfaces are down. This prevents a boot or teardown
 window in which per-user access limits are absent.
 
 Persistent settings live in `/etc/config/ikev2-manager`. Generated UCI sections
-use the `ikev2pbr_` prefix. Disabling managed mode removes generated network,
-firewall and PBR state while preserving user settings, certificates and
-destination lists.
+use the `ikev2pbr_` prefix, a name kept from releases that routed through PBR.
+Disabling managed mode removes generated network, firewall and routing state
+while preserving user settings, certificates and destination lists.
 
 Per-device intent is stored in application-owned `device_policy` sections.
 The earlier prerouting table applies direct/full-route marks and the validated
@@ -307,14 +316,13 @@ The health service checks:
 - sing-box, dnsmasq, TProxy and policy-rule invariants;
 - the FakeIP data plane, through the running sing-box's tunnel outbound;
 - every enabled destination DNS segment, with per-segment degraded status;
-- the direct-service CIDR PBR rule;
+- the policy routing runtime: its rules, tables and nftables table;
 - inbound server configuration drift.
 
 Repairs are serialized and avoid restarting WAN or the router. The health loop
 reports a failed HTTPS data probe as degraded without terminating an installed
-SA. It never starts a global PBR rebuild: missing PBR state is reported as degraded
-until an explicit Apply. PBR set snapshots and destination-segment probes run
-once per minute. Inbound identity policy has its own VICI watcher and periodic
+SA. It never rebuilds the firewall. Destination-set snapshots and
+destination-segment probes run once per minute. Inbound identity policy has its own VICI watcher and periodic
 reconciliation backstop.
 
 The tunnel address stays on `ipsec-out` for the life of the client: charon does
@@ -345,7 +353,7 @@ permits exactly one loop even when it is invoked outside procd. PID publication,
 stale-owner reclamation and release share a permanent kernel-flock gate inode;
 release checks the owner PID and process-start identity. The global action lock
 uses the same gate protocol. Orderly shutdown
-persists the warm PBR sets before releasing that lock.
+persists the warm destination sets before releasing that lock.
 
 All mutating LuCI actions use detached workers with per-action status files and
 a shared router-action lock. A second action fails promptly instead of queuing
@@ -370,7 +378,7 @@ override router access, Internet forwarding and local-network access. Limited
 local access accepts IPv4 addresses and CIDR networks. Per-user TCP/UDP router
 ports remain available even when general router access is denied. Firewall4
 opens only the union of configured ports from the inbound zone; the app-owned
-identity-to-address rules narrow that union for each active user. A PBR
+identity-to-address rules narrow that union for each active user. A routing
 exclusion marks that user's Internet traffic for the normal WAN after the
 shared classifiers. In FakeIP mode a separate TProxy inbound resolves the
 existing FakeIP mapping through the direct outbound. The override does not
@@ -394,7 +402,7 @@ separately.
 
 The LuCI Status Overview include combines the lightweight, read-only
 `ikev2-manager widget-status` summary with `swanmon list-sas`. It reports
-outbound SA state, accumulated `ipsec-out` interface traffic, PBR/domain-routing
+outbound SA state, accumulated `ipsec-out` interface traffic, policy and domain routing
 and fail-closed state, inbound-server readiness and active inbound sessions.
 Detailed client rows are rendered only for established inbound SAs that have an
 installed CHILD_SA, so configured but offline users and incomplete handshakes

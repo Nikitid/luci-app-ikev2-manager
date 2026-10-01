@@ -216,6 +216,7 @@ network_cidrs() {
 }
 
 covered_sources() {
+	local addresses address
 	found=0
 	for interface in $(uci -q get "$config.globals.source_interface" 2>/dev/null); do
 		cidrs="$(network_cidrs "$interface")"
@@ -236,12 +237,14 @@ covered_sources() {
 		printf '%s\n' "$vpn_cidr"
 		found=1
 	fi
-	src="$(uci -q get pbr.ikev2pbr_domains.src_addr 2>/dev/null || true)"
-	for address in $src; do
-		case "$address" in
-			@*) ;;
-			*) printf '%s\n' "$address"; found=1 ;;
-		esac
+	# Devices routed by domain outside the covered networks, as policy routing
+	# routes them. They used to be read from PBR's domain policy, which the
+	# built-in routing removes, and were then answered by FakeIP but sent out
+	# through the WAN.
+	addresses="$(device_addresses domain)" || return 1
+	for address in $addresses; do
+		printf '%s\n' "$address"
+		found=1
 	done
 	[ "$found" = 1 ]
 }

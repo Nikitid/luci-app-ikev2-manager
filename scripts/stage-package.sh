@@ -110,7 +110,7 @@ install_file 644 luci-ikev2-manager/settings.js \
 install_file 644 luci-ikev2-manager/client.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v7.js
 install_file 644 luci-ikev2-manager/setup.js \
-	/www/luci-static/resources/view/ikev2-manager/setup-v7.js
+	/www/luci-static/resources/view/ikev2-manager/setup-v8.js
 install_file 644 luci-ikev2-manager/users.js \
 	/www/luci-static/resources/view/ikev2-manager/users-v11.js
 install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v8.js
@@ -163,8 +163,8 @@ EOF
 	cat <<'EOF'
 Description: IKEv2 Manager for OpenWrt
  LuCI application and runtime for an IPv4 IKEv2 client, an optional
- road-warrior IKEv2 server, domain PBR, device overrides and fail-closed
- routing on OpenWrt 24.10 and 25.12.
+ road-warrior IKEv2 server, domain-based policy routing, device overrides
+ and fail-closed routing on OpenWrt 24.10 and 25.12.
 EOF
 } >"$stage/CONTROL/control"
 
@@ -234,7 +234,8 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v6.js \
 	/www/luci-static/resources/view/ikev2-manager/settings-v6.js \
 	/www/luci-static/resources/view/ikev2-manager/users-v10.js \
-	/www/luci-static/resources/view/ikev2-domains/editor-v7.js
+	/www/luci-static/resources/view/ikev2-domains/editor-v7.js \
+	/www/luci-static/resources/view/ikev2-manager/setup-v7.js
 # Releases before 1.13 shipped the charon settings under strongswan.d/charon/,
 # which strongswan.conf includes inside charon.plugins, so none of them applied.
 rm -f /etc/strongswan.d/charon/20-ikev2-manager.conf

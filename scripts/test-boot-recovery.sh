@@ -71,10 +71,6 @@ printf '%s\n' "$ensure_body" | grep -Fq '/usr/libexec/ikev2-sync-vips || return 
 	printf 'an automatic replacement would not synchronise its virtual IP\n' >&2
 	exit 1
 }
-printf '%s\n' "$ensure_body" | grep -Fq '/usr/share/pbr/pbr.user.ikev2out || return 1' || {
-	printf 'an automatic replacement would not restore its PBR route\n' >&2
-	exit 1
-}
 
 grep -Fq 'STOP=02' "$root/ikev2-manager-runtime/ikev2-health.init" || {
 	printf 'health watcher does not stop before dependent services\n' >&2

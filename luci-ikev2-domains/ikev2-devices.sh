@@ -32,6 +32,7 @@ RESTART_HELPER="${IKEV2_RESTART_HELPER:-/usr/libexec/ikev2-domains-restart}"
 DEVICE_RUNTIME_HELPER="${IKEV2_DEVICE_RUNTIME_HELPER:-/usr/libexec/ikev2-device-routing}"
 SYSTEM_HELPER="${IKEV2_SYSTEM_HELPER:-/usr/libexec/ikev2-manager-system}"
 DHCP_LEASES="${IKEV2_DHCP_LEASES:-/tmp/dhcp.leases}"
+PBR_CONFIG="${IKEV2_PBR_CONFIG:-/etc/config/pbr}"
 runtime_lib_dir="${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}"
 
 . "$runtime_lib_dir/devices.sh"
@@ -138,11 +139,14 @@ cmd_clear_policy() {
 	commit_and_restart "$backup" device-firewall
 }
 
+# PBR's configuration is part of the snapshot only where it exists: a router
+# that never had PBR has no /etc/config/pbr, and exporting it failed, so no
+# device setting could be changed at all.
 restore_pbr() {
 	local backup="$1" restart_mode="${2:-full}"
-	if ! uci import pbr <"$backup/pbr" >/dev/null 2>&1 ||
+	if { [ -e "$backup/pbr" ] && ! uci import pbr <"$backup/pbr" >/dev/null 2>&1; } ||
 	   ! uci import "$APP_CONFIG" <"$backup/app" >/dev/null 2>&1 ||
-	   ! uci commit pbr >/dev/null 2>&1 ||
+	   { [ -e "$backup/pbr" ] && ! uci commit pbr >/dev/null 2>&1; } ||
 	   ! uci commit "$APP_CONFIG" >/dev/null 2>&1 ||
 	   ! restart_pbr "$restart_mode" >/dev/null 2>&1; then
 		printf '%s\n' 'Device rollback incomplete; previous configuration snapshot retained' >&2
@@ -195,7 +199,7 @@ commit_and_restart() {
 	# active in PBR's current nftables program. Force one checked rebuild at the
 	# migration boundary; subsequent device-only edits stay on the fast path.
 	[ "${device_pbr_legacy_removed:-0}" = 0 ] || restart_mode=full
-	uci commit pbr || result=1
+	[ ! -e "$backup/pbr" ] || uci commit pbr || result=1
 	uci commit "$APP_CONFIG" || result=1
 	if [ "$result" = 0 ]; then
 		restart_pbr "$restart_mode" || result=1
@@ -225,7 +229,7 @@ render_policies() {
 backup_pbr() {
 	local backup
 	backup="$(mktemp -d)" || return 1
-	if ! uci export pbr >"$backup/pbr" ||
+	if { [ -e "$PBR_CONFIG" ] && ! uci export pbr >"$backup/pbr"; } ||
 	   ! uci export "$APP_CONFIG" >"$backup/app"; then
 		rm -rf "$backup"
 		return 1

@@ -2,6 +2,8 @@
 # The application's own policy routing, replacing the pbr package:
 #
 #   ikev2-routing sync     install or repair; a no-op when nothing changed
+#   ikev2-routing sync-all this, device routing and Discord voice, each one
+#                          even when one before it fails
 #   ikev2-routing check    whether the installed runtime is current
 #   ikev2-routing stop     remove everything this owns
 #   ikev2-routing status   key=value lines for reports
@@ -18,11 +20,11 @@
 # holding only an unreachable default: the tunnel is IPv4-only, so they fail
 # closed and clients fall back to IPv4.
 #
-# globals.routing_backend chooses who routes: "pbr" (the default) leaves this
-# stopped; "overlay" runs it beside PBR at a higher priority, with the domain
-# sets copied from PBR's, to compare the two paths on a live router; "native"
-# routes on its own: in Standard mode dnsmasq fills the domain sets through
-# an nftset file of ours, and the rest of the application uses these marks.
+# This is the only routing the application does. When matching by address,
+# dnsmasq fills the domain sets through an nftset file of ours. A router that
+# routed through PBR before keeps PBR's copy of our policies until its next
+# Apply retires them; until then both route the same destinations, ours ahead
+# of PBR's, and the domain sets are copied from PBR's.
 
 set -u
 
@@ -42,6 +44,8 @@ dump_dir="${IKEV2_ROUTING_DUMP_DIR:-/var/run}"
 persist_dir="${IKEV2_ROUTING_PERSIST_DIR:-/etc/ikev2-manager}"
 dnsmasq_file_name='ikev2-routing'
 dnsmasq_init="${IKEV2_DNSMASQ_INIT:-/etc/init.d/dnsmasq}"
+device_routing_helper="${IKEV2_DEVICE_ROUTING_HELPER:-/usr/libexec/ikev2-device-routing}"
+discord_voice_helper="${IKEV2_DISCORD_VOICE_HELPER:-/usr/libexec/ikev2-discord-voice}"
 
 mark_mask=0x0f000000
 tunnel_mark=0x01000000
@@ -80,15 +84,9 @@ fakeip_engine() {
 	[ "$(uci -q get "$config.domains.engine" 2>/dev/null || echo nftset)" = fakeip ]
 }
 
-backend() {
-	local value
-	value="$(uci -q get "$config.globals.routing_backend" 2>/dev/null || echo pbr)"
-	case "$value" in overlay | native) printf '%s\n' "$value" ;; *) printf 'pbr\n' ;; esac
-}
 
 active() {
-	[ "$(uci -q get "$config.globals.configured" 2>/dev/null || echo 0)" = 1 ] || return 1
-	[ "$(backend)" != pbr ]
+	[ "$(uci -q get "$config.globals.configured" 2>/dev/null || echo 0)" = 1 ]
 }
 
 # A pause keeps these rules: what they send to the tunnel is refused there
@@ -319,7 +317,6 @@ dnsmasq_confdirs() {
 # sets. Only Standard mode needs it: in reliable mode sing-box answers those
 # names itself.
 render_nftset() {
-	[ "$(backend)" = native ] || return 0
 	! fakeip_engine || return 0
 	# Until an Apply retires it, PBR's domain policy still has dnsmasq fill
 	# its sets, which are copied here; two nftset lines for one name would
@@ -442,7 +439,7 @@ desired_state() {
 		pbr_tunnel="$(printf '0x%08x' "$(( ${values#* } & 0x00ff0000 ))")"
 	fi
 	signature="$({
-		printf 'backend=%s\npbr=%s\nfakeip=%s\nsources\n' "$(backend)" "$pbr_tunnel" \
+		printf 'pbr=%s\nfakeip=%s\nsources\n' "$pbr_tunnel" \
 			"$(fakeip_engine && echo 1 || echo 0)"
 		cat "$work/sources"
 		printf 'src4\n'
@@ -530,20 +527,33 @@ stop_runtime() {
 }
 
 status_runtime() {
-	printf 'backend=%s\n' "$(backend)"
+	printf 'backend=native\n'
 	if runtime_owned; then printf 'runtime=installed\n'; else printf 'runtime=absent\n'; fi
 	if tunnel_ready; then printf 'tunnel=up\n'; else printf 'tunnel=down\n'; fi
 }
 
+# Everything that routes by the marks: policy routing first, so the rules
+# exist before device routing and Discord voice mark packets for them. One
+# that fails does not keep the others from being synced; a failing Discord
+# voice sync once left policy routing uninstalled after every boot.
+sync_all() {
+	local failed=0
+	( sync_runtime ) || failed=1
+	[ ! -x "$device_routing_helper" ] || "$device_routing_helper" sync >/dev/null 2>&1 || failed=1
+	[ ! -x "$discord_voice_helper" ] || "$discord_voice_helper" sync >/dev/null 2>&1 || failed=1
+	return "$failed"
+}
+
 case "${1:-}" in
 	sync) sync_runtime ;;
+	sync-all) sync_all ;;
 	check) check_runtime ;;
 	stop) stop_runtime ;;
 	status) status_runtime ;;
 	dump) dump_sets ;;
 	persist) persist_sets ;;
 	*)
-		printf '%s\n' 'usage: ikev2-routing {sync|check|stop|status|dump|persist}' >&2
+		printf '%s\n' 'usage: ikev2-routing {sync|sync-all|check|stop|status|dump|persist}' >&2
 		exit 2
 		;;
 esac

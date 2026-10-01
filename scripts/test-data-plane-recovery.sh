@@ -232,12 +232,31 @@ setup
 		fail 'disabled reliable mode was not reported'
 ) || fail 'manual recovery scenario failed'
 
-# The manual PBR restart verifies what Apply verifies.
-awk '/^pbr_restart_manual\(\) \{/,/^}/' "$root/ikev2-manager-runtime/ikev2-manager-system.sh" >"$tmp/pbr"
-for step in pbr_restart_checked ensure_forward_chain sync_device_runtime \
-	sync_inbound_user_policy failclosed_check failclosed_ipv6_check; do
-	grep -q "$step" "$tmp/pbr" || fail "manual PBR restart skips $step"
-done
+# The manual routing restart rebuilds policy routing and verifies what Apply
+# verifies; a failing check fails the restart.
+(
+	eval "$(awk 'index($0, "pbr_restart_manual() {") == 1 { body = 1 } body { print } body && $0 == "}" { exit }' \
+		"$root/ikev2-manager-runtime/ikev2-manager-system.sh")"
+	die() { printf 'die:%s\n' "$*" >>"$tmp/manual"; exit 1; }
+	getv() { printf '1\n'; }
+	logger() { :; }
+	routing_runtime_helper="$tmp/routing"
+	printf '#!/bin/sh\nprintf "routing %%s\\n" "$1" >>"%s/manual"\n' "$tmp" >"$tmp/routing"
+	chmod 755 "$tmp/routing"
+	for step in sync_device_runtime sync_inbound_user_policy failclosed_check failclosed_ipv6_check; do
+		eval "$step() { printf '%s\\n' $step >>\"\$tmp/manual\"; [ ! -e \"\$tmp/fail-$step\" ]; }"
+	done
+	: >"$tmp/manual"
+	( pbr_restart_manual ) || fail 'a clean manual routing restart failed'
+	printf '%s\n' 'routing stop' 'routing sync' sync_device_runtime sync_inbound_user_policy \
+		failclosed_check failclosed_ipv6_check | cmp -s - "$tmp/manual" ||
+		fail "the manual routing restart did not rebuild and verify: $(tr '\n' ' ' <"$tmp/manual")"
+	: >"$tmp/fail-failclosed_check"
+	: >"$tmp/manual"
+	if ( pbr_restart_manual ); then fail 'a manual restart with an open tunnel table succeeded'; fi
+	grep -q '^die:Fail-closed route validation failed' "$tmp/manual" ||
+		fail 'a failed fail-closed check was not reported'
+) || fail 'manual routing restart scenario failed'
 grep -Fq '"/usr/libexec/ikev2-manager-system pbr-restart-async"' "$root/luci-ikev2-manager/acl.json" &&
 	grep -Fq '"/usr/libexec/ikev2-manager-system recover-reliable-async"' "$root/luci-ikev2-manager/acl.json" ||
 	fail 'manual recovery actions are not granted to the page'

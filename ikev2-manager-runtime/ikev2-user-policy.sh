@@ -364,7 +364,7 @@ sync_runtime() (
 
 	wan_values="$(mark_values "$(routing_mark_rule wan)")" || wan_values=''
 	if [ -s "$work/pbr-excluded" ] && [ -z "$wan_values" ]; then
-		printf '%s\n' 'Unable to derive the active WAN PBR mark' >&2
+		printf '%s\n' 'Unable to derive the WAN routing mark' >&2
 		return 1
 	fi
 	wan_clear="${wan_values%% *}"
@@ -375,7 +375,7 @@ sync_runtime() (
 			*/*) valid_ipv4_target "$fakeip_range" ;;
 			*) false ;;
 		esac || {
-			printf '%s\n' 'Invalid FakeIP range for inbound PBR exclusion' >&2
+			printf '%s\n' 'Invalid FakeIP range for the inbound routing exclusion' >&2
 			return 1
 		}
 	fi
