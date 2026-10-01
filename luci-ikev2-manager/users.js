@@ -325,6 +325,10 @@ function passwordDialog(title, username, action, includeUsername, pageResult, re
 	}
 	fields.push(common.fieldLabel(_('Password')));
 	fields.push(password);
+	if (action === 'user-password')
+		fields.push(E('div', { 'class': 'ikev2-note' }, [
+			_('Sessions this user has open are disconnected; its devices connect again with the new password.')
+		]));
 
 	var dialogGrid = E('div', { 'class': 'ikev2-form-grid' }, fields);
 	var dialogSave = null;
@@ -624,7 +628,9 @@ return view.extend({
 								'user-password', false, actionResult, refresh);
 						}),
 						squareAction('trash', deleteLabel, 'cbi-button-remove', function(ev) {
-							if (!window.confirm(_('Delete user %s?').format(entry.name)))
+							if (!window.confirm(active.length ?
+								_('Delete user %s? Its active sessions (%d) are disconnected.').format(entry.name, active.length) :
+								_('Delete user %s?').format(entry.name)))
 								return;
 							return runUserAction(ev.currentTarget,
 								[ 'user-delete', entry.name ],

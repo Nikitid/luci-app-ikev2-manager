@@ -60,7 +60,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v7.js` |
 | Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v8.js` |
 | Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v7.js` |
-| VPN Users | `luci-ikev2-manager/users.js` | `view/ikev2-manager/users-v11.js` |
+| VPN Users | `luci-ikev2-manager/users.js` | `view/ikev2-manager/users-v12.js` |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
 `luci-ikev2-manager/shared.js` is the design system and the action lifecycle

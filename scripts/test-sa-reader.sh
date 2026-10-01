@@ -56,6 +56,12 @@ cmp -s "$tmp/expected" "$tmp/sessions" || {
 	cat "$tmp/sessions" >&2
 	fail 'inbound sessions were not read by key'
 }
+# The IKE SAs of one user, to end them when it is removed: every one of its,
+# under the server only, and no other user's.
+snapshot '{"ikev2-in":{"uniqueid":"20","remote-eap-id":"alice"}},{"ikev2-in":{"uniqueid":"21","remote-eap-id":"bob"}},{"site-link-in":{"uniqueid":"23","remote-eap-id":"alice"}},{"ikev2-in":{"uniqueid":"22","remote-eap-id":"alice"}},{"ikev2-in":{"uniqueid":"x; reboot","remote-eap-id":"alice"}}'
+[ "$(answers session-ids ikev2-in alice | tr '\n' ' ')" = '20 22 ' ] ||
+	fail "a user's sessions were not found by identity: $(answers session-ids ikev2-in alice)"
+[ "$(status session-ids ikev2-in)" = 2 ] || fail 'a session lookup without an identity was accepted'
 snapshot ''
 [ "$(status sessions ikev2-in)" = 0 ] || fail 'no sessions was an error'
 [ -z "$(answers sessions ikev2-in)" ] || fail 'sessions were invented from an empty listing'

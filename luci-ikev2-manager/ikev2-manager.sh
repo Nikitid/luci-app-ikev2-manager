@@ -186,6 +186,7 @@ consume_user_input() {
 		return 0
 	fi
 	update_user "$user" "0s$encoded"
+	[ "$action" != password ] || terminate_user_sessions "$user"
 }
 
 consume_client_input() {

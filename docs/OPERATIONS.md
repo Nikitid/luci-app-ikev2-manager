@@ -609,6 +609,11 @@ override each managed EAP user:
   destinations or deny;
 - policy routing: inherit the project domain policy or use direct WAN.
 
+Deleting a user or changing its password disconnects every session it has
+open: reloading the credentials alone leaves established SAs running, and
+strongSwan does not authenticate them again. The devices of a user whose
+password changed connect again with the new one.
+
 DNS on the router remains reachable for authenticated inbound clients even
 when router access is denied. An additional router-port allowlist can expose a
 specific same-router public service, for example TCP/UDP 1443, without allowing

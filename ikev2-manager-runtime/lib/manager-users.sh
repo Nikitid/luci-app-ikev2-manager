@@ -204,9 +204,22 @@ delete_user_policy() {
 	apply_user_policy_runtime
 }
 
+# Ends every session of USER. Reloading the credentials leaves established SAs
+# running and nothing runs EAP on them again, so a deleted user, or one whose
+# password was changed after a phone was lost, stayed connected for as long as
+# the device kept the tunnel up.
+terminate_user_sessions() {
+	local user="$1" id
+	for id in $("$sa_helper" session-ids ikev2-in "$user" 2>/dev/null); do
+		case "$id" in '' | *[!0-9]*) continue ;; esac
+		swanctl_quiet --terminate --ike-id "$id" --timeout 5 >/dev/null 2>&1 || :
+	done
+}
+
 delete_user_account() {
 	local user="$1"
 	delete_user "$user"
+	terminate_user_sessions "$user"
 	delete_user_policy "$user" ||
 		die 'VPN user was deleted, but live access rules could not be refreshed'
 }

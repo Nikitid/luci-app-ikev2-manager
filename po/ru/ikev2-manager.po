@@ -4073,3 +4073,9 @@ msgstr "Не удалось применить настройки входяще
 
 msgid "Inbound server runtime apply failed and automatic rollback was incomplete"
 msgstr "Не удалось применить настройки входящего сервера, и автоматический откат выполнен не полностью"
+
+msgid "Sessions this user has open are disconnected; its devices connect again with the new password."
+msgstr "Открытые сессии пользователя будут разорваны; его устройства подключатся заново с новым паролем."
+
+msgid "Delete user %s? Its active sessions (%d) are disconnected."
+msgstr "Удалить пользователя %s? Его активные сессии (%d) будут разорваны."

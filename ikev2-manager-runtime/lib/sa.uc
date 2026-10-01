@@ -58,7 +58,7 @@ function list(value) {
 let command = ARGV[0];
 let ike = ARGV[1];
 if (!command || !ike) {
-	warn('usage: sa.uc {installed IKE CHILD|present IKE|local-vips IKE|sessions IKE|loopback-connecting IKE}\n');
+	warn('usage: sa.uc {installed IKE CHILD|present IKE|local-vips IKE|sessions IKE|session-ids IKE IDENTITY|loopback-connecting IKE}\n');
 	exit(2);
 }
 
@@ -100,6 +100,19 @@ else if (command == 'sessions') {
 		if (match(identity, /[\t\n]/) || match(addresses[0], /[\t\n]/))
 			continue;
 		print(identity, '\t', addresses[0], '\n');
+	}
+	exit(0);
+}
+else if (command == 'session-ids') {
+	// The IKE SAs of one EAP identity, to end them when the user is removed or
+	// its password changes.
+	let identity = ARGV[2];
+	if (type(identity) != 'string' || length(identity) == 0)
+		exit(2);
+	for (let sa in sas) {
+		let id = sa.uniqueid;
+		if (sa['remote-eap-id'] == identity && type(id) == 'string' && match(id, /^[0-9]+$/))
+			print(id, '\n');
 	}
 	exit(0);
 }
