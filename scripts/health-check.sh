@@ -25,7 +25,7 @@ printf "sas=%s " "$(swanctl --list-sas 2>/dev/null | grep -c ESTABLISHED)"
 printf "loss=%s " "$(ping -c 3 -W 2 -q 1.1.1.1 2>/dev/null |
 	sed -n "s/.* \([0-9]*\)% packet loss.*/\1%/p")"
 printf "dns=%s " "$(nslookup example.com 127.0.0.1 2>/dev/null |
-	awk "/^Address/{a=\$NF} END{print (a==\"\"?\"FAIL\":\"ok\")}")"
+	awk "/^Name:/{n=1} n && /^Address/{a=\$NF} END{print (a==\"\"?\"FAIL\":\"ok\")}")"
 printf "mem_free=%sM " "$(( $(free | awk "/Mem/{print \$4}") / 1024 ))"
 printf "errors=%s " "$(logread -l 2000 2>/dev/null |
 	grep -icE "error|fail|panic|crash|oom|segfault")"

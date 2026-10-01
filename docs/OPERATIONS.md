@@ -202,11 +202,18 @@ External alerting is optional. `scripts/kuma-push.sh` runs from the router's
 cron and reports Uptime Kuma push monitors: services and pause, the outbound
 tunnel, domain policy, DNS, the inbound server and the server certificate,
 plus doctor security findings when that token is configured. It changes
-nothing. Tunnel and policy are judged by where traffic actually exits: a policy domain must
-resolve to FakeIP and leave with the tunnel's address, a control domain with
-the WAN address. Tokens stay in `/etc/ikev2-kuma/kuma.conf` (mode 600); list
-the directory in `/etc/sysupgrade.conf`. A push monitor goes down on its own
-when the router stops reporting.
+nothing, and one run at a time is allowed. Tunnel and policy are judged by
+where traffic actually exits: a control domain must leave with the WAN
+address, and with FakeIP and the router's own traffic routed, a policy domain
+must resolve to FakeIP and leave with the tunnel's address. `PBR_DOMAIN` is
+therefore a selected domain served by Cloudflare, whose trace page reports
+the address. Without router traffic routing only the FakeIP answer is
+checked; when matching by address the answer must be in the routing set.
+Checks that do not apply to the setup report nothing. Tokens stay in
+`/etc/ikev2-kuma/kuma.conf`, owned by root with mode 600 - the script refuses
+a config others could write; list the directory in `/etc/sysupgrade.conf`.
+Use `https` for the Kuma URL where possible: the tokens are part of it. A
+push monitor goes down on its own when the router stops reporting.
 
 The same page stores an ordered tunnel-DNS DoH list and IPv4 bootstrap
 resolvers. The first DoH endpoint is primary. Once per minute the existing

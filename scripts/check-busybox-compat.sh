@@ -54,6 +54,10 @@ done <"$work/all"
 # The APK path generates its lifecycle scripts from the OpenWrt Makefile rather
 # than from scripts/stage-package.sh, so those blocks are scanned as well.
 printf '%s\n' "$root/Makefile" >>"$work/scripts"
+# Scripts outside the package that run on a router: the Uptime Kuma checker
+# from cron, the installer and the read-only sweep's probe.
+printf '%s\n' "$root/scripts/kuma-push.sh" "$root/scripts/install.sh" \
+	"$root/scripts/health-check.sh" >>"$work/scripts"
 
 check_pattern() {
 	pattern="$1"
