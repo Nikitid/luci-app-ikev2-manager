@@ -157,31 +157,46 @@ delete_rules() {
 	done
 }
 
+# Whether a route listing has a line that begins with the given words.
+route_listed() {
+	printf '%s\n' "$1" | awk -v want="$2" 'index($0 " ", want " ") == 1 { found = 1 } END { exit !found }'
+}
+
 # Routes first: a rule pointing at a table without its unreachable default
-# would let marked traffic fall through to the WAN.
+# would let marked traffic fall through to the WAN. A route already in place
+# is not written again: every write is announced to whatever watches the
+# routing tables, and the watcher syncs on every pass.
 sync_routes() {
-	local lan subnet inbound wan
-	"$ip_bin" -4 route replace unreachable default metric 32767 table "$tunnel_table" || return 1
-	"$ip_bin" -6 route replace unreachable default metric 32767 table "$tunnel_table" 2>/dev/null || :
+	local lan subnet inbound wan routes4 routes6
+	routes4="$("$ip_bin" -4 route show table "$tunnel_table" 2>/dev/null || true)"
+	routes6="$("$ip_bin" -6 route show table "$tunnel_table" 2>/dev/null || true)"
+	printf '%s\n' "$routes4" | grep -Eq '^unreachable default .*metric 32767( |$)' ||
+		"$ip_bin" -4 route replace unreachable default metric 32767 table "$tunnel_table" || return 1
+	printf '%s\n' "$routes6" | grep -Eq '^unreachable default .*metric 32767( |$)' ||
+		"$ip_bin" -6 route replace unreachable default metric 32767 table "$tunnel_table" 2>/dev/null || :
 	# Replies to local and inbound clients stay local whatever is marked.
 	while IFS= read -r lan; do
 		subnet="$("$ip_bin" -4 route show dev "$lan" scope link 2>/dev/null |
 			awk '$1 ~ /^[0-9.]+\/[0-9]+$/ { print $1; exit }')"
-		[ -z "$subnet" ] || "$ip_bin" -4 route replace "$subnet" dev "$lan" table "$tunnel_table" || return 1
+		[ -n "$subnet" ] || continue
+		route_listed "$routes4" "$subnet dev $lan" ||
+			"$ip_bin" -4 route replace "$subnet" dev "$lan" table "$tunnel_table" || return 1
 	done <"$work/sources"
 	if [ "$(uci -q get "$config.server.enabled" 2>/dev/null || echo 0)" = 1 ]; then
 		inbound="$("$system_helper" gateway-network 2>/dev/null || true)"
-		[ -z "$inbound" ] ||
+		[ -z "$inbound" ] || route_listed "$routes4" "$inbound dev ipsec-in" ||
 			"$ip_bin" -4 route replace "$inbound" dev ipsec-in table "$tunnel_table" || return 1
 	fi
 	if tunnel_ready; then
-		"$ip_bin" -4 route replace default dev ipsec-out metric 10 table "$tunnel_table" || return 1
-	elif "$ip_bin" -4 route show table "$tunnel_table" | grep -q '^default dev ipsec-out'; then
+		printf '%s\n' "$routes4" | grep -Eq '^default dev ipsec-out( .*)? metric 10( |$)' ||
+			"$ip_bin" -4 route replace default dev ipsec-out metric 10 table "$tunnel_table" || return 1
+	elif printf '%s\n' "$routes4" | grep -q '^default dev ipsec-out'; then
 		"$ip_bin" -4 route del default dev ipsec-out metric 10 table "$tunnel_table" || return 1
 	fi
 	if wan="$(wan_default)"; then
-		# shellcheck disable=SC2086
-		"$ip_bin" -4 route replace default $wan table "$wan_table" || return 1
+		route_listed "$("$ip_bin" -4 route show table "$wan_table" 2>/dev/null || true)" "default $wan" ||
+			# shellcheck disable=SC2086
+			"$ip_bin" -4 route replace default $wan table "$wan_table" || return 1
 	fi
 	# A WAN without a default keeps the last one: exclusions then resume the
 	# moment it returns instead of taking whatever else routes by default.

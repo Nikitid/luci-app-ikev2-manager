@@ -143,6 +143,19 @@ before="$(nft -j list table inet ikev2_routing | md5sum)"
 "$routing" sync
 [ "$(nft -j list table inet ikev2_routing | md5sum)" = "$before" ] || fail 'an unchanged runtime was reinstalled'
 
+step 'a sync with nothing to change writes no route'
+# Every route write is announced to whatever watches the tables (Tailscale
+# logged each one), and the watcher syncs on every pass.
+ip monitor route >/tmp/route-events 2>&1 &
+monitor=$!
+sleep 1
+"$routing" sync
+sleep 1
+kill "$monitor" 2>/dev/null || :
+wait "$monitor" 2>/dev/null || :
+[ ! -s /tmp/route-events ] || fail "an unchanged sync rewrote routes: $(head -n 3 /tmp/route-events)"
+rm -f /tmp/route-events
+
 step 'traffic counters do not read as a changed table'
 nft add element inet ikev2_routing dst4 '{ 192.0.2.9 }'
 "$routing" check || fail 'a learned destination read as a changed table'
