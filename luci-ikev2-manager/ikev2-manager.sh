@@ -3,6 +3,18 @@
 set -eu
 umask 077
 
+# rpcd hands a page's environment to the helper unchanged, so the IKEV2_*
+# overrides below would let any LuCI session redirect what this root helper
+# runs. They are for the test suites; where the package is installed they are
+# dropped and the standard search path is used.
+if [ -e /usr/share/ikev2-manager/version ]; then
+	PATH=/usr/sbin:/usr/bin:/sbin:/bin
+	unset TMPDIR
+	for ikev2_override in $(env | sed -n 's/^\(IKEV2_[A-Za-z0-9_]*\)=.*/\1/p'); do
+		unset "$ikev2_override"
+	done
+fi
+
 root="${IKEV2_ROOT:-}"
 uci_config_dir="${IKEV2_UCI_CONFIG_DIR:-$root/etc/config}"
 uci_binary="${IKEV2_UCI_BIN:-/sbin/uci}"
@@ -2012,6 +2024,8 @@ case "${1:-}" in
 		;;
 	action-status)
 		if [ -n "${2:-}" ]; then
+			# The page passes the id back; anything but an id is not one.
+			case "$2" in *[!0-9-]*) die 'Invalid action id' ;; esac
 			cat "$action_status_dir/$2.status" 2>/dev/null || printf 'state=idle\n'
 		else
 			cat "$action_status_file" 2>/dev/null || printf 'state=idle\n'

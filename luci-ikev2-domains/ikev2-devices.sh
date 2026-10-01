@@ -13,6 +13,18 @@
 
 set -u
 
+# rpcd hands a page's environment to the helper unchanged, so the IKEV2_*
+# overrides below would let any LuCI session redirect what this root helper
+# runs. They are for the test suites; where the package is installed they are
+# dropped and the standard search path is used.
+if [ -e /usr/share/ikev2-manager/version ]; then
+	PATH=/usr/sbin:/usr/bin:/sbin:/bin
+	unset TMPDIR
+	for ikev2_override in $(env | sed -n 's/^\(IKEV2_[A-Za-z0-9_]*\)=.*/\1/p'); do
+		unset "$ikev2_override"
+	done
+fi
+
 BASE_RULE='ikev2pbr_domains'
 APP_CONFIG='ikev2-manager'
 DEST_FILES='file:///etc/pbr-ikev2-domains.txt file:///etc/pbr-ikev2-service-cidrs.txt'
@@ -33,13 +45,7 @@ restart_pbr() {
 	case "${1:-full}" in
 		device) "$DEVICE_RUNTIME_HELPER" sync ;;
 		firewall | device-firewall) "$DEVICE_RUNTIME_HELPER" sync ;;
-		*)
-			if [ "${IKEV2_ACTION_LOCK_HELD:-0}" = 1 ]; then
-				"$RESTART_HELPER" --wait --lock-held
-			else
-				"$RESTART_HELPER" --wait
-			fi
-			;;
+		*) "$RESTART_HELPER" --wait ;;
 	esac
 }
 

@@ -22,6 +22,19 @@ permission by making the call, not by asking `session.access`.
 
 Guarded by `scripts/check-luci-exec-acl.sh`.
 
+## rpcd passes the caller's environment to the helper
+
+`file exec` takes an `env` object and sets it in the child; the ACL checks
+only the command and its arguments. Every `IKEV2_*` override a helper reads
+was therefore settable by any LuCI session, read-only ones included, and some
+of them choose what the root helper runs. The overrides exist for the tests:
+where the package is installed a helper drops them, resets `PATH` and unsets
+`TMPDIR` before anything else. Nothing may hand a child a decision through the environment -
+the "lock already held" flag became a check that the lock holder is a parent
+process (`action_lock_held_by_ancestor`).
+
+Guarded by `scripts/openwrt/scenarios.sh`.
+
 ## `ubus -S` is silent about failure
 
 `ubus -S call ...` prints nothing on success *and* nothing on a refusal.

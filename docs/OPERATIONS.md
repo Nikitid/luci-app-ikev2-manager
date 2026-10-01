@@ -672,6 +672,14 @@ holding an address the pool has already reissued — is denied rather than
 granted the union of both policies. Custom inbound profiles do not use the
 managed per-user policy.
 
+## Page access
+
+The application's LuCI permissions are root permissions. The write part runs
+the helpers that install packages, change the firewall and accept a raw
+strongSwan configuration, so grant it only to administrators. The read part
+changes nothing; installed helpers ignore the `IKEV2_*` test overrides in
+their environment, which rpcd would otherwise pass through from any session.
+
 ## Page language
 
 The pages use the language LuCI uses: System → System → Language and Style.
@@ -728,7 +736,9 @@ terminal states are `ok` and `error`. LuCI polls the worker and refreshes the
 affected counters, lists and runtime state without a page reload.
 
 Router-changing actions share one lock. A competing action is rejected after a
-short wait instead of remaining queued behind an unknown operation. A browser
+short wait instead of remaining queued behind an unknown operation. A helper
+started from inside an action runs under that action's lock: it treats the
+lock as its own when the holder is one of its parent processes. A browser
 timeout does not cancel an already running router-side worker. Periodic health
 work yields to this lock; a domain-router operation already in flight is given
 a bounded interval to finish before the foreground transaction reports a real

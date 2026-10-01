@@ -1363,6 +1363,9 @@ msgstr "Некорректный IPv4-адрес или сеть в строке
 msgid "Invalid WAN DNS fallback state"
 msgstr "Некорректное состояние аварийного DNS от WAN"
 
+msgid "Invalid action id"
+msgstr "Некорректный идентификатор действия"
+
 msgid "Invalid address"
 msgstr "Некорректный адрес"
 

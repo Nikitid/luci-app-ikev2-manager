@@ -119,7 +119,6 @@ run_helper() (
 	TEST_REMOTE_EXTRA="${TEST_REMOTE_EXTRA:-}" \
 	TEST_PAUSED="${TEST_PAUSED:-0}" \
 	TEST_RESTART_CHECK_RC="${TEST_RESTART_CHECK_RC:-0}" \
-	IKEV2_ACTION_LOCK_HELD="${IKEV2_ACTION_LOCK_HELD:-0}" \
 	IKEV2_APPLY_FAILURE_FILE="$tmp/apply.failure" \
 		sh "$root/luci-ikev2-domains/community-domains.sh" "$@"
 )
@@ -163,10 +162,6 @@ run_helper apply
 TEST_RESTART_CHECK_RC=1 run_helper apply
 [ "$(wc -l <"$tmp/restart.log" | tr -d ' ')" = 2 ]
 
-printf '%s\n' held.example >"$tmp/manual"
-IKEV2_ACTION_LOCK_HELD=1 run_helper apply
-[ "$(tail -n1 "$tmp/restart.log")" = '--wait --lock-held' ]
-printf '%s\n' local.example >"$tmp/manual"
 
 cp "$tmp/domains" "$tmp/domains.before"
 cp "$tmp/cidrs" "$tmp/cidrs.before"

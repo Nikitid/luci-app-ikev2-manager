@@ -226,10 +226,10 @@ perform_restart() {
 	remember_pbr_signature "$policy_signature" || return 1
 }
 
+# A restart called from inside a router action runs under that action's lock.
 run_restart() {
-	lock_held="${1:-0}"
 	global_owned=0
-	if [ "$lock_held" != 1 ]; then
+	if ! action_lock_held_by_ancestor; then
 		acquire_action_lock pbr-restart domains || return 1
 		global_owned=1
 	fi
@@ -271,21 +271,17 @@ case "${1:-}" in
 		check_runtime
 		;;
 	--wait)
-		if [ "${2:-}" = --lock-held ]; then
-			run_restart 1
-		else
-			run_restart 0
-		fi
+		run_restart
 		;;
 	_run)
 		sleep 1
-		run_restart 0
+		run_restart
 		;;
 	'')
 		schedule_restart
 		;;
 	*)
-		printf 'usage: %s [--check|--wait [--lock-held]]\n' "$0" >&2
+		printf 'usage: %s [--check|--wait]\n' "$0" >&2
 		exit 2
 		;;
 esac

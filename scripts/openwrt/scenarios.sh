@@ -53,6 +53,35 @@ for script in /usr/libexec/ikev2-* /usr/libexec/ikev2-manager.d/*.sh /etc/init.d
 	sh -n "$script" || fail "$script does not parse under BusyBox ash"
 done
 
+step 'installed helpers ignore test overrides a page session could send'
+# rpcd passes a caller's environment through; the overrides are for the tests.
+mkdir -p /tmp/evil-lib /tmp/evil-bin
+for lib in /usr/libexec/ikev2-manager.d/*.sh; do
+	printf ': >/tmp/evil-sourced\nexit 0\n' >"/tmp/evil-lib/${lib##*/}"
+done
+for tool in env sed; do
+	printf '#!/bin/sh\n: >/tmp/evil-path\nexit 1\n' >"/tmp/evil-bin/$tool"
+	chmod 755 "/tmp/evil-bin/$tool"
+done
+run_with_overrides() {
+	rm -f /tmp/evil-sourced /tmp/evil-path
+	PATH="/tmp/evil-bin:$PATH" IKEV2_RUNTIME_LIB_DIR=/tmp/evil-lib \
+		"/usr/libexec/$1" status >/dev/null 2>&1 || :
+}
+for helper in ikev2-manager ikev2-manager-system ikev2-domain-router \
+	ikev2-device-routing ikev2-tunnel-quality ikev2-devices ikev2-domains-community; do
+	run_with_overrides "$helper"
+	[ ! -e /tmp/evil-sourced ] || fail "$helper sourced a library its environment named"
+	[ ! -e /tmp/evil-path ] || fail "$helper ran a tool from the search path it was given"
+done
+# Without the installed package the same run must honour them, or the check
+# above sees nothing.
+mv /usr/share/ikev2-manager/version /tmp/ikev2-version
+run_with_overrides ikev2-manager-system
+mv /tmp/ikev2-version /usr/share/ikev2-manager/version
+[ -e /tmp/evil-sourced ] || fail 'the override check cannot see a sourced library'
+rm -rf /tmp/evil-lib /tmp/evil-bin /tmp/evil-sourced /tmp/evil-path
+
 step 'the ucode scripts load'
 for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	# Run without input: a usage error is fine, a compile error is 255.

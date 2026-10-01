@@ -2,6 +2,18 @@
 
 set -u
 
+# rpcd hands a page's environment to the helper unchanged, so the IKEV2_*
+# overrides below would let any LuCI session redirect what this root helper
+# runs. They are for the test suites; where the package is installed they are
+# dropped and the standard search path is used.
+if [ -e /usr/share/ikev2-manager/version ]; then
+	PATH=/usr/sbin:/usr/bin:/sbin:/bin
+	unset TMPDIR
+	for ikev2_override in $(env | sed -n 's/^\(IKEV2_[A-Za-z0-9_]*\)=.*/\1/p'); do
+		unset "$ikev2_override"
+	done
+fi
+
 config='ikev2-manager'
 domain_file="${IKEV2_DOMAIN_FILE:-/etc/pbr-ikev2-domains.txt}"
 config_file="${IKEV2_DOMAIN_CONFIG:-/etc/ikev2-manager/domain-router.json}"

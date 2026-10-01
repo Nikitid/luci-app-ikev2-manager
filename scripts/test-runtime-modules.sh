@@ -39,6 +39,37 @@ fi
 rm -f "$action_lock_status"
 rmdir "$action_lock_dir"
 
+# A helper started inside a router action finds the lock held by an ancestor
+# and goes ahead without waiting for it. Nothing else counts: rpcd passes a
+# page's environment through, so the claim used to be an environment variable
+# any LuCI session could set.
+sleep 30 &
+holder=$!
+mkdir -p "$tmp/proc/$$" "$tmp/proc/4242"
+printf '4242 (ikev2 helper) S %s 0 0\n' "$holder" >"$tmp/proc/4242/stat"
+printf 'owner=tests\naction_id=test-2\npid=%s\npid_start=\n' "$holder" >"$action_lock_status"
+IKEV2_PROC_ROOT="$tmp/proc"
+export IKEV2_PROC_ROOT
+printf '%s (sh) S 4242 0 0\n' "$$" >"$tmp/proc/$$/stat"
+action_lock_held_by_ancestor || {
+	echo 'a lock held by the grandparent was not recognised' >&2
+	exit 1
+}
+printf '%s (sh) S 1 0 0\n' "$$" >"$tmp/proc/$$/stat"
+if action_lock_held_by_ancestor; then
+	echo 'a lock held outside the process tree was taken as held' >&2
+	exit 1
+fi
+printf '%s (sh) S 4242 0 0\n' "$$" >"$tmp/proc/$$/stat"
+kill "$holder"
+wait "$holder" 2>/dev/null || :
+if action_lock_held_by_ancestor; then
+	echo 'a lock whose holder has exited was taken as held' >&2
+	exit 1
+fi
+unset IKEV2_PROC_ROOT
+rm -f "$action_lock_status"
+
 # A free lock is taken without claiming to wait for anything.
 announced=''
 announce() { announced="$*"; }
@@ -496,10 +527,6 @@ grep -Fq 'if base_config_matches; then' \
 grep -Fq '"$routing_check_helper" --check' \
 	"$system_source"
 grep -Fq '"$restart_helper" --check' \
-	"$root/luci-ikev2-domains/community-domains.sh"
-grep -Fq 'IKEV2_ACTION_LOCK_HELD=1' \
-	"$system_source"
-grep -Fq '"$restart_helper" --wait --lock-held' \
 	"$root/luci-ikev2-domains/community-domains.sh"
 stop_body="$(sed -n '/^stop() {/,/^}/p' \
 	"$root/ikev2-manager-runtime/ikev2-xfrm.init")"

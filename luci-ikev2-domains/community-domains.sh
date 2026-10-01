@@ -2,6 +2,18 @@
 
 set -u
 
+# rpcd hands a page's environment to the helper unchanged, so the IKEV2_*
+# overrides below would let any LuCI session redirect what this root helper
+# runs. They are for the test suites; where the package is installed they are
+# dropped and the standard search path is used.
+if [ -e /usr/share/ikev2-manager/version ]; then
+	PATH=/usr/sbin:/usr/bin:/sbin:/bin
+	unset TMPDIR
+	for ikev2_override in $(env | sed -n 's/^\(IKEV2_[A-Za-z0-9_]*\)=.*/\1/p'); do
+		unset "$ikev2_override"
+	done
+fi
+
 manual_file="${IKEV2_MANUAL_FILE:-/etc/pbr-ikev2-domains.manual.txt}"
 manual_cidr_file="${IKEV2_MANUAL_CIDR_FILE:-/etc/pbr-ikev2-addresses.manual.txt}"
 selected_file="${IKEV2_SELECTED_FILE:-/etc/pbr-ikev2-community-selected.txt}"
@@ -688,12 +700,10 @@ restore_output() {
 	fi
 }
 
+# Inside a router action the restart helper finds the lock held by its caller
+# and does not wait for it.
 restart_policy() {
-	if [ "${IKEV2_ACTION_LOCK_HELD:-0}" = 1 ]; then
-		"$restart_helper" --wait --lock-held
-	else
-		"$restart_helper" --wait
-	fi
+	"$restart_helper" --wait
 }
 
 apply_once() {

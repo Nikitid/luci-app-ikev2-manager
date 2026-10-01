@@ -102,6 +102,28 @@ action_lock_owner_alive() {
 	[ -n "$current_start" ] && [ "$current_start" = "$expected_start" ]
 }
 
+# Whether the router action lock belongs to this process or one of its
+# ancestors, which makes this process part of that action. A child cannot be
+# told so through its environment: rpcd passes a page's environment through
+# unchanged, so a claim made there could come from any session.
+action_lock_held_by_ancestor() {
+	local holder pid="$$" depth=0 line
+	holder="$(sed -n 's/^pid=//p' "$action_lock_status" 2>/dev/null | tail -1)"
+	case "$holder" in '' | *[!0-9]*) return 1 ;; esac
+	action_lock_owner_alive "$holder" || return 1
+	# Every process descends from init, so the walk stops before it.
+	while [ "$depth" -lt 32 ] && [ "$pid" -gt 1 ]; do
+		[ "$pid" != "$holder" ] || return 0
+		read -r line 2>/dev/null <"${IKEV2_PROC_ROOT:-/proc}/$pid/stat" || return 1
+		# Field 2 (comm) may contain spaces; the parent PID is the second field
+		# after its closing parenthesis.
+		set -- ${line##*) }
+		pid="$2"
+		depth=$((depth + 1))
+	done
+	return 1
+}
+
 action_lock_busy_unlocked() {
 	local pid now created
 	[ -d "$action_lock_dir" ] || return 1
