@@ -242,10 +242,10 @@ getv() {{ echo {enabled}; }}
         result = run(setup + diagnostic + f'[ "$ok" = {expected} ]', env)
         if not modern and enabled: assert 'security_ok=0' in result
     health = (ROOT / 'ikev2-manager-runtime/ikev2-health.sh').read_text()
-    a = health.index('\t\t\tstate=up\n')
-    b = health.index('\t\t\tprintf', a)
+    a = health.index('\t\tstate=up\n')
+    b = health.index('\t\tprintf', a)
     for failures, routing, expected in [(0,'ok','up'), (1,'ok','degraded'), (0,'degraded','degraded')]:
-        run(f'failures={failures}; routing_policy_state={routing}\n' + health[a:b] +
+        run(f'probe_failures={failures}; routing_policy_state={routing}\n' + health[a:b] +
             f'[ "$state" = {expected} ]', env)
     print('audit: vulnerable server and failed data probe cannot report healthy OK')
 

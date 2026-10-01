@@ -1453,7 +1453,8 @@ inbound_diagnostic_file="${IKEV2_INBOUND_DIAGNOSTIC_FILE:-/tmp/ikev2-inbound-dia
 # Translate the recognised signatures into something that names what to fix.
 classify_initiate_failure() {
 	local recent
-	recent="$(logread 2>/dev/null | grep -iE 'charon|ipsec' | tail -n 120)"
+	# The last messages hold the failed attempt; the whole buffer costs seconds.
+	recent="$(logread -l 2000 2>/dev/null | grep -iE 'charon|ipsec' | tail -n 120)"
 	[ -n "$recent" ] || return 0
 	case "$recent" in
 		*'no issuer certificate found'* | *'no trusted '*'public key found'*)

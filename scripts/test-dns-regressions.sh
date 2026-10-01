@@ -79,7 +79,6 @@ grep -Fq "tunnelBootstrap.join(' ')" "$client"
 grep -Fq 'tunnel-dns-check)' "$root/ikev2-manager-runtime/ikev2-domain-router.sh"
 grep -Fq 'refresh-rules)' "$root/ikev2-manager-runtime/ikev2-domain-router.sh"
 grep -Fq "type: 'local'" "$root/ikev2-manager-runtime/lib/singbox-config.uc"
-grep -Fq 'ikev2-domain-router tunnel-dns-check' "$root/ikev2-manager-runtime/ikev2-health.sh"
 grep -Fq "dns_error_file=\"/tmp/ikev2-dns-action-\$id.error\"" "$system"
 grep -Fq '[ "$managed" = 0 ] || valid_name "$provider"' "$system"
 grep -Fq "_dns-apply-inner 0 '' '' '' '' '' ''" "$system"
@@ -544,8 +543,6 @@ grep -Fq '	dns_probe_answers "$address"' \
 	"$root/ikev2-manager-runtime/ikev2-domain-router.sh"
 grep -Fq 'IKEV2_DOMAIN_LOCK_WAIT_SECONDS:-5' \
 	"$root/ikev2-manager-runtime/ikev2-domain-router.sh"
-grep -Fq 'if action_lock_busy; then' \
-	"$root/ikev2-manager-runtime/ikev2-health.sh"
 if grep -Fq 'timeout 2 nslookup' \
 	"$root/ikev2-manager-runtime/ikev2-domain-router.sh"; then
 	printf '%s\n' 'tunnel DNS probe still depends on the optional timeout applet' >&2

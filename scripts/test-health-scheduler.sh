@@ -76,27 +76,9 @@ periodic_task paced "$tmp/paced.state" 60 quick
 wait
 [ "$(calls)" = 2 ] || fail 'a periodic task did not run after its interval'
 
-# Every slow helper is started through the scheduler, never in line.
-for command in dns-segments-check _dns-wan-refresh tunnel-dns-check data-plane-check \
-	refresh-if-due 'ikev2-tunnel-quality sample'; do
-	awk -v command="$command" '
-		index($0, command) && !/^[[:space:]]*#/ {
-			found = 1
-			if (($0 prev) !~ /(periodic_task|spawn_task) /) bad = 1
-		}
-		{ prev = $0 }
-		END { exit !(found && !bad) }
-	' "$health" || fail "the watcher runs $command in line"
-done
-
-# A transaction holds back only the pass and the checks; the quality sample
-# only pings, so it runs before the lock test.
-awk '
-	/periodic_task quality/ && !sample { sample = NR }
-	/if action_lock_busy; then/ && !lock { lock = NR }
-	/^[[:space:]]*dispatch_checks$/ && !checks { checks = NR }
-	END { exit !(sample && lock && checks && sample < lock && lock < checks) }
-' "$health" || fail 'the action lock does not gate the pass and checks alone'
+# That the watcher starts the slow helpers through this scheduler, and that a
+# transaction holds back its passes but not the quality sample, is checked on
+# the running watcher by scripts/test-health-loop.sh.
 
 finished=1
 printf '%s\n' 'health scheduler tests OK'

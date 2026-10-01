@@ -173,6 +173,22 @@ differently on the router.
 Guarded by `scripts/check-busybox-compat.sh`; extend it rather than relying on
 review.
 
+## Reading the whole system log costs seconds
+
+`logread` with no options formats the entire ring buffer, which on a router
+with a busy log is a hundred thousand lines and four to five seconds of CPU.
+The quality sample did that every minute to find reconnects, and the
+watcher's cost looked like its own loop. Read the last messages with
+`logread -l N`, or let logread filter with `-e PATTERN`, and measure a
+periodic check by its CPU time, not by how many processes it starts.
+
+## BusyBox sleep takes whole seconds
+
+`sleep 0.2` fails with "invalid number" on the router; a wait loop built on
+it spins or stops at once, and every developer shell accepts it.
+
+Guarded by `scripts/check-busybox-compat.sh`.
+
 ## ash scopes variables dynamically
 
 A function that assigns a name without `local` writes into whichever caller

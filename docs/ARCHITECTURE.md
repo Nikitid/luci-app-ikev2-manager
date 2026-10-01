@@ -157,8 +157,9 @@ resolver bound to `ipsec-out`, so the address returned for a selected service
 comes from the same network geography as its connection. Its bootstrap DNS is
 also bound to `ipsec-out` and does not change global client DNS behavior. The
 configured DoH servers are ordered. The existing health loop probes the active
-server once per minute and switches only after two consecutive failures and a
-successful DNS query through the next server. A temporary sing-box worker
+server every three minutes, every minute while it fails, and switches only
+after two consecutive failures and a successful DNS query through the next
+server. A temporary sing-box worker
 performs the query with both bootstrap UDP and DoH bound to `ipsec-out`, using
 the same resolver configuration as the live worker and no response cache.
 The worker is bounded and removed after each probe. Before the disruptive

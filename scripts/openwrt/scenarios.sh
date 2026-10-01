@@ -501,6 +501,30 @@ grep -q 'inbound_link_up' /tmp/inbound-link.sh || fail 'the inbound link check i
 	:
 )
 
+# --- the watcher, on BusyBox ash ---------------------------------------------
+
+step 'the watcher runs its passes on BusyBox and stops at once on TERM'
+mkdir -p /tmp/watch-run
+IKEV2_RUN_DIR=/tmp/watch-run IKEV2_HEALTH_TICK=1 IKEV2_HEALTH_PASS_INTERVAL=1 \
+	IKEV2_HEALTH_CHECK_INTERVAL=2 /usr/libexec/ikev2-health 2>/tmp/watch.err &
+watch=$!
+i=0
+while [ ! -s /tmp/watch-run/ikev2-health.status ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+[ -s /tmp/watch-run/ikev2-health.status ] || fail "the watcher wrote no status: $(cat /tmp/watch.err)"
+sleep 3
+kill -0 "$watch" 2>/dev/null || fail "the watcher died: $(cat /tmp/watch.err)"
+kill -USR1 "$watch"
+sleep 1
+kill -0 "$watch" 2>/dev/null || fail 'the watcher died of its wake-up signal'
+kill -TERM "$watch"
+i=0
+# BusyBox sleep takes whole seconds only.
+while kill -0 "$watch" 2>/dev/null && [ "$i" -lt 2 ]; do sleep 1; i=$((i + 1)); done
+kill -0 "$watch" 2>/dev/null && fail 'the watcher did not stop within two seconds of TERM'
+! grep -E 'syntax error|not found|bad number|unexpected' /tmp/watch.err ||
+	fail "the watcher hit a shell error: $(head -n 3 /tmp/watch.err)"
+rm -rf /tmp/watch-run /tmp/watch.err
+
 # --- teardown ---------------------------------------------------------------
 
 step 'stopping removes everything the routing installed'

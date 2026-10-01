@@ -115,6 +115,11 @@ check_pattern '(^|[;&|[:space:]])base64([[:space:]]|$)' \
 check_pattern '(^|[;&|[:space:]])nslookup[^|;&]*[[:space:]]-port(=|[[:space:]])' \
 	'BusyBox nslookup does not support -port; probe the standard DNS port directly'
 
+# OpenWrt's BusyBox sleep takes whole seconds; "sleep 0.2" fails with
+# "invalid number" and the loop around it spins or stops.
+check_pattern '(^|[;&|[:space:]])sleep[[:space:]]+[0-9]*\.[0-9]' \
+	'BusyBox sleep takes whole seconds only'
+
 # The timeout applet is optional in OpenWrt BusyBox builds. Runtime scripts
 # must use their own watchdog or a tool's native timeout option.
 check_pattern '^[[:space:]]*timeout[[:space:]]|[;&|][[:space:]]*timeout[[:space:]]' \

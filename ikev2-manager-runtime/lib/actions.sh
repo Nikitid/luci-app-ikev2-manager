@@ -146,7 +146,14 @@ action_lock_busy_unlocked() {
 	return 1
 }
 
-action_lock_busy() (
+# A lock that is not there is free without taking the gate: the watcher asks
+# every few seconds, and the subshell and flock each time cost two processes.
+action_lock_busy() {
+	[ -d "$action_lock_dir" ] || return 1
+	action_lock_busy_gated
+}
+
+action_lock_busy_gated() (
 	flock -n 9 || return 0
 	action_lock_busy_unlocked
 ) 9>"${action_lock_dir}.guard"

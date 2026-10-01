@@ -487,7 +487,7 @@ sync_runtime() {
 }
 
 check_runtime() {
-	local dir
+	local dir routes
 	active || {
 		! runtime_exists && ! "$ip_bin" -4 rule show 2>/dev/null | grep -q "^$rule_tunnel:"
 		return
@@ -507,8 +507,15 @@ check_runtime() {
 		fi
 	done
 	rules_present || return 1
-	"$ip_bin" -4 route show table "$tunnel_table" 2>/dev/null |
-		grep -Eq '^unreachable default .*metric 32767' || return 1
+	routes="$("$ip_bin" -4 route show table "$tunnel_table" 2>/dev/null || true)"
+	printf '%s\n' "$routes" | grep -Eq '^unreachable default .*metric 32767' || return 1
+	# The tunnel default follows the tunnel. The watcher syncs when the SA comes
+	# or goes; this catches a change it did not see.
+	if tunnel_ready; then
+		printf '%s\n' "$routes" | grep -Eq '^default dev ipsec-out( .*)? metric 10( |$)' || return 1
+	else
+		! printf '%s\n' "$routes" | grep -q '^default dev ipsec-out' || return 1
+	fi
 	rm -rf "$work"
 	trap - EXIT INT TERM
 }

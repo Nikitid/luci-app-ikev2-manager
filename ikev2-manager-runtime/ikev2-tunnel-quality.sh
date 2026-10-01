@@ -159,33 +159,27 @@ trim_marks() {
 
 # IKE rekeys replace the SA unique id every few hours, so a changed id is not a
 # reconnect. charon logs a new SA as "established" and a rekey as "rekeyed";
-# print the time of each new one since the last line already seen. The ring
-# buffer only drops old lines, so a cursor that has rotated out means every
-# line is new. The time comes from the log line, so a reconnect can be matched
-# against the action that caused it.
+# print the time of each new one logged after SINCE, the previous sample. The
+# time comes from the log line, so a reconnect can be matched against the
+# action that caused it. Only the last messages are read: the whole ring
+# buffer took four to five seconds of CPU on every sample of a busy router,
+# and a minute never fills two thousand messages.
 new_connections() {
-	local cursor="$1" stamp
+	local since="$1" stamp at
 	command -v logread >/dev/null 2>&1 || return 0
-	logread 2>/dev/null | grep 'IKE_SA proxy-out\[[0-9]*\] established between' |
-		awk -v cursor="$cursor" '
+	logread -l 2000 2>/dev/null | grep 'IKE_SA proxy-out\[[0-9]*\] established between' |
+		awk '
 			BEGIN { split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec", m, " "); for (i = 1; i <= 12; i++) mon[m[i]] = i }
-			{ line[NR] = $0; stamp[NR] = sprintf("%s-%02d-%02d %s", $5, mon[$2], $3, $4); if ($0 == cursor) seen = NR }
-			END {
-				if (cursor != "")
-					for (i = seen + 1; i <= NR; i++) print "new " stamp[i]
-				if (NR) print "cursor " line[NR]
-			}' | while read -r kind stamp; do
-		if [ "$kind" = new ]; then
-			printf 'new %s\n' "$(date -d "$stamp" +%s 2>/dev/null || echo 0)"
-		else
-			printf 'cursor %s\n' "$stamp"
-		fi
+			{ printf "%s-%02d-%02d %s\n", $5, mon[$2], $3, $4 }' | while read -r stamp; do
+		at="$(date -d "$stamp" +%s 2>/dev/null || echo 0)"
+		[ "$at" -gt "$since" ] 2>/dev/null && printf 'new %s\n' "$at"
 	done
+	return 0
 }
 
 take_sample() {
 	local now started finished client state tun wan wan_pid tun_recv rx tx previous down_since
-	local cursor new_cursor output maintenance at
+	local since output maintenance at
 	mkdir -p "$quality_dir"
 	now="$(date +%s)"
 	client="$(uci -q get ikev2-manager.client.enabled || echo 0)"
@@ -240,22 +234,22 @@ take_sample() {
 		state="$previous"
 	fi
 
-	cursor="$(state_value "$sample_state" log_cursor)"
-	output="$(new_connections "$cursor")"
+	# The first sample only places the mark: what the log holds from before it
+	# is not news.
+	since="$(state_number "$sample_state" log_since)"
+	[ "$since" -gt 0 ] || since="$now"
+	output="$(new_connections "$since")"
 	# A reconnect inside an action's window is that action; it has its own mark.
 	printf '%s\n' "$output" | sed -n 's/^new //p' | while read -r at; do
-		[ "$at" -gt 0 ] 2>/dev/null || at="$now"
 		[ -n "$(maintenance_during "$at" "$at")" ] || add_event "$at" reconnect 1
 	done
-	new_cursor="$(printf '%s\n' "$output" | sed -n 's/^cursor //p' | tail -n1)"
-	[ -n "$new_cursor" ] || new_cursor="$cursor"
 	trim_file "$events_file" "$event_keep"
 	trim_marks $((now - 86400))
 
 	{
 		printf 'state=%s\n' "$state"
 		printf 'down_since=%s\n' "$down_since"
-		printf 'log_cursor=%s\n' "$new_cursor"
+		printf 'log_since=%s\n' "$now"
 	} >"${sample_state}.new"
 	mv "${sample_state}.new" "$sample_state"
 }

@@ -306,16 +306,9 @@ setup
 )
 rm -f "$tmp/second-ok"
 
-# Watcher wiring: check the data plane only while the tunnel is up,
-# immediately after it comes back.
-grep -Fq '/usr/libexec/ikev2-domain-router data-plane-check now' "$health" ||
-	fail 'watcher does not check the data plane when the tunnel returns'
-[ "$(awk '/if \[ "\$tunnel_up" = 1 \] &&/ { inside = 1 }
-	inside && /data-plane-check/ { count++ }
-	/^\ttunnel_was_up=/ { inside = 0 }
-	END { print count + 0 }' "$health")" = 2 ] &&
-	[ "$(grep -c 'data-plane-check' "$health")" = 2 ] ||
-	fail 'watcher runs the data-plane check outside the tunnel-up guard'
+# That the watcher checks the data plane only while the tunnel is up, and at
+# once when it comes back, is checked on the running watcher by
+# scripts/test-health-loop.sh.
 grep -Fq 'data-plane-check) data_plane_check "${2:-}"' "$router" ||
 	fail 'domain router does not dispatch data-plane-check'
 

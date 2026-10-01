@@ -191,12 +191,19 @@ and never tear down an installed CHILD_SA. Missing SAs are recovered through
 the serialized, rate-limited `ensure-client` action; its reconnect cooldown is
 configurable under the outbound tunnel settings.
 
-The watcher checks the tunnel, the routing and inbound policies and the
-inbound server every 15 seconds. The slower checks - DNS segments, tunnel DNS,
-WAN DNS fallbacks, the FakeIP data plane, service-list refresh and the quality
-sample - run detached on their own intervals, one copy of each at a time, so
-none of them delays a reconnect. While a configuration change holds the action
-lock, only the quality sample runs.
+Every 15 seconds the watcher checks the outbound SA, the pause block and the
+XFRM links, and probes the tunnel; when the SA comes or goes the routes that
+follow it are updated at once, and the inbound policy watcher, which follows
+strongSwan's events, wakes it as soon as that happens. Once a minute it checks
+policy routing, device routing, Discord voice, the inbound user policy,
+FakeIP and the inbound server. A runtime is synced only when its check fails,
+under the router action lock, so a page action never runs beside a repair; on
+an idle router the watcher uses about three percent of one core. The slower
+checks - DNS segments, tunnel DNS, WAN DNS fallbacks, the FakeIP data plane,
+service-list refresh and the quality sample - run detached on their own
+intervals, one copy of each at a time, so none of them delays a reconnect.
+While a configuration change holds the action lock, only the quality sample
+runs.
 
 External alerting is optional. `scripts/kuma-push.sh` runs from the router's
 cron and reports Uptime Kuma push monitors: services and pause, the outbound
@@ -216,8 +223,9 @@ Use `https` for the Kuma URL where possible: the tokens are part of it. A
 push monitor goes down on its own when the router stops reporting.
 
 The same page stores an ordered tunnel-DNS DoH list and IPv4 bootstrap
-resolvers. The first DoH endpoint is primary. Once per minute the existing
-health process verifies its TLS path through `ipsec-out`; after two consecutive
+resolvers. The first DoH endpoint is primary. Every three minutes, and every
+minute while it fails, the health process verifies its TLS path through
+`ipsec-out`; after two consecutive
 failures it probes the remaining endpoints in order and refreshes sing-box only
 after one succeeds. A different healthy bootstrap winner for the same endpoint
 updates telemetry without restarting sing-box. A failed check never changes the

@@ -1752,7 +1752,8 @@ case "${1:-}" in
 		;;
 	dns-buffer-status)
 		"$device_runtime_helper" dns-malformed-stats
-		errors="$(logread 2>/dev/null |
+		# Filtered by logread itself: piping the whole buffer cost seconds.
+		errors="$(logread -e 'dns: buffer size too small' 2>/dev/null |
 			grep -Fc 'dns: buffer size too small' 2>/dev/null || true)"
 		printf 'singbox_errors=%s\n' "${errors:-0}"
 		;;

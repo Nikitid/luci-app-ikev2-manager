@@ -663,6 +663,7 @@ IKEV2_SWANCTL="$tmp/bin/swanctl" \
 IKEV2_USER_POLICY_EVENT_SOURCE="$tmp/bin/event-source" \
 TEST_EVENT_FIFO="$tmp/event-input" \
 IKEV2_USER_POLICY_REFRESH_INTERVAL=30 \
+IKEV2_HEALTH_LOCK="$tmp/health.lock" \
 	sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch &
 watch_pid=$!
 watch_cleanup() {
@@ -707,6 +708,30 @@ while [ "$attempt" -lt 5 ]; do
 done
 [ "$attempt" -lt 5 ] || {
 	printf '%s\n' 'inbound watcher did not replace a changed SA promptly' >&2
+	exit 1
+}
+# An outbound SA that comes or goes wakes the health watcher, whose routes
+# follow the tunnel.
+mkdir -p "$tmp/health.lock"
+sh -c 'trap "printf woken >>\"$1\"" USR1; : >"$1.ready"; while :; do sleep 1; done' wake "$tmp/health-woken" &
+health_pid=$!
+attempt=0
+while [ ! -e "$tmp/health-woken.ready" ] && [ "$attempt" -lt 30 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+printf '%s\n' "$health_pid" >"$tmp/health.lock/pid"
+printf '%s\n' \
+	'child-updown event {up=no proxy-out {uniqueid=30 child-sas {proxy4-1 {state=DELETED}}}}' >&9
+attempt=0
+while [ ! -s "$tmp/health-woken" ] && [ "$attempt" -lt 30 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+kill "$health_pid" 2>/dev/null || true
+wait "$health_pid" 2>/dev/null || true
+[ -s "$tmp/health-woken" ] || {
+	printf '%s\n' 'an outbound SA change did not wake the health watcher' >&2
 	exit 1
 }
 printf '%s\n' test-monitor-exit >&9
@@ -916,9 +941,7 @@ grep -Fq 'failed 2 times in a row' "$tmp/failed-watch.stderr" || {
 	exit 1
 }
 
-grep -Fq 'ensure_inbound_user_policy' "$root/ikev2-manager-runtime/ikev2-health.sh" || {
-	printf '%s\n' 'health watcher does not reconcile the inbound user policy' >&2
-	exit 1
-}
+# That the watcher checks and repairs the inbound user policy is checked on
+# the running watcher by scripts/test-health-loop.sh.
 
 printf '%s\n' 'inbound user policy tests OK'

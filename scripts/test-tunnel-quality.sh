@@ -72,8 +72,11 @@ cat >"$tmp/bin/swanmon" <<'EOF'
 cat "$STUB/sas" 2>/dev/null || :
 EOF
 
+# The whole ring buffer cost seconds of CPU on every sample; only the last
+# messages may be read.
 cat >"$tmp/bin/logread" <<'EOF'
 #!/bin/sh
+[ "${1:-}" = -l ] || : >"$STUB/whole-log-read"
 cat "$STUB/log" 2>/dev/null || :
 EOF
 
@@ -258,9 +261,10 @@ wait "$alive" 2>/dev/null || :
 sample_at 1240
 case "$(last_sample)" in *' -') ;; *) fail "a dead action kept marking samples: $(last_sample)" ;; esac
 
-# Reconnects come from charon's "established" lines after the cursor, at the
-# time the log gives. Rekeys are not reconnects, the first sample only places
-# the cursor, and a reconnect inside an action's window is that action's.
+# Reconnects come from charon's "established" lines logged after the previous
+# sample, at the time the log gives. Rekeys are not reconnects, the first
+# sample only places the mark, and a reconnect inside an action's window is
+# that action's.
 setup
 base="$(date -d '2026-09-25 21:00:00' +%s)"
 printf '%s\n' 'Fri Sep 25 20:00:00 2026 daemon.info ipsec: 14[IKE] IKE_SA proxy-out[1] established between a...b' \
@@ -278,10 +282,11 @@ sample_at $((base + 120))
 	fail "reconnects were not dated from the log or the manual one was counted: $(cat "$tmp/quality/events")"
 sample_at $((base + 180))
 [ "$(grep -c reconnect "$tmp/quality/events")" = 1 ] || fail 'connections were counted twice'
-# A cursor that rotated out of the ring buffer means every line is new.
+# Lines that have rotated out of the ring buffer lose nothing that is new.
 printf '%s\n' 'Fri Sep 25 21:03:10 2026 daemon.info ipsec: 08[IKE] IKE_SA proxy-out[20] established between a...b' >"$stub/log"
 sample_at $((base + 240))
-grep -qx "$((base + 190)) reconnect 1" "$tmp/quality/events" || fail 'a rotated cursor lost a connection'
+grep -qx "$((base + 190)) reconnect 1" "$tmp/quality/events" || fail 'a rotated log lost a connection'
+[ ! -e "$stub/whole-log-read" ] || fail 'a sample read the whole system log'
 
 # History is bounded, marks included.
 setup
@@ -549,14 +554,7 @@ expect speed_setting_tunnel_service ovh
 
 "$helper" action-status '../x' >/dev/null 2>&1 && fail 'a path was accepted as an action id'
 
-# The watcher samples before its pause and action-lock early exits, detached
-# so the pings cannot stall a repair.
-awk '
-	/periodic_task quality/ { detached = 1 }
-	/ikev2-tunnel-quality sample/ { sample = NR }
-	/if action_lock_busy; then/ && !lock { lock = NR }
-	/ikev2-manager.domains.paused/ && !pause { pause = NR }
-	END { exit !(sample && detached && sample < lock && sample < pause) }
-' "$health" || fail 'the watcher does not sample detached ahead of its early exits'
+# That the watcher samples detached and through router actions is checked on
+# the running watcher by scripts/test-health-loop.sh.
 
 printf '%s\n' 'tunnel quality ok'

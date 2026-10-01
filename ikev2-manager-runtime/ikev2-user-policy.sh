@@ -13,6 +13,7 @@ signature_file="${IKEV2_USER_POLICY_SIGNATURE:-/var/run/ikev2-user-policy.signat
 session_state="${IKEV2_USER_POLICY_SESSIONS:-/var/run/ikev2-user-policy.sessions}"
 policy_state="${IKEV2_USER_POLICY_FINGERPRINTS:-/var/run/ikev2-user-policy.policy}"
 sync_lock_dir="${IKEV2_USER_POLICY_LOCK:-/var/run/ikev2-user-policy.lock}"
+health_lock="${IKEV2_HEALTH_LOCK:-/var/run/ikev2-health.lock}"
 refresh_interval="${IKEV2_USER_POLICY_REFRESH_INTERVAL:-30}"
 # Consecutive failed reconciliations before the watcher gives up and lets procd
 # respawn it. One failure is expected while charon restarts or an nft
@@ -720,6 +721,13 @@ watch_runtime() {
 			ikev2-monitor-exit=*)
 				printf '%s\n' 'Inbound VICI monitor stopped' >&2
 				return 1
+				;;
+			'child-updown event {'*'proxy-out {'*)
+				# The outbound tunnel is the health watcher's: wake it, so the
+				# routes that follow the tunnel follow at once.
+				health_pid=''
+				read -r health_pid 2>/dev/null <"$health_lock/pid" || :
+				case "$health_pid" in '' | *[!0-9]*) ;; *) kill -USR1 "$health_pid" 2>/dev/null || : ;; esac
 				;;
 			ikev2-refresh|'child-updown event {'*'ikev2-in {'*)
 				# The timer is the recovery path for a lost event and refreshes
