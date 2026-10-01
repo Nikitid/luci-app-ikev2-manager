@@ -82,6 +82,18 @@ mv /tmp/ikev2-version /usr/share/ikev2-manager/version
 [ -e /tmp/evil-sourced ] || fail 'the override check cannot see a sourced library'
 rm -rf /tmp/evil-lib /tmp/evil-bin /tmp/evil-sourced /tmp/evil-path
 
+step 'a read the pages poll leaves the configuration file alone'
+# uci rewrites a file on every commit, changed or not, and the pages poll
+# these reads every few seconds.
+/usr/libexec/ikev2-manager server-get >/dev/null
+before="$(date -r /etc/config/ikev2-manager +%s)"
+sleep 1
+for read in server-get client-get users-show widget-status; do
+	/usr/libexec/ikev2-manager "$read" >/dev/null 2>&1 || :
+done
+[ "$(date -r /etc/config/ikev2-manager +%s)" = "$before" ] ||
+	fail 'a read rewrote /etc/config/ikev2-manager'
+
 step 'the ucode scripts load'
 for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	# Run without input: a usage error is fine, a compile error is 255.

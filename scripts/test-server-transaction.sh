@@ -67,7 +67,9 @@ case "$command" in
 			count="$(cat "$TEST_COMMIT_COUNT" 2>/dev/null || echo 0)"
 			count=$((count + 1))
 			printf '%s\n' "$count" >"$TEST_COMMIT_COUNT"
-			if [ "$count" -ge 2 ]; then
+			# The first commit is the server's own: reading the configuration
+			# commits nothing while no default is missing.
+			if [ "$count" -ge 1 ]; then
 				printf '%s\n' CORRUPTED >"$TEST_CONFIG_DIR/ikev2-manager"
 				exit 1
 			fi

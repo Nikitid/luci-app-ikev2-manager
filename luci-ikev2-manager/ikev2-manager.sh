@@ -671,13 +671,19 @@ set_list() {
 	done
 }
 
+# Every call of this helper passes through here, including the reads a page
+# polls every few seconds, so a run that finds nothing missing writes nothing:
+# a commit rewrites the file on flash even when no option changed.
 init_uci() {
+	local init_changed=0
 	mkdir -p "$uci_config_dir"
 	mkdir -p "$root/etc/ikev2-manager" "$root/etc/swanctl/conf.d"
-	chmod 700 "$root/etc/ikev2-manager"
-	touch "$uci_config_dir/$uci_config"
+	[ -n "$(find "$root/etc/ikev2-manager" -maxdepth 0 -perm 700 2>/dev/null)" ] ||
+		chmod 700 "$root/etc/ikev2-manager"
+	[ -e "$uci_config_dir/$uci_config" ] || : >"$uci_config_dir/$uci_config"
 
 	uci -q get "$uci_config.globals" >/dev/null 2>&1 || {
+		init_changed=1
 		uci set "$uci_config.globals=globals"
 		uci set "$uci_config.globals.schema_version=1"
 		uci set "$uci_config.globals.configured=0"
@@ -693,6 +699,7 @@ init_uci() {
 	}
 
 	uci -q get "$uci_config.server" >/dev/null 2>&1 || {
+		init_changed=1
 		uci set "$uci_config.server=server"
 		uci set "$uci_config.server.enabled=0"
 		uci set "$uci_config.server.identity="
@@ -720,6 +727,7 @@ init_uci() {
 	}
 
 	uci -q get "$uci_config.client" >/dev/null 2>&1 || {
+		init_changed=1
 		uci set "$uci_config.client=client"
 		uci set "$uci_config.client.enabled=0"
 		uci set "$uci_config.client.remote_address="
@@ -735,6 +743,7 @@ init_uci() {
 	}
 
 	uci -q get "$uci_config.dns" >/dev/null 2>&1 || {
+		init_changed=1
 		uci set "$uci_config.dns=dns"
 		uci set "$uci_config.dns.managed=0"
 		uci set "$uci_config.dns.protocol=doh"
@@ -770,14 +779,20 @@ init_uci() {
 		rest="${assignment#*.}"
 		option="${rest%%=*}"
 		value="${rest#*=}"
-		uci -q get "$uci_config.$section.$option" >/dev/null 2>&1 ||
+		uci -q get "$uci_config.$section.$option" >/dev/null 2>&1 || {
+			init_changed=1
 			uci set "$uci_config.$section.$option=$value"
+		}
 	done
-	uci -q get "$uci_config.domains.cache_capacity" >/dev/null 2>&1 ||
+	uci -q get "$uci_config.domains.cache_capacity" >/dev/null 2>&1 || {
+		init_changed=1
 		uci set "$uci_config.domains.cache_capacity=8192"
-	uci -q get "$uci_config.server.lan_zone" >/dev/null 2>&1 ||
+	}
+	uci -q get "$uci_config.server.lan_zone" >/dev/null 2>&1 || {
+		init_changed=1
 		set_list server lan_zone lan
-	uci commit "$uci_config"
+	}
+	[ "$init_changed" = 0 ] || uci commit "$uci_config"
 }
 
 init_client_secret() {
@@ -976,12 +991,17 @@ profile_values() {
 	esac
 }
 
+# The editor shows the configuration strongSwan was given. Rendering it here
+# replaced that file on every read without reloading strongSwan, so the file
+# could stop matching what was loaded; only a missing one is rendered.
 advanced_read() {
 	profile_values "$1"
-	if [ "$profile_section" = server ]; then
-		render_server
-	else
-		render_client
+	if [ ! -s "$profile_active" ]; then
+		if [ "$profile_section" = server ]; then
+			render_server
+		else
+			render_client
+		fi
 	fi
 	cat "$profile_active"
 }
