@@ -198,6 +198,16 @@ sample - run detached on their own intervals, one copy of each at a time, so
 none of them delays a reconnect. While a configuration change holds the action
 lock, only the quality sample runs.
 
+External alerting is optional. `scripts/kuma-push.sh` runs from the router's
+cron and reports Uptime Kuma push monitors: services and pause, the outbound
+tunnel, domain policy, DNS, the inbound server and the server certificate,
+plus doctor security findings when that token is configured. It changes
+nothing. Tunnel and policy are judged by where traffic actually exits: a policy domain must
+resolve to FakeIP and leave with the tunnel's address, a control domain with
+the WAN address. Tokens stay in `/etc/ikev2-kuma/kuma.conf` (mode 600); list
+the directory in `/etc/sysupgrade.conf`. A push monitor goes down on its own
+when the router stops reporting.
+
 The same page stores an ordered tunnel-DNS DoH list and IPv4 bootstrap
 resolvers. The first DoH endpoint is primary. Once per minute the existing
 health process verifies its TLS path through `ipsec-out`; after two consecutive

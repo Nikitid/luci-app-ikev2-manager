@@ -100,6 +100,8 @@ fail, restore. Wire it into `scripts/ci-check.sh`, or nothing runs it.
 - `scripts/release.sh` - tag, watch the release, rebuild the feed, install
 - `scripts/deploy-luci.sh` - push page assets to one router without a release
 - `scripts/health-check.sh` - read-only sweep across routers
+- `scripts/kuma-push.sh` - runs on a router from cron and reports each
+  subsystem to Uptime Kuma push monitors; read-only
 
 ## Documentation
 
