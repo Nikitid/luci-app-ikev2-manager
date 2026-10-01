@@ -272,6 +272,16 @@ service definition and selection are restored.
 
 ## Ownership and recovery
 
+Every change to the router's configuration runs as one transaction
+(`with_transaction`): the UCI files it may touch and the state of the
+services are saved, the steps run, and on failure the saved files are put
+back and every runtime is brought in line with them by the same
+`reconcile_runtimes` the apply paths use - XFRM links, policy routing, device
+routing, Discord voice, the inbound user policy, the pause and FakeIP - before
+the fail-closed route is checked. The result says whether that rollback
+completed. A change made inside another one, such as the apply inside Save,
+belongs to the outer transaction and takes no snapshot of its own.
+
 The inbound user-policy nftables table is also an early boot guard. It is
 installed before strongSwan can accept inbound clients, initially with empty
 session sets. A dedicated watcher subscribes to strongSwan's VICI

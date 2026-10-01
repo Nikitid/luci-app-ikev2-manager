@@ -70,6 +70,8 @@ run_reconcile() {
 	IKEV2_DEVICE_RUNTIME_HELPER="$tmp/bin/device-runtime" \
 	IKEV2_ROUTING_RUNTIME_HELPER="$tmp/bin/routing-runtime" \
 	IKEV2_DOMAIN_ROUTER_HELPER="$tmp/bin/domain-router" \
+	IKEV2_ACTION_LOCK="$tmp/action.lock" \
+	IKEV2_ACTION_LOCK_STATUS="$tmp/action.lock.status" \
 	IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib" \
 		sh "$root/ikev2-manager-runtime/ikev2-manager-system.sh" _upgrade-reconcile
 }
@@ -139,5 +141,18 @@ force_reconcile
 run_reconcile || { printf '%s\n' 'reconcile failed on a PBR router' >&2; exit 1; }
 [ "$(cat "$TEST_ROUTING_LOG")" = sync ] ||
 	{ printf '%s\n' 'a router set to PBR did not get policy routing' >&2; exit 1; }
+
+# The reconcile holds the router action lock, and leaves it free afterwards.
+[ ! -e "$tmp/action.lock" ] || { printf '%s\n' 'the reconcile left the action lock held' >&2; exit 1; }
+mkdir "$tmp/action.lock"
+printf 'owner=test\naction_id=1\npid=%s\npid_start=\n' "$$" >"$tmp/action.lock.status"
+force_reconcile
+: >"$TEST_ROUTING_LOG"
+if IKEV2_ACTION_LOCK_WAIT_SECONDS=1 run_reconcile >/dev/null 2>&1; then
+	printf '%s\n' 'the reconcile ran beside another router action' >&2
+	exit 1
+fi
+[ ! -s "$TEST_ROUTING_LOG" ] || { printf '%s\n' 'the reconcile changed routing during another action' >&2; exit 1; }
+rm -rf "$tmp/action.lock" "$tmp/action.lock.status"
 
 printf '%s\n' 'upgrade reconcile tests OK'

@@ -4055,3 +4055,21 @@ msgstr "Политики, оставшиеся в PBR"
 
 msgid "retired-at-next-apply"
 msgstr "будут сняты при следующем применении"
+
+msgid "Unable to back up router state; nothing was changed"
+msgstr "Не удалось сохранить состояние роутера; ничего не изменено"
+
+msgid "Managed mode could not be disabled and automatic rollback was incomplete"
+msgstr "Не удалось выключить управляемый режим, и автоматический откат выполнен не полностью"
+
+msgid "Managed apply failed; previous router state was restored"
+msgstr "Не удалось применить настройки; прежнее состояние роутера восстановлено"
+
+msgid "Managed apply failed and automatic rollback was incomplete"
+msgstr "Не удалось применить настройки, и автоматический откат выполнен не полностью"
+
+msgid "Inbound server runtime apply failed; previous router state was restored"
+msgstr "Не удалось применить настройки входящего сервера; прежнее состояние роутера восстановлено"
+
+msgid "Inbound server runtime apply failed and automatic rollback was incomplete"
+msgstr "Не удалось применить настройки входящего сервера, и автоматический откат выполнен не полностью"

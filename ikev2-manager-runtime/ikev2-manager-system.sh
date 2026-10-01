@@ -29,6 +29,7 @@ user_policy_init="${IKEV2_USER_POLICY_INIT:-/etc/init.d/ikev2-user-policy}"
 domain_router_helper="${IKEV2_DOMAIN_ROUTER_HELPER:-/usr/libexec/ikev2-domain-router}"
 device_runtime_helper="${IKEV2_DEVICE_RUNTIME_HELPER:-/usr/libexec/ikev2-device-routing}"
 routing_runtime_helper="${IKEV2_ROUTING_RUNTIME_HELPER:-/usr/libexec/ikev2-routing}"
+xfrm_init="${IKEV2_XFRM_INIT:-/etc/init.d/ikev2-xfrm}"
 nft_binary="${IKEV2_NFT:-/usr/sbin/nft}"
 dns_segments_status_file="${IKEV2_DNS_SEGMENTS_STATUS:-/var/run/ikev2-dns-segments.status}"
 doctor_ui_cache_file="${IKEV2_DOCTOR_UI_CACHE:-/var/run/ikev2-manager-doctor-ui.cache}"
@@ -937,20 +938,64 @@ restore_uci_state() {
 			/etc/init.d/"$service" stop >/dev/null 2>&1 || restored=0
 		fi
 	done <"$dir/services.state"
-	[ ! -x /usr/libexec/ikev2-routing ] ||
-		/usr/libexec/ikev2-routing sync-all >/dev/null 2>&1 || restored=0
-	sync_inbound_user_policy >/dev/null 2>&1 || restored=0
+	reconcile_runtimes >/dev/null 2>&1 || restored=0
+	# A rollback that leaves the tunnel table open has not restored anything.
 	if [ "$(getv globals configured)" = 1 ]; then
-		[ ! -x "$device_runtime_helper" ] ||
-			"$device_runtime_helper" sync >/dev/null 2>&1 || restored=0
-		[ ! -x /usr/libexec/ikev2-discord-voice ] ||
-			/usr/libexec/ikev2-discord-voice sync >/dev/null 2>&1 || restored=0
-		if [ "$(getv domains engine)" = fakeip ] &&
-		   [ -x "$domain_router_helper" ]; then
-			"$domain_router_helper" refresh >/dev/null 2>&1 || restored=0
-		fi
+		failclosed_check >/dev/null 2>&1 || restored=0
 	fi
 	[ "$restored" -eq 1 ]
+}
+
+# Bring every runtime the application installs in line with the current UCI
+# configuration, the same way whichever path changed it: a rollback is the
+# old configuration put back and then this. Each step is idempotent and runs
+# even when one before it failed. The XFRM links come up first, since a route
+# into a link that is down fails; policy routing comes before the runtimes
+# that mark packets for it.
+reconcile_runtimes() {
+	local failed=0
+	if [ "$(getv globals configured)" = 1 ]; then
+		"$xfrm_init" start >/dev/null 2>&1 || failed=1
+	fi
+	if [ -x "$routing_runtime_helper" ]; then
+		"$routing_runtime_helper" sync-all >/dev/null 2>&1 || failed=1
+	fi
+	sync_inbound_user_policy >/dev/null 2>&1 || failed=1
+	pause_block_sync >/dev/null 2>&1 || failed=1
+	if [ "$(getv globals configured)" = 1 ] && [ "$(getv domains engine)" = fakeip ] &&
+	   [ -x "$domain_router_helper" ]; then
+		"$domain_router_helper" refresh >/dev/null 2>&1 || failed=1
+	fi
+	return "$failed"
+}
+
+# Run FUNCTION (with its arguments) as one router transaction: snapshot the
+# configuration under LABEL, run the function in a subshell so that its die()
+# cannot skip the rollback, and on failure put the snapshot back and reconcile
+# the runtimes with it. FAILURE names what failed; the message says whether
+# the rollback completed. A transaction started inside another one takes no
+# snapshot of its own and leaves the rollback to the outer one: Save used to
+# restore twice, restarting every service each time, and a nested apply's
+# die() skipped the outer rollback altogether.
+with_transaction() {
+	local label="$1" failure="$2" backup
+	shift 2
+	if [ "${ikev2_transaction_open:-0}" = 1 ]; then
+		( "$@" )
+		return
+	fi
+	backup="$(backup_uci_state "$label")" ||
+		die "Unable to back up router state; nothing was changed"
+	if ( ikev2_transaction_open=1; "$@" ); then
+		rm -rf "$backup"
+		return 0
+	fi
+	if restore_uci_state "$backup"; then
+		rm -rf "$backup"
+		die "$failure; previous router state was restored"
+	fi
+	rm -rf "$backup"
+	die "$failure and automatic rollback was incomplete"
 }
 
 pbr_restart_checked() {
@@ -1205,30 +1250,11 @@ apply_system_inner() {
 }
 
 apply_system() {
-	backup_dir="$(backup_uci_state apply)" ||
-		die 'Unable to back up router state before apply'
-	if ! "$0" _apply-system-inner; then
-		if restore_uci_state "$backup_dir"; then
-			rm -rf "$backup_dir"
-			die 'Managed apply failed; previous router state was restored'
-		fi
-		rm -rf "$backup_dir"
-		die 'Managed apply failed and automatic rollback was incomplete'
-	fi
-	rm -rf "$backup_dir"
+	with_transaction apply 'Managed apply failed' "$0" _apply-system-inner
 }
 
 disable_managed() {
-	backup_dir="$(backup_uci_state disable)" || return 1
-	if ! "$0" _disable-managed-inner; then
-		restore_uci_state "$backup_dir" || {
-			rm -rf "$backup_dir"
-			return 1
-		}
-		rm -rf "$backup_dir"
-		return 1
-	fi
-	rm -rf "$backup_dir"
+	with_transaction disable 'Managed mode could not be disabled' "$0" _disable-managed-inner
 }
 
 # Narrow runtime apply for Inbound Server saves. Most server edits only need a
@@ -1273,18 +1299,8 @@ apply_server_runtime() {
 }
 
 apply_server_runtime_transaction() {
-	needs_pbr="${1:-0}"
-	backup_dir="$(backup_uci_state server-runtime)" ||
-		die 'Unable to back up router state before server apply'
-	if ! "$0" _server-apply-inner "$needs_pbr"; then
-		if restore_uci_state "$backup_dir"; then
-			rm -rf "$backup_dir"
-			die 'Inbound server runtime apply failed; previous router state was restored'
-		fi
-		rm -rf "$backup_dir"
-		die 'Inbound server runtime apply failed and automatic rollback was incomplete'
-	fi
-	rm -rf "$backup_dir"
+	with_transaction server-runtime 'Inbound server runtime apply failed' \
+		"$0" _server-apply-inner "${1:-0}"
 }
 
 show_config() {
@@ -1421,40 +1437,20 @@ set_config() {
 	fi
 
 	if [ "$enabled" = 1 ]; then
-		backup_dir="$(backup_uci_state enable-managed)" ||
-			die 'Unable to back up router state before enabling managed mode'
-		if ! persist_base_config; then
-			if restore_uci_state "$backup_dir"; then
-				rm -rf "$backup_dir"
-				die 'Unable to save managed settings; previous router state was restored'
-			fi
-			rm -rf "$backup_dir"
-			die 'Unable to save managed settings and automatic rollback was incomplete'
-		fi
-		# Run in a subshell because die() exits the current shell. This keeps the
-		# failure catchable here so the UCI snapshot is actually restored.
-		if ! ( apply_system ); then
-			if restore_uci_state "$backup_dir"; then
-				rm -rf "$backup_dir"
-				die 'Managed mode failed; previous router state was restored'
-			fi
-			rm -rf "$backup_dir"
-			die 'Managed mode failed and automatic rollback was incomplete'
-		fi
-		rm -rf "$backup_dir"
+		with_transaction enable-managed 'Managed mode failed' enable_managed_steps
 	else
-		backup_dir="$(backup_uci_state disable-managed)" ||
-			die 'Unable to back up router state before disabling managed mode'
-		if ! persist_base_config || ! "$0" _remove-managed-inner; then
-			if restore_uci_state "$backup_dir"; then
-				rm -rf "$backup_dir"
-				die 'Managed mode could not be disabled; previous router state was restored'
-			fi
-			rm -rf "$backup_dir"
-			die 'Managed mode disable failed and automatic rollback was incomplete'
-		fi
-		rm -rf "$backup_dir"
+		with_transaction disable-managed 'Managed mode could not be disabled' disable_managed_steps
 	fi
+}
+
+enable_managed_steps() {
+	persist_base_config || die 'Unable to save managed settings'
+	apply_system
+}
+
+disable_managed_steps() {
+	persist_base_config || die 'Unable to save managed settings'
+	"$0" _remove-managed-inner
 }
 
 zone_for_network() {
@@ -1485,21 +1481,17 @@ coverage_add() {
 		die "WAN network '$name' cannot be a protected network"
 	[ -z "$wan_zone" ] || [ "$zone" != "$wan_zone" ] ||
 		die "Network '$name' belongs to the WAN firewall zone '$wan_zone'"
-	backup_dir="$(backup_uci_state coverage-add)" || die 'Unable to back up router configuration'
-	if ! add_list_unique "$config" globals source_interface "$name" ||
-	   ! add_list_unique "$config" globals source_zone "$zone" ||
-	   ! uci commit "$config" ||
-	   ! printf ' %s ' "$(get_list globals source_interface)" | grep -Fq " $name " ||
-	   ! printf ' %s ' "$(get_list globals source_zone)" | grep -Fq " $zone " ||
-	   { [ "$(getv globals configured)" = 1 ] && ! apply_system; }; then
-		if restore_uci_state "$backup_dir"; then
-			rm -rf "$backup_dir"
-			die 'Unable to add protected network; previous router state was restored'
-		fi
-		rm -rf "$backup_dir"
-		die 'Unable to add protected network and automatic rollback was incomplete'
-	fi
-	rm -rf "$backup_dir"
+	with_transaction coverage-add 'Unable to add protected network' coverage_add_steps "$name" "$zone"
+}
+
+coverage_add_steps() {
+	add_list_unique "$config" globals source_interface "$1" &&
+		add_list_unique "$config" globals source_zone "$2" &&
+		uci commit "$config" &&
+		printf ' %s ' "$(get_list globals source_interface)" | grep -Fq " $1 " &&
+		printf ' %s ' "$(get_list globals source_zone)" | grep -Fq " $2 " ||
+		die 'Unable to save the protected networks'
+	[ "$(getv globals configured)" != 1 ] || apply_system
 }
 
 coverage_remove() {
@@ -1522,21 +1514,17 @@ coverage_remove() {
 			[ "$z" = "$zone" ] || zn="${zn:+$zn }$z"
 		done
 	fi
-	backup_dir="$(backup_uci_state coverage-remove)" || die 'Unable to back up router configuration'
-	if ! set_list globals source_interface "$new" ||
-	   ! set_list globals source_zone "$zn" ||
-	   ! uci commit "$config" ||
-	   [ "$(normalize_list "$(get_list globals source_interface)")" != "$new" ] ||
-	   [ "$(normalize_list "$(get_list globals source_zone)")" != "$zn" ] ||
-	   { [ "$(getv globals configured)" = 1 ] && ! apply_system; }; then
-		if restore_uci_state "$backup_dir"; then
-			rm -rf "$backup_dir"
-			die 'Unable to remove protected network; previous router state was restored'
-		fi
-		rm -rf "$backup_dir"
-		die 'Unable to remove protected network and automatic rollback was incomplete'
-	fi
-	rm -rf "$backup_dir"
+	with_transaction coverage-remove 'Unable to remove protected network' coverage_remove_steps "$new" "$zn"
+}
+
+coverage_remove_steps() {
+	set_list globals source_interface "$1" &&
+		set_list globals source_zone "$2" &&
+		uci commit "$config" &&
+		[ "$(normalize_list "$(get_list globals source_interface)")" = "$1" ] &&
+		[ "$(normalize_list "$(get_list globals source_zone)")" = "$2" ] ||
+		die 'Unable to save the protected networks'
+	[ "$(getv globals configured)" != 1 ] || apply_system
 }
 
 # The last line a failed step wrote to stderr, which names what happened and
@@ -1691,10 +1679,12 @@ run_action() {
 			if ( dns_segment_update "$segment_action" "$segment_id" "$segment_name" \
 				"$segment_enabled" "$segment_domains" "$segment_protocol" \
 				"$segment_mode" "$segment_upstream" "$segment_bootstrap" \
-				"$segment_fallback" "$segment_https_compat" "$segment_wan_fallback" ); then
+				"$segment_fallback" "$segment_https_compat" "$segment_wan_fallback" ) 2>"$step_error"; then
+				rm -f "$step_error"
 				action_status "$id" ok 'Destination DNS segment applied.'
 			else
-				action_status "$id" error 'Destination DNS segment failed; previous resolver preserved.'
+				action_status "$id" error "$(action_error_message "$step_error" \
+					'Destination DNS segment failed; previous resolver preserved.')"
 			fi
 			;;
 		*)
@@ -1807,6 +1797,13 @@ case "${1:-}" in
 		;;
 	_upgrade-reconcile)
 		[ "$#" -eq 1 ] || die 'Expected no arguments'
+		# The previous watcher keeps running through an upgrade. Holding the
+		# router action lock keeps its repairs, and any page action, out of
+		# the runtimes while they are rebuilt.
+		IKEV2_ACTION_LOCK_WAIT_SECONDS="${IKEV2_ACTION_LOCK_WAIT_SECONDS:-60}"
+		acquire_action_lock upgrade upgrade-reconcile ||
+			die 'Another router action is still running'
+		trap 'release_action_lock' EXIT INT TERM
 		doctor_ui_cache_invalidate
 		reconcile_upgrade_runtime
 		;;

@@ -321,6 +321,34 @@ out="$(/usr/libexec/ikev2-devices set-exclusions 192.168.1.61 1 0 0 2>&1)" ||
 	fail 'the device setting was not saved'
 /usr/libexec/ikev2-devices clear-policy 192.168.1.61 >/dev/null 2>&1 || fail 'the device setting could not be cleared'
 
+# --- a change that fails is rolled back -----------------------------------
+
+step 'a protected network whose apply fails is taken back out'
+# The container lacks strongSwan and the rest, so a managed apply fails here.
+# The network change used to stay committed while the page said the
+# previous state was restored.
+ip link add br-guest type dummy 2>/dev/null || :
+ip link set br-guest up
+uci -q batch <<'EOF'
+set network.guest=interface
+set network.guest.device='br-guest'
+add firewall zone
+set firewall.@zone[-1].name='guest'
+set firewall.@zone[-1].network='guest'
+commit
+EOF
+before="$(uci -q get ikev2-manager.globals.source_interface)"
+if out="$(/usr/libexec/ikev2-manager-system coverage-add guest 2>&1)"; then
+	fail 'a managed apply without strongSwan succeeded; the scenario proves nothing'
+fi
+# Without procd the services cannot be restarted here, so the rollback may
+# rightly report itself incomplete; what matters is whose rollback ran.
+printf '%s\n' "$out" | tail -n 1 | grep -q '^Unable to add protected network' ||
+	fail "the network change did not roll itself back: $(printf '%s\n' "$out" | tail -n 1)"
+[ "$(uci -q get ikev2-manager.globals.source_interface)" = "$before" ] ||
+	fail 'the protected network stayed added after its apply failed'
+rules4 | grep -q '^28001:' || fail 'policy routing was lost in the rollback'
+
 # --- device routing, where nft prints rules back differently --------------
 
 step 'device routing verifies what nft printed, not what it wrote'
