@@ -587,6 +587,24 @@ changing it:
 nft list table inet ikev2_user_policy
 ```
 
+A LAN service that is published through a WAN port forward and reached by
+its public name needs a local DNS answer for inbound clients: fw4 NAT
+reflection does not cover `ipsec-in`, so without it the client reaches the
+router's own web server instead. Add one resolver entry per published name,
+never a wildcard over a domain that also carries the IKE server name:
+
+```sh
+uci set dhcp.svc_example=domain
+uci set dhcp.svc_example.name='service.example.org'
+uci set dhcp.svc_example.ip='<proxy LAN address>'
+uci commit dhcp && /etc/init.d/dnsmasq restart
+nslookup service.example.org <inbound gateway address>
+```
+
+These entries live in `/etc/config/dhcp`. Disabling managed DNS or resetting
+the app currently writes back a whole snapshot of that file and drops them;
+check and re-add them afterwards.
+
 When the VPN server is selected under Protected networks and plain-DNS
 enforcement is enabled, TCP/UDP port 53 from `ipsec-in` is redirected to the
 router resolver. DNS-over-TLS still requires the separate block option, and

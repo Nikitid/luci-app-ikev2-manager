@@ -298,6 +298,23 @@ segment, the probe failed, and the reset refused. The reset deactivates FakeIP
 first and restores DNS without it.
 
 
+## Inbound clients get no NAT reflection
+
+A LAN service published through a WAN DNAT is reachable from the LAN by its
+public name because fw4 generates reflection rules. Those rules match only the
+source zone of the redirect's destination (`iifname br-lan`, `saddr` of the LAN
+subnet). An inbound IKEv2 client arrives on `ipsec-in`, is not reflected, and
+its connection to the WAN address lands on the router itself, where the
+inbound router-access rule admits it. On port 443 that is uhttpd, so the
+client sees a certificate for the wrong name and reports a TLS error, which
+reads like a certificate or proxy fault.
+
+Resolve the published names to the LAN address in the router resolver
+(`uci` `dhcp` `domain` entries) rather than extending `reflection_zone`: the
+traffic then stays inside, the proxy sees the real client address, and it
+keeps working while WAN is down. Keep the IKE server name on its public
+address.
+
 ## Turning managed mode off must not change what turning it on restores
 
 Disabling used `ikev2-domain-router deactivate`, which rewrites the engine to
