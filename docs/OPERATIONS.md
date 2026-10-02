@@ -477,6 +477,19 @@ outbound client, validates the refreshed runtime and restores the previous
 setting when it cannot resolve. `dns-get` reports the current value as
 `tunnel_resolve`.
 
+In Reliable mode dnsmasq sends only the selected domains to sing-box. Names
+outside them and the segments go straight to the router resolver, and each
+segment straight to its worker, so a sing-box fault leaves them resolving.
+**Resolve through sing-box**, under Router DNS upstream and in each segment,
+sends them through sing-box instead. **Browser compatibility** under either
+switch needs that path, because sing-box gives the empty HTTPS answer; it is
+grey without it, and both are grey while matching by address. The settings are
+`dns.via_singbox` and `dns.https_compat`, and `via_singbox` of a
+`dns_segment`; they are applied with the rest of the DNS settings and rolled
+back when the router stops resolving. `ikev2-domain-router status` reports
+`ordinary_dns=direct`, `singbox` or `singbox-servers-file` (another package
+owns dnsmasq's servers file), and `dnsmasq_resolver=ok` or `mismatch`.
+
 The resolver timeout bounds each group separately, so the worst case is twice
 its value. Measured on a working router, a DoH query costs about 0.12 s warm and
 a cold end-to-end lookup about 1 s, so `2s` leaves ample headroom while halving

@@ -2089,8 +2089,8 @@ msgstr "Восстановление..."
 msgid "Resume tunnel routing"
 msgstr "Возобновить маршрутизацию"
 
-msgid "Return an empty successful HTTPS DNS response for this segment so browsers safely fall back to A and AAAA. Applies in Reliable mode."
-msgstr "Возвращает пустой успешный HTTPS-ответ для этого сегмента, чтобы браузеры безопасно переходили к A и AAAA. Действует в надёжном режиме."
+msgid "Return an empty successful HTTPS DNS response for this segment so browsers safely fall back to A and AAAA. Needs the sing-box path."
+msgstr "Возвращает пустой успешный HTTPS-ответ для этого сегмента, чтобы браузеры безопасно переходили к A и AAAA. Работает только через sing-box."
 
 msgid "Roaming behavior, timers, certificate paths and raw strongSwan configuration."
 msgstr "Роуминг, таймеры, пути сертификатов и ручная конфигурация strongSwan."
@@ -2848,14 +2848,11 @@ msgstr "обнаружено"
 msgid "disabled"
 msgstr "отключено"
 
-msgid "dnsmasq caching is still enabled in reliable mode."
-msgstr "В надёжном режиме не отключён кеш dnsmasq."
-
 msgid "dnsmasq currently classifies domains by their public IP addresses. Existing connections may keep an earlier WAN route after an address changes."
 msgstr "Сейчас dnsmasq определяет домены по публичным IP-адресам. После смены адреса уже открытое соединение может сохранить прежний маршрут через WAN."
 
-msgid "dnsmasq is not using the FakeIP resolver."
-msgstr "dnsmasq не использует FakeIP-резолвер."
+msgid "dnsmasq does not resolve the way reliable mode set it up."
+msgstr "dnsmasq настроен не так, как его настроил надёжный режим."
 
 msgid "dnsmasq nftset support"
 msgstr "Поддержка nftset в dnsmasq"
@@ -3891,8 +3888,8 @@ msgstr "Интернет недоступен; надёжный режим со�
 msgid "No resolver on the Internet answers either; the WAN connection appears to be down"
 msgstr "Ни один резолвер в интернете тоже не отвечает; похоже, пропало подключение WAN"
 
-msgid "Choose the public DNS upstream. In reliable mode dnsmasq sends public queries through sing-box, which uses dnsproxy as its upstream; when matching by address dnsmasq uses dnsproxy directly."
-msgstr "Выберите публичный DNS. В надёжном режиме dnsmasq отправляет запросы через sing-box, который использует dnsproxy; при распознавании по адресу dnsmasq обращается к dnsproxy напрямую."
+msgid "Choose the public DNS upstream. dnsmasq asks it directly; in reliable mode only the selected domains go through sing-box, unless the switch below sends every other name there too."
+msgstr "Выберите публичный DNS. dnsmasq обращается к нему напрямую; в надёжном режиме через sing-box идут только выбранные домены, если переключатель ниже не отправляет туда и все остальные имена."
 
 msgid "Matching by address"
 msgstr "Распознавание по адресу"
@@ -4079,3 +4076,39 @@ msgstr "Открытые сессии пользователя будут раз
 
 msgid "Delete user %s? Its active sessions (%d) are disconnected."
 msgstr "Удалить пользователя %s? Его активные сессии (%d) будут разорваны."
+
+msgid "Resolve through sing-box"
+msgstr "Разрешать через sing-box"
+
+msgid "Off: dnsmasq sends this segment straight to its resolver group. On: its queries pass through sing-box, which can answer them for browser compatibility. Applies in Reliable mode."
+msgstr "Выключено: dnsmasq отправляет запросы сегмента прямо в его группу резолверов. Включено: они проходят через sing-box, который может отвечать на них для совместимости браузеров. Действует в надёжном режиме."
+
+msgid "Off: dnsmasq sends names outside the selected domains and segments straight to the upstream and caches them, so they keep resolving when sing-box fails. On: they pass through sing-box like the selected domains. Applies in Reliable mode."
+msgstr "Выключено: dnsmasq отправляет имена вне выбранных доменов и сегментов прямо в upstream и кеширует их, поэтому они разрешаются и при сбое sing-box. Включено: они проходят через sing-box, как выбранные домены. Действует в надёжном режиме."
+
+msgid "Return an empty successful HTTPS DNS response for these names so browsers safely fall back to A and AAAA. Needs the sing-box path."
+msgstr "Возвращает пустой успешный HTTPS-ответ для этих имён, чтобы браузеры безопасно переходили к A и AAAA. Работает только через sing-box."
+
+msgid "Invalid DNS resolution path"
+msgstr "Неверный путь разрешения DNS"
+
+msgid "Invalid DNS browser compatibility mode"
+msgstr "Неверный режим совместимости браузеров для DNS"
+
+msgid "Invalid DNS segment resolution path"
+msgstr "Неверный путь разрешения DNS для сегмента"
+
+msgid "Unable to save the DNS settings"
+msgstr "Не удалось сохранить настройки DNS"
+
+msgid "Unable to save the DNS resolution path"
+msgstr "Не удалось сохранить путь разрешения DNS"
+
+msgid "DNS did not resolve on the new path; the previous path was restored"
+msgstr "DNS не заработал по новому пути; прежний путь восстановлен"
+
+msgid "DNS did not resolve on the new path, and the previous path could not be restored"
+msgstr "DNS не заработал по новому пути, и прежний путь восстановить не удалось"
+
+msgid "dnsmasq did not resolve with the new DNS settings; previous rules restored"
+msgstr "dnsmasq не разрешал имена с новыми настройками DNS; прежние правила восстановлены"

@@ -1321,7 +1321,7 @@ show_config() {
 	printf 'block_dot=%s\n' "$(getv globals block_dot)"
 	printf 'source_include_vpn=%s\n' "$(defaultv globals source_include_vpn 1)"
 	printf 'server_enabled=%s\n' "$(getv server enabled)"
-	for field in engine service dnsmasq_upstream dnsmasq_cache nft rule healthy data_plane data_plane_restarts data_plane_restarted_at state message; do
+	for field in engine service dnsmasq_upstream dnsmasq_cache dnsmasq_resolver nft rule healthy data_plane data_plane_restarts data_plane_restarted_at state message; do
 		if [ "$field" = engine ]; then
 			value="$(getv domains engine)"
 		else
@@ -1670,7 +1670,9 @@ run_action() {
 			[ -n "$segment_https_compat" ] || segment_https_compat=1
 			segment_wan_fallback="$(sed -n '12p' "$segment_file")"
 			[ -n "$segment_wan_fallback" ] || segment_wan_fallback=0
-			segment_extra="$(sed -n '13p' "$segment_file")"
+			# Empty from a page that predates the setting: the stored one stays.
+			segment_via="$(sed -n '13p' "$segment_file")"
+			segment_extra="$(sed -n '14p' "$segment_file")"
 			rm -f "$segment_file"
 			if [ -n "$segment_extra" ]; then
 				action_status "$id" error 'Destination DNS segment input has extra fields.'
@@ -1679,7 +1681,8 @@ run_action() {
 			if ( dns_segment_update "$segment_action" "$segment_id" "$segment_name" \
 				"$segment_enabled" "$segment_domains" "$segment_protocol" \
 				"$segment_mode" "$segment_upstream" "$segment_bootstrap" \
-				"$segment_fallback" "$segment_https_compat" "$segment_wan_fallback" ) 2>"$step_error"; then
+				"$segment_fallback" "$segment_https_compat" "$segment_wan_fallback" \
+				"$segment_via" ) 2>"$step_error"; then
 				rm -f "$step_error"
 				action_status "$id" ok 'Destination DNS segment applied.'
 			else
@@ -1813,7 +1816,7 @@ case "${1:-}" in
 		validate_dns_segments
 		;;
 	_dns-segment-update)
-		{ [ "$#" -ge 11 ] && [ "$#" -le 13 ]; } ||
+		{ [ "$#" -ge 11 ] && [ "$#" -le 14 ]; } ||
 			die 'Expected DNS segment update arguments'
 		shift
 		dns_segment_update "$@"

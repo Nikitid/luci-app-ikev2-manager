@@ -1630,6 +1630,23 @@ return view.extend({
 			{ choosable: true });
 		var dnsWanFallback = input('checkbox', '1');
 		dnsWanFallback.checked = dnsValue.wan_fallback === '1';
+		// Where names outside the selected domains and the segments go in
+		// Reliable mode: straight from dnsmasq, or through sing-box, which alone
+		// can give them the compatibility answer. Matching by address has no
+		// sing-box to send them to.
+		var dnsVia = input('checkbox', '1');
+		var dnsCompat = input('checkbox', '1');
+		dnsVia.checked = dnsValue.via_singbox === '1';
+		dnsCompat.checked = dnsValue.https_compat === '1';
+		function reliableMode() { return dnsValue.engine === 'fakeip'; }
+		// Resolving every name through the tunnel happens in sing-box, so it
+		// takes this path whatever the switch says.
+		function syncDnsPath() {
+			var tunnel = dnsValue.tunnel_resolve === '1';
+			dnsVia.disabled = !reliableMode() || tunnel;
+			dnsCompat.disabled = !reliableMode() || !(dnsVia.checked || tunnel);
+		}
+		dnsVia.addEventListener('change', syncDnsPath);
 		// Ordinary names normally resolve over WAN. Sending them through the
 		// tunnel-bound resolver removes that exposure but leaves no fallback,
 		// because sing-box does not fail over between DNS servers, so it is its
@@ -1692,6 +1709,7 @@ return view.extend({
 				common.inputToken().replace(/-/g, '').slice(0, 16);
 			var name = input('text', item ? item.name : '', { 'placeholder': 'national' });
 			var enabled = input('checkbox', '1');
+			var via = input('checkbox', '1');
 			var httpsCompat = input('checkbox', '1');
 			var wanFallback = input('checkbox', '1');
 			var domains = input('text', item ? item.domains : '',
@@ -1702,7 +1720,14 @@ return view.extend({
 				E('option', { 'value': 'fastest_addr' }, [ _('Fastest address') ])
 			]);
 			enabled.checked = !item || item.enabled === '1';
+			via.checked = !!item && item.via_singbox === '1';
 			httpsCompat.checked = !item || item.https_compat !== '0';
+			function syncPath() {
+				via.disabled = !reliableMode();
+				httpsCompat.disabled = !reliableMode() || !via.checked;
+			}
+			via.addEventListener('change', syncPath);
+			syncPath();
 			wanFallback.checked = !!item && item.wan_fallback === '1';
 			mode.value = item ? item.mode : 'load_balance';
 			var upstream = dnsEndpointEditor(item ? item.upstream : '',
@@ -1766,7 +1791,8 @@ return view.extend({
 					segmentProtocol(), mode.value, upstream.values().join(' '),
 					bootstrap.values().join(' '), fallback.values().join(' '),
 					httpsCompat.checked ? '1' : '0',
-					wanFallback.checked ? '1' : '0' ].join('\n') + '\n';
+					wanFallback.checked ? '1' : '0',
+					via.checked ? '1' : '0' ].join('\n') + '\n';
 				var token = common.inputToken();
 				// The input file is written before the job starts; a failed write
 				// must still end in a visible result rather than a silent click.
@@ -1837,8 +1863,11 @@ return view.extend({
 				E('div', { 'class': 'ikev2-form-grid' }, [
 					common.fieldLabel(_('Name')), name,
 					common.fieldLabel(_('Enabled')), common.switchLabel(enabled),
+					common.fieldLabel(_('Resolve through sing-box'),
+						_('Off: dnsmasq sends this segment straight to its resolver group. On: its queries pass through sing-box, which can answer them for browser compatibility. Applies in Reliable mode.')),
+					common.switchLabel(via),
 					common.fieldLabel(_('Browser compatibility'),
-						_('Return an empty successful HTTPS DNS response for this segment so browsers safely fall back to A and AAAA. Applies in Reliable mode.')),
+						_('Return an empty successful HTTPS DNS response for this segment so browsers safely fall back to A and AAAA. Needs the sing-box path.')),
 					common.switchLabel(httpsCompat),
 					common.fieldLabel(_('Domain suffixes'), _('Space-separated, for example: ru su')), domains,
 					common.fieldLabel(_('Query strategy')), mode,
@@ -1857,7 +1886,7 @@ return view.extend({
 			]);
 			// Grey until the segment differs from what was loaded; a new one
 			// until something is entered.
-			common.trackChanges(save, [ name, enabled, httpsCompat, wanFallback, domains, mode,
+			common.trackChanges(save, [ name, enabled, via, httpsCompat, wanFallback, domains, mode,
 				upstream.node, bootstrap.node, fallback.node ]);
 			node.saveButton = save;
 			return node;
@@ -1917,6 +1946,7 @@ return view.extend({
 			else {
 				common.setPill(dnsStatus, _('Existing settings'), 'neutral');
 			}
+			syncDnsPath();
 		}
 
 		renderSegments();
@@ -1949,6 +1979,7 @@ return view.extend({
 				},
 				onSuccess: function() {
 					dnsValue.tunnel_resolve = wanted;
+					syncDnsPath();
 					// This saves the whole tunnel form in save mode, not only the lists.
 					clientTracker.reset();
 					tunnelTracker.reset();
@@ -1997,7 +2028,9 @@ return view.extend({
 						upstream.join(' '),
 						bootstrap.join(' '),
 						fallback.join(' '),
-						dnsWanFallback.checked ? '1' : '0'
+						dnsWanFallback.checked ? '1' : '0',
+						dnsVia.checked ? '1' : '0',
+						dnsCompat.checked ? '1' : '0'
 					].join('\n') + '\n';
 						return fs.write('/tmp/ikev2-manager-dns-' + token + '.in', payload, 384)
 							.then(function() {
@@ -2079,8 +2112,9 @@ return view.extend({
 						(tunnelResolve.checked === (dnsValue.tunnel_resolve === '1') ? '' : '|path');
 				}
 			});
-		var dnsTracker = common.trackChanges(dnsSave, [ dnsManaged, dnsUpstreamMode,
-			dnsUpstream.node, dnsBootstrap.node, dnsFallback.node, dnsWanFallback ]);
+		var dnsTracker = common.trackChanges(dnsSave, [ dnsManaged, dnsVia, dnsCompat,
+			dnsUpstreamMode, dnsUpstream.node, dnsBootstrap.node, dnsFallback.node,
+			dnsWanFallback ]);
 		var rawTracker = common.trackChanges(rawSave, [ rawText ]);
 
 		return E([
@@ -2137,12 +2171,18 @@ return view.extend({
 					]),
 					common.pill(_('Fail-closed'), 'good')),
 				common.section(_('Router DNS upstream'),
-					_('Choose the public DNS upstream. In reliable mode dnsmasq sends public queries through sing-box, which uses dnsproxy as its upstream; when matching by address dnsmasq uses dnsproxy directly.'),
+					_('Choose the public DNS upstream. dnsmasq asks it directly; in reliable mode only the selected domains go through sing-box, unless the switch below sends every other name there too.'),
 					E('div', {}, [
 						E('div', { 'class': 'ikev2-form-grid' }, [
 							common.fieldLabel(_('DNS management'),
 								_('Existing settings are preserved until managed DNS is enabled.')),
-							dnsManaged
+							dnsManaged,
+							common.fieldLabel(_('Resolve through sing-box'),
+								_('Off: dnsmasq sends names outside the selected domains and segments straight to the upstream and caches them, so they keep resolving when sing-box fails. On: they pass through sing-box like the selected domains. Applies in Reliable mode.')),
+							common.switchLabel(dnsVia),
+							common.fieldLabel(_('Browser compatibility'),
+								_('Return an empty successful HTTPS DNS response for these names so browsers safely fall back to A and AAAA. Needs the sing-box path.')),
+							common.switchLabel(dnsCompat)
 						]),
 						routerDnsBypassNote,
 						dnsManagedRows,

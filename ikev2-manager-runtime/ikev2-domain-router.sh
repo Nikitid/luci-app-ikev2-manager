@@ -24,6 +24,9 @@ tunnel_dns_state="${IKEV2_TUNNEL_DNS_STATE:-/var/run/ikev2-tunnel-dns.state}"
 data_plane_state="${IKEV2_DATA_PLANE_STATE:-/var/run/ikev2-data-plane.state}"
 log_file="${IKEV2_DOMAIN_LOG:-/tmp/ikev2-domain-router.log}"
 lock_dir="${IKEV2_DOMAIN_LOCK:-/var/run/ikev2-domain-router.lock}"
+# Outside /etc/ikev2-manager, which dnsmasq's account cannot enter, and kept
+# across upgrades: dnsmasq reads it at boot, before this service starts.
+dnsmasq_servers_file="${IKEV2_DNSMASQ_SERVERS:-/etc/ikev2-dnsmasq.servers}"
 runtime_lib_dir="${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}"
 dns_address='127.0.0.42'
 dns_port='53'
@@ -164,14 +167,23 @@ json_array_words() {
 	'
 }
 
-dns_segment_https_suffixes() {
-	local section enabled compat suffix
+# Enabled DNS segments; their workers run only under managed DNS.
+enabled_dns_segments() {
+	local section
 	[ "$(defaultv dns managed 0)" = 1 ] || return 0
 	for section in $(uci show "$config" 2>/dev/null |
 		sed -n "s/^${config}\.\([^.=]*\)=dns_segment\$/\1/p"); do
-		enabled="$(defaultv "$section" enabled 1)"
-		compat="$(defaultv "$section" https_compat 1)"
-		[ "$enabled" = 1 ] && [ "$compat" = 1 ] || continue
+		[ "$(defaultv "$section" enabled 1)" = 1 ] && printf '%s\n' "$section"
+	done
+}
+
+# Compatibility answers HTTPS queries itself, so it applies only to a segment
+# whose queries pass through sing-box; a direct segment never reaches it.
+dns_segment_https_suffixes() {
+	local section suffix
+	for section in $(enabled_dns_segments); do
+		{ [ "$(defaultv "$section" via_singbox 0)" = 1 ] || foreign_servers_file; } &&
+			[ "$(defaultv "$section" https_compat 1)" = 1 ] || continue
 		for suffix in $(getv "$section" domains); do
 			suffix="${suffix#.}"
 			[ -n "$suffix" ] && printf '%s\n' "$suffix"
@@ -182,12 +194,8 @@ dns_segment_https_suffixes() {
 # One "segment TAG PORT SUFFIX..." input line per enabled DNS segment, in UCI
 # order: the generator adds its resolver and its routing rule.
 dns_segment_inputs() {
-	local section enabled port domains suffix
-	[ "$(defaultv dns managed 0)" = 1 ] || return 0
-	for section in $(uci show "$config" 2>/dev/null |
-		sed -n "s/^${config}\.\([^.=]*\)=dns_segment\$/\1/p"); do
-		enabled="$(defaultv "$section" enabled 1)"
-		[ "$enabled" = 1 ] || continue
+	local section port domains suffix
+	for section in $(enabled_dns_segments); do
 		port="$(getv "$section" port)"
 		case "$port" in '' | *[!0-9]*) die "Invalid DNS segment port: $section" ;; esac
 		[ "$port" -ge 5550 ] && [ "$port" -le 5599 ] ||
@@ -511,6 +519,10 @@ EOF
 		sort -u "$covered_file" | awk 'NF { printf "covered\t%s\n", $1 }'
 		dns_segment_https_suffixes | awk 'NF { printf "https_suffix\t%s\n", $1 }'
 		dns_segment_inputs
+		# The same answer for every ordinary name, when they pass through here.
+		{ ordinary_via_singbox || foreign_servers_file; } &&
+			[ "$(defaultv dns https_compat 0)" = 1 ] && printf 'https_all\t1\n'
+		:
 	} >"$input" || {
 		rm -f "$input" "$covered_file" "$excluded_file"
 		return 1
@@ -582,7 +594,8 @@ restore_generated_snapshot() {
 	cmp -s "$source/rules.json" "$source/rules.verified" || return 1
 	restore_generated "$source"
 	/etc/init.d/ikev2-domain-router restart >/dev/null 2>&1 || return 1
-	wait_for_dns && validate_dns_server "$dns_address" && runtime_healthy
+	wait_for_dns && validate_dns_server "$dns_address" &&
+		sync_dnsmasq reload && wait_for_query 127.0.0.1 && runtime_healthy
 }
 
 routing_slot_available() {
@@ -883,27 +896,184 @@ clear_dnsmasq_snapshot() {
 	uci commit "$config"
 }
 
-use_fakeip_dns() {
+# Resolving ordinary names through the tunnel happens in sing-box, so it
+# implies the sing-box path for them.
+ordinary_via_singbox() {
+	[ "$(defaultv dns via_singbox 0)" = 1 ] && return 0
+	[ "$(defaultv dns tunnel_resolve 0)" = 1 ] &&
+		[ "$(defaultv client enabled 0)" = 1 ]
+}
+
+# dnsmasq reads a single servers file. Another package's (an ad blocker's,
+# say) is left in place, and every name then goes through sing-box, which is
+# the only way left to reach FakeIP for the selected domains.
+foreign_servers_file() {
+	local current
+	current="$(uci -q get dhcp.@dnsmasq[0].serversfile 2>/dev/null || true)"
+	[ -n "$current" ] && [ "$current" != "$dnsmasq_servers_file" ]
+}
+
+# How dnsmasq resolves in Reliable mode, as "server ENTRY" lines in order and
+# then "noresolv" and "cachesize". Selected domains reach sing-box through the
+# servers file. Ordinary names go straight to the resolver dnsmasq had before,
+# with its cache, so a sing-box fault no longer takes every name with it; and
+# each segment goes straight to its worker. Either can be sent through sing-box
+# instead, which then holds the only cache.
+dnsmasq_wanted() {
+	local server section target decorated suffix
+	if foreign_servers_file; then
+		printf 'server %s\nnoresolv 1\ncachesize 0\n' "$dns_address"
+		return 0
+	fi
+	if ordinary_via_singbox; then
+		printf 'server %s\n' "$dns_address"
+	else
+		for server in $(uci -q get "$config.domains.prev_server" 2>/dev/null); do
+			case "$server" in
+				# Segment entries are built from the segments below.
+				/*/127.0.0.1#55[5-9][0-9] | "$dns_address" | "$dns_address#$dns_port" | */"$dns_address")
+					continue
+					;;
+			esac
+			printf 'server %s\n' "$server"
+		done
+	fi
+	for section in $(enabled_dns_segments); do
+		target="127.0.0.1#$(getv "$section" port)"
+		[ "$(defaultv "$section" via_singbox 0)" != 1 ] || target="$dns_address"
+		decorated=''
+		for suffix in $(getv "$section" domains); do
+			decorated="$decorated/${suffix#.}"
+		done
+		[ -z "$decorated" ] || printf 'server %s/%s\n' "$decorated" "$target"
+	done
+	if ordinary_via_singbox; then
+		printf 'noresolv 1\ncachesize 0\n'
+	else
+		printf 'noresolv %s\ncachesize %s\n' "$(defaultv domains prev_noresolv 0)" \
+			"$(defaultv domains prev_cachesize 150)"
+	fi
+}
+
+wanted_value() {
+	printf '%s\n' "$1" | sed -n "s/^$2 //p"
+}
+
+# The selected domains, each answered by sing-box. Firefox's canary name is
+# answered here, so Firefox keeps the router resolver, and with it FakeIP,
+# instead of its own DoH even while sing-box is down.
+render_dnsmasq_servers() {
+	printf 'server=/use-application-dns.net/\n'
+	awk -v target="$dns_address" '
+		{ gsub(/\r/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
+		$0 == "" || substr($0, 1, 1) == "#" { next }
+		{ printf "server=/%s/%s\n", tolower($0), target }
+	' "$domain_file"
+}
+
+# The file is bind-mounted into dnsmasq's jail, so it is rewritten in place: a
+# file moved over it leaves dnsmasq reading the one it replaced.
+write_dnsmasq_servers() {
+	local candidate
+	servers_changed=0
+	validate_domain_file "$domain_file" || return 1
+	candidate="$(mktemp)" || return 1
+	if ! render_dnsmasq_servers >"$candidate"; then
+		rm -f "$candidate"
+		return 1
+	fi
+	if ! cmp -s "$candidate" "$dnsmasq_servers_file" 2>/dev/null; then
+		if ! cat "$candidate" >"$dnsmasq_servers_file"; then
+			rm -f "$candidate"
+			return 1
+		fi
+		servers_changed=1
+	fi
+	rm -f "$candidate"
+	chmod 644 "$dnsmasq_servers_file"
+}
+
+# Whether dnsmasq is configured the way dnsmasq_wanted says.
+dnsmasq_matches() {
+	local wanted current
+	wanted="$(dnsmasq_wanted)" || return 1
+	if foreign_servers_file; then :
+	else
+		[ -s "$dnsmasq_servers_file" ] &&
+			[ "$(uci -q get dhcp.@dnsmasq[0].serversfile 2>/dev/null)" = "$dnsmasq_servers_file" ] ||
+			return 1
+	fi
+	current="$(uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | tr ' ' '\n')"
+	[ "$current" = "$(wanted_value "$wanted" server)" ] || return 1
+	current="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null)"
+	[ "${current:-0}" = "$(wanted_value "$wanted" noresolv)" ] || return 1
+	current="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null)"
+	[ "${current:-150}" = "$(wanted_value "$wanted" cachesize)" ]
+}
+
+# Bring dnsmasq to what dnsmasq_wanted says and have it read it; "reload"
+# makes it read even when nothing changed, which a rollback needs after it put
+# the DHCP file back under a running dnsmasq. A changed configuration restarts
+# dnsmasq. A reload restarts it too when procd finds the generated
+# configuration changed, and then also sends HUP, which reached the new jail
+# before it could take it; otherwise the HUP alone rereads the servers file
+# and empties the cache.
+sync_dnsmasq() {
+	local wanted server reload="${1:-}" restart=0
 	save_dnsmasq
-	uci set dhcp.@dnsmasq[0].noresolv='1'
-	uci set dhcp.@dnsmasq[0].cachesize='0'
-	uci -q delete dhcp.@dnsmasq[0].server || true
-	uci add_list "dhcp.@dnsmasq[0].server=$dns_address"
-	uci commit dhcp
-	/etc/init.d/dnsmasq restart
+	if ! foreign_servers_file; then
+		write_dnsmasq_servers || return 1
+		[ "$servers_changed" = 0 ] || reload=reload
+	fi
+	if ! dnsmasq_matches; then
+		wanted="$(dnsmasq_wanted)" || return 1
+		uci -q delete dhcp.@dnsmasq[0].server || true
+		for server in $(wanted_value "$wanted" server); do
+			uci add_list "dhcp.@dnsmasq[0].server=$server" || return 1
+		done
+		uci set "dhcp.@dnsmasq[0].noresolv=$(wanted_value "$wanted" noresolv)" &&
+			uci set "dhcp.@dnsmasq[0].cachesize=$(wanted_value "$wanted" cachesize)" ||
+			return 1
+		foreign_servers_file ||
+			uci set "dhcp.@dnsmasq[0].serversfile=$dnsmasq_servers_file" || return 1
+		uci commit dhcp || return 1
+		restart=1
+	fi
+	if [ "$restart" = 1 ] || ! /etc/init.d/dnsmasq running >/dev/null 2>&1; then
+		/etc/init.d/dnsmasq restart
+	elif [ "$reload" = reload ]; then
+		/etc/init.d/dnsmasq reload
+	fi
+}
+
+use_fakeip_dns() {
+	sync_dnsmasq reload
 }
 
 restore_dnsmasq() {
-	[ "$(defaultv domains dns_saved 0)" = 1 ] || return 0
+	local own=0
+	[ "$(uci -q get dhcp.@dnsmasq[0].serversfile 2>/dev/null)" != "$dnsmasq_servers_file" ] || own=1
+	if [ "$(defaultv domains dns_saved 0)" != 1 ]; then
+		if [ "$own" = 1 ]; then
+			uci -q delete dhcp.@dnsmasq[0].serversfile || true
+			uci commit dhcp
+			/etc/init.d/dnsmasq restart
+		fi
+		rm -f "$dnsmasq_servers_file"
+		return 0
+	fi
 	uci set "dhcp.@dnsmasq[0].noresolv=$(defaultv domains prev_noresolv 0)"
 	uci set "dhcp.@dnsmasq[0].cachesize=$(defaultv domains prev_cachesize 150)"
 	uci -q delete dhcp.@dnsmasq[0].server || true
 	for server in $(uci -q get "$config.domains.prev_server" 2>/dev/null); do
 		uci add_list "dhcp.@dnsmasq[0].server=$server"
 	done
+	[ "$own" = 0 ] || uci -q delete dhcp.@dnsmasq[0].serversfile || true
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 	clear_dnsmasq_snapshot
+	# Only once dnsmasq no longer reads it.
+	rm -f "$dnsmasq_servers_file"
 }
 
 is_fakeip() {
@@ -983,10 +1153,7 @@ runtime_healthy() {
 	[ "$(defaultv domains engine nftset)" = fakeip ] || return 1
 	/etc/init.d/ikev2-domain-router running >/dev/null 2>&1 || return 1
 	listeners_ready || return 1
-	[ "$(uci -q get dhcp.@dnsmasq[0].server 2>/dev/null || true)" = "$dns_address" ] ||
-		return 1
-	[ "$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)" = 0 ] ||
-		return 1
+	dnsmasq_matches || return 1
 	nft_runtime_ready
 }
 
@@ -1005,8 +1172,7 @@ repair_runtime() {
 	if ! nft_runtime_ready; then
 		nft_start || return 1
 	fi
-	if [ "$(uci -q get dhcp.@dnsmasq[0].server 2>/dev/null || true)" != "$dns_address" ] ||
-	   [ "$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)" != 0 ]; then
+	if ! dnsmasq_matches; then
 		# A cutover that does not answer is undone: dnsmasq goes back to the
 		# resolver it had. The chosen mode is never changed from here; switching
 		# is the operator's decision alone.
@@ -1407,13 +1573,27 @@ refresh() {
 		write_status error 'New domain rules failed at runtime; previous rules restored'
 		return 1
 	fi
-	if ! nft_start || ! runtime_healthy; then
+	failed=''
+	nft_start || failed='New domain TProxy runtime failed; previous rules restored'
+	# The settings may have moved a segment or the ordinary names between
+	# dnsmasq and sing-box, and a rollback may have put the DHCP file back under
+	# the running dnsmasq: it always reads its configuration again here.
+	if [ -z "$failed" ] &&
+	   { ! sync_dnsmasq reload ||
+	     ! wait_for_query 127.0.0.1 ||
+	     ! validate_dns_server 127.0.0.1; }; then
+		failed='dnsmasq did not resolve with the new DNS settings; previous rules restored'
+	fi
+	[ -n "$failed" ] || runtime_healthy ||
+		failed='New domain TProxy runtime failed; previous rules restored'
+	if [ -n "$failed" ]; then
 		restore_generated "$backup"
 		/etc/init.d/ikev2-domain-router restart >/dev/null 2>&1 || true
 		wait_for_dns >/dev/null 2>&1 || true
 		nft_start >/dev/null 2>&1 || true
+		sync_dnsmasq reload >/dev/null 2>&1 || true
 		rm -rf "$backup"
-		write_status error 'New domain TProxy runtime failed; previous rules restored'
+		write_status error "$failed"
 		return 1
 	fi
 	rm -rf "$backup"
@@ -1478,9 +1658,20 @@ refresh_rules() {
 		if { [ -z "$added" ] ||
 		     is_fakeip "$(lookup_address "$added" "$dns_address")"; } &&
 		   validate_dns_server "$dns_address"; then
-			rm -f "$backup"
-			write_status active 'FakeIP domain rules reloaded without restarting DNS'
-			return 0
+			# dnsmasq learns the new names only now: told earlier, it would
+			# have cached the real addresses sing-box gave before its reload.
+			# HUP rereads the servers file and empties the cache, and does
+			# not interrupt resolution.
+			if foreign_servers_file ||
+			   { write_dnsmasq_servers &&
+			     { [ "$servers_changed" = 0 ] || /etc/init.d/dnsmasq reload; } &&
+			     { [ -z "$added" ] ||
+			       is_fakeip "$(lookup_address "$added" 127.0.0.1)"; }; }; then
+				rm -f "$backup"
+				write_status active 'FakeIP domain rules reloaded without restarting DNS'
+				return 0
+			fi
+			break
 		fi
 		attempt=$((attempt + 1))
 		sleep 1
@@ -1650,6 +1841,13 @@ status() {
 	)"
 	printf 'dnsmasq_upstream=%s\n' "$(uci -q get dhcp.@dnsmasq[0].server 2>/dev/null || true)"
 	printf 'dnsmasq_cache=%s\n' "$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
+	printf 'dnsmasq_resolver=%s\n' "$(dnsmasq_matches && echo ok || echo mismatch)"
+	printf 'ordinary_dns=%s\n' "$(
+		if foreign_servers_file; then echo singbox-servers-file
+		elif ordinary_via_singbox; then echo singbox
+		else echo direct
+		fi
+	)"
 	printf 'nft=%s\n' "$(nft list table inet "$nft_table" >/dev/null 2>&1 && echo active || echo missing)"
 	printf 'rule=%s\n' "$(tproxy_rules_ready &&
 		echo active || echo missing)"

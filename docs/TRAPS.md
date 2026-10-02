@@ -351,3 +351,17 @@ Disabling used `ikev2-domain-router deactivate`, which rewrites the engine to
 the router came back matching by address with its segments down. Disabling
 now uses `shutdown`, which keeps the engine, and enabling restarts the
 segments and resumes FakeIP.
+
+## dnsmasq's servers file is a bind mount in its jail
+
+OpenWrt starts dnsmasq in ujail and mounts the `serversfile` option's file
+into it by itself. Writing a new file and moving it over the old one - the
+usual atomic update - replaces the name outside the jail only: dnsmasq goes on
+reading the inode it was given, HUP rereads the old list, and nothing reports
+an error. The file is rewritten in place (`cat new >file`), and it lives
+outside `/etc/ikev2-manager`, which the `dnsmasq` account cannot enter when
+there is no jail. HUP also empties dnsmasq's cache, so a list change sends it
+only after sing-box has loaded the new rules; told earlier, dnsmasq caches the
+real addresses sing-box still gives.
+
+Guarded by `scripts/openwrt/scenarios.sh`, with the real init script and dnsmasq.

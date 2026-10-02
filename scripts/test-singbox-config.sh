@@ -67,6 +67,21 @@ render "$tmp/in" "$tmp/out" || fail 'segments were refused'
 [ "$(query "$tmp/out" 'c["dns"]["rules"][1]["domain_suffix"]')" = "['corp.example']" ] ||
 	fail 'the HTTPS-compatible suffixes lost their rule'
 
+# Browser compatibility for every ordinary name answers their HTTPS queries
+# after the segments, which keep their own setting, and before the final
+# resolver; without it no such rule exists.
+{
+	base
+	printf 'segment\tsegment-a\t5551\tcorp.example\n'
+	printf 'https_all\t1\n'
+} >"$tmp/in"
+render "$tmp/in" "$tmp/out" || fail 'compatibility for ordinary names was refused'
+[ "$(query "$tmp/out" '[(r.get("server"), r.get("query_type"), r.get("rcode")) for r in c["dns"]["rules"]][-2:]')" = \
+	"[('segment-a', None, None), (None, ['HTTPS'], 'NOERROR')]" ] ||
+	fail 'compatibility for ordinary names is not the last rule, after the segments'
+[ "$(query "$tmp/out" '"domain_suffix" in c["dns"]["rules"][-1] or "rule_set" in c["dns"]["rules"][-1]')" = False ] ||
+	fail 'compatibility for ordinary names is limited to some names'
+
 # Values are data: quoting in one cannot change the document around it.
 {
 	base | sed 's#^doh_path	.*#doh_path	/q"],"x":["#'

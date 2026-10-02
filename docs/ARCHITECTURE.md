@@ -87,11 +87,25 @@ reboots.
 
 ## DNS
 
-`dnsmasq-full` remains the resolver for LAN and inbound VPN clients:
+`dnsmasq-full` remains the resolver for LAN and inbound VPN clients. In
+Reliable mode only the names that need sing-box reach it:
 
 ```text
-client -> dnsmasq-full -> sing-box DNS -> dnsproxy or existing resolver
+selected domain  -> dnsmasq-full -> sing-box DNS (FakeIP)
+segment suffix   -> dnsmasq-full -> segment dnsproxy
+any other name   -> dnsmasq-full -> dnsproxy or the existing resolver
 ```
+
+dnsmasq learns the selected domains from a servers file,
+`/etc/ikev2-dnsmasq.servers`, with one `server=/domain/127.0.0.42` line each.
+A list change rewrites the file in place and sends dnsmasq HUP, which rereads
+it without a restart; the file is bind-mounted into dnsmasq's jail, so a file
+moved over it would not be seen. Ordinary names therefore keep resolving, with
+the dnsmasq cache, while sing-box restarts or fails. The ordinary names, and
+each segment, can be sent through sing-box instead; resolving every name
+through the tunnel implies it for the ordinary names. When another package
+already gives dnsmasq a servers file, dnsmasq keeps it and every name goes
+through sing-box, because dnsmasq reads only one.
 
 When plain-DNS enforcement is enabled, TCP/UDP port 53 from every protected
 local zone is redirected to dnsmasq. If the inbound VPN server is selected as a
@@ -99,9 +113,10 @@ protected network, the same redirect is installed for `ipsec-in`; a client
 cannot obtain a real address from an external plain-DNS resolver and bypass
 FakeIP domain routing.
 
-Reliable mode disables the dnsmasq cache and stores FakeIP mappings in
-`/etc/ikev2-manager/domain-router-cache.db`. Existing mappings therefore
-survive service restarts and boots. Only `A` queries for selected domains enter
+FakeIP mappings are stored in `/etc/ikev2-manager/domain-router-cache.db` and
+survive service restarts and boots, so an address dnsmasq cached stays valid.
+dnsmasq keeps its cache while ordinary names go straight to their resolver and
+disables it when they pass through sing-box, which then holds the only cache. Only `A` queries for selected domains enter
 the FakeIP transport. Their `AAAA` and HTTPS queries receive a successful empty
 answer, so clients fall back to the routed IPv4 address instead of receiving a
 real IPv6 address or HTTPS address hint that could bypass the IPv4-only
@@ -174,24 +189,24 @@ administrator's primary server.
 
 Destination DNS segments are explicit, locally maintained suffix lists. Each
 enabled segment runs an application-owned loopback dnsproxy instance with its
-own protocol and selection mode. When matching by address dnsmasq selects the worker
-with its domain-specific server syntax. In Reliable mode sing-box routes the
-suffix directly to the segment worker, avoiding a second dnsproxy deadline
-around its primary and fallback attempts. The global upstream remains the
-default for every other name. Segment state lives in `dns_segment` UCI sections
+own protocol and selection mode. dnsmasq selects the worker with its
+domain-specific server syntax, in Reliable mode as well; a segment sent through
+sing-box is routed there to the same worker, avoiding a second dnsproxy
+deadline around its primary and fallback attempts. The global upstream remains
+the default for every other name. Segment state lives in `dns_segment` UCI sections
 and is therefore independent of generated PBR and FakeIP rule files. Each
 segment has an optional fallback group; when it is empty, it inherits both the
 global fallback and the global primary group.
 Enabled segments must have disjoint suffix trees and are limited to eight
 concurrent dnsproxy instances to bound router resource use. Segment workers run
 as the unprivileged `dnsproxy` account. They do not add another cache: dnsmasq
-owns it when matching by address and sing-box owns it in Reliable mode.
-Browser compatibility is enabled per segment by default. In Reliable mode it
-returns a successful empty HTTPS resource-record response for the segment
-suffixes, allowing Chromium-family clients to fall back to ordinary A/AAAA
-resolution when an authoritative server mishandles HTTPS queries. It does not
-alter A/AAAA answers, the selected segment upstreams or DNS behavior outside
-those suffixes, and is inactive while managed DNS is disabled.
+owns it, unless the ordinary names pass through sing-box, which then does.
+Browser compatibility returns a successful empty HTTPS resource-record
+response for the segment suffixes, allowing Chromium-family clients to fall
+back to ordinary A/AAAA resolution when an authoritative server mishandles
+HTTPS queries. sing-box gives that answer, so it applies only to a segment
+sent through sing-box in Reliable mode; the same switch exists for the
+ordinary names. It does not alter A/AAAA answers or the selected upstreams.
 
 Each segment gives its primary group three seconds and, when necessary, its
 fallback group another three seconds. The main resolver is bounded to eight

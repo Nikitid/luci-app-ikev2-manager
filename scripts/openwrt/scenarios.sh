@@ -484,6 +484,184 @@ uci -q delete ikev2-manager.dnsseg_withwan
 uci -q delete ikev2-manager.dnsseg_nowan
 uci commit ikev2-manager
 
+# --- Reliable mode's resolver, with the real dnsmasq -------------------------
+
+step 'Reliable mode sends only the selected domains to sing-box, the rest straight on'
+# procd is not running here, so the real init script generates the
+# configuration and this stands in for procd: a reload restarts dnsmasq when
+# what it generated changed and sends HUP otherwise. Answers come from small
+# dnsmasq instances: sing-box gives every name a FakeIP address. Their
+# addresses are public ones: dnsmasq's rebind protection drops answers in the
+# documentation ranges.
+cp /etc/init.d/dnsmasq /tmp/dnsmasq.init
+cat >/etc/init.d/dnsmasq <<'EOF2'
+#!/bin/sh
+pidfile=/tmp/scenario-dnsmasq.pid
+generate() {
+	(
+		ubus() { :; }
+		procd_set_param() { [ "$1" != command ] || { shift; printf '%s\n' "$*" >/tmp/dnsmasq.cmd; }; }
+		for stub in procd_open_instance procd_append_param procd_close_instance \
+			procd_add_jail procd_add_jail_mount procd_add_jail_mount_rw \
+			procd_add_raw_trigger procd_open_trigger procd_close_trigger; do
+			eval "$stub() { :; }"
+		done
+		set +u
+		. /lib/functions.sh
+		. /tmp/dnsmasq.init
+		start_service
+	) >/dev/null 2>&1
+	md5sum /var/etc/dnsmasq.conf.* | sort
+}
+stop() {
+	[ -s "$pidfile" ] && kill "$(cat "$pidfile")" 2>/dev/null && sleep 1
+	rm -f "$pidfile"
+}
+start() {
+	generate >/tmp/scenario-dnsmasq.sum
+	eval "set -- $(cat /tmp/dnsmasq.cmd)"
+	"$@" </dev/null >/dev/null 2>&1 &
+	printf '%s\n' "$!" >"$pidfile"
+	sleep 1
+}
+case "$1" in
+	running) [ -s "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null ;;
+	restart) stop; start ;;
+	reload)
+		if [ "$(generate)" = "$(cat /tmp/scenario-dnsmasq.sum)" ]; then
+			kill -HUP "$(cat "$pidfile")"
+		else
+			stop; start
+		fi
+		;;
+	stop) stop ;;
+esac
+EOF2
+chmod 755 /etc/init.d/dnsmasq
+upstream() {
+	dnsmasq -C /dev/null --listen-address="$1" --port="$2" --bind-interfaces \
+		--no-resolv --no-hosts --address="/#/$3" --user=root --pid-file="/tmp/upstream-$2-$1.pid"
+}
+upstream 127.0.0.42 53 198.18.0.5
+upstream 127.0.0.1 5453 9.9.9.1
+upstream 127.0.0.1 5550 77.88.55.1
+answer() {
+	nslookup "$1" 127.0.0.1 2>&1 | sed -n '/^Name:/,$s/^Address[^:]*:[[:space:]]*//p' | head -n 1
+}
+dnsmasq_value() { uci -q get "dhcp.@dnsmasq[0].$1"; }
+resolver_functions='getv defaultv save_dnsmasq clear_dnsmasq_snapshot validate_domain_file'
+resolver_functions="$resolver_functions enabled_dns_segments ordinary_via_singbox foreign_servers_file"
+resolver_functions="$resolver_functions dnsmasq_wanted wanted_value render_dnsmasq_servers"
+resolver_functions="$resolver_functions write_dnsmasq_servers dnsmasq_matches sync_dnsmasq restore_dnsmasq"
+awk -v names=" $resolver_functions " '
+	/^[a-z_]+\(\) [{(]$/ {
+		name = substr($0, 1, index($0, "(") - 1)
+		if (index(names, " " name " ")) {
+			body = 1
+			closing = substr($0, length($0)) == "{" ? "}" : ")"
+		}
+	}
+	body { print }
+	body && $0 == closing { body = 0 }
+' /usr/libexec/ikev2-domain-router >/tmp/resolver.sh
+grep -q '^restore_dnsmasq()' /tmp/resolver.sh || fail 'the resolver functions are not installed'
+# What the application gives dnsmasq when it manages DNS, by address.
+uci -q batch <<'EOF2'
+delete dhcp.@dnsmasq[0].server
+add_list dhcp.@dnsmasq[0].server='127.0.0.1#5453'
+add_list dhcp.@dnsmasq[0].server='/ru/127.0.0.1#5550'
+set dhcp.@dnsmasq[0].noresolv='1'
+set dhcp.@dnsmasq[0].cachesize='1000'
+commit dhcp
+set ikev2-manager.dns=dns
+set ikev2-manager.dns.managed='1'
+set ikev2-manager.dnsseg_ru=dns_segment
+set ikev2-manager.dnsseg_ru.enabled='1'
+set ikev2-manager.dnsseg_ru.domains='ru'
+set ikev2-manager.dnsseg_ru.port='5550'
+commit ikev2-manager
+EOF2
+printf 'chatgpt.com\n' >/tmp/selected.txt
+(
+	# The helper runs without -e; a missing option is an empty answer there.
+	set +e
+	config=ikev2-manager
+	domain_file=/tmp/selected.txt
+	dnsmasq_servers_file=/etc/ikev2-dnsmasq.servers
+	dns_address=127.0.0.42
+	dns_port=53
+	. /tmp/resolver.sh
+	sync_dnsmasq reload || fail 'dnsmasq was not pointed at the split resolver'
+	dnsmasq_matches || fail 'the split resolver does not read as applied'
+	[ "$(answer api.chatgpt.com)" = 198.18.0.5 ] || fail 'a selected domain did not reach sing-box'
+	[ "$(answer example.org)" = 9.9.9.1 ] || fail 'an ordinary name did not go straight to the upstream'
+	[ "$(answer yandex.ru)" = 77.88.55.1 ] || fail 'a segment name did not go straight to its worker'
+	nslookup use-application-dns.net 127.0.0.1 2>&1 | grep -q NXDOMAIN ||
+		fail "Firefox's canary is not answered as missing"
+	[ "$(dnsmasq_value cachesize)" = 1000 ] || fail 'dnsmasq lost its cache with ordinary names direct'
+
+	step '  a list change reaches dnsmasq without a restart, in the same file'
+	inode="$(ls -i /etc/ikev2-dnsmasq.servers | awk '{ print $1 }')"
+	pid="$(cat /tmp/scenario-dnsmasq.pid)"
+	printf 'chatgpt.com\nexample.net\n' >/tmp/selected.txt
+	write_dnsmasq_servers && [ "$servers_changed" = 1 ] || fail 'the servers file was not rewritten'
+	/etc/init.d/dnsmasq reload
+	[ "$(cat /tmp/scenario-dnsmasq.pid)" = "$pid" ] || fail 'a list change restarted dnsmasq'
+	[ "$(ls -i /etc/ikev2-dnsmasq.servers | awk '{ print $1 }')" = "$inode" ] ||
+		fail 'the servers file was replaced, which a jailed dnsmasq would not see'
+	[ "$(answer example.net)" = 198.18.0.5 ] || fail 'a domain added to the list did not reach sing-box'
+
+	step '  ordinary names keep resolving while sing-box is down'
+	kill "$(cat /tmp/upstream-53-127.0.0.42.pid)"
+	sleep 1
+	[ "$(answer fresh.example.org)" = 9.9.9.1 ] || fail 'an ordinary name failed with sing-box'
+	upstream 127.0.0.42 53 198.18.0.5
+
+	step '  a segment, and then every name, can be sent through sing-box'
+	uci set ikev2-manager.dnsseg_ru.via_singbox=1
+	uci commit ikev2-manager
+	dnsmasq_matches && fail 'a segment sent through sing-box still read as applied'
+	sync_dnsmasq || fail 'the segment path did not apply'
+	[ "$(answer mail.yandex.ru)" = 198.18.0.5 ] || fail 'a segment sent through sing-box went straight on'
+	[ "$(answer other.example.org)" = 9.9.9.1 ] || fail 'the segment path moved the ordinary names'
+	uci set ikev2-manager.dns.via_singbox=1
+	uci commit ikev2-manager
+	sync_dnsmasq || fail 'the ordinary path did not apply'
+	[ "$(answer third.example.org)" = 198.18.0.5 ] || fail 'ordinary names sent through sing-box went straight on'
+	[ "$(dnsmasq_value server)" = '127.0.0.42 /ru/127.0.0.42' ] ||
+		fail "dnsmasq kept an upstream beside sing-box: $(dnsmasq_value server)"
+	[ "$(dnsmasq_value cachesize)" = 0 ] || fail 'dnsmasq caches in front of the sing-box cache'
+
+	step "  another package's servers file is left in place"
+	uci set ikev2-manager.dns.via_singbox=0
+	printf 'server=/ads.example/\n' >/etc/other.servers
+	uci set dhcp.@dnsmasq[0].serversfile=/etc/other.servers
+	uci commit
+	sync_dnsmasq || fail 'the resolver did not apply beside another servers file'
+	[ "$(dnsmasq_value serversfile)" = /etc/other.servers ] || fail "another package's servers file was replaced"
+	[ "$(dnsmasq_value server)" = 127.0.0.42 ] || fail 'beside another servers file a name can bypass sing-box'
+	uci set dhcp.@dnsmasq[0].serversfile=/etc/ikev2-dnsmasq.servers
+	uci set ikev2-manager.dnsseg_ru.via_singbox=0
+	uci commit
+	sync_dnsmasq
+
+	step '  leaving Reliable mode gives dnsmasq back what it had'
+	restore_dnsmasq
+	[ "$(dnsmasq_value server)" = '127.0.0.1#5453 /ru/127.0.0.1#5550' ] ||
+		fail "dnsmasq did not get its servers back: $(dnsmasq_value server)"
+	[ "$(dnsmasq_value cachesize)" = 1000 ] && [ "$(dnsmasq_value noresolv)" = 1 ] ||
+		fail 'dnsmasq did not get its options back'
+	[ -z "$(dnsmasq_value serversfile)" ] && [ ! -e /etc/ikev2-dnsmasq.servers ] ||
+		fail 'the servers file was left behind'
+	[ "$(answer chatgpt.com)" = 9.9.9.1 ] || fail 'a selected domain still reaches sing-box'
+)
+/etc/init.d/dnsmasq stop
+for pid in /tmp/upstream-*.pid; do kill "$(cat "$pid")" 2>/dev/null || :; done
+cp /tmp/dnsmasq.init /etc/init.d/dnsmasq
+uci -q delete ikev2-manager.dnsseg_ru
+uci -q delete ikev2-manager.dns.via_singbox
+uci commit ikev2-manager
+
 # --- the inbound link, as a disabled server leaves it ----------------------
 
 step 'a disabled server passes with its link left in place but down'

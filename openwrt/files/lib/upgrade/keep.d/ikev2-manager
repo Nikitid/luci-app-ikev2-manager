@@ -10,5 +10,6 @@
 /etc/pbr-ikev2-service-cidrs.txt
 /etc/pbr-ikev2-community-cache/
 /etc/ikev2-manager/domain-router-cache.db
+/etc/ikev2-dnsmasq.servers
 /etc/swanctl/private/ikev2.key
 /etc/swanctl/x509/ikev2.pem

@@ -330,6 +330,7 @@ validate_dns_segments() {
 		https_compat="$(defaultv "$section" https_compat 1)"
 		[ "$https_compat" = 0 ] || [ "$https_compat" = 1 ] || return 1
 		case "$(defaultv "$section" wan_fallback 0)" in 0 | 1) ;; *) return 1 ;; esac
+		case "$(defaultv "$section" via_singbox 0)" in 0 | 1) ;; *) return 1 ;; esac
 		enabled_count=$((enabled_count + 1))
 		[ "$enabled_count" -le 8 ] || return 1
 		protocol="$(getv "$section" protocol)"
@@ -879,6 +880,9 @@ dns_show() {
 	printf 'timeout_effective=%s\n' "$(dns_runtime_timeout "$current_fallback")"
 	printf 'fallback_verified=%s\n' "$(getv dns fallback_verified)"
 	printf 'tunnel_resolve=%s\n' "$(defaultv dns tunnel_resolve 0)"
+	printf 'via_singbox=%s\n' "$(defaultv dns via_singbox 0)"
+	printf 'https_compat=%s\n' "$(defaultv dns https_compat 0)"
+	printf 'engine=%s\n' "$(defaultv domains engine nftset)"
 	printf 'segment_health=%s\n' \
 		"$(sed -n 's/^state=//p' "$dns_segments_status_file" 2>/dev/null | tail -n1)"
 	printf 'segment_failures=%s\n' \
@@ -925,7 +929,7 @@ dns_segment_effective_fallback() {
 dns_segments_show() {
 	local section
 	for section in $(dns_segment_sections); do
-		printf 'id=%s\tname=%s\tenabled=%s\tdomains=%s\tprotocol=%s\tmode=%s\tupstream=%s\tbootstrap=%s\tfallback=%s\tfallback_effective=%s\tinherits_fallback=%s\thttps_compat=%s\twan_fallback=%s\tport=%s\n' \
+		printf 'id=%s\tname=%s\tenabled=%s\tdomains=%s\tprotocol=%s\tmode=%s\tupstream=%s\tbootstrap=%s\tfallback=%s\tfallback_effective=%s\tinherits_fallback=%s\thttps_compat=%s\twan_fallback=%s\tvia_singbox=%s\tport=%s\n' \
 			"${section#dnsseg_}" "$(getv "$section" name)" \
 			"$(defaultv "$section" enabled 1)" "$(getv "$section" domains)" \
 			"$(getv "$section" protocol)" "$(defaultv "$section" upstream_mode load_balance)" \
@@ -935,6 +939,7 @@ dns_segments_show() {
 			"$([ -n "$(normalize_list "$(getv "$section" fallback)")" ] && echo 0 || echo 1)" \
 			"$(defaultv "$section" https_compat 1)" \
 			"$(defaultv "$section" wan_fallback 0)" \
+			"$(defaultv "$section" via_singbox 0)" \
 			"$(getv "$section" port)"
 	done
 }
@@ -953,17 +958,38 @@ next_dns_segment_port() {
 	return 1
 }
 
+# The path ordinary names take in Reliable mode while the router keeps its own
+# DNS. Only the resolver changes; when it does not answer, the previous path
+# comes back.
+dns_path_apply() {
+	local via="$1" compat="$2" old_via old_compat
+	old_via="$(defaultv dns via_singbox 0)"
+	old_compat="$(defaultv dns https_compat 0)"
+	[ "$via:$compat" != "$old_via:$old_compat" ] || return 0
+	uci set "$config.dns.via_singbox=$via" &&
+		uci set "$config.dns.https_compat=$compat" &&
+		uci commit "$config" || die 'Unable to save the DNS resolution path'
+	/usr/libexec/ikev2-domain-router refresh && dns_query_ok && return 0
+	uci set "$config.dns.via_singbox=$old_via" &&
+		uci set "$config.dns.https_compat=$old_compat" &&
+		uci commit "$config" &&
+		/usr/libexec/ikev2-domain-router refresh &&
+		die 'DNS did not resolve on the new path; the previous path was restored'
+	die 'DNS did not resolve on the new path, and the previous path could not be restored'
+}
+
 apply_saved_dns() {
 	dns_apply "$(defaultv dns managed 0)" "$(defaultv dns protocol doh)" \
 		"$(defaultv dns provider custom)" "$(defaultv dns upstream_mode load_balance)" \
 		"$(getv dns upstream)" "$(getv dns bootstrap)" "$(getv dns fallback)" \
-		"$(defaultv dns wan_fallback 0)"
+		"$(defaultv dns wan_fallback 0)" "$(defaultv dns via_singbox 0)" \
+		"$(defaultv dns https_compat 0)"
 }
 
 dns_segment_update() {
 	local action="$1" id="$2" name="$3" enabled="$4" domains="$5"
 	local protocol="$6" mode="$7" upstream="$8" bootstrap="$9" fallback="${10:-}" https_compat="${11:-1}"
-	local wan_fallback="${12:-0}"
+	local wan_fallback="${12:-0}" via_singbox="${13:-}"
 	local section backup port current_port restored=0 mutation_ok=1
 	case "$id" in '' | *[!A-Za-z0-9_]* ) die 'Invalid DNS segment identifier' ;; esac
 	[ "${#id}" -le 40 ] || die 'DNS segment identifier is too long'
@@ -981,6 +1007,10 @@ dns_segment_update() {
 				rm -f "$backup"; die 'Invalid DNS segment browser compatibility mode'; }
 			[ "$wan_fallback" = 0 ] || [ "$wan_fallback" = 1 ] || {
 				rm -f "$backup"; die 'Invalid DNS segment provider fallback setting'; }
+			# A page that predates the setting does not send it.
+			[ -n "$via_singbox" ] || via_singbox="$(defaultv "$section" via_singbox 0)"
+			[ "$via_singbox" = 0 ] || [ "$via_singbox" = 1 ] || {
+				rm -f "$backup"; die 'Invalid DNS segment resolution path'; }
 			valid_dns_suffix_list "$domains" || { rm -f "$backup"; die 'Invalid DNS suffix list'; }
 			case "$mode" in load_balance | parallel | fastest_addr) ;;
 				*) rm -f "$backup"; die 'Invalid DNS segment query strategy' ;;
@@ -1008,6 +1038,7 @@ dns_segment_update() {
 				uci set "$config.$section.fallback=$(normalize_list "$fallback")" &&
 				uci set "$config.$section.https_compat=$https_compat" &&
 				uci set "$config.$section.wan_fallback=$wan_fallback" &&
+				uci set "$config.$section.via_singbox=$via_singbox" &&
 				uci set "$config.$section.port=$port" || mutation_ok=0
 			;;
 		*) rm -f "$backup"; die 'Expected DNS segment action: set or delete' ;;
@@ -1055,9 +1086,15 @@ dns_apply() {
 	bootstrap="$(normalize_list "$6")"
 	fallback="$(normalize_list "$7")"
 	wan_fallback="${8:-0}"
+	via_singbox="${9:-$(defaultv dns via_singbox 0)}"
+	https_compat="${10:-$(defaultv dns https_compat 0)}"
 	[ "$managed" = 0 ] || [ "$managed" = 1 ] || die 'Invalid DNS management mode'
 	[ "$wan_fallback" = 0 ] || [ "$wan_fallback" = 1 ] ||
 		die 'Invalid WAN DNS fallback state'
+	[ "$via_singbox" = 0 ] || [ "$via_singbox" = 1 ] ||
+		die 'Invalid DNS resolution path'
+	[ "$https_compat" = 0 ] || [ "$https_compat" = 1 ] ||
+		die 'Invalid DNS browser compatibility mode'
 	[ "$managed" = 0 ] || valid_name "$provider" || die 'Invalid DNS provider'
 	fakeip_active=0
 	if [ "$(getv domains engine)" = fakeip ] &&
@@ -1090,6 +1127,13 @@ dns_apply() {
 			fi
 			dns_rollback_active=1
 			trap abort_dns_transaction EXIT INT TERM HUP
+			# The resolver is rendered from these settings, so they go first:
+			# rendered while still managed, it kept routing segment names to
+			# the workers stopped above. A failure imports the snapshot.
+			uci set "$config.dns.managed=0" &&
+				uci set "$config.dns.via_singbox=$via_singbox" &&
+				uci set "$config.dns.https_compat=$https_compat" &&
+				uci commit "$config" || die 'Unable to save the DNS settings'
 			if ! restore_dns_state "$dns_original_dir" "$([ "$fakeip_active" = 1 ] && echo 0 || echo 1)" options ||
 			   { [ "$fakeip_active" = 1 ] && ! /usr/libexec/ikev2-domain-router adopt-upstream; } ||
 			   ! dns_query_ok; then
@@ -1098,9 +1142,13 @@ dns_apply() {
 				fi
 				die 'Original DNS restore failed and automatic rollback was incomplete'
 			fi
+		elif [ "$fakeip_active" = 1 ]; then
+			dns_path_apply "$via_singbox" "$https_compat"
 		fi
 		uci set "$config.dns.managed=0"
 		uci set "$config.dns.saved=0"
+		uci set "$config.dns.via_singbox=$via_singbox"
+		uci set "$config.dns.https_compat=$https_compat"
 		uci commit "$config"
 		dns_query_ok || die 'Restored DNS configuration is not resolving'
 		if [ "${dns_rollback_active:-0}" = 1 ]; then
@@ -1225,6 +1273,8 @@ dns_apply() {
 	uci set "$config.dns.bootstrap=$bootstrap"
 	uci set "$config.dns.fallback=$fallback"
 	uci set "$config.dns.wan_fallback=$wan_fallback"
+	uci set "$config.dns.via_singbox=$via_singbox"
+	uci set "$config.dns.https_compat=$https_compat"
 	# When the recovery path was last proven to answer, so the interface can
 	# show evidence instead of an assumption.
 	uci set "$config.dns.fallback_verified=$fallback_verified"
@@ -1262,7 +1312,7 @@ dns_set_async() {
 		die 'DNS settings input is too large'
 	}
 	chmod 600 "$dns_input_file" || die 'Unable to protect DNS settings input'
-	[ -z "$(sed -n '9p' "$dns_input_file")" ] || {
+	[ -z "$(sed -n '11p' "$dns_input_file")" ] || {
 		rm -f "$dns_input_file"
 		die 'DNS settings input has unexpected extra fields'
 	}
@@ -1275,8 +1325,13 @@ dns_set_async() {
 		IFS= read -r bootstrap
 		IFS= read -r fallback || true
 		IFS= read -r wan_fallback || true
+		IFS= read -r via_singbox || true
+		IFS= read -r https_compat || true
 	} <"$dns_input_file"
 	rm -f "$dns_input_file"
+	# A page that predates the resolution path does not send it.
 	start_action dns-set "$managed" "$protocol" "$provider" "$upstream_mode" \
-		"$upstream" "$bootstrap" "$fallback" "${wan_fallback:-0}"
+		"$upstream" "$bootstrap" "$fallback" "${wan_fallback:-0}" \
+		"${via_singbox:-$(defaultv dns via_singbox 0)}" \
+		"${https_compat:-$(defaultv dns https_compat 0)}"
 }

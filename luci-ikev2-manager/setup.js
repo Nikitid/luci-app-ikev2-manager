@@ -160,10 +160,8 @@ function domainRuntimeStatus(value) {
 		detail = _('Reliable domain routing is still updating.');
 	else if (value.domain_service !== 'running')
 		detail = _('The reliable domain-router service is stopped.');
-	else if (value.domain_dnsmasq_upstream !== '127.0.0.42')
-		detail = _('dnsmasq is not using the FakeIP resolver.');
-	else if (value.domain_dnsmasq_cache !== '0')
-		detail = _('dnsmasq caching is still enabled in reliable mode.');
+	else if (value.domain_dnsmasq_resolver === 'mismatch')
+		detail = _('dnsmasq does not resolve the way reliable mode set it up.');
 	else if (value.domain_nft !== 'active')
 		detail = _('Reliable-mode nftables rules are missing.');
 	else if (value.domain_rule !== 'active')

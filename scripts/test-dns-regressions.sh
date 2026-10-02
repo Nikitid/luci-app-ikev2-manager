@@ -168,9 +168,6 @@ fi
 grep -Fq 'timeout_effective=' "$system"
 grep -Fq 'dns_runtime_timeout "$current_fallback"' "$system"
 
-grep -Fq "field in engine service dnsmasq_upstream dnsmasq_cache nft rule healthy data_plane data_plane_restarts data_plane_restarted_at state message" "$system"
-grep -Fq "Reliable-mode nftables rules are missing." \
-	"$root/luci-ikev2-manager/setup.js"
 
 # Keep shell control functions outside the nftables heredoc. A function body in
 # this payload is syntactically valid shell but makes every nft-start fail.
@@ -248,12 +245,15 @@ case "$command:$*" in
 	'get:ikev2-manager.client.tunnel_dns_upstream') echo 'https://dns.google/dns-query https://dns.cloudflare.com/dns-query' ;;
 	'get:ikev2-manager.client.tunnel_dns_bootstrap') echo '8.8.8.8:53 8.8.4.4:53 1.1.1.1:53 1.0.0.1:53' ;;
 	'get:ikev2-manager.dns.managed') echo 1 ;;
+	'get:ikev2-manager.dns.via_singbox') echo "${TEST_ORDINARY_VIA:-0}" ;;
+	'get:ikev2-manager.dns.https_compat') echo 1 ;;
 	'get:ikev2-manager.dnsseg_national.enabled') echo 1 ;;
 	'get:ikev2-manager.dnsseg_national.https_compat') echo 1 ;;
+	'get:ikev2-manager.dnsseg_national.via_singbox') echo 1 ;;
 	'get:ikev2-manager.dnsseg_national.domains') echo 'ru su xn--p1ai' ;;
 	'get:ikev2-manager.dnsseg_national.port') echo 5550 ;;
 	'get:ikev2-manager.dnsseg_private.enabled') echo 1 ;;
-	'get:ikev2-manager.dnsseg_private.https_compat') echo 0 ;;
+	'get:ikev2-manager.dnsseg_private.https_compat') echo 1 ;;
 	'get:ikev2-manager.dnsseg_private.domains') echo 'internal.example' ;;
 	'get:ikev2-manager.dnsseg_private.port') echo 5551 ;;
 	'get:ikev2-manager.globals.device_schema') echo 2 ;;
@@ -351,7 +351,8 @@ jq -e '
 # HTTPS/SVCB suppression prevents selected names from bypassing FakeIP through
 # address hints. Segment compatibility also isolates authoritative servers that
 # mishandle HTTPS records, while direct domains outside those suffixes retain
-# modern HTTPS DNS responses.
+# modern HTTPS DNS responses. It is given only to a segment whose queries pass
+# through sing-box: the private one asks for it but goes straight to its worker.
 jq -e '
 	[.dns.rules[] | select(.query_type == ["HTTPS"])] ==
 	[{"rule_set":["ikev2-domains"],"query_type":["HTTPS"],
@@ -359,6 +360,24 @@ jq -e '
 	 {"domain_suffix":["ru","su","xn--p1ai"],"query_type":["HTTPS"],
 	  "action":"predefined","rcode":"NOERROR"}]
 ' "$tmp/domain-router.json" >/dev/null
+# Compatibility for the ordinary names needs them to pass through sing-box:
+# asked for while they go straight on, it adds nothing (above); with them sent
+# through, every HTTPS query left after the segments gets the empty answer.
+TEST_ORDINARY_VIA=1 \
+PATH="$tmp/bin:$PATH" \
+IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib" \
+IKEV2_DOMAIN_FILE="$tmp/domains.txt" \
+IKEV2_DOMAIN_CONFIG="$tmp/domain-router-via.json" \
+IKEV2_DOMAIN_RULESET="$tmp/domain-router-rules.json" \
+IKEV2_DOMAIN_WORK_DIR="$tmp/work" \
+IKEV2_TUNNEL_DNS_STATE="$tmp/tunnel-dns.state" \
+	sh "$root/ikev2-manager-runtime/ikev2-domain-router.sh" render
+jq -e '
+	.dns.rules[-1] == {"query_type":["HTTPS"],"action":"predefined","rcode":"NOERROR"}
+' "$tmp/domain-router-via.json" >/dev/null || {
+	printf '%s\n' 'ordinary names sent through sing-box did not get browser compatibility' >&2
+	exit 1
+}
 jq -e '
 	[.dns.rules[] | select(.query_type == ["AAAA"])] ==
 	[{"rule_set":["ikev2-domains"],"query_type":["AAAA"],

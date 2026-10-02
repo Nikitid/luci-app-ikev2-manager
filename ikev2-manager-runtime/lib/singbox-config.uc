@@ -13,8 +13,8 @@
 // bootstrap_host bootstrap_port doh_host doh_port doh_path fakeip_range
 // final_server dns_address dns_port tproxy_address tproxy_port
 // direct_tproxy_port router_tproxy_port controller_address controller_secret
-// ruleset_path. Repeated: covered CIDR, https_suffix SUFFIX, and
-// segment TAG PORT SUFFIX... in routing order.
+// ruleset_path, and optionally https_all 1. Repeated: covered CIDR,
+// https_suffix SUFFIX, and segment TAG PORT SUFFIX... in routing order.
 
 'use strict';
 
@@ -156,6 +156,14 @@ function render(input) {
 			server: segment.tag
 		});
 	}
+	// Browser compatibility for the ordinary names that pass through here.
+	// Placed after the segments, which keep their own setting.
+	if (input.https_all == '1')
+		push(dns_rules, {
+			query_type: [ 'HTTPS' ],
+			action: 'predefined',
+			rcode: 'NOERROR'
+		});
 
 	if (length(input.covered) == 0)
 		die('no source networks');

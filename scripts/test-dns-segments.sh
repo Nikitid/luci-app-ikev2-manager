@@ -136,11 +136,17 @@ udp://1.1.1.1:53
 1.1.1.1:53
 
 1
+0
+1
 EOF
 run_system _action-run test-dns-segment dns-segment "$tmp/segment-action.in"
 [ ! -e "$tmp/segment-action.in" ]
 grep -Fxq 'dnsseg_worker.domains=dev' "$tmp/uci/ikev2-manager"
 grep -Fxq 'dnsseg_worker.https_compat=1' "$tmp/uci/ikev2-manager"
+grep -Fxq 'dnsseg_worker.via_singbox=1' "$tmp/uci/ikev2-manager" || {
+	printf 'the thirteenth line did not send the segment through sing-box\n' >&2
+	exit 1
+}
 grep -Fxq 'state=ok' "$tmp/actions/test-dns-segment.status"
 cat >"$tmp/segment-extra.in" <<'EOF'
 set
@@ -154,6 +160,7 @@ udp://1.1.1.1:53
 1.1.1.1:53
 
 1
+0
 0
 unexpected
 EOF
@@ -222,6 +229,23 @@ run_system _dns-segment-update set mixed Mixed 1 '.COM, Org' udp load_balance \
 grep -Fxq 'dnsseg_mixed.domains=com org' "$tmp/uci/ikev2-manager"
 grep -Fxq 'dnsseg_mixed.https_compat=0' "$tmp/uci/ikev2-manager"
 grep -Fxq 'dnsseg_mixed.wan_fallback=0' "$tmp/uci/ikev2-manager"
+# A new segment goes straight to its worker; a page that predates the path
+# sends none, and the stored one stays.
+grep -Fxq 'dnsseg_mixed.via_singbox=0' "$tmp/uci/ikev2-manager"
+run_system _dns-segment-update set mixed Mixed 1 'com org' udp load_balance \
+	'udp://1.1.1.1:53' '1.1.1.1:53' '' 0 0 1
+grep -Fxq 'dnsseg_mixed.via_singbox=1' "$tmp/uci/ikev2-manager"
+run_system _dns-segment-update set mixed Mixed 1 'com org' udp load_balance \
+	'udp://1.1.1.1:53' '1.1.1.1:53' '' 0 0
+grep -Fxq 'dnsseg_mixed.via_singbox=1' "$tmp/uci/ikev2-manager" || {
+	printf 'a page without the path setting reset it\n' >&2
+	exit 1
+}
+if run_system _dns-segment-update set mixed Mixed 1 'com org' udp load_balance \
+	'udp://1.1.1.1:53' '1.1.1.1:53' '' 0 0 2 >/dev/null 2>&1; then
+	printf 'an invalid segment path was accepted\n' >&2
+	exit 1
+fi
 
 # A segment may fall back to the provider's resolvers after its own list; the
 # page names them, as the WAN lease has them, after the configured ones.

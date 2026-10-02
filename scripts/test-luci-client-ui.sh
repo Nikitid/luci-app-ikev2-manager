@@ -65,7 +65,15 @@ function makeNode(tag, attrs) {
 		get options() { return this.children; },
 		get firstChild() { return this.children[0] || null; },
 		classList: { add() {}, remove() {}, contains() { return false; }, toggle() {} },
-		addEventListener(name, handler) { this.listeners[name] = handler; },
+		// Every listener runs, as in the DOM: a change tracker added after the
+		// page's own handler must not replace it.
+		addEventListener(name, handler) {
+			const previous = this.listeners[name];
+			this.listeners[name] = previous ? function(event) {
+				previous.call(this, event);
+				return handler.call(this, event);
+			} : handler;
+		},
 		removeAttribute() {}, setAttribute() {}, focus() {}, remove() {},
 		appendChild(child) { this.children.push(child); return child; },
 		removeChild(child) { this.children.splice(this.children.indexOf(child), 1); return child; },
@@ -172,7 +180,8 @@ const dnsGet = [
 	'upstream=https://freedns.controld.com/p0', 'bootstrap=9.9.9.10:53',
 	'fallback=https://dns.google/dns-query', 'wan_fallback=1',
 	'timeout=2s', 'timeout_effective=2s', 'fallback_verified=1788000000',
-	'tunnel_resolve=1', 'segment_health=up', 'running=1'
+	'tunnel_resolve=1', 'segment_health=up', 'running=1',
+	'via_singbox=0', 'https_compat=0', 'engine=fakeip'
 ].join('\n');
 const segments = [
 	'id=ru\tname=RU\tenabled=1\tdomains=ru su\tprotocol=doh\tmode=load_balance',
@@ -402,6 +411,73 @@ function countClass(name) {
 }
 if (source.indexOf('segmentSelect') >= 0)
 	fail('DNS segments are still edited through a segment picker');
+
+// The resolution path: one switch for the ordinary names and one per segment,
+// each with the compatibility switch under it, grey while its path does not
+// pass through sing-box. Resolving every name through the tunnel takes that
+// path already, so the main switch is fixed while that is on.
+function switchesAfter(scope, label) {
+	const found = [];
+	walk(scope, []).forEach(function(node) {
+		(node.children || []).forEach(function(child, index) {
+			if (child && hasClass(child, 'ikev2-field-label') && child.children[0] === label) {
+				const control = node.children[index + 1];
+				found.push(control.children[0]);
+			}
+		});
+	});
+	return found;
+}
+const segmentBlock = walk(page, []).find(function(node) { return hasClass(node, 'ikev2-segment-block'); });
+const viaSwitches = switchesAfter(page, 'Resolve through sing-box');
+const compatSwitches = switchesAfter(page, 'Browser compatibility');
+if (viaSwitches.length !== 2 || compatSwitches.length !== 2)
+	fail('the router resolver and the segment do not each have a path and a compatibility switch');
+const segmentVia = switchesAfter(segmentBlock, 'Resolve through sing-box')[0];
+const segmentCompat = switchesAfter(segmentBlock, 'Browser compatibility')[0];
+const mainVia = viaSwitches.find(function(node) { return node !== segmentVia; });
+const mainCompat = compatSwitches.find(function(node) { return node !== segmentCompat; });
+if (!mainVia.disabled || mainCompat.disabled)
+	fail('with every name resolved through the tunnel the path is not fixed and compatibility not offered');
+if (segmentVia.checked || segmentVia.disabled || !segmentCompat.disabled)
+	fail('a direct segment does not offer its path, or offers compatibility it cannot apply');
+segmentVia.checked = true;
+segmentVia.listeners.change();
+if (segmentCompat.disabled)
+	fail('sending a segment through sing-box did not offer compatibility');
+const written = [];
+fsStub.write = function(file, content) { written.push(content); return Promise.resolve(); };
+const segmentSave = walk(segmentBlock, []).find(function(node) {
+	return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save segment';
+});
+segmentSave.listeners.click();
+if (!written.length || written[0].split('\n')[12] !== '1' || written[0].split('\n').length !== 14)
+	fail('the segment path is not the thirteenth line of what the page sends: ' + JSON.stringify(written[0]));
+// The router resolver sends its path and compatibility as lines nine and ten.
+const dnsWritten = [];
+const dnsApply = walk(page, []).find(function(node) {
+	return node.tagName === 'BUTTON' && textOf(node).trim() === 'Apply DNS';
+});
+fsStub.write = function(file, content) { dnsWritten.push(content); return Promise.resolve(); };
+mainVia.disabled = false;
+mainVia.checked = true;
+const dnsSent = Promise.resolve(dnsApply.listeners.click()).then(function() {
+	const lines = (dnsWritten[0] || '').split('\n');
+	if (lines.length !== 11 || lines[8] !== '1' || lines[9] !== '0')
+		fail('the router resolver path is not what the page sends: ' + JSON.stringify(dnsWritten[0]));
+	fsStub.write = function() { return Promise.resolve(); };
+});
+
+// Matching by address has no sing-box: every path switch is grey.
+const standardData = data.slice();
+standardData[4] = { stdout: dnsGet.replace('engine=fakeip', 'engine=nftset')
+	.replace('tunnel_resolve=1', 'tunnel_resolve=0') };
+standardData.ready = true;
+const standardPage = view.render(standardData);
+const standardSwitches = switchesAfter(standardPage, 'Resolve through sing-box')
+	.concat(switchesAfter(standardPage, 'Browser compatibility'));
+if (standardSwitches.length !== 4 || standardSwitches.some(function(node) { return !node.disabled; }))
+	fail('matching by address offers a resolution path through sing-box');
 if (countClass('ikev2-segment-block') !== 1)
 	fail('expected one rendered block for the one configured segment, got ' +
 		countClass('ikev2-segment-block'));
@@ -488,6 +564,16 @@ function textOf(node) {
 	if (node.textContent) return node.textContent;
 	return (node.children || []).map(textOf).join(' ');
 }
+// A dnsmasq that does not resolve as Reliable mode set it up is named as the
+// reason the mode is degraded.
+const degradedPage = setupView.render([
+	{ stdout: [ 'configured=1', 'routing_paused=0', 'domain_engine=fakeip',
+		'domain_service=running', 'domain_healthy=no', 'domain_state=error',
+		'domain_dnsmasq_resolver=mismatch', 'domain_nft=active', 'domain_rule=active' ].join('\n') },
+	{ stdout: doctorOut }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }
+]);
+if (textOf(degradedPage).indexOf('dnsmasq does not resolve the way reliable mode set it up.') < 0)
+	fail('the overview does not name dnsmasq as the reason Reliable mode is degraded');
 const setupNodes = nodesOf(setupPage);
 const setupText = textOf(setupPage);
 function button(label) {
@@ -664,5 +750,7 @@ advanced.toggle.listeners.click({});
 if (advanced.panel.style.display !== 'none')
 	fail('the advanced toggle did not close the panel again');
 
-process.stdout.write('client UI render tests OK\n');
+dnsSent.then(function() {
+	process.stdout.write('client UI render tests OK\n');
+});
 JS
