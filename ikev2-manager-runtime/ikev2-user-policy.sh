@@ -613,12 +613,16 @@ monitor_source() {
 	exec "$swanctl_bin" --monitor-sa --raw 2>/dev/null
 }
 
+# swanctl --monitor-sa ends itself, when charon goes away, with kill(0, SIGINT):
+# its whole process group. Run by procd that group is procd's own, and procd
+# takes SIGINT as a reboot - every charon restart rebooted the router. setsid
+# gives the monitor a session and group of its own. See docs/TRAPS.md.
 run_event_source() {
 	if [ -n "$event_source" ]; then
 		exec "$event_source"
 	fi
 	[ -x "$socat_bin" ] || return 127
-	exec "$socat_bin" -u "EXEC:$0 monitor-source,pty,rawer" STDOUT
+	exec "$socat_bin" -u "EXEC:$0 monitor-source,pty,rawer,setsid" STDOUT
 }
 
 # One reconciliation, with the helper's own diagnosis preserved. The watcher

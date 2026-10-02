@@ -1500,7 +1500,9 @@ run_inbound_diagnostic() {
 	# Keep the live writer below 8 MiB even under a malformed-packet flood; the
 	# completed capture is reduced further below. POSIX ulimit -f uses 512-byte
 	# blocks and is supported by BusyBox ash.
-	( ulimit -f 16384 2>/dev/null || true; exec swanctl --log ) \
+	# In a session of its own, as every swanctl client that waits on charon:
+	# swanctl signals its process group, and rpcd's is procd's (see TRAPS).
+	( ulimit -f 16384 2>/dev/null || true; exec setsid swanctl --log ) \
 		>>"$inbound_diagnostic_file" 2>&1 &
 	logger_pid=$!
 	trap '[ -z "$logger_pid" ] || kill "$logger_pid" 2>/dev/null || true; [ -z "$logger_pid" ] || wait "$logger_pid" 2>/dev/null || true' EXIT INT TERM HUP

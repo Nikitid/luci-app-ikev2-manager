@@ -520,6 +520,28 @@ IKEV2_SESSIONS_FILE=/tmp/sessions /usr/libexec/ikev2-user-policy check &&
 	fail 'a changed inbound table passed its check'
 nft delete chain inet ikev2_user_policy probe
 
+step 'the SA monitor ending with its group signal does not reach the service group'
+# swanctl --monitor-sa ends with kill(0, SIGINT) when charon goes away. Under
+# procd the watcher's group is procd's, which reboots on SIGINT. The stub does
+# what swanctl does, through the real socat.
+printf '#!/bin/sh\n: >/tmp/monitor-ran\nsleep 1\nkill -INT 0\nsleep 5\n' >/tmp/swanctl-sigint
+chmod 755 /tmp/swanctl-sigint
+rm -f /tmp/group-signals /tmp/monitor-ran
+setsid sh -c '
+	trap "echo INT >>/tmp/group-signals" INT
+	IKEV2_SESSIONS_FILE=/tmp/sessions IKEV2_SWANCTL=/tmp/swanctl-sigint \
+		IKEV2_USER_POLICY_REFRESH_INTERVAL=60 \
+		/usr/libexec/ikev2-user-policy watch >/dev/null 2>&1 &
+	watcher=$!
+	i=0
+	while kill -0 "$watcher" 2>/dev/null && [ "$i" -lt 15 ]; do sleep 1; i=$((i + 1)); done
+	kill "$watcher" 2>/dev/null
+	:
+'
+[ -e /tmp/monitor-ran ] || fail 'the SA monitor did not run'
+[ ! -s /tmp/group-signals ] || fail 'the SA monitor signalled the process group the watcher runs in'
+rm -f /tmp/swanctl-sigint /tmp/group-signals /tmp/monitor-ran
+
 # --- downloaded lists, filtered with BusyBox awk ---------------------------
 
 step 'public suffixes are refused by the BusyBox tools'

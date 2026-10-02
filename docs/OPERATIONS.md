@@ -173,9 +173,8 @@ runtime state; this does not clear the security finding. Upgrade only a
 verified compatible cohort from a trusted repository. If none is available,
 retain and report the finding instead of treating application repair as a
 dependency security fix. An upgrade either restarts charon, dropping every
-tunnel, or leaves the old daemon running until the next restart; a restart has
-hung a router until its watchdog rebooted it (`docs/TRAPS.md`). Plan the
-upgrade as a reboot.
+tunnel for a few seconds, or leaves the old daemon running until the next
+restart; doctor's `strongswan_running` says which (`docs/TRAPS.md`).
 
 ```sh
 /usr/libexec/ikev2-manager-system doctor

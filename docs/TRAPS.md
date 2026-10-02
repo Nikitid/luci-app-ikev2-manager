@@ -121,14 +121,24 @@ procd restarts charon only when a file in the instance's list changed, and
 `/etc/swanctl/swanctl.conf`, the stock file the package ships, is one of them.
 An upgrade that brings a new copy of it restarts the daemon and drops every
 tunnel. One that does not, or one that keeps an edited copy, leaves the old
-daemon running until the next restart. Doctor reports the installed version.
+daemon running until the next restart. Doctor reports the installed version
+and, as `strongswan_running`, the version charon reports itself.
 
-On a GL-MT6000 with OpenWrt 25.12 (kernel 6.12), restarting charon while SAs
-were installed has twice hung the kernel until the hardware watchdog reset the
-router. The first restart was `swanctl restart`; the second was an upgrade.
-pstore held nothing either time. The runtime does not restart charon; it applies
-configuration with `swanctl --load-all` and `--load-creds`. Schedule a
-strongSwan upgrade or removal as you would a reboot.
+## swanctl signals its whole process group when charon goes away
+
+`swanctl --monitor-sa` ends, when charon closes the VICI connection, with
+`send_sigint()`, which strongSwan implements as `kill(0, SIGINT)`: every process
+in its group. A service procd starts runs in procd's own process group, and
+procd takes SIGINT as a reboot. With the inbound session monitor started that
+way, every charon restart - `swanctl restart`, a strongSwan upgrade - rebooted
+the router in an orderly way: the shutdown scripts ran, ubusd, logd and wpad
+were signalled too, and nothing reached pstore, so it looked like a kernel hang.
+
+The monitor runs under socat with `setsid`, in a session of its own, and so does
+the inbound diagnostic `swanctl --log`. Any other long-running swanctl client
+needs the same.
+
+Guarded by `scripts/openwrt/scenarios.sh`.
 
 ## LuCI trims a translation key before looking it up
 
