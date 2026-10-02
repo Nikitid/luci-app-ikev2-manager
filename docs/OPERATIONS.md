@@ -167,11 +167,15 @@ loopback, FakeIP and documentation ranges and the well-known public resolvers
 stay. Collection takes a few seconds and changes nothing.
 
 An enabled inbound server on strongSwan below 6.0.7 produces
-`strongswan_eap_server_security=warn`, `security_ok=0` and `doctor_ok=0` for
-CVE-2026-47895. Repair preflight may continue so it can restore runtime state;
-this does not clear the security finding. Upgrade only a verified compatible
-cohort from a trusted repository. If none is available, retain and report the
-finding instead of treating application repair as a dependency security fix.
+`strongswan_eap_server_security=warn` and `security_ok=0` for CVE-2026-47895;
+it does not fail `doctor_ok`. Repair preflight may continue so it can restore
+runtime state; this does not clear the security finding. Upgrade only a
+verified compatible cohort from a trusted repository. If none is available,
+retain and report the finding instead of treating application repair as a
+dependency security fix. An upgrade either restarts charon, dropping every
+tunnel, or leaves the old daemon running until the next restart; a restart has
+hung a router until its watchdog rebooted it (`docs/TRAPS.md`). Plan the
+upgrade as a reboot.
 
 ```sh
 /usr/libexec/ikev2-manager-system doctor

@@ -114,6 +114,22 @@ any interface besides `ipsec-out`.
 
 Guarded by `scripts/test-package-lifecycle.sh`.
 
+## A strongSwan upgrade restarts charon, or leaves the old one running
+
+Every strongSwan package's post-upgrade script runs `/etc/init.d/swanctl start`.
+procd restarts charon only when a file in the instance's list changed, and
+`/etc/swanctl/swanctl.conf`, the stock file the package ships, is one of them.
+An upgrade that brings a new copy of it restarts the daemon and drops every
+tunnel. One that does not, or one that keeps an edited copy, leaves the old
+daemon running until the next restart. Doctor reports the installed version.
+
+On a GL-MT6000 with OpenWrt 25.12 (kernel 6.12), restarting charon while SAs
+were installed has twice hung the kernel until the hardware watchdog reset the
+router. The first restart was `swanctl restart`; the second was an upgrade.
+pstore held nothing either time. The runtime does not restart charon; it applies
+configuration with `swanctl --load-all` and `--load-creds`. Schedule a
+strongSwan upgrade or removal as you would a reboot.
+
 ## LuCI trims a translation key before looking it up
 
 `_()` collapses whitespace in the string before hashing it, so a catalog entry
