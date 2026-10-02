@@ -4112,3 +4112,21 @@ msgstr "DNS не заработал по новому пути, и прежни�
 
 msgid "dnsmasq did not resolve with the new DNS settings; previous rules restored"
 msgstr "dnsmasq не разрешал имена с новыми настройками DNS; прежние правила восстановлены"
+
+msgid "Download report"
+msgstr "Скачать отчёт"
+
+msgid "Collecting..."
+msgstr "Сбор..."
+
+msgid "Could not collect the diagnostics report"
+msgstr "Не удалось собрать диагностический отчёт"
+
+msgid "Report downloaded. Read it before attaching it anywhere."
+msgstr "Отчёт скачан. Прочитайте его, прежде чем куда-либо прикладывать."
+
+msgid "Diagnostics report"
+msgstr "Диагностический отчёт"
+
+msgid "A text file of the router state for a bug report. Passwords, keys and tokens are left out; public and MAC addresses and host and user names are replaced."
+msgstr "Текстовый файл с состоянием роутера для сообщения об ошибке. Пароли, ключи и токены в него не попадают; публичные и MAC-адреса, имена хостов и пользователей заменены."

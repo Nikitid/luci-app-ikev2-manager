@@ -79,6 +79,7 @@
 				"/usr/libexec/ikev2-manager advanced-reset-start inbound": [ "exec" ],
 				"/usr/libexec/ikev2-manager advanced-reset-start outbound": [ "exec" ],
 				"/usr/libexec/ikev2-tunnel-quality speed-test-async *": [ "exec" ],
+				"/usr/libexec/ikev2-manager-system diagnostics": [ "exec" ],
 				"/usr/libexec/ikev2-manager-system install-deps": [ "exec" ],
 				"/usr/libexec/ikev2-manager-system remove-deps": [ "exec" ],
 				"/usr/libexec/ikev2-manager-system set-async *": [ "exec" ],

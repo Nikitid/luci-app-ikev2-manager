@@ -580,6 +580,33 @@ return view.extend({
 			_('Install runtime dependencies') ]);
 		var removeDeps = E('button', { 'class': 'cbi-button cbi-button-remove' }, [
 			_('Reset app and remove dependencies') ]);
+		// A redacted text report for a bug report, made on the router and saved
+		// by the browser like a downloaded profile.
+		var reportButton = E('button', { 'class': 'cbi-button cbi-button-action' }, [
+			_('Download report') ]);
+		var reportResult = common.inlineResult();
+		reportButton.addEventListener('click', function() {
+			return common.runAction({
+				button: reportButton,
+				result: reportResult,
+				busy: _('Collecting...'),
+				done: _('Downloaded'),
+				run: function() {
+					return common.execChecked(helper, [ 'diagnostics' ],
+						_('Could not collect the diagnostics report')).then(function(response) {
+						var stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+						var blob = new Blob([ response.stdout || '' ], { type: 'text/plain;charset=utf-8' });
+						var url = URL.createObjectURL(blob);
+						var link = E('a', { 'href': url, 'download': 'ikev2-diagnostics-' + stamp + '.txt' });
+						document.body.appendChild(link);
+						link.click();
+						link.remove();
+						window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+						reportResult.ok(_('Report downloaded. Read it before attaching it anywhere.'));
+					});
+				}
+			});
+		});
 		// Pause is the reversible counterpart of the reset below: nothing is
 		// deleted, only the three things that put traffic into the tunnel stop.
 		var routingPaused = value.routing_paused === '1';
@@ -892,6 +919,14 @@ return view.extend({
 							depsResult.node,
 							installDeps,
 							removeDeps
+						]),
+						E('div', { 'class': 'ikev2-health-row ikev2-action-row', 'style': 'margin-top:1rem' }, [
+							E('span', { 'class': 'ikev2-health-copy' }, [
+								E('strong', {}, [ _('Diagnostics report') ]),
+								E('span', { 'class': 'ikev2-toggle-sub' }, [
+									_('A text file of the router state for a bug report. Passwords, keys and tokens are left out; public and MAC addresses and host and user names are replaced.') ])
+							]),
+							E('div', { 'class': 'ikev2-actions' }, [ reportResult.node, reportButton ])
 						])
 					]),
 					depsPill),

@@ -662,6 +662,18 @@ uci -q delete ikev2-manager.dnsseg_ru
 uci -q delete ikev2-manager.dns.via_singbox
 uci commit ikev2-manager
 
+# --- the diagnostics report, with BusyBox awk -------------------------------
+
+step 'the diagnostics report leaves no secret, address or name behind on BusyBox'
+sh /src/scripts/test-diagnostics.sh >/dev/null || fail 'the report redaction failed on BusyBox'
+/usr/libexec/ikev2-manager-system diagnostics >/tmp/diagnostics.txt 2>&1 ||
+	fail "the diagnostics report did not finish: $(tail -n 3 /tmp/diagnostics.txt)"
+grep -q '^## System log$' /tmp/diagnostics.txt || fail 'the diagnostics report stopped before its end'
+# The container has no strongSwan, so a missing swanctl is expected here.
+! grep -E 'syntax error|bad number|diagnostics_[a-z_]*: not found' /tmp/diagnostics.txt ||
+	fail 'the diagnostics report hit a shell error'
+rm -f /tmp/diagnostics.txt
+
 # --- the inbound link, as a disabled server leaves it ----------------------
 
 step 'a disabled server passes with its link left in place but down'

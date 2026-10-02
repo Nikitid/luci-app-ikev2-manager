@@ -57,6 +57,7 @@ install_file 644 ikev2-manager-runtime/lib/nft-runtime.sh /usr/libexec/ikev2-man
 install_file 644 ikev2-manager-runtime/lib/system-deps.sh /usr/libexec/ikev2-manager.d/system-deps.sh
 install_file 644 ikev2-manager-runtime/lib/system-dns.sh /usr/libexec/ikev2-manager.d/system-dns.sh
 install_file 644 ikev2-manager-runtime/lib/system-doctor.sh /usr/libexec/ikev2-manager.d/system-doctor.sh
+install_file 644 ikev2-manager-runtime/lib/system-diagnostics.sh /usr/libexec/ikev2-manager.d/system-diagnostics.sh
 install_file 644 ikev2-manager-runtime/lib/manager-users.sh /usr/libexec/ikev2-manager.d/manager-users.sh
 install_file 644 ikev2-manager-runtime/lib/manager-server.sh /usr/libexec/ikev2-manager.d/manager-server.sh
 install_file 644 ikev2-manager-runtime/lib/manager-acme.sh /usr/libexec/ikev2-manager.d/manager-acme.sh

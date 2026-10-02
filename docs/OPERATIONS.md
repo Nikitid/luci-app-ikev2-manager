@@ -154,6 +154,18 @@ changing the already-prepared target toolchain.
 
 ## Diagnostics
 
+`ikev2-manager-system diagnostics` prints a text report for a bug report; the
+overview page saves the same report with **Download report**. It holds the
+readiness check, the statuses of the tunnel, routing and DNS helpers, the SAs,
+the rules and routes, the application's nftables tables with set elements
+counted rather than listed, the configuration and the last 400 relevant log
+lines. Settings named like a password, secret, key or token lose their value,
+PEM blocks are dropped, and the tunnel server and identities, the server name,
+the VPN user names, the router's host name and every public IPv4, IPv6 and MAC
+address become placeholders, the same one for the same value. Private,
+loopback, FakeIP and documentation ranges and the well-known public resolvers
+stay. Collection takes a few seconds and changes nothing.
+
 An enabled inbound server on strongSwan below 6.0.7 produces
 `strongswan_eap_server_security=warn`, `security_ok=0` and `doctor_ok=0` for
 CVE-2026-47895. Repair preflight may continue so it can restore runtime state;

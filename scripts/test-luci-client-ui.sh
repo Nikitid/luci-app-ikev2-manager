@@ -750,7 +750,27 @@ advanced.toggle.listeners.click({});
 if (advanced.panel.style.display !== 'none')
 	fail('the advanced toggle did not close the panel again');
 
-dnsSent.then(function() {
+// The overview collects the diagnostics report on the router and has the
+// browser save it as a text file.
+const reportButton = nodesOf(setupPage).find(function(node) {
+	return node.tagName === 'BUTTON' && textOf(node).trim() === 'Download report';
+});
+if (!reportButton) fail('the overview has no button for the diagnostics report');
+const saved = [];
+const execCalls = [];
+documentStub.body = { appendChild(node) { saved.push(node); return node; } };
+fsStub.exec = function(file, args) {
+	execCalls.push([ file ].concat(args || []).join(' '));
+	return Promise.resolve({ code: 0, stdout: '# IKEv2 manager diagnostics\n' });
+};
+const reportSaved = Promise.resolve(reportButton.listeners.click()).then(function() {
+	if (execCalls.indexOf('/usr/libexec/ikev2-manager-system diagnostics') < 0)
+		fail('the report button does not ask the router for the report: ' + JSON.stringify(execCalls));
+	if (!saved.some(function(node) { return /^ikev2-diagnostics-[0-9-]+\.txt$/.test(node.attrs.download || ''); }))
+		fail('the report is not saved as a dated text file');
+});
+
+Promise.all([ dnsSent, reportSaved ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

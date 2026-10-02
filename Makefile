@@ -165,6 +165,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-deps.sh $(1)/usr/libexec/ikev2-manager.d/system-deps.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-dns.sh $(1)/usr/libexec/ikev2-manager.d/system-dns.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-doctor.sh $(1)/usr/libexec/ikev2-manager.d/system-doctor.sh
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-diagnostics.sh $(1)/usr/libexec/ikev2-manager.d/system-diagnostics.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-users.sh $(1)/usr/libexec/ikev2-manager.d/manager-users.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-server.sh $(1)/usr/libexec/ikev2-manager.d/manager-server.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-acme.sh $(1)/usr/libexec/ikev2-manager.d/manager-acme.sh

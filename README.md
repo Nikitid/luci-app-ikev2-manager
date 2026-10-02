@@ -126,7 +126,10 @@ The signed feed and release validation: [docs/OPENWRT25.md](docs/OPENWRT25.md).
 
 Questions and bug reports go to
 [Issues](https://github.com/Nikitid/luci-app-ikev2-manager/issues/new/choose): pick the form that
-fits. Report a vulnerability privately through
+fits, and attach the report from **Download report** on the Overview page,
+under Runtime dependencies: passwords, keys and tokens are left out of it, and
+public and MAC addresses and host and user names are replaced. Read it first.
+Report a vulnerability privately through
 [a security advisory](https://github.com/Nikitid/luci-app-ikev2-manager/security/advisories/new).
 English or Russian is fine.
 

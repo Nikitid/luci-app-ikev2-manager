@@ -564,6 +564,7 @@ runtime_lib_dir="${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}"
 . "$runtime_lib_dir/system-deps.sh"
 . "$runtime_lib_dir/system-dns.sh"
 . "$runtime_lib_dir/system-doctor.sh"
+. "$runtime_lib_dir/system-diagnostics.sh"
 
 sync_network() {
 	uci -q delete network.ikev2out || true
@@ -1791,6 +1792,10 @@ case "${1:-}" in
 		shift
 		dns_apply "$@"
 		;;
+	diagnostics)
+		[ "$#" -eq 1 ] || die 'Expected no arguments'
+		diagnostics_report
+		;;
 	_validate-dns-endpoint)
 		[ "$#" -eq 3 ] || die 'Expected: protocol endpoint'
 		valid_dns_endpoint "$2" "$3"
@@ -1971,6 +1976,6 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
+		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|diagnostics|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
 		;;
 esac

@@ -31,7 +31,7 @@ rpcd `file exec` ACL in `luci-ikev2-manager/acl.json`.
 
 | helper | source | owns |
 | --- | --- | --- |
-| `ikev2-manager-system` | `ikev2-manager-runtime/ikev2-manager-system.sh` | system state, dependencies, DNS transactions, DNS segments, device policy, routing pause |
+| `ikev2-manager-system` | `ikev2-manager-runtime/ikev2-manager-system.sh` | system state, dependencies, DNS transactions, DNS segments, device policy, routing pause, the redacted diagnostics report (`lib/system-diagnostics.sh`) |
 | `ikev2-manager` | `luci-ikev2-manager/ikev2-manager.sh` | inbound server, VPN users, ACME, client profile, raw swanctl config |
 | `ikev2-domain-router` | `ikev2-manager-runtime/ikev2-domain-router.sh` | sing-box FakeIP engine, tunnel DNS, nftables rules |
 | `ikev2-device-routing` | `ikev2-manager-runtime/ikev2-device-routing.sh` | per-device policy marks and their nft chains |
