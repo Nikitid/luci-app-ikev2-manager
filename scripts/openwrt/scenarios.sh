@@ -740,6 +740,107 @@ step 'a password with quotes and backslashes survives the strongSwan app profile
 )
 rm -f /tmp/profile.json
 
+# --- the encrypted settings backup --------------------------------------------
+
+step 'a settings backup opens only with its passphrase and keeps the router its own'
+command -v openssl >/dev/null 2>&1 || apk add openssl-util >/dev/null 2>&1 ||
+	opkg install openssl-util >/dev/null 2>&1 || fail 'openssl is not available for the backup scenario'
+mkdir -p /etc/ikev2-manager/services.d /etc/ssl/acme
+printf 'alice\t0sYWxpY2Utc2VjcmV0\n' >/etc/ikev2-manager/users.db
+printf 'outbound-secret\n' >/etc/ikev2-manager/client.secret
+printf 'bank.example\n' >/etc/ikev2-manager/services.d/banks.lst
+printf 'Banks\n' >/etc/ikev2-manager/services.d/banks.name
+printf 'routed.example\n' >/etc/pbr-ikev2-domains.manual.txt
+printf 'CERT\n' >/etc/ssl/acme/vpn.example.test.fullchain.crt
+printf 'KEY\n' >/etc/ssl/acme/vpn.example.test.key
+touch /etc/config/acme
+uci -q batch <<'EOF2'
+set ikev2-manager.server=server
+set ikev2-manager.server.identity='vpn.example.test'
+set ikev2-manager.server.cert_source='/etc/ssl/acme'
+set ikev2-manager.globals.wan_interface='wan'
+set acme.ikev2=cert
+set acme.ikev2.credentials='CF_Token=secret-token'
+add_list acme.ikev2.domains='vpn.example.test'
+commit
+EOF2
+(
+	set +eu
+	config=ikev2-manager
+	uci_config_dir=/etc/config
+	die() { printf '%s\n' "$*" >&2; exit 1; }
+	getv() { uci -q get "$config.$1.$2" 2>/dev/null || true; }
+	defaultv() { value="$(getv "$1" "$2")"; [ -n "$value" ] && printf '%s\n' "$value" || printf '%s\n' "$3"; }
+	. /usr/libexec/ikev2-manager.d/system-backup.sh
+	applied=0
+	backup_apply() { applied=$((applied + 1)); [ -z "${fail_apply:-}" ] || [ "$applied" -gt 1 ]; }
+	printf 'correct horse battery' >/tmp/ikev2-manager-backup-t1.pass
+	( backup_export t1 ) >/tmp/backup.b64 || fail 'the backup was not made'
+	[ ! -e /tmp/ikev2-manager-backup-t1.pass ] || fail 'the passphrase was left behind'
+	openssl base64 -d -A </tmp/backup.b64 >/tmp/backup.bin
+	head -n 1 /tmp/backup.bin | grep -qx 'IKEV2-MANAGER-BACKUP 1' || fail 'the backup does not say what it is'
+	for secret in alice-secret outbound-secret secret-token KEY routed.example; do
+		! grep -aq "$secret" /tmp/backup.bin || fail "the backup holds $secret in the clear"
+	done
+
+	# This router moves on: another WAN, a lost user, other lists.
+	uci set ikev2-manager.globals.wan_interface='wan2'
+	uci commit ikev2-manager
+	printf 'bob\t0sYm9i\n' >/etc/ikev2-manager/users.db
+	rm -f /etc/ikev2-manager/client.secret /etc/ikev2-manager/services.d/banks.*
+	printf 'other.example\n' >/etc/pbr-ikev2-domains.manual.txt
+	printf 'stray\n' >/etc/ikev2-manager/inbound.custom.conf
+	uci set acme.ikev2.credentials='CF_Token=changed'
+	uci commit acme
+
+	cp /tmp/backup.b64 /tmp/ikev2-manager-backup-t2.in
+	printf 'wrong passphrase' >/tmp/ikev2-manager-backup-t2.pass
+	( backup_import t2 ) 2>/tmp/import.err && fail 'a wrong passphrase opened the backup'
+	grep -q 'passphrase does not open' /tmp/import.err || fail "a wrong passphrase was not named: $(cat /tmp/import.err)"
+	grep -q '^bob' /etc/ikev2-manager/users.db || fail 'a refused import changed the router'
+
+	cp /tmp/backup.b64 /tmp/ikev2-manager-backup-t3.in
+	printf 'correct horse battery' >/tmp/ikev2-manager-backup-t3.pass
+	( backup_import t3 ) || fail "the backup did not import: $(cat /tmp/import.err)"
+	grep -q '^alice' /etc/ikev2-manager/users.db && ! grep -q '^bob' /etc/ikev2-manager/users.db ||
+		fail 'the users were not imported'
+	grep -qx outbound-secret /etc/ikev2-manager/client.secret || fail 'the outbound password was not imported'
+	grep -qx bank.example /etc/ikev2-manager/services.d/banks.lst || fail 'a custom service was not imported'
+	grep -qx routed.example /etc/pbr-ikev2-domains.manual.txt || fail 'a custom list was not imported'
+	[ ! -e /etc/ikev2-manager/inbound.custom.conf ] || fail 'a file the backup lacks was left in place'
+	[ "$(cat /etc/ssl/acme/vpn.example.test.key)" = KEY ] || fail 'the server key was not imported'
+	[ "$(uci -q get acme.ikev2.credentials)" = 'CF_Token=secret-token' ] || fail 'the ACME settings were not imported'
+	[ "$(uci -q get ikev2-manager.globals.wan_interface)" = wan2 ] || fail "the router's own WAN was replaced"
+	[ "$(stat -c %a /etc/ikev2-manager/users.db 2>/dev/null || ls -l /etc/ikev2-manager/users.db | cut -c1-10)" = 600 ] ||
+		[ "$(ls -l /etc/ikev2-manager/users.db | cut -c1-10)" = '-rw-------' ] || fail 'the imported users are readable by others'
+
+	# An apply that fails puts back what the router had.
+	printf 'carol\t0sY2Fyb2w=\n' >/etc/ikev2-manager/users.db
+	cp /tmp/backup.b64 /tmp/ikev2-manager-backup-t4.in
+	printf 'correct horse battery' >/tmp/ikev2-manager-backup-t4.pass
+	applied=0
+	fail_apply=1
+	( backup_import t4 ) 2>/tmp/import.err && fail 'an import whose apply failed reported success'
+	grep -q 'previous settings were restored' /tmp/import.err || fail "the rollback was not reported: $(cat /tmp/import.err)"
+	grep -q '^carol' /etc/ikev2-manager/users.db || fail 'a failed import did not put the previous users back'
+	fail_apply=''
+
+	# An archive with anything else in it is refused before it is unpacked.
+	mkdir -p /tmp/evil/files/etc
+	printf 'IKEV2-MANAGER-BACKUP 1\n' >/tmp/evil/manifest
+	cp /etc/config/ikev2-manager /tmp/evil/config
+	printf 'root::0:0::/root:/bin/ash\n' >/tmp/evil/files/etc/passwd
+	tar -C /tmp/evil -czf /tmp/evil.tgz .
+	{ printf 'IKEV2-MANAGER-BACKUP 1\n'; openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt \
+		-in /tmp/evil.tgz -pass pass:'correct horse battery'; } | openssl base64 -A >/tmp/ikev2-manager-backup-t5.in
+	printf 'correct horse battery' >/tmp/ikev2-manager-backup-t5.pass
+	( backup_import t5 ) 2>/tmp/import.err && fail 'an archive with a foreign file was imported'
+	grep -q 'should not' /tmp/import.err || fail "a foreign file was not named: $(cat /tmp/import.err)"
+	grep -q '^root:x:' /etc/passwd || fail 'a refused archive touched the system'
+)
+rm -rf /tmp/evil /tmp/evil.tgz /tmp/backup.b64 /tmp/backup.bin /tmp/import.err \
+	/etc/ikev2-manager/services.d/banks.* /etc/ssl/acme/vpn.example.test.*
+
 # --- the diagnostics report, with BusyBox awk -------------------------------
 
 step 'the diagnostics report leaves no secret, address or name behind on BusyBox'

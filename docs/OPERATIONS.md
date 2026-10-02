@@ -873,6 +873,26 @@ identity must match the public DNS name used by clients.
 
 ## Backup and recovery
 
+**Settings backup** on the Overview page downloads an encrypted copy of the
+application's settings: the configuration, VPN users and their passwords, the
+outbound password, custom services and the custom and exclusion lists, raw
+strongSwan additions, the server certificate with its key and the ACME
+settings. openssl encrypts it with AES-256-CBC under a PBKDF2-SHA256 key from
+the passphrase, 200,000 iterations; the passphrase is not stored. Importing it
+replaces those on this or another router and applies them - lists, DNS, then
+strongSwan, the firewall and routing - and puts the previous ones back when
+the apply fails. The router keeps its own WAN and protected networks, firewall
+zones, original-DNS snapshots, domain-routing engine, pause and configuration
+schemas. An archive holding anything an export does not write is refused
+before it is unpacked. From a shell:
+
+```sh
+printf '%s' 'passphrase' >/tmp/ikev2-manager-backup-T1.pass
+/usr/libexec/ikev2-manager-system backup-export T1 >/tmp/settings.ikev2backup
+```
+
+A whole-router backup is still sysupgrade's:
+
 ```sh
 sysupgrade -b /tmp/ikev2-manager-backup.tar.gz
 gzip -t /tmp/ikev2-manager-backup.tar.gz

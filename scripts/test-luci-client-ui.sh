@@ -74,7 +74,7 @@ function makeNode(tag, attrs) {
 				return handler.call(this, event);
 			} : handler;
 		},
-		removeAttribute() {}, setAttribute() {}, focus() {}, remove() {},
+		removeAttribute() {}, setAttribute() {}, focus() {}, remove() {}, click() {},
 		appendChild(child) { this.children.push(child); return child; },
 		removeChild(child) { this.children.splice(this.children.indexOf(child), 1); return child; },
 		insertBefore(child) { this.children.unshift(child); return child; },
@@ -833,7 +833,43 @@ const reportSaved = Promise.resolve(reportButton.listeners.click()).then(functio
 		fail('the report is not saved as a dated text file');
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, respectStored ]).then(function() {
+// The settings backup is made on the router under the passphrase given, and
+// a short one is refused before anything is sent.
+const backupSaved = respectStored.then(function() {
+	const exportButton = nodesOf(setupPage).find(function(node) {
+		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Download backup';
+	});
+	if (!exportButton) fail('the overview has no settings backup');
+	const passField = nodesOf(setupPage).find(function(node) {
+		return node.tagName === 'INPUT' && node.attrs.placeholder === 'At least eight characters';
+	});
+	const writes = {};
+	const calls = [];
+	const files = [];
+	fsStub.write = function(file, content) { writes[file.replace(/^.*\./, '')] = content; return Promise.resolve(); };
+	fsStub.exec = function(file, args) { calls.push((args || []).join(' ')); return Promise.resolve({ code: 0, stdout: 'SUJFVjI=\n' }); };
+	documentStub.body = { appendChild(node) { files.push(node); return node; } };
+	// A refused click leaves a listener that restores the button, and the
+	// stub returns the last listener's result: wait for the work itself.
+	const settle = function() { return new Promise(function(resolve) { setTimeout(resolve, 5); }); };
+	passField.value = 'short';
+	exportButton.listeners.click();
+	return settle().then(function() {
+		if (calls.length) fail('a short passphrase reached the router');
+		passField.value = 'correct horse battery';
+		exportButton.listeners.click();
+		return settle();
+	}).then(function() {
+		if (writes.pass !== 'correct horse battery' || !/^backup-export [A-Za-z0-9-]+$/.test(calls[0] || ''))
+			fail('the backup is not made under the given passphrase: ' + JSON.stringify([ writes, calls ]));
+		if (!files.some(function(node) { return /\.ikev2backup$/.test(node.attrs.download || ''); }))
+			fail('the backup is not saved as a file');
+		if (passField.value !== '') fail('the passphrase stays in the form after the download');
+		fsStub.write = function() { return Promise.resolve(); };
+	});
+});
+
+Promise.all([ dnsSent, reportSaved, policySaved, respectStored, backupSaved ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

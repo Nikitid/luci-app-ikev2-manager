@@ -33,6 +33,8 @@ remote gateway.
   VPNv2/NRPT, including a reusable Windows setup application plus separate
   VPNv2 XML profiles, with no PowerShell, and a one-time QR link that installs
   the phone profile without a file on the computer;
+- an encrypted settings backup that restores on the same router or moves to
+  another, which keeps its own networks;
 - ACME and Russian/English LuCI interfaces.
 
 ## Requirements

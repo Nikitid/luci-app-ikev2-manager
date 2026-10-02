@@ -98,6 +98,10 @@ check_pattern '(^|[;&|[:space:]])grep([[:space:]]+-[A-Za-z]*P)' \
 check_pattern '(^|[;&|[:space:]])find[^|;&]*[[:space:]]-printf([[:space:]]|$)' \
 	'BusyBox find does not support -printf'
 
+# Nor -links: "find: unrecognized: -links", verified on the router.
+check_pattern '(^|[;&|[:space:]])find[^|;&]*[[:space:]]-links([[:space:]]|$)' \
+	'BusyBox find does not support -links'
+
 # The supported OpenWrt BusyBox tr applet treats these POSIX class expressions
 # as literal character sets and, for example, converts "ru" to "rl". Runtime
 # values here are ASCII, so explicit A-Z/a-z ranges are required.

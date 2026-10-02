@@ -4184,3 +4184,93 @@ msgstr "держать адреса вне туннеля может тольк�
 
 msgid "invalid service mode"
 msgstr "неверный режим сервиса"
+
+msgid "At least eight characters"
+msgstr "Не меньше восьми символов"
+
+msgid "Download backup"
+msgstr "Скачать копию"
+
+msgid "Import backup"
+msgstr "Импортировать копию"
+
+msgid "The passphrase must have at least eight characters"
+msgstr "Парольная фраза должна быть не короче восьми символов"
+
+msgid "Unable to create the backup"
+msgstr "Не удалось создать копию"
+
+msgid "Backup downloaded. It holds the VPN passwords and the server key; keep it and its passphrase apart."
+msgstr "Копия скачана. В ней пароли VPN и ключ сервера; храните её отдельно от парольной фразы."
+
+msgid "Choose a backup file"
+msgstr "Выберите файл копии"
+
+msgid "Replace this router's IKEv2 settings, users, certificate and lists with the backup? Its networks, WAN and DNS snapshots stay as they are. The tunnels reconnect."
+msgstr "Заменить настройки IKEv2, пользователей, сертификат и списки этого роутера копией? Его сети, WAN и снимки DNS останутся как есть. Туннели переподключатся."
+
+msgid "Importing..."
+msgstr "Импорт..."
+
+msgid "Settings imported."
+msgstr "Настройки импортированы."
+
+msgid "Import failed"
+msgstr "Импорт не удался"
+
+msgid "Could not read the backup file: %s"
+msgstr "Не удалось прочитать файл копии: %s"
+
+msgid "Settings backup"
+msgstr "Резервная копия настроек"
+
+msgid "An encrypted copy of the IKEv2 settings, VPN users and passwords, custom services and lists, the server certificate with its key and the ACME settings. Importing it here or on another router keeps that router's networks, WAN, firewall zones, original DNS and domain-routing engine."
+msgstr "Зашифрованная копия настроек IKEv2, пользователей VPN с паролями, своих сервисов и списков, сертификата сервера с ключом и настроек ACME. Импорт здесь или на другом роутере сохраняет его сети, WAN, зоны межсетевого экрана, исходный DNS и способ маршрутизации доменов."
+
+msgid "Backup passphrase"
+msgstr "Парольная фраза копии"
+
+msgid "Needed again to import. It is not stored anywhere."
+msgstr "Понадобится при импорте. Нигде не сохраняется."
+
+msgid "Backup file"
+msgstr "Файл копии"
+
+msgid "Its passphrase"
+msgstr "Её парольная фраза"
+
+msgid "Importing the settings..."
+msgstr "Импорт настроек..."
+
+msgid "The import failed; see /tmp/ikev2-system-action.log."
+msgstr "Импорт не удался; см. /tmp/ikev2-system-action.log."
+
+msgid "The passphrase is missing"
+msgstr "Нет парольной фразы"
+
+msgid "The backup file is missing"
+msgstr "Нет файла копии"
+
+msgid "The backup file is too large"
+msgstr "Файл копии слишком большой"
+
+msgid "This is not a backup of this application"
+msgstr "Это не копия настроек этого приложения"
+
+msgid "The passphrase does not open this backup"
+msgstr "Эта парольная фраза не открывает копию"
+
+msgid "The backup is damaged"
+msgstr "Копия повреждена"
+
+msgid "The backup holds a file it should not"
+msgstr "В копии есть файл, которого там быть не должно"
+
+msgid "The settings in the backup cannot be read"
+msgstr "Настройки в копии не читаются"
+
+msgid "The imported settings did not apply; the previous settings were restored"
+msgstr "Импортированные настройки не применились; прежние настройки восстановлены"
+
+msgid "The imported settings did not apply, and restoring the previous settings did not finish"
+msgstr "Импортированные настройки не применились, и восстановление прежних не завершилось"

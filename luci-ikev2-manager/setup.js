@@ -602,6 +602,82 @@ return view.extend({
 			_('Reset app and remove dependencies') ]);
 		// A redacted text report for a bug report, made on the router and saved
 		// by the browser like a downloaded profile.
+		// An encrypted copy of the settings, to restore here or on another
+		// router; this router's networks and DNS snapshots stay its own.
+		var exportPass = input('password', '', { 'autocomplete': 'new-password', 'placeholder': _('At least eight characters') });
+		var exportButton = E('button', { 'class': 'cbi-button cbi-button-action' }, [ _('Download backup') ]);
+		var exportResult = common.inlineResult();
+		var importFile = E('input', { 'type': 'file', 'accept': '.ikev2backup,text/plain' });
+		var importPass = input('password', '', { 'autocomplete': 'off' });
+		var importButton = E('button', { 'class': 'cbi-button cbi-button-apply' }, [ _('Import backup') ]);
+		var importResult = common.inlineResult();
+		exportButton.addEventListener('click', function() {
+			var pass = exportPass.value;
+			if (pass.length < 8)
+				return common.refuse(exportButton, exportResult, _('The passphrase must have at least eight characters'));
+			return common.runAction({
+				button: exportButton,
+				result: exportResult,
+				busy: _('Collecting...'),
+				done: _('Downloaded'),
+				run: function() {
+					var token = common.inputToken();
+					return fs.write('/tmp/ikev2-manager-backup-' + token + '.pass', pass, 384).then(function() {
+						return common.execChecked(helper, [ 'backup-export', token ],
+							_('Unable to create the backup'));
+					}).then(function(response) {
+						var stamp = new Date().toISOString().slice(0, 10);
+						var blob = new Blob([ response.stdout || '' ], { type: 'text/plain;charset=utf-8' });
+						var url = URL.createObjectURL(blob);
+						var link = E('a', { 'href': url, 'download': 'ikev2-manager-' + stamp + '.ikev2backup' });
+						document.body.appendChild(link);
+						link.click();
+						link.remove();
+						window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+						exportPass.value = '';
+						exportResult.ok(_('Backup downloaded. It holds the VPN passwords and the server key; keep it and its passphrase apart.'));
+					});
+				}
+			});
+		});
+		importButton.addEventListener('click', function() {
+			var file = importFile.files && importFile.files[0];
+			var pass = importPass.value;
+			if (!file)
+				return common.refuse(importButton, importResult, _('Choose a backup file'));
+			if (pass.length < 8)
+				return common.refuse(importButton, importResult, _('The passphrase must have at least eight characters'));
+			if (!window.confirm(_('Replace this router\'s IKEv2 settings, users, certificate and lists with the backup? Its networks, WAN and DNS snapshots stay as they are. The tunnels reconnect.')))
+				return;
+			var token = common.inputToken();
+			// The inputs are written before the job starts, as for a DNS segment;
+			// a failed write still ends in a result under the button.
+			return file.text().then(function(text) {
+				return Promise.all([
+					fs.write('/tmp/ikev2-manager-backup-' + token + '.in', text.trim(), 384),
+					fs.write('/tmp/ikev2-manager-backup-' + token + '.pass', pass, 384)
+				]);
+			}).then(function() {
+				return common.runJob({
+					button: importButton,
+					result: importResult,
+					busy: _('Importing...'),
+					success: _('Settings imported.'),
+					failure: _('Import failed'),
+					startPath: helper,
+					startArgs: [ 'backup-import-async', token ],
+					statusPath: helper,
+					statusArgs: [ 'action-status' ],
+					timeout: 300000,
+					onSuccess: function() {
+						importPass.value = '';
+						return refreshSetupState();
+					}
+				});
+			}, function(error) {
+				importResult.err(_('Could not read the backup file: %s').format(error.message || error));
+			});
+		});
 		var reportButton = E('button', { 'class': 'cbi-button cbi-button-action' }, [
 			_('Download report') ]);
 		var reportResult = common.inlineResult();
@@ -994,7 +1070,22 @@ return view.extend({
 					]),
 					applyResult.node,
 					save
-				])
+				]),
+				common.section(_('Settings backup'),
+					_('An encrypted copy of the IKEv2 settings, VPN users and passwords, custom services and lists, the server certificate with its key and the ACME settings. Importing it here or on another router keeps that router\'s networks, WAN, firewall zones, original DNS and domain-routing engine.'),
+					E('div', {}, [
+						E('div', { 'class': 'ikev2-form-grid' }, [
+							common.fieldLabel(_('Backup passphrase'),
+								_('Needed again to import. It is not stored anywhere.')),
+							exportPass
+						]),
+						E('div', { 'class': 'ikev2-actions end' }, [ exportResult.node, exportButton ]),
+						E('div', { 'class': 'ikev2-form-grid', 'style': 'margin-top:1rem' }, [
+							common.fieldLabel(_('Backup file')), importFile,
+							common.fieldLabel(_('Its passphrase')), importPass
+						]),
+						E('div', { 'class': 'ikev2-actions end' }, [ importResult.node, importButton ])
+					]))
 			])
 		]);
 	},

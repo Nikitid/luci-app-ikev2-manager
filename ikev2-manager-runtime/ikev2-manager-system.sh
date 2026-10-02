@@ -565,6 +565,7 @@ runtime_lib_dir="${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}"
 . "$runtime_lib_dir/system-dns.sh"
 . "$runtime_lib_dir/system-doctor.sh"
 . "$runtime_lib_dir/system-diagnostics.sh"
+. "$runtime_lib_dir/system-backup.sh"
 
 sync_network() {
 	uci -q delete network.ikev2out || true
@@ -1649,6 +1650,16 @@ run_action() {
 			fi
 			rm -f "$dns_error_file"
 			;;
+		backup-import)
+			action_status "$id" running 'Importing the settings...'
+			if ( backup_import "$1" ) 2>"$step_error"; then
+				rm -f "$step_error"
+				action_status "$id" ok 'Settings imported.'
+			else
+				action_status "$id" error "$(action_error_message "$step_error" \
+					'The import failed; see /tmp/ikev2-system-action.log.')"
+			fi
+			;;
 		dns-segment)
 			segment_file="$1"
 			if [ ! -f "$segment_file" ] || [ -L "$segment_file" ] || ! {
@@ -1795,6 +1806,15 @@ case "${1:-}" in
 	diagnostics)
 		[ "$#" -eq 1 ] || die 'Expected no arguments'
 		diagnostics_report
+		;;
+	backup-export)
+		[ "$#" -eq 2 ] || die 'Expected a backup input token'
+		backup_export "$2"
+		;;
+	backup-import-async)
+		[ "$#" -eq 2 ] || die 'Expected a backup input token'
+		backup_input_file "$2" in >/dev/null
+		start_action backup-import "$2"
 		;;
 	_validate-dns-endpoint)
 		[ "$#" -eq 3 ] || die 'Expected: protocol endpoint'
@@ -1980,6 +2000,6 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|diagnostics|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
+		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|diagnostics|backup-export|backup-import-async|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
 		;;
 esac
