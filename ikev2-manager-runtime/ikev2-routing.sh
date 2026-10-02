@@ -506,7 +506,7 @@ write_ruleset() {
 # of the tunnel for the week they live; a changed list starts them afresh.
 forget_bypass_learned() {
 	local list
-	list="$(sha256sum <"$bypass_domain_file" 2>/dev/null | awk '{ print $1 }')"
+	list="$(sha256sum 2>/dev/null <"$bypass_domain_file" | awk '{ print $1 }')"
 	[ "$(cat "$state_file.bypass" 2>/dev/null)" != "$list" ] || return 0
 	"$nft_bin" flush set inet "$table" bypass_learned4 2>/dev/null || :
 	"$nft_bin" flush set inet "$table" bypass_learned6 2>/dev/null || :
