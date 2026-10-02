@@ -206,11 +206,15 @@ mkdir -p "$tmp/net/ipsec-out2"
 printf '0x1091\n' >"$tmp/net/ipsec-out2/flags"
 : >"$S/sa2-up"
 settings 0 two
+applies="$(count '^domain-router exits-apply')"
 start_watcher
 state="$tmp/run/ikev2-tunnels.state"
 i=0
 while ! grep -qx 'exit 2 2' "$state" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
 grep -qx 'exit 1 1' "$state" && grep -qx 'exit 2 2' "$state" || fail 'each exit did not start on its own tunnel'
+# The first choice reaches sing-box too, after the state is written; counted
+# before it is, it would pass for the move below.
+wait_for '^domain-router exits-apply' $((applies + 1)) 'sing-box was not told the first choice'
 applies="$(count '^domain-router exits-apply')"
 before="$(count '^routing sync ')"
 ensures="$(count '^manager ensure-client')"
