@@ -141,6 +141,10 @@ grep -q '^state=up ' "$tmp/run/ikev2-health.status" || fail 'the status does not
 before="$(count '^routing sync ')"
 wait_for '^routing sync ' $((before + 1)) 'a broken policy routing was not repaired'
 grep '^routing sync ' "$log" | tail -n 1 | grep -q ' locked$' || fail 'a repair ran without the action lock'
+# The stub records its call as it starts; the watcher releases the lock once
+# the repair returns, a moment later on a loaded machine.
+i=0
+while [ -d "$S/action.lock" ] && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
 [ ! -d "$S/action.lock" ] || fail 'a repair left the action lock held'
 
 # The tunnel goes: its routes follow at once, and the client is brought back.
