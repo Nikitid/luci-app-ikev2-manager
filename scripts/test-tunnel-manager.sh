@@ -57,6 +57,8 @@ manager() {
 	IKEV2_ACTION_STATUS_DIR="$tmp/actions" \
 	IKEV2_ACTION_LOCK="$tmp/action.lock" \
 	IKEV2_ACTION_LOCK_STATUS="$tmp/action.lock.status" \
+	IKEV2_SA_HELPER="$tmp/bin/sa" \
+	IKEV2_ROUTING_HELPER="$tmp/bin/routing" \
 	PATH="$tmp/bin:$PATH" \
 		sh "$root/luci-ikev2-manager/ikev2-manager.sh" "$@"
 }
@@ -125,6 +127,15 @@ input save new 'Spare' 0 de.example.test de.example.test office-user 30 1400 1 '
 manager tunnel-input >"$tmp/out" 2>"$tmp/err" || fail "a disabled tunnel was refused: $(cat "$tmp/err")"
 grep -qx 'tunnel=3' "$tmp/out" || fail 'the second new tunnel did not take index 3'
 ! grep -q 'proxy-out-3' "$conf" "$secrets" || fail 'a disabled tunnel was rendered'
+
+# The status names each tunnel's state and the exits it carries now.
+printf '#!/bin/sh\n[ "$1" = tunnels ] && printf "1\\t1\\t10.20.20.10\\n2\\t0\\t-\\n"\n' >"$tmp/bin/sa"
+printf '#!/bin/sh\n[ "$1" = status ] && printf "tunnel=up\\nexit_1=ipsec-out\\nexit_2=ipsec-out\\nexit_3=none\\n"\n' >"$tmp/bin/routing"
+chmod 755 "$tmp/bin/sa" "$tmp/bin/routing"
+manager tunnels-status >"$tmp/status"
+printf '%s\n' 'tunnel=1 up=1 address=10.20.20.10 carries=1,2' 'tunnel=2 up=0 address= carries=' \
+	'tunnel=3 up=0 address= carries=' | cmp -s - "$tmp/status" ||
+	fail "the tunnel status is wrong: $(cat "$tmp/status")"
 
 # Eight at most.
 for name in A B C D E; do

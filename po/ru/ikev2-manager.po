@@ -4292,3 +4292,96 @@ msgstr "Работает %s; установленная %s заработает 
 
 msgid "charon did not answer"
 msgstr "charon не ответил"
+
+msgid "Add tunnel"
+msgstr "Добавить туннель"
+
+msgid "Main tunnel"
+msgstr "Основной туннель"
+
+msgid "Tunnel %s"
+msgstr "Туннель %s"
+
+msgid "Address %s"
+msgstr "Адрес %s"
+
+msgid "Carries: %s"
+msgstr "Несёт: %s"
+
+msgid "Netherlands"
+msgstr "Нидерланды"
+
+msgid "Save tunnel"
+msgstr "Сохранить туннель"
+
+msgid "Delete tunnel"
+msgstr "Удалить туннель"
+
+msgid "Discard tunnel"
+msgstr "Отменить туннель"
+
+msgid "Removing the tunnel..."
+msgstr "Удаление туннеля..."
+
+msgid "Tunnel removed."
+msgstr "Туннель удалён."
+
+msgid "Tunnel saved."
+msgstr "Туннель сохранён."
+
+msgid "Tunnel settings failed."
+msgstr "Не удалось применить настройки туннеля."
+
+msgid "Could not save the tunnel: %s"
+msgstr "Не удалось сохранить туннель: %s"
+
+msgid "Tunnel name: letters, digits, spaces, dots and dashes, up to 32 characters."
+msgstr "Имя туннеля: буквы, цифры, пробелы, точки и дефисы, не длиннее 32 символов."
+
+msgid "Remote address, remote identity and EAP username are required."
+msgstr "Нужны адрес сервера, его идентификатор и имя пользователя EAP."
+
+msgid "EAP password is required for a new tunnel."
+msgstr "Для нового туннеля нужен пароль EAP."
+
+msgid "Delete this tunnel? Services, lists and devices sent through it go back to the main tunnel."
+msgstr "Удалить этот туннель? Сервисы, списки и устройства, отправленные через него, вернутся в основной туннель."
+
+msgid "New tunnel"
+msgstr "Новый туннель"
+
+msgid "Stand in for other tunnels"
+msgstr "Подменять другие туннели"
+
+msgid "When another tunnel drops, its traffic moves here until it is back. Off: only what is sent to this tunnel uses it."
+msgstr "Когда другой туннель падает, его трафик идёт сюда, пока тот не вернётся. Выключено: туннелем пользуется только то, что отправлено в него."
+
+msgid "Not saved"
+msgstr "Не сохранён"
+
+msgid "Only the main tunnel is configured."
+msgstr "Настроен только основной туннель."
+
+msgid "Could not refresh the tunnels"
+msgstr "Не удалось обновить список туннелей"
+
+msgid "More tunnels"
+msgstr "Дополнительные туннели"
+
+msgid "Every enabled tunnel stays connected. When one drops, its traffic moves at once to the next one up and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses is chosen on the Policy Routing and Overview pages."
+msgstr "Каждый включённый туннель всегда подключён. Когда один падает, его трафик сразу переходит в следующий работающий и возвращается, когда туннель продержится две минуты; в WAN ничего не уходит. Через какой туннель идёт сервис, список или устройство, выбирается на страницах «Политика маршрутизации» и «Обзор»."
+
+msgid "Tunnel name: letters, digits, spaces, dots, dashes, up to 32 characters"
+msgstr "Имя туннеля: буквы, цифры, пробелы, точки и дефисы, не длиннее 32 символов"
+
+msgid "EAP password is required for a new tunnel"
+msgstr "Для нового туннеля нужен пароль EAP"
+
+msgid "At most eight tunnels can be configured"
+msgstr "Можно настроить не больше восьми туннелей"
+
+msgid "Tunnels"
+msgstr "Туннели"
+
+msgid "Which tunnel each selected service and custom list leaves by. What is sent to another tunnel is matched ahead of the main one; while that tunnel is down it moves to the next one up, never to the WAN. Domains and addresses never through the tunnel win over all of them."
+msgstr "Через какой туннель уходит каждый выбранный сервис и каждый свой список. То, что отправлено в другой туннель, проверяется раньше основного; пока этот туннель не работает, трафик идёт через следующий работающий и никогда не в WAN. Домены и адреса «никогда не через туннель» важнее всего этого."

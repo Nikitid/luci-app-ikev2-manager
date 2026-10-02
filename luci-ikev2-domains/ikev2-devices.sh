@@ -119,6 +119,22 @@ cmd_set_included() {
 	commit_and_restart "$backup" device-firewall
 }
 
+# The tunnel a full-route device leaves by: 1, the main one, or another one
+# that is configured.
+cmd_set_exit() {
+	local addr="${1:-}" exit="${2:-}" backup
+	valid_addr "$addr" || { printf 'valid IPv4 address or subnet required\n' >&2; exit 1; }
+	case "$exit" in [1-8]) ;; *) printf 'tunnel must be 1 to 8\n' >&2; return 1 ;; esac
+	[ "$exit" = 1 ] || uci -q get "ikev2-manager.tunnel_$exit" >/dev/null 2>&1 ||
+		{ printf 'tunnel %s is not configured\n' "$exit" >&2; return 1; }
+	backup="$(backup_pbr)" || return 1
+	if ! device_migrate || ! device_set_exit "$addr" "$exit" || ! render_policies; then
+		restore_pbr "$backup" device
+		return 1
+	fi
+	commit_and_restart "$backup" device
+}
+
 # Remove the row as a whole. An explicit domain-policy member keeps that mode;
 # only its exclusions are cleared.
 cmd_clear_policy() {
@@ -245,7 +261,7 @@ backup_pbr() {
 # Domain-mode devices follow the shared policy; override modes are applied by
 # ikev2-device-routing before PBR evaluates its own rules.
 cmd_dump() {
-	local work address mode flags
+	local work address mode flags exit
 	work="$(mktemp)" || return 1
 	if ! device_list >"$work"; then
 		rm -f "$work"
@@ -265,6 +281,8 @@ cmd_dump() {
 				printf 'addr=%s mode=domain%s\n' "$address" "$flags"
 				;;
 			fullroute)
+				exit="$(device_exit "$address")"
+				[ "$exit" = 1 ] || flags="$flags exit=$exit"
 				printf 'addr=%s mode=fullroute%s\n' "$address" "$flags"
 				;;
 			exclude)
@@ -441,8 +459,9 @@ case "${1:-}" in
 	set-unmanaged)    cmd_set_unmanaged "${2:-}" ;;
 	set-exclusions)   cmd_set_exclusions "${2:-}" "${3:-}" "${4:-}" "${5:-}" ;;
 	set-included)     cmd_set_included "${2:-}" "${3:-0}" ;;
+	set-exit)         cmd_set_exit "${2:-}" "${3:-}" ;;
 	clear-policy)     cmd_clear_policy "${2:-}" ;;
     *)
-		printf 'usage: %s {dump|clients|networks|zones|add-subnet <addr>|remove-subnet <addr>|add-override <addr> <mode>|remove-override <addr>|set-flag <addr> <dns_passthrough|dpi_passthrough> <0|1>|set-unmanaged <addr>|set-exclusions <addr> <pbr> <dns> <zapret>|set-included <addr> [respect]|clear-policy <addr>}\n' "$0" >&2
+		printf 'usage: %s {dump|clients|networks|zones|add-subnet <addr>|remove-subnet <addr>|add-override <addr> <mode>|remove-override <addr>|set-flag <addr> <dns_passthrough|dpi_passthrough> <0|1>|set-unmanaged <addr>|set-exclusions <addr> <pbr> <dns> <zapret>|set-included <addr> [respect]|set-exit <addr> <tunnel>|clear-policy <addr>}\n' "$0" >&2
         exit 1 ;;
 esac

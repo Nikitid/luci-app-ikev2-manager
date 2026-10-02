@@ -1,10 +1,11 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v11 as common';
+'require ikev2-manager.shared-v12 as common';
 
 var helper = '/usr/libexec/ikev2-manager-system';
 var devicesHelper = '/usr/libexec/ikev2-devices';
+var managerHelper = '/usr/libexec/ikev2-manager';
 var depsStatusFile = '/tmp/ikev2-manager-deps.status';
 
 function parseStatus(text) {
@@ -99,6 +100,24 @@ function parseDeviceDump(stdout) {
 		if (entry.addr && entry.mode) entries.push(entry);
 	});
 	return entries;
+}
+
+// The tunnels the router has, the main one first, from tunnels-get.
+function parseTunnelChoices(stdout) {
+	var choices = [ { index: '1', name: _('Main tunnel') } ], current = null;
+	String(stdout || '').split('\n').forEach(function(line) {
+		var at = line.indexOf('=');
+		if (at < 1)
+			return;
+		var key = line.slice(0, at), value = line.slice(at + 1);
+		if (key === 'tunnel') {
+			current = { index: value, name: _('Tunnel %s').format(value) };
+			choices.push(current);
+		}
+		else if (current && key === 'name' && value)
+			current.name = value;
+	});
+	return choices;
 }
 
 function parseClients(stdout) {
@@ -376,7 +395,8 @@ return view.extend({
 			L.resolveDefault(fs.exec(devicesHelper, [ 'dump' ]), { stdout: '' }),
 			L.resolveDefault(fs.exec(devicesHelper, [ 'clients' ]), { stdout: '' }),
 			L.resolveDefault(fs.exec('/usr/libexec/ikev2-device-routing', [ 'stats' ]), { stdout: '' }),
-			L.resolveDefault(fs.exec('/usr/libexec/ikev2-tunnel-quality', [ 'summary', '1h' ]), { stdout: '' })
+			L.resolveDefault(fs.exec('/usr/libexec/ikev2-tunnel-quality', [ 'summary', '1h' ]), { stdout: '' }),
+			L.resolveDefault(fs.exec(managerHelper, [ 'tunnels-get' ]), { stdout: '' })
 		]);
 	},
 
@@ -412,8 +432,11 @@ return view.extend({
 	},
 
 	// Keep routing and independent PBR, DNS and DPI opt-outs in one compact row.
-	renderDevicePolicies: function(dumpStdout, clientsStdout, statsStdout) {
+	// With more than one tunnel, a full-route device also names its tunnel.
+	renderDevicePolicies: function(dumpStdout, clientsStdout, statsStdout, tunnelsStdout) {
 		var self = this;
+		var tunnels = parseTunnelChoices(tunnelsStdout);
+		var several = tunnels.length > 1;
 		var clients = parseClients(clientsStdout);
 		var clientsByAddr = {};
 		clients.forEach(function(client) { clientsByAddr[client.addr] = client; });
@@ -473,6 +496,30 @@ return view.extend({
 			return E('label', { 'class': 'ikev2-policy-check', 'title': title }, [ control, E('span', {}) ]);
 		}
 
+		// The tunnel a full-route device leaves by. While it is down the
+		// device moves to the next tunnel up, never to WAN.
+		function tunnelSelect(entry) {
+			var current = entry.exit || '1';
+			var select = E('select', {
+				'class': 'cbi-input-select',
+				'aria-label': _('Tunnel')
+			}, tunnels.map(function(choice) {
+				return E('option', {
+					'value': choice.index,
+					'selected': choice.index === current ? '' : null
+				}, [ choice.name ]);
+			}));
+			select.addEventListener('change', function() {
+				select.disabled = true;
+				self.deviceAction([ 'set-exit', entry.addr, select.value ], null, result)
+					.then(function(status) {
+						if (!status)
+							refreshList(lastDump);
+					});
+			});
+			return select;
+		}
+
 		// An exclusion with nothing ticked has no effect and the router drops
 		// it, so unticking the last box made the row vanish under the pointer.
 		// That box stays ticked; Remove is what deletes the rule.
@@ -500,13 +547,16 @@ return view.extend({
 				return;
 			}
 
-			list.replaceChildren(E('div', { 'class': 'ikev2-device-policy-table' }, [
+			list.replaceChildren(E('div', {
+				'class': 'ikev2-device-policy-table' + (several ? ' ikev2-with-tunnel' : '')
+			}, [
 				E('div', { 'class': 'ikev2-device-policy-row head' }, [
 					E('span', {}, [ _('Device / IP') ]),
 					E('span', {}, [ _('Type') ]),
 					E('span', {}, [ _('Routing') ]),
 					E('span', {}, [ 'DNS' ]),
 					E('span', {}, [ 'Zapret' ]),
+					several ? E('span', {}, [ _('Tunnel') ]) : '',
 					E('span', {}, [ _('Matched traffic') ]),
 					E('span', {})
 				])
@@ -537,6 +587,8 @@ return view.extend({
 						policyCheck(entry, 'dns', _('Use the device DNS without interception'), checks),
 					included ? E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]) :
 						policyCheck(entry, 'dpi', _('Bypass Zapret processing'), checks),
+					!several ? '' : included ? tunnelSelect(entry) :
+						E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]),
 					E('span', { 'class': 'ikev2-device-policy-traffic' }, [
 						common.formatBytes(Number(hit.bytes || 0)) + ' · ' +
 						_('%d packets').format(Number(hit.packets || 0)) ]),
@@ -1051,7 +1103,8 @@ return view.extend({
 					])),
 				common.section(_('Device rules'),
 					_('Keep inclusions and exclusions in one list. Excluded devices can independently bypass project routing, DNS interception and Zapret.'),
-					self.renderDevicePolicies(data[3].stdout, data[4].stdout, data[5].stdout)),
+					self.renderDevicePolicies(data[3].stdout, data[4].stdout, data[5].stdout,
+						(data[7] && data[7].stdout) || '')),
 				common.section(_('DNS policy'),
 					null,
 					E('div', {}, [

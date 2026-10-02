@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v11 as common';
+'require ikev2-manager.shared-v12 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -447,6 +447,40 @@ function dnsEndpointEditor(value, placeholder, addLabel, emptyLabel, options) {
 			rows.forEach(function(row) { row.setProtocol(next); });
 		}
 	};
+}
+
+// "key=value" lines of tunnels-get, one group per "tunnel=N".
+function parseTunnels(stdout) {
+	var tunnels = [], current = null;
+	String(stdout || '').split('\n').forEach(function(line) {
+		var at = line.indexOf('=');
+		if (at < 1)
+			return;
+		var key = line.slice(0, at), value = line.slice(at + 1);
+		if (key === 'tunnel') {
+			current = { index: value };
+			tunnels.push(current);
+		}
+		else if (current)
+			current[key] = value;
+	});
+	return tunnels;
+}
+
+// One line a tunnel from tunnels-status: "tunnel=N up=0|1 address=A carries=1,2".
+function parseTunnelStatus(stdout) {
+	var status = {};
+	String(stdout || '').split('\n').forEach(function(line) {
+		var item = {};
+		line.split(' ').forEach(function(pair) {
+			var at = pair.indexOf('=');
+			if (at > 0)
+				item[pair.slice(0, at)] = pair.slice(at + 1);
+		});
+		if (item.tunnel)
+			status[item.tunnel] = item;
+	});
+	return status;
 }
 
 function findOutbound(sas) {
@@ -1322,7 +1356,9 @@ return view.extend({
 				fs.exec(helper, [ 'advanced-read', 'outbound' ]),
 				L.resolveDefault(fs.exec(systemHelper, [ 'dns-get' ]), { stdout: '' }),
 				L.resolveDefault(fs.exec(systemHelper, [ 'dns-segments-get' ]), { stdout: '' }),
-				L.resolveDefault(fs.exec(qualityHelper, [ 'summary', '1h' ]), { stdout: '' })
+				L.resolveDefault(fs.exec(qualityHelper, [ 'summary', '1h' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec(helper, [ 'tunnels-get' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec(helper, [ 'tunnels-status' ]), { stdout: '' })
 			]).then(function(d) { d.ready = true; return d; });
 		});
 	},
@@ -2101,6 +2137,214 @@ return view.extend({
 		// "Save and connect" and "Apply tunnel DNS" all store the tunnel form with
 		// its DNS lists; only the last also applies the resolution path, which is
 		// compared with what the router has applied rather than with the page.
+		// The tunnels after the first. Each is a block of its own, as a DNS
+		// segment is: fields, Save, Delete and its own result, and a draft is a
+		// block without a stored counterpart.
+		var tunnels = parseTunnels((data[7] && data[7].stdout) || '');
+		var tunnelStatus = parseTunnelStatus((data[8] && data[8].stdout) || '');
+		var tunnelList = E('div', { 'class': 'ikev2-segment-list' });
+		var tunnelAdd = E('button', {
+			'class': 'cbi-button cbi-button-add ikev2-wide-button', 'type': 'button'
+		}, [ _('Add tunnel') ]);
+		var tunnelRows = E('div', {}, [ tunnelList, tunnelAdd ]);
+		var tunnelStates = {};
+		var flashTunnel = null;
+
+		function tunnelName(index) {
+			if (String(index) === '1')
+				return _('Main tunnel');
+			var found = tunnels.find(function(item) { return item.index === String(index); });
+			return found && found.name ? found.name : _('Tunnel %s').format(index);
+		}
+
+		function showTunnelState(index) {
+			var view = tunnelStates[index];
+			if (!view)
+				return;
+			var state = tunnelStatus[index] || {};
+			if (view.disabled)
+				common.setPill(view.pill, _('Disabled'), 'neutral');
+			else
+				common.setPill(view.pill, state.up === '1' ? _('Connected') : _('Disconnected'),
+					state.up === '1' ? 'good' : 'bad');
+			var carries = (state.carries || '').split(',').filter(Boolean).map(tunnelName);
+			view.detail.textContent = [
+				state.address ? _('Address %s').format(state.address) : '',
+				carries.length ? _('Carries: %s').format(carries.join(', ')) : ''
+			].filter(Boolean).join(' · ');
+		}
+
+		function tunnelBlock(item) {
+			var name = input('text', item ? item.name : '', { 'placeholder': _('Netherlands') });
+			var enabledTunnel = input('checkbox', '1');
+			enabledTunnel.checked = !item || item.enabled === '1';
+			var remote = input('text', item ? item.remote_address : '', {
+				'placeholder': _('IPv4 address or hostname')
+			});
+			var identity = input('text', item ? item.remote_id : '');
+			var user = input('text', item ? item.username : '', { 'autocomplete': 'off' });
+			var secret = input('password', '', {
+				'placeholder': item ? _('Leave blank to keep the current password') : '',
+				'autocomplete': 'new-password'
+			});
+			var backup = input('checkbox', '1');
+			backup.checked = !item || item.backup !== '0';
+			var tunnelDpd = common.choiceWithCustom(item ? item.dpd : '30', [
+				{ value: '30', label: '30 ' + _('seconds') + ' — ' + _('recommended') },
+				{ value: '60', label: '60 ' + _('seconds') },
+				{ value: '120', label: '120 ' + _('seconds') }
+			], { type: 'number', attrs: { 'min': '10', 'max': '300' } });
+			var tunnelMtu = common.choiceWithCustom(item ? item.mtu : '1400', [
+				{ value: '1400', label: '1400 — ' + _('recommended') },
+				{ value: '1360', label: '1360 — ' + _('constrained networks') },
+				{ value: '1280', label: '1280 — ' + _('minimum') },
+				{ value: '1500', label: '1500 — ' + _('no reduction') }
+			], { type: 'number', attrs: { 'min': '1280', 'max': '1500' } });
+			var result = common.inlineResult();
+			var saveTunnel = E('button', {
+				'class': 'cbi-button cbi-button-apply', 'type': 'button'
+			}, [ _('Save tunnel') ]);
+			var removeTunnel = E('button', {
+				'class': 'cbi-button cbi-button-remove', 'type': 'button'
+			}, [ item ? _('Delete tunnel') : _('Discard tunnel') ]);
+
+			function runTunnel(action, button) {
+				var payload = (action === 'delete' ?
+					[ 'delete', item.index, '', '', '', '', '', '', '', '', '' ] :
+					[ 'save', item ? item.index : 'new', name.value.trim(),
+						enabledTunnel.checked ? '1' : '0', remote.value.trim(),
+						identity.value.trim(), user.value.trim(), tunnelDpd.value(),
+						tunnelMtu.value(), backup.checked ? '1' : '0', secret.value ])
+					.join('\n') + '\n';
+				var token = common.inputToken();
+				// Written before the job starts; a failed write still ends in a
+				// visible result rather than a silent click.
+				return fs.write('/var/run/ikev2-manager-tunnel-' + token + '.in', payload, 384)
+					.then(function() {
+						return runManagerJob(button, result, [ 'tunnel-input', token ],
+							action === 'delete' ? _('Removing the tunnel...') : _('Saving and connecting...'),
+							action === 'delete' ? _('Tunnel removed.') : _('Tunnel saved.'),
+							_('Tunnel settings failed.'), 180000, function(st) {
+								if (st && st.state === 'timeout')
+									return;
+								flashTunnel = action === 'delete' ? null : 'saved';
+								return refreshTunnels();
+							});
+					}, function(error) {
+						result.err(_('Could not save the tunnel: %s').format(error.message || error));
+					});
+			}
+
+			saveTunnel.addEventListener('click', function() {
+				if (!/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,31}$/.test(name.value.trim()))
+					return common.refuse(saveTunnel, result,
+						_('Tunnel name: letters, digits, spaces, dots and dashes, up to 32 characters.'));
+				if (!remote.value.trim() || !identity.value.trim() || !user.value.trim())
+					return common.refuse(saveTunnel, result,
+						_('Remote address, remote identity and EAP username are required.'));
+				if (!item && !secret.value)
+					return common.refuse(saveTunnel, result, _('EAP password is required for a new tunnel.'));
+				return runTunnel('save', saveTunnel);
+			});
+			removeTunnel.addEventListener('click', function() {
+				if (!item) {
+					node.remove();
+					renderTunnels();
+					return;
+				}
+				if (!window.confirm(_('Delete this tunnel? Services, lists and devices sent through it go back to the main tunnel.')))
+					return;
+				return runTunnel('delete', removeTunnel);
+			});
+
+			var pill = common.pill('', 'neutral');
+			var detail = E('div', { 'class': 'cbi-value-description' });
+			var node = E('div', { 'class': 'ikev2-segment-block ikev2-tunnel-block' }, [
+				E('div', { 'class': 'ikev2-segment-title' }, [
+					E('strong', {}, [ item ? (item.name || _('Tunnel %s').format(item.index)) : _('New tunnel') ]),
+					pill
+				]),
+				detail,
+				E('div', { 'class': 'ikev2-form-grid' }, [
+					common.fieldLabel(_('Name')), name,
+					common.fieldLabel(_('Enabled')), common.switchLabel(enabledTunnel),
+					common.fieldLabel(_('Remote address'),
+						_('IPv4 address or hostname of the IKEv2 gateway.')),
+					remote,
+					common.fieldLabel(_('Remote identity'),
+						_('Certificate identity expected from the VPS.')),
+					identity,
+					common.fieldLabel(_('EAP username')), user,
+					common.fieldLabel(_('New EAP password'),
+						_('Visible while editing; leave blank to preserve the saved secret.')),
+					secret,
+					common.fieldLabel(_('Stand in for other tunnels'),
+						_('When another tunnel drops, its traffic moves here until it is back. Off: only what is sent to this tunnel uses it.')),
+					common.switchLabel(backup),
+					common.fieldLabel(_('DPD interval'),
+						_('Dead peer detection in seconds.')),
+					tunnelDpd.node,
+					common.fieldLabel(_('XFRM MTU'),
+						_('Keep 1400 unless PMTU diagnostics show a problem.')),
+					tunnelMtu.node
+				]),
+				E('div', { 'class': 'ikev2-actions bar' }, [ result.node, removeTunnel, saveTunnel ])
+			]);
+			if (item) {
+				tunnelStates[item.index] = { pill: pill, detail: detail, disabled: item.enabled !== '1' };
+				showTunnelState(item.index);
+			}
+			else
+				common.setPill(pill, _('Not saved'), 'neutral');
+			common.trackChanges(saveTunnel, [ name, enabledTunnel, remote, identity, user, secret,
+				backup, tunnelDpd.node, tunnelMtu.node ]);
+			node.saveButton = saveTunnel;
+			return node;
+		}
+
+		function renderTunnels() {
+			tunnelList.replaceChildren();
+			tunnelStates = {};
+			if (!tunnels.length)
+				tunnelList.appendChild(E('div', { 'class': 'ikev2-dns-empty' }, [
+					_('Only the main tunnel is configured.')
+				]));
+			tunnels.forEach(function(item) {
+				tunnelList.appendChild(tunnelBlock(item));
+			});
+			if (flashTunnel && tunnelList.lastChild && tunnelList.lastChild.saveButton)
+				common.flashButton(tunnelList.lastChild.saveButton, 'ok', _('Saved'), _('Tunnel saved.'));
+			flashTunnel = null;
+			tunnelAdd.disabled = tunnels.length >= 7;
+		}
+		tunnelAdd.addEventListener('click', function() {
+			var empty = tunnelList.querySelector('.ikev2-dns-empty');
+			if (empty)
+				empty.remove();
+			tunnelList.appendChild(tunnelBlock(null));
+		});
+
+		function refreshTunnels() {
+			return Promise.all([
+				common.execChecked(helper, [ 'tunnels-get' ], _('Could not refresh the tunnels')),
+				L.resolveDefault(fs.exec(helper, [ 'tunnels-status' ]), { stdout: '' })
+			]).then(function(results) {
+				tunnels = parseTunnels(results[0].stdout || '');
+				tunnelStatus = parseTunnelStatus(results[1].stdout || '');
+				renderTunnels();
+			});
+		}
+
+		// The state only: a block being edited is not drawn again.
+		poll.add(function() {
+			return L.resolveDefault(fs.exec(helper, [ 'tunnels-status' ]), { stdout: '' })
+				.then(function(response) {
+					tunnelStatus = parseTunnelStatus(response.stdout || '');
+					Object.keys(tunnelStates).forEach(showTunnelState);
+				});
+		}, 5);
+		renderTunnels();
+
 		var clientTracker = common.trackChanges([ save, saveOnly ], [
 			enabled, address, remoteId, username, password, dpd.node, mtu.node,
 			reconnectCooldown.node, tunnelDnsUpstream.node, tunnelDnsBootstrap.node
@@ -2152,6 +2396,9 @@ return view.extend({
 						E('div', { 'class': 'ikev2-actions bar' }, [ connectResult.node, reconnect, saveOnly, save ])
 					]),
 					connectionAdvanced.toggle),
+				common.section(_('More tunnels'),
+					_('Every enabled tunnel stays connected. When one drops, its traffic moves at once to the next one up and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses is chosen on the Policy Routing and Overview pages.'),
+					tunnelRows),
 				common.section(_('Tunnel DNS'),
 					_('Resolves VPN-routed destinations through the outbound tunnel. Servers are tried in order; failover occurs only after two failed checks and a successful probe of the next server.'),
 					E('div', {}, [

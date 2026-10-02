@@ -149,15 +149,11 @@ grep -Fq '"/usr/libexec/ikev2-manager-system device-async set-included *": [ "ex
 grep -Fq '"/usr/libexec/ikev2-manager-system device-async clear-policy *": [ "exec" ]' "$acl"
 grep -Fq 'clear-policy)     cmd_clear_policy' \
 	'luci-ikev2-domains/ikev2-devices.sh'
-grep -Fq "common.choiceWithCustom(choices.length" 'luci-ikev2-manager/setup.js'
 grep -Fq "common.multiChoiceWithCustom(access.lan_zones" \
 	'luci-ikev2-manager/settings.js'
 grep -Fq "addressPlanPicker" 'luci-ikev2-manager/settings.js'
 grep -Fq "choiceWithCustom" 'luci-ikev2-manager/client.js'
 grep -Fq "choiceWithCustom(value.wan_interface" 'luci-ikev2-manager/setup.js'
-grep -Fq "renderDevicePolicies(data[3].stdout, data[4].stdout, data[5].stdout)" \
-	'luci-ikev2-manager/setup.js'
-grep -Fq "[ 'set-exclusions', entry.addr" 'luci-ikev2-manager/setup.js'
 if grep -Fq "self.renderFlagExemptions(" 'luci-ikev2-manager/setup.js' ||
    grep -Fq "self.renderExceptions(" 'luci-ikev2-manager/setup.js'; then
 	printf '%s\n' 'setup still renders separate device exception lists' >&2

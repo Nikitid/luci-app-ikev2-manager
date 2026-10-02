@@ -760,6 +760,7 @@ resolver_functions='getv defaultv save_dnsmasq clear_dnsmasq_snapshot validate_d
 resolver_functions="$resolver_functions enabled_dns_segments ordinary_via_singbox foreign_servers_file"
 resolver_functions="$resolver_functions dnsmasq_wanted wanted_value render_dnsmasq_servers"
 resolver_functions="$resolver_functions write_dnsmasq_servers dnsmasq_matches sync_dnsmasq restore_dnsmasq"
+resolver_functions="$resolver_functions exit_domain_file named_exits"
 awk -v names=" $resolver_functions " '
 	/^[a-z_]+\(\) [{(]$/ {
 		name = substr($0, 1, index($0, "(") - 1)
@@ -799,6 +800,7 @@ printf 'chatgpt.com\n' >/tmp/selected.txt
 	dnsmasq_servers_file=/etc/ikev2-dnsmasq.servers
 	dns_address=127.0.0.42
 	dns_port=53
+	. /usr/libexec/ikev2-manager.d/tunnel.sh
 	. /tmp/resolver.sh
 	sync_dnsmasq reload || fail 'dnsmasq was not pointed at the split resolver'
 	dnsmasq_matches || fail 'the split resolver does not read as applied'
@@ -827,6 +829,20 @@ printf 'chatgpt.com\n' >/tmp/selected.txt
 	[ "$(answer chat.chatgpt.com)" = 198.18.0.5 ] || fail 'the exclusion took the selected domain with it'
 	: >"$bypass_domain_file"
 	write_dnsmasq_servers && /etc/init.d/dnsmasq reload
+
+	step "  the names another tunnel carries reach sing-box too, and stop with it"
+	uci set ikev2-manager.tunnel_2=tunnel
+	uci commit ikev2-manager
+	printf 'exit2.example.com\n' >/tmp/selected.exit-2.txt
+	write_dnsmasq_servers && /etc/init.d/dnsmasq reload
+	[ "$(answer api.exit2.example.com)" = 198.18.0.5 ] ||
+		fail "a name on the second tunnel's list did not reach sing-box"
+	uci delete ikev2-manager.tunnel_2
+	uci commit ikev2-manager
+	write_dnsmasq_servers && /etc/init.d/dnsmasq reload
+	[ "$(answer www.exit2.example.com)" = 9.9.9.1 ] ||
+		fail "a removed tunnel's names still reach sing-box"
+	rm -f /tmp/selected.exit-2.txt
 
 	step '  ordinary names keep resolving while sing-box is down'
 	kill "$(cat /tmp/upstream-53-127.0.0.42.pid)"

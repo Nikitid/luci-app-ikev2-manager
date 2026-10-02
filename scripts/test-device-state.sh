@@ -182,6 +182,20 @@ run_device dump | grep -Fxq \
 	'addr=192.168.1.93 mode=fullroute'
 ! grep -q '^device_192_168_1_93.dns_passthrough=' "$tmp/uci/ikev2-manager"
 ! grep -q '^device_192_168_1_93.dpi_passthrough=' "$tmp/uci/ikev2-manager"
+# A full-route device sent through another tunnel shows it, and only a
+# configured tunnel is accepted.
+if run_device set-exit 192.168.1.93 2 >/dev/null 2>&1; then
+	printf '%s\n' 'a device was sent through a tunnel that is not configured' >&2
+	exit 1
+fi
+printf '%s\n' 'tunnel_2=tunnel' 'tunnel_2.enabled=1' >>"$tmp/uci/ikev2-manager"
+run_device set-exit 192.168.1.93 2
+run_device dump | grep -Fxq 'addr=192.168.1.93 mode=fullroute exit=2' ||
+	{ printf '%s\n' 'a device sent through the second tunnel does not show it' >&2; exit 1; }
+run_device set-exit 192.168.1.93 1
+run_device dump | grep -Fxq 'addr=192.168.1.93 mode=fullroute' &&
+	! grep -q '^device_192_168_1_93.exit=' "$tmp/uci/ikev2-manager" ||
+	{ printf '%s\n' 'the main tunnel is stored as an exit' >&2; exit 1; }
 run_device clear-policy 192.168.1.93
 ! grep -q '^device_192_168_1_93' "$tmp/uci/ikev2-manager"
 

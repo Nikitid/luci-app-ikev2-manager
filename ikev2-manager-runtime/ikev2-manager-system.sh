@@ -1977,6 +1977,9 @@ case "${1:-}" in
 			set-flag)
 				[ "$#" -eq 4 ] || die 'Expected set-flag address flag value'
 				;;
+			set-exit)
+				[ "$#" -eq 3 ] || die 'Expected set-exit address tunnel'
+				;;
 			set-exclusions)
 				[ "$#" -eq 5 ] ||
 					die 'Expected set-exclusions address pbr dns zapret'

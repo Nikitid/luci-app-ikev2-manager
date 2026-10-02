@@ -27,4 +27,13 @@ else
 	tar -xzf /tmp/ipk/data.tar.gz -C /
 fi
 
-exec sh /src/scripts/openwrt/scenarios.sh
+# A command a scenario lacks prints "not found" and the shell carries on, so
+# the step passes without testing what it names. That fails the run too.
+rc=0
+sh /src/scripts/openwrt/scenarios.sh 2>/tmp/scenarios.err || rc=$?
+cat /tmp/scenarios.err >&2
+[ "$rc" = 0 ] || exit "$rc"
+if grep -q ': not found$' /tmp/scenarios.err; then
+	printf '%s\n' 'openwrt: a scenario called a command that does not exist' >&2
+	exit 1
+fi

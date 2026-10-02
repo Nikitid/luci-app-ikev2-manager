@@ -9,6 +9,7 @@ extra_tunnels_secret="$root/etc/swanctl/conf.d/92-proxy-out-extra-secret.conf"
 # One line per tunnel: index, EAP identity, the password as a swanctl 0s value.
 tunnels_secret_db="$root/etc/ikev2-manager/tunnels.secret"
 tunnel_attempt_dir="${IKEV2_TUNNEL_ATTEMPT_DIR:-/var/run/ikev2-tunnel-attempt}"
+tunnel_routing_helper="${IKEV2_ROUTING_HELPER:-/usr/libexec/ikev2-routing}"
 
 # The indexes of the configured tunnel sections after the first, in order.
 extra_tunnel_indexes() {
@@ -376,4 +377,30 @@ tunnels_apply_action() {
 	/usr/libexec/ikev2-routing sync-all || return 1
 	/usr/libexec/ikev2-domain-router refresh || return 1
 	return "$rc"
+}
+
+# Every tunnel, the first included, one line each: whether its CHILD_SA is
+# installed, the address it was given, and the exits whose traffic it carries
+# now, as the routing reports them.
+tunnels_status() {
+	local sa routing index line_index line_installed line_address up address carries entry
+	sa="$("$sa_helper" tunnels 2>/dev/null || :)"
+	routing="$("$tunnel_routing_helper" status 2>/dev/null || :)"
+	for index in 1 $(extra_tunnel_indexes); do
+		up=0 address=''
+		while IFS="$(printf '\t')" read -r line_index line_installed line_address; do
+			[ "$line_index" = "$index" ] || continue
+			up="$line_installed"
+			[ "$line_address" = - ] || address="$line_address"
+		done <<EOF
+$sa
+EOF
+		tunnel_names "$index"
+		carries=''
+		for entry in $(printf '%s\n' "$routing" | sed -n 's/^exit_\([1-8]\)=\(.*\)$/\1:\2/p'); do
+			[ "${entry#*:}" = "$tunnel_link" ] || continue
+			carries="$carries${carries:+,}${entry%%:*}"
+		done
+		printf 'tunnel=%s up=%s address=%s carries=%s\n' "$index" "$up" "$address" "$carries"
+	done
 }

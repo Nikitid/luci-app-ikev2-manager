@@ -218,7 +218,12 @@ const data = [
 		'speed_streams=1', 'speed_tunnel_down_bps=100000000', 'speed_loaded_rtt=58.0',
 		'speed_wan_down_bps=16000', 'speed_wan_down_stalled=1',
 		'speed_tunnel_up_bps=unavailable', 'speed_wan_up_bps=50000000'
-	].join('\n') }
+	].join('\n') },
+	// A second tunnel, down, while the main one carries both exits.
+	{ stdout: [ 'tunnel=2', 'name=NL', 'enabled=1', 'remote_address=nl.example.net',
+		'remote_id=nl.example.net', 'username=proxy', 'dpd=30', 'mtu=1400', 'backup=1',
+		'password_set=1' ].join('\n') },
+	{ stdout: 'tunnel=1 up=1 address=10.20.20.10 carries=1,2\ntunnel=2 up=0 address= carries=\n' }
 ];
 data.ready = true;
 
@@ -232,6 +237,24 @@ if (!page || !page.children || !page.children.length)
 	fail('render() produced an empty page');
 
 const source = fs.readFileSync(path.join(root, 'luci-ikev2-manager', 'client.js'), 'utf8');
+
+// More tunnels: a block per stored tunnel with its state, and the password
+// never sent back to the page.
+(function() {
+	const texts = [];
+	(function walk(node) {
+		if (!node || typeof node !== 'object') return;
+		if (node.textContent) texts.push(node.textContent);
+		(node.children || []).forEach(function(child) {
+			if (typeof child === 'string') texts.push(child); else walk(child);
+		});
+	})(page);
+	const all = texts.join('\n');
+	if (all.indexOf('Save tunnel') < 0 || all.indexOf('Delete tunnel') < 0)
+		fail('a stored tunnel has no block of its own');
+	if (all.indexOf('NL') < 0)
+		fail('a stored tunnel is not named');
+})();
 
 // Connection quality: the verdict, four tiles, and a curve rather than bars.
 function collect(node, test, out) {
@@ -437,7 +460,10 @@ function switchesAfter(scope, label) {
 	});
 	return found;
 }
-const segmentBlock = walk(page, []).find(function(node) { return hasClass(node, 'ikev2-segment-block'); });
+// The DNS segment's block, not a tunnel's, which shares its look.
+const segmentBlock = walk(page, []).find(function(node) {
+	return hasClass(node, 'ikev2-segment-block') && switchesAfter(node, 'Resolve through sing-box').length;
+});
 const viaSwitches = switchesAfter(page, 'Resolve through sing-box');
 const compatSwitches = switchesAfter(page, 'Browser compatibility');
 if (viaSwitches.length !== 2 || compatSwitches.length !== 2)
@@ -487,16 +513,26 @@ const standardSwitches = switchesAfter(standardPage, 'Resolve through sing-box')
 	.concat(switchesAfter(standardPage, 'Browser compatibility'));
 if (standardSwitches.length !== 4 || standardSwitches.some(function(node) { return !node.disabled; }))
 	fail('matching by address offers a resolution path through sing-box');
-if (countClass('ikev2-segment-block') !== 1)
-	fail('expected one rendered block for the one configured segment, got ' +
-		countClass('ikev2-segment-block'));
+// Tunnel blocks share the segment look; segments are the others.
+function segmentCount() { return countClass('ikev2-segment-block') - countClass('ikev2-tunnel-block'); }
+if (segmentCount() !== 1)
+	fail('expected one rendered block for the one configured segment, got ' + segmentCount());
+if (countClass('ikev2-tunnel-block') !== 1)
+	fail('expected one rendered block for the one stored tunnel, got ' + countClass('ikev2-tunnel-block'));
 const addButton = walk(page, []).find(function(node) {
-	return node.attrs['class'].indexOf('ikev2-wide-button') >= 0;
+	return node.attrs['class'].indexOf('ikev2-wide-button') >= 0 && textOf(node).trim() === 'Add DNS segment';
 });
 if (!addButton) fail('there is no full-width button to add a DNS segment');
 addButton.listeners.click();
-if (countClass('ikev2-segment-block') !== 2)
+if (segmentCount() !== 2)
 	fail('the add button did not append another segment block');
+const addTunnel = walk(page, []).find(function(node) {
+	return node.attrs['class'].indexOf('ikev2-wide-button') >= 0 && textOf(node).trim() === 'Add tunnel';
+});
+if (!addTunnel) fail('there is no button to add a tunnel');
+addTunnel.listeners.click();
+if (countClass('ikev2-tunnel-block') !== 2)
+	fail('the add tunnel button did not append a draft block');
 
 // The router takes at most four tunnel DoH servers; a fifth row only led to
 // a refusal on save. Two are configured, so two more fill the list.
@@ -616,6 +652,88 @@ const respectStored = Promise.resolve().then(dnsSentReady).then(function() {
 	});
 });
 
+// With a second tunnel a full-route device row shows the tunnel it leaves by
+// and sends a change for its address; an exclusion has no tunnel. With one
+// tunnel there is no such column.
+function deviceRows(page) {
+	return nodesOf(page).filter(function(node) {
+		return /(^| )ikev2-device-policy-row( |$)/.test((node.attrs || {})['class'] || '');
+	});
+}
+if (deviceRows(fullRoutePage).some(function(row) {
+	return nodesOf(row).some(function(node) {
+		return node.tagName === 'SELECT' || textOf(node).trim() === 'Tunnel';
+	});
+}))
+	fail('one tunnel still gives the device rows a tunnel column');
+const exitCalls = [];
+const exitPage = setupView.render([
+	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
+	{ stdout: 'addr=192.168.1.40 mode=fullroute exit=2\naddr=192.168.1.41 mode=exclude dns=1\n' },
+	{ stdout: '' }, { stdout: '' }, { stdout: '' },
+	{ stdout: 'tunnel=2\nname=NL\nenabled=1\n' }
+]);
+const exitRows = deviceRows(exitPage);
+const exitHead = exitRows.find(function(row) { return /(^| )head( |$)/.test(row.attrs['class']); });
+const exitColumn = exitHead ? exitHead.children.filter(function(child) {
+	return child && typeof child === 'object';
+}).findIndex(function(child) { return textOf(child).trim() === 'Tunnel'; }) : -1;
+if (exitColumn < 0)
+	fail('a second tunnel gives the device rows no tunnel column');
+function exitCell(addr) {
+	const row = exitRows.find(function(node) { return textOf(node).indexOf(addr) >= 0; });
+	return row && row.children.filter(function(child) {
+		return child && typeof child === 'object';
+	})[exitColumn];
+}
+const exitSelect = exitCell('192.168.1.40');
+if (!exitSelect || exitSelect.tagName !== 'SELECT' || exitSelect.value !== '2')
+	fail('a device sent to the second tunnel does not show it');
+if (textOf(exitSelect).indexOf('NL') < 0 || textOf(exitSelect).indexOf('Main tunnel') < 0)
+	fail('the device tunnel choice does not name the tunnels');
+const excludedCell = exitCell('192.168.1.41');
+if (!excludedCell || excludedCell.tagName === 'SELECT' || textOf(excludedCell).trim() !== '—')
+	fail('an excluded device was offered a tunnel');
+const exitStored = respectStored.then(function() {
+	const execBefore = fsStub.exec;
+	fsStub.exec = function(file, args) { exitCalls.push((args || []).join(' ')); return Promise.resolve({ code: 0, stdout: '' }); };
+	exitSelect.value = '1';
+	exitSelect.listeners.change();
+	return new Promise(function(resolve) { setImmediate(resolve); }).then(function() {
+		fsStub.exec = execBefore;
+		if (exitCalls[0] !== 'device-async set-exit 192.168.1.40 1')
+			fail('choosing the main tunnel is not stored for the device: ' + JSON.stringify(exitCalls));
+	});
+}).then(function() {
+	// An exclusion stores its three boxes together for the device's address.
+	const exclusionCalls = [];
+	const execBefore = fsStub.exec;
+	fsStub.exec = function(file, args) { exclusionCalls.push((args || []).join(' ')); return Promise.resolve({ code: 0, stdout: '' }); };
+	const zapretBox = nodesOf(deviceRows(exitPage).find(function(row) {
+		return textOf(row).indexOf('192.168.1.41') >= 0;
+	})).find(function(node) {
+		return node.tagName === 'INPUT' && node.attrs['aria-label'] === 'Bypass Zapret processing';
+	});
+	zapretBox.checked = true;
+	zapretBox.listeners.change();
+	return new Promise(function(resolve) { setImmediate(resolve); }).then(function() {
+		fsStub.exec = execBefore;
+		if (exclusionCalls[0] !== 'device-async set-exclusions 192.168.1.41 1 1 1')
+			fail('an exclusion change is not stored for the device: ' + JSON.stringify(exclusionCalls));
+	});
+});
+
+// The device rule form offers each connected device by name and address.
+const pickerPage = setupView.render([
+	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' }, { stdout: '' },
+	{ stdout: '192.168.1.50\tPhone\taa:bb:cc:dd:ee:ff\n' }, { stdout: '' }
+]);
+if (!nodesOf(pickerPage).some(function(node) {
+	return node.tagName === 'OPTION' && node.attrs.value === '192.168.1.50' &&
+		textOf(node).indexOf('Phone') >= 0;
+}))
+	fail('the device rule form does not offer the connected devices');
+
 // A dnsmasq that does not resolve as Reliable mode set it up is named as the
 // reason the mode is degraded.
 const degradedPage = setupView.render([
@@ -714,6 +832,59 @@ if (editorSource.indexOf("fs.exec(communityHelper, [ 'sources' ])") < 0)
 	fail('the policy page does not read list sources');
 if (editorSource.indexOf("startArgs: [ 'refresh-schedule', 'force' ]") < 0)
 	fail('the policy page cannot start a list update');
+// Tunnels: with a second tunnel, each selected service that routes and each
+// custom list gets a tunnel choice showing what is stored; a service that
+// excludes gets none, and with one tunnel there is no such section at all.
+(function() {
+	const withTunnels = editor.render([
+		'example.com\n', 'banks openai', policyStatus,
+		{ code: 0, stdout: 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' },
+		'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
+		{ code: 0, stdout: 'now=1789300000' }, '', '',
+		{ code: 0, stdout: 'tunnel=2\nname=NL\nenabled=1\n' }, 'openai 2\n@cidrs 2\n'
+	]);
+	const nodes = [];
+	(function walk(node) {
+		if (!node || typeof node !== 'object') return;
+		nodes.push(node);
+		(node.children || []).forEach(walk);
+	})(withTunnels);
+	const text = function(node) {
+		return (node.children || []).map(function(child) {
+			return typeof child === 'string' ? child : (child && child.textContent) || text(child || {});
+		}).join(' ');
+	};
+	const grid = nodes.find(function(node) {
+		return (node.children || []).some(function(child) {
+			return child && child.tagName === 'SELECT';
+		}) && text(node).indexOf('Custom IP addresses and networks') >= 0;
+	});
+	if (!grid)
+		fail('a second tunnel gives the services and lists no tunnel choice');
+	const choices = {};
+	for (let i = 0; i + 1 < grid.children.length; i += 2)
+		choices[text(grid.children[i]).trim()] = grid.children[i + 1].value;
+	if (choices['openai'] !== '2' && choices['OpenAI'] !== '2')
+		fail('a service sent to the second tunnel does not show it: ' + JSON.stringify(choices));
+	if (choices['Custom IP addresses and networks'] !== '2' || choices['Custom domains'] !== '1')
+		fail('the custom lists do not show their tunnels: ' + JSON.stringify(choices));
+	if (Object.keys(choices).some(function(label) { return label === 'Banks'; }))
+		fail('a service that excludes was offered a tunnel');
+	const single = editor.render([
+		'example.com\n', 'openai', policyStatus, { code: 0, stdout: '' }, 'example.com\n',
+		{ code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
+		{ code: 0, stdout: '' }, ''
+	]);
+	const singleNodes = [];
+	(function walk(node) {
+		if (!node || typeof node !== 'object') return;
+		singleNodes.push(node);
+		(node.children || []).forEach(walk);
+	})(single);
+	if (singleNodes.some(function(node) { return node.tagName === 'H3' && text(node).trim() === 'Tunnels'; }))
+		fail('one tunnel still shows a tunnel section');
+})();
+
 // Never through the tunnel: two lists beside the two routed ones, saved with
 // them, and services of one's own that exclude are marked in the catalogue.
 const excludePage = editor.render([
@@ -860,7 +1031,7 @@ const reportSaved = Promise.resolve(reportButton.listeners.click()).then(functio
 
 // The settings backup is made on the router under the passphrase given, and
 // a short one is refused before anything is sent.
-const backupSaved = respectStored.then(function() {
+const backupSaved = exitStored.then(function() {
 	const exportButton = nodesOf(setupPage).find(function(node) {
 		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Download backup';
 	});
@@ -894,7 +1065,7 @@ const backupSaved = respectStored.then(function() {
 	});
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, respectStored, backupSaved ]).then(function() {
+Promise.all([ dnsSent, reportSaved, policySaved, respectStored, exitStored, backupSaved ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

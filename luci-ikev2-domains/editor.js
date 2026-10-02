@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v11 as common';
+'require ikev2-manager.shared-v12 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -12,8 +12,42 @@ var selectedFile  = '/etc/pbr-ikev2-community-selected.txt';
 var statusFile    = '/tmp/ikev2-domains-community.status';
 var communityHelper = '/usr/libexec/ikev2-domains-community';
 var domainRouterHelper = '/usr/libexec/ikev2-domain-router';
+var exitsFile = '/etc/pbr-ikev2-exits.txt';
+var managerHelper = '/usr/libexec/ikev2-manager';
 var serviceSelection = {};
 var serviceRecords = [];
+// The tunnel each selected service or custom list leaves by, other than the
+// main one: target ("@domains", "@cidrs" or a service id) to tunnel index.
+var serviceExits = {};
+var onSelectionChange = null;
+
+// The tunnels the router has, the main one first, from tunnels-get.
+function parseTunnelChoices(stdout) {
+	var choices = [ { index: '1', name: _('Main tunnel') } ], current = null;
+	String(stdout || '').split('\n').forEach(function(line) {
+		var at = line.indexOf('=');
+		if (at < 1)
+			return;
+		var key = line.slice(0, at), value = line.slice(at + 1);
+		if (key === 'tunnel') {
+			current = { index: value, name: _('Tunnel %s').format(value) };
+			choices.push(current);
+		}
+		else if (current && key === 'name' && value)
+			current.name = value;
+	});
+	return choices;
+}
+
+function parseExits(text) {
+	var exits = {};
+	String(text || '').split('\n').forEach(function(line) {
+		var fields = line.trim().split(/\s+/);
+		if (fields.length === 2 && /^[2-8]$/.test(fields[1]))
+			exits[fields[0]] = fields[1];
+	});
+	return exits;
+}
 
 function normalizeDomains(value) {
 	var lines = (value || '').replace(/\r/g, '').split('\n');
@@ -156,6 +190,8 @@ function serviceChip(record, selected) {
 			serviceSelection[name] = true;
 		else
 			delete serviceSelection[name];
+		if (onSelectionChange)
+			onSelectionChange();
 	});
 	return chip;
 }
@@ -348,7 +384,9 @@ return view.extend({
 				code: 1, stdout: ''
 			}),
 			L.resolveDefault(fs.read(excludeFile), ''),
-			L.resolveDefault(fs.read(excludeAddressFile), '')
+			L.resolveDefault(fs.read(excludeAddressFile), ''),
+			L.resolveDefault(fs.exec(managerHelper, [ 'tunnels-get' ]), { code: 1, stdout: '' }),
+			L.resolveDefault(fs.read(exitsFile), '')
 		]);
 	},
 
@@ -384,6 +422,13 @@ return view.extend({
 		var selectedValue = selected.join('\n') + (selected.length ? '\n' : '');
 		var excludeValue = excluded.join('\n') + (excluded.length ? '\n' : '');
 		var excludeAddressValue = excludedAddresses.join('\n') + (excludedAddresses.length ? '\n' : '');
+		// Only what leaves by another tunnel is listed; the main one is the
+		// default. A service no longer selected keeps no assignment.
+		var exitsValue = Object.keys(serviceExits).sort().filter(function(target) {
+			return target.charAt(0) === '@' || serviceSelection[target];
+		}).map(function(target) {
+			return target + ' ' + serviceExits[target] + '\n';
+		}).join('');
 
 			var token = common.inputToken();
 			var inputPrefix = '/tmp/ikev2-domains-input-' + token;
@@ -392,7 +437,8 @@ return view.extend({
 				fs.write(inputPrefix + '.cidrs', addressValue, 384),
 				fs.write(inputPrefix + '.services', selectedValue, 384),
 				fs.write(inputPrefix + '.xdomains', excludeValue, 384),
-				fs.write(inputPrefix + '.xcidrs', excludeAddressValue, 384)
+				fs.write(inputPrefix + '.xcidrs', excludeAddressValue, 384),
+				fs.write(inputPrefix + '.exits', exitsValue, 384)
 			])
 					.then(function() {
 						result.busy(_('Rebuilding the routing list…'));
@@ -469,6 +515,55 @@ return view.extend({
 		updatePolicyStatus(null);
 		var catalogResult = data[3] || {};
 		serviceRecords = parseServiceRecords(catalogResult.stdout || '');
+
+		/* ── Tunnel per service ─────────────────────────────────────────── */
+		// Shown only with more than one tunnel: each selected service that
+		// routes, and each custom list, leaves by the tunnel chosen here.
+		var tunnelChoices = parseTunnelChoices(((data[10] || {}).stdout) || '');
+		serviceExits = parseExits(data[11] || '');
+		var exitRows = E('div', { 'class': 'ikev2-form-grid' });
+		function exitSelect(target) {
+			var select = E('select', { 'class': 'cbi-input-select' },
+				tunnelChoices.map(function(choice) {
+					return E('option', {
+						'value': choice.index,
+						'selected': (serviceExits[target] || '1') === choice.index ? '' : null
+					}, [ choice.name ]);
+				}));
+			select.addEventListener('change', function() {
+				if (select.value === '1')
+					delete serviceExits[target];
+				else
+					serviceExits[target] = select.value;
+			});
+			return select;
+		}
+		function renderExits() {
+			var targets = [
+				{ id: '@domains', label: _('Custom domains') },
+				{ id: '@cidrs', label: _('Custom IP addresses and networks') }
+			];
+			serviceRecords.filter(function(record) {
+				return serviceSelection[record.id] && record.mode !== 'exclude';
+			}).map(function(record) {
+				return { id: record.id, label: record.label && record.label !== record.id ?
+					record.label : serviceLabel(record.id) };
+			}).sort(function(a, b) {
+				return a.label.localeCompare(b.label);
+			}).forEach(function(target) { targets.push(target); });
+			exitRows.replaceChildren();
+			targets.forEach(function(target) {
+				exitRows.appendChild(common.fieldLabel(target.label));
+				exitRows.appendChild(exitSelect(target.id));
+			});
+		}
+		if (tunnelChoices.length > 1) {
+			onSelectionChange = renderExits;
+			renderExits();
+		}
+		var exitsSection = tunnelChoices.length > 1 ? common.section(_('Tunnels'),
+			_('Which tunnel each selected service and custom list leaves by. What is sent to another tunnel is matched ahead of the main one; while that tunnel is down it moves to the next one up, never to the WAN. Domains and addresses never through the tunnel win over all of them.'),
+			exitRows) : '';
 
 		for (var i = 0; i < selectedLines.length; i++)
 			selected[selectedLines[i]] = true;
@@ -761,6 +856,9 @@ return view.extend({
 				]));
 			}
 			nodes.forEach(function(node) { serviceCatalog.appendChild(node); });
+			// A service created, renamed or deleted changes the tunnel rows too.
+			if (onSelectionChange)
+				onSelectionChange();
 		}
 
 		function refreshServicePicker() {
@@ -1100,6 +1198,7 @@ return view.extend({
 				]), E('div', { 'class': 'ikev2-actions' }, [
 					manageServicesButton
 				])),
+			exitsSection,
 			buildSourcesSection(data[7]),
 			E('div', { 'class': 'ikev2-destination-editors' }, [
 				common.section(_('Custom domains'),
@@ -1285,7 +1384,10 @@ return view.extend({
 				return JSON.stringify([ domains ? domains.value : '',
 					addresses ? addresses.value : '', excluded ? excluded.value : '',
 					excludedAddresses ? excludedAddresses.value : '',
-					Object.keys(serviceSelection).sort() ]);
+					Object.keys(serviceSelection).sort(),
+					Object.keys(serviceExits).sort().map(function(target) {
+						return target + '=' + serviceExits[target];
+					}) ]);
 			}
 		});
 		serviceTracker = common.trackChanges(serviceSave, serviceFields);

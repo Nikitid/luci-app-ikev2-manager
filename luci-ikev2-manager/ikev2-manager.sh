@@ -2049,6 +2049,9 @@ case "${1:-}" in
 	tunnels-get)
 		tunnels_get
 		;;
+	tunnels-status)
+		tunnels_status
+		;;
 	tunnel-input)
 		consume_tunnel_input "${IKEV2_TUNNEL_INPUT:-$(input_file_for tunnel "${2:-}")}"
 		;;

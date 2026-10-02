@@ -740,6 +740,13 @@ var CSS = `
 				letter-spacing: .06em;
 				text-transform: uppercase;
 			}
+			/* With more than one tunnel a full-route device names its own. */
+			.ikev2-device-policy-table.ikev2-with-tunnel { min-width: 57rem; }
+			.ikev2-with-tunnel .ikev2-device-policy-row {
+				grid-template-columns: minmax(12rem, 1.5fr) minmax(7rem, .65fr)
+					repeat(3, 4rem) minmax(9rem, .8fr) minmax(9rem, .8fr) 2.6rem;
+			}
+			.ikev2-page .ikev2-with-tunnel select { width: 100%; min-width: 0; }
 			.ikev2-device-policy-name { display: grid; gap: .18rem; min-width: 0; }
 			/* The address is a caption under the name, not a field: the theme's
 			   grey code box made it read as an input. */
