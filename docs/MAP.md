@@ -32,11 +32,11 @@ rpcd `file exec` ACL in `luci-ikev2-manager/acl.json`.
 | helper | source | owns |
 | --- | --- | --- |
 | `ikev2-manager-system` | `ikev2-manager-runtime/ikev2-manager-system.sh` | system state, dependencies, DNS transactions, DNS segments, device policy, routing pause, the redacted diagnostics report (`lib/system-diagnostics.sh`) |
-| `ikev2-manager` | `luci-ikev2-manager/ikev2-manager.sh` | inbound server, VPN users, ACME, client profile, raw swanctl config |
+| `ikev2-manager` | `luci-ikev2-manager/ikev2-manager.sh` | inbound server, VPN users, ACME, client profile, the outbound tunnels and their passwords (`lib/manager-tunnels.sh`), raw swanctl config |
 | `ikev2-domain-router` | `ikev2-manager-runtime/ikev2-domain-router.sh` | sing-box FakeIP engine, tunnel DNS, nftables rules |
 | `ikev2-device-routing` | `ikev2-manager-runtime/ikev2-device-routing.sh` | per-device policy marks and their nft chains |
 | `ikev2-user-policy` | `ikev2-manager-runtime/ikev2-user-policy.sh` | inbound session admission, driven by VICI events |
-| `ikev2-health` | `ikev2-manager-runtime/ikev2-health.sh` | the watcher loop: FakeIP repair and data-plane canary, tunnel DNS failover |
+| `ikev2-health` | `ikev2-manager-runtime/ikev2-health.sh` | the watcher loop: the tunnel of each exit (`lib/tunnel.sh`, which also numbers the tunnels for every helper), FakeIP repair and data-plane canary, tunnel DNS failover |
 | `ikev2-tunnel-quality` | `ikev2-manager-runtime/ikev2-tunnel-quality.sh` | tunnel quality history, window summaries, tunnel-versus-WAN speed test |
 | `ikev2-devices` | `luci-ikev2-domains/ikev2-devices.sh` | LAN inventory the pages read |
 | `ikev2-domains-community` | `luci-ikev2-domains/community-domains.sh` | service catalogue and destination lists |
@@ -56,7 +56,7 @@ upgraded, so a stable name would serve stale code to the browser.
 
 | page | source | installed as |
 | --- | --- | --- |
-| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v9.js` |
+| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v10.js` |
 | Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v9.js` |
 | Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v10.js` |
 | Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v8.js` |
@@ -109,7 +109,7 @@ fail, restore. Wire it into `scripts/ci-check.sh`, or nothing runs it.
 | --- | --- |
 | `docs/MAP.md` | this file |
 | `docs/TRAPS.md` | failures that cost hours and will repeat |
-| `docs/ARCHITECTURE.md` | traffic paths, fail-closed boundary, DNS, ownership |
+| `docs/ARCHITECTURE.md` | traffic paths, fail-closed boundary, several tunnels, DNS, ownership |
 | `docs/OPERATIONS.md` | installing, diagnosing and recovering on a router |
 | `docs/OPENWRT25.md` | apk, the signed feed, release validation |
 | `docs/private/` | site-specific runbooks, untracked on purpose |

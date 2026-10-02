@@ -71,8 +71,9 @@ route and cannot fall through to the WAN table. A stale route without a
 matching SA is additionally rejected by the kernel XFRM policy.
 
 ```text
-ipsec-out  if_id 42  outbound client
-ipsec-in   if_id 43  inbound server
+ipsec-out    if_id 42     outbound client, tunnel 1
+ipsec-out2   if_id 52-58  outbound tunnels 2-8, ipsec-outN with if_id 50+N
+ipsec-in     if_id 43     inbound server
 ```
 
 strongSwan does not install routes into the main table. The runtime owns the
@@ -84,6 +85,60 @@ down. Runtime and package cleanup do not require `ip link del`: deleting an
 XFRM link can block in kernel D-state on the validated OpenWrt 25 kernel. Down
 links cannot forward and are discarded when the module unloads or the router
 reboots.
+
+## Several tunnels
+
+Up to eight outbound tunnels can be configured. Tunnel 1 is the `client`
+section and keeps every name it had: `proxy-out`, `ipsec-out`, mark 0x01,
+table 1601, rule 28001. Tunnel N (2-8) is a `tunnel_N` section and uses
+`proxy-out-N`, `ipsec-outN`, mark N+1, table 1600+N+1 and rule 28000+N+1;
+mark 0x02 and table 1602 stay the WAN's. With one tunnel nothing is laid out
+differently, down to the generated sing-box configuration.
+
+Every enabled tunnel stays connected. An exit is the class of traffic sent
+through one tunnel: what is not assigned elsewhere uses exit 1, and a
+service, a manual list or a full-route device can be assigned to another.
+Each exit has a chain: its own tunnel, then every other enabled tunnel that
+stands in for the rest (`backup`, on by default), in order. The watcher
+checks every tunnel on each pass and chooses a tunnel for each exit
+(`tunnel.sh`):
+
+- an exit keeps its tunnel while that tunnel is up;
+- when it goes down, the first tunnel up in the chain takes over at once;
+- a tunnel earlier in the chain takes the exit back once it has been up for
+  120 seconds;
+- with no tunnel of the chain up, the exit's traffic is refused.
+
+Traffic never falls back to the WAN. The choice is kept in
+`/var/run/ikev2-tunnels.state` and applied in two places: the exit's table
+gets a default through the chosen link at metric 10 over its unreachable
+default at metric 32767, and sing-box's `exit-N` selector switches to that
+tunnel's outbound, closing the connections it carried.
+
+```text
+Name of exit N, recognised by name
+client -> dnsmasq -> sing-box FakeIP -> TProxy -> rule set ikev2-domains-N
+       -> selector exit-N -> the tunnel chosen for exit N
+
+Name or network of exit N, matched by address
+client -> ikev2_routing mark N+1 -> table 1600+N+1 -> the chosen link
+
+Full-route device of exit N
+FakeIP addresses: TProxy inbound on port 1610+N -> selector exit-N
+everything else:  device mark N+1 -> table 1600+N+1
+```
+
+Each tunnel's sing-box outbound resolves the real address of a name through a
+DoH resolver bound to its own link, so a name is resolved through the tunnel
+that carries the connection. The router's own lookups through the tunnel
+follow exit 1. Exits 2-8 are matched first, in that order, and exit 1 last;
+a name or a network that two exits select is kept only by the first of them.
+A destination that never goes through the tunnel wins over all of them.
+
+The tunnels' passwords are kept in `/etc/ikev2-manager/tunnels.secret`, mode
+600, and rendered into `/etc/swanctl/conf.d/92-proxy-out-extra-secret.conf`;
+their connections are in `21-proxy-out-extra.conf`. Every enabled link is in
+the outbound firewall zone, and a pause refuses what reaches any of them.
 
 ## DNS
 

@@ -15,8 +15,11 @@ remote gateway.
 
 ## Features
 
-- outbound IKEv2/EAP client over an XFRM interface;
-- VPN routing for services, domains, IPv4 addresses and CIDR networks;
+- outbound IKEv2/EAP client over an XFRM interface, with up to eight tunnels
+  that stand in for each other;
+- VPN routing for services, domains, IPv4 addresses and CIDR networks, each
+  service, manual list and full-route device through the tunnel chosen for
+  it;
 - per-device modes for selected domains, full tunnel or direct WAN, independent
   DNS/DPI bypasses and a fully unmanaged preset;
 - FakeIP/TProxy domain routing and its own fail-closed policy routing, with
@@ -98,6 +101,11 @@ This upgrades only IKEv2 Manager, not all system packages.
 Domain rules use sing-box FakeIP and nftables TProxy. IPv4 and CIDR rules work
 without DNS. If the outbound tunnel is unavailable, selected traffic is
 blocked while unrelated traffic continues through WAN.
+
+With more than one tunnel, every enabled tunnel stays connected. When the
+tunnel of a service is down, its traffic moves to the next tunnel that is up
+and returns two minutes after its own tunnel is back. It never falls back to
+WAN: with no tunnel up it is blocked.
 
 Clients must use router DNS for domain routing. Browser DoH, Android Private
 DNS and Apple Private Relay can bypass classification.

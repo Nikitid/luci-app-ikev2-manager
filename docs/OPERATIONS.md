@@ -156,11 +156,12 @@ changing the already-prepared target toolchain.
 
 `ikev2-manager-system diagnostics` prints a text report for a bug report; the
 overview page saves the same report with **Download report**. It holds the
-readiness check, the statuses of the tunnel, routing and DNS helpers, the SAs,
-the rules and routes, the application's nftables tables with set elements
+readiness check, the statuses of the tunnel, routing and DNS helpers, each
+tunnel's state with the tunnel every exit uses and the tunnel chosen for each
+service and list, the SAs, the rules and routes, the application's nftables tables with set elements
 counted rather than listed, the configuration and the last 400 relevant log
 lines. Settings named like a password, secret, key or token lose their value,
-PEM blocks are dropped, and the tunnel server and identities, the server name,
+PEM blocks are dropped, and every tunnel's server and identities, the server name,
 the VPN user names, the router's host name and every public IPv4, IPv6 and MAC
 address become placeholders, the same one for the same value. Private,
 loopback, FakeIP and documentation ranges and the well-known public resolvers
@@ -242,8 +243,11 @@ its state does: the watcher's share of one CPU core (with what it waited for),
 the tunnel's round trip in milliseconds, connections through the FakeIP router
 or, when matching by address, destinations in the routing set, how long a name
 nobody asked for before takes to resolve, connected inbound clients and the
-certificate's days left. An optional `T_traffic` monitor charts the tunnel's
-throughput in kbit/s. Rates are taken between runs from counters kept in
+certificate's days left. An optional `T_traffic` monitor charts the
+throughput of all the tunnels together in kbit/s. With more than one tunnel
+the tunnel monitor also goes down on what doctor finds wrong with any of
+them, and an optional `T_tunnel_N` token gives tunnel N a monitor of its own:
+up, leaving from another address than the WAN's, and its round trip. Rates are taken between runs from counters kept in
 `/var/run/ikev2-kuma.state`, so the first run after a boot reports none.
 
 The same page stores an ordered tunnel-DNS DoH list and IPv4 bootstrap
@@ -419,6 +423,41 @@ the retirement; it only calls `ikev2-routing sync-all`.
 ip route get 149.154.167.50 from 192.168.1.100 iif br-lan mark 0x1000000
 nft list chain inet ikev2_routing prerouting
 ```
+
+### Several tunnels
+
+The outbound tunnel page adds tunnels under **More tunnels**; the policy
+editor's **Tunnels** section and the overview's device rules choose the
+tunnel of each service, manual list and full-route device. Both appear only
+with more than one tunnel. Tunnel N is stored in the `tunnel_N` section with
+the fields of `client` plus `name` and `backup`; its password is in
+`/etc/ikev2-manager/tunnels.secret`, mode 600, never in UCI. The assignments
+are `target tunnel` lines in `/etc/pbr-ikev2-exits.txt`, where the target is
+a service id, `@domains` or `@cidrs`, and the `exit` option of a device
+section; the first tunnel is the default and is never stored. A service of a
+removed tunnel leaves by the first one. The settings backup carries all of
+them.
+
+The watcher brings up every enabled tunnel whose SA is missing through the
+same rate-limited `ensure-client` action, and moves an exit to another
+tunnel as `docs/ARCHITECTURE.md` describes: at once when its tunnel goes
+down, back two minutes after it returns, never to the WAN. A tunnel with
+`backup` off carries only its own exits.
+
+```sh
+/usr/libexec/ikev2-manager tunnels-status
+cat /var/run/ikev2-tunnels.state
+/usr/libexec/ikev2-routing status
+/usr/libexec/ikev2-sa tunnels
+```
+
+`tunnels-status` prints one line per tunnel: whether its CHILD_SA is
+installed, its virtual address, and the exits it carries now. With more than
+one tunnel doctor adds `tunnels=ok`, or `tunnels=warn:` with a comma list of
+`N-no-password`, `N-no-link`, `N-down` (not while routing is paused) and
+`exit-N-no-tunnel`: something is sent through tunnel N, but neither it nor any
+tunnel standing in for it is enabled, so that traffic is refused. The
+overview shows them by the tunnels' names.
 
 When selected domains are matched by address, dnsmasq adds every address it
 answers for them to `dst4` and `dst6`. An address stays for seven days after
