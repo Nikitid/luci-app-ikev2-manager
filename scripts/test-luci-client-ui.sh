@@ -75,6 +75,15 @@ function makeNode(tag, attrs) {
 			} : handler;
 		},
 		removeAttribute() {}, setAttribute() {}, focus() {}, remove() {}, click() {},
+		// The overview shows an issue twice, in the summary and the details.
+		cloneNode(deep) {
+			const copy = Object.assign(makeNode(this.tagName, this.attrs), { textContent: this.textContent });
+			if (deep)
+				copy.children = this.children.map(function(child) {
+					return child && typeof child.cloneNode === 'function' ? child.cloneNode(true) : child;
+				});
+			return copy;
+		},
 		appendChild(child) { this.children.push(child); return child; },
 		removeChild(child) { this.children.splice(this.children.indexOf(child), 1); return child; },
 		insertBefore(child) { this.children.unshift(child); return child; },
@@ -565,6 +574,22 @@ function textOf(node) {
 	return (node.children || []).map(textOf).join(' ');
 }
 function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved ]); }
+
+// A strongSwan upgraded on disk but not restarted is explained, not shown as
+// a code.
+const pendingPage = setupView.render([
+	{ stdout: setupValue },
+	{ stdout: doctorOut + '\nstrongswan_running=warn:6.0.3-restart-pending-6.0.7' +
+		'\nstrongswan_eap_server_security=warn:6.0.3-r2-cve-2026-47895-awaiting-feed' },
+	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }
+]);
+const pendingText = textOf(pendingPage);
+if (!/6\.0\.3 runs; the installed 6\.0\.7 takes effect when charon restarts/.test(pendingText))
+	fail('a strongSwan waiting for a restart is not explained on the overview');
+if (!/vulnerable \(CVE-2026-47895\); waiting for a fixed package in the feed/.test(pendingText))
+	fail('the overview does not explain the vulnerability warning');
+if (/restart-pending/.test(pendingText))
+	fail('the overview shows the raw restart code');
 
 // A full-route device row offers to send what is never to go through the
 // tunnel to WAN; the box says what is stored and sends the device's address.

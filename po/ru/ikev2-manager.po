@@ -4283,3 +4283,12 @@ msgstr "Настройки туннелей сохранены и примене
 
 msgid "Tunnel settings were saved, but applying them failed; see /tmp/ikev2-manager-action.log and logread."
 msgstr "Настройки туннелей сохранены, но применить их не удалось; подробности в /tmp/ikev2-manager-action.log и logread."
+
+msgid "Running strongSwan"
+msgstr "Запущенный strongSwan"
+
+msgid "%s runs; the installed %s takes effect when charon restarts"
+msgstr "Работает %s; установленная %s заработает после перезапуска charon"
+
+msgid "charon did not answer"
+msgstr "charon не ответил"

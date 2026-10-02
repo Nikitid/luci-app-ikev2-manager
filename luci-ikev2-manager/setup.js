@@ -218,6 +218,7 @@ function checkRows(doctor) {
 		strongswan_eap_mschapv2: _('strongSwan EAP-MSCHAPv2'),
 		strongswan_eap_client_security: _('Outbound EAP security'),
 		strongswan_eap_server_security: _('Inbound strongSwan version'),
+		strongswan_running: _('Running strongSwan'),
 		strongswan_cohort: _('strongSwan package cohort'),
 		strongswan_x509: _('strongSwan X.509'),
 		device_policy_runtime: _('Device policy runtime')
@@ -241,6 +242,13 @@ function checkRows(doctor) {
 				shown = cve[3] === 'update-available' ?
 					_('%s: vulnerable (CVE-%s); a fixed package is available, update strongSwan').format(cve[1], cve[2]) :
 					_('%s: vulnerable (CVE-%s); waiting for a fixed package in the feed').format(cve[1], cve[2]);
+		}
+		else if (key === 'strongswan_running') {
+			var pending = /^(.+)-restart-pending-(.+)$/.exec(shown);
+			if (pending)
+				shown = _('%s runs; the installed %s takes effect when charon restarts').format(pending[1], pending[2]);
+			else if (shown === 'not-answering')
+				shown = _('charon did not answer');
 		}
 		else if (key === 'system_clock') {
 			var clock = new Date(shown);
@@ -283,6 +291,7 @@ function dependencyOverview(rows, detailsOpen) {
 		xfrm_module: true,
 		strongswan_eap_client_security: true,
 		strongswan_eap_server_security: true,
+		strongswan_running: true,
 		device_policy_runtime: true
 	};
 	var issues = rows.filter(function(row) {

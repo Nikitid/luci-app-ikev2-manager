@@ -24,6 +24,71 @@ doctor_dns_segments_status() {
 	esac
 }
 
+# The installed strongSwan: one build across its packages, and versions with
+# the fixes the client and the server need; then the charon that runs, which an
+# upgrade that did not restart it leaves on the old version while the
+# installed one, read above, is the new.
+#
+# A known vulnerability with no fixed package in the feed is something to
+# know, not a broken router: failing the whole report for it kept the overview
+# red for as long as the feed waited, and red that never clears stops being
+# read. It is a warning either way; its text says whether a fixed package is
+# already there to install. Sets ok and dependencies_ok of the caller.
+doctor_strongswan() {
+	local strongswan_version strongswan_cohort strongswan_fix running installed vulnerable=0
+	strongswan_version="$(pkg_version strongswan)"
+	if strongswan_cohort="$(strongswan_cohort_version 2>/dev/null)" &&
+	   [ -n "$strongswan_cohort" ]; then
+		printf 'strongswan_cohort=ok:%s\n' "$strongswan_cohort"
+	else
+		printf 'strongswan_cohort=invalid:mixed-or-missing-version\n'
+		ok=0
+		dependencies_ok=0
+	fi
+	if pkg_version_at_least strongswan 6.0.3; then
+		printf 'strongswan_eap_client_security=ok:%s\n' "$strongswan_version"
+	else
+		printf 'strongswan_eap_client_security=warn:%s-cve-2025-62291\n' \
+			"${strongswan_version:-missing}"
+	fi
+	if pkg_version_at_least strongswan 6.0.7; then
+		printf 'strongswan_eap_server_security=ok:%s\n' "$strongswan_version"
+	else
+		strongswan_fix=awaiting-feed
+		pkg_version_string_at_least "$(pkg_available_version strongswan)" 6.0.7 &&
+			strongswan_fix=update-available
+		printf 'strongswan_eap_server_security=warn:%s-cve-2026-47895-%s\n' \
+			"${strongswan_version:-missing}" "$strongswan_fix"
+		vulnerable=1
+	fi
+	[ -n "$strongswan_version" ] || return 0
+	installed="${strongswan_version%-r*}"
+	if ! running="$(strongswan_running_version)"; then
+		printf 'strongswan_running=notice:not-answering\n'
+	elif pkg_version_string_at_least "$running" "$installed"; then
+		printf 'strongswan_running=ok:%s\n' "$running"
+	else
+		# Upgraded on disk only: the fixes arrive with the next charon
+		# restart, which on some routers is a reboot (see TRAPS).
+		printf 'strongswan_running=warn:%s-restart-pending-%s\n' "$running" "$installed"
+		pkg_version_string_at_least "$running" 6.0.7 || vulnerable=1
+	fi
+	[ "$vulnerable" = 0 ] || [ "$(getv server enabled)" != 1 ] || printf 'security_ok=0\n'
+}
+
+# The version of the charon running now, as it reports itself. Bounded: an
+# unanswered VICI query stalled its caller for as long as charon was wedged.
+strongswan_running_version() {
+	local line
+	command -v swanctl >/dev/null 2>&1 || return 1
+	line="$(pkg_run_bounded 3 swanctl --version --daemon 2>/dev/null | head -n1)"
+	case "$line" in
+		'strongSwan '[0-9]*' '*) line="${line#strongSwan }" ;;
+		*) return 1 ;;
+	esac
+	printf '%s\n' "${line%% *}"
+}
+
 # Answer every package question of one report from a single listing; see
 # pkg_cache_versions. The cache is dropped before returning, so a caller that
 # goes on to install packages asks the package manager again.
@@ -168,36 +233,7 @@ doctor_checks() {
 			*) printf 'fakeip_data_plane=notice:unchecked\n' ;;
 		esac
 	fi
-	strongswan_version="$(pkg_version strongswan)"
-	if strongswan_cohort="$(strongswan_cohort_version 2>/dev/null)" &&
-	   [ -n "$strongswan_cohort" ]; then
-		printf 'strongswan_cohort=ok:%s\n' "$strongswan_cohort"
-	else
-		printf 'strongswan_cohort=invalid:mixed-or-missing-version\n'
-		ok=0
-		dependencies_ok=0
-	fi
-	if pkg_version_at_least strongswan 6.0.3; then
-		printf 'strongswan_eap_client_security=ok:%s\n' "$strongswan_version"
-	else
-		printf 'strongswan_eap_client_security=warn:%s-cve-2025-62291\n' \
-			"${strongswan_version:-missing}"
-	fi
-	# A known vulnerability with no fixed package in the feed is something to
-	# know, not a broken router: failing the whole report for it kept the
-	# overview red for as long as the feed waited, and red that never clears
-	# stops being read. It is a warning either way; its text says whether a
-	# fixed package is already there to install.
-	if pkg_version_at_least strongswan 6.0.7; then
-		printf 'strongswan_eap_server_security=ok:%s\n' "$strongswan_version"
-	else
-		strongswan_fix=awaiting-feed
-		pkg_version_string_at_least "$(pkg_available_version strongswan)" 6.0.7 &&
-			strongswan_fix=update-available
-		printf 'strongswan_eap_server_security=warn:%s-cve-2026-47895-%s\n' \
-			"${strongswan_version:-missing}" "$strongswan_fix"
-		[ "$(getv server enabled)" != 1 ] || printf 'security_ok=0\n'
-	fi
+	doctor_strongswan
 	if [ "$(getv globals configured)" = 1 ]; then
 		# A pause leaves the fail-closed routes in place and refuses what reaches
 		# the tunnel; the block is reported, and the watcher restores it.

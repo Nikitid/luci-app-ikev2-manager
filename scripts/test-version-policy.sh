@@ -94,12 +94,60 @@ IKEV2_PACKAGE_MANAGER=apk PATH="$tmp/bin:$PATH" sh -c '
 	pkg_version_string_at_least 6.0.8-r1 6.0.7 || exit 12
 	pkg_version_string_at_least 6.0.3-r2 6.0.7 && exit 13
 	exit 0' sh "$root" || fail "the feed version lookup failed"
-security_block="$(sed -n '/strongswan_eap_server_security=ok/,/^	fi$/p' "$root/ikev2-manager-runtime/lib/system-doctor.sh")"
-printf '%s\n' "$security_block" | grep -Eq '(^|[^_a-z])ok=0' &&
-	fail 'a known vulnerability without a feed fix still fails the whole report'
-printf '%s\n' "$security_block" | grep -q 'awaiting-feed' ||
-	fail 'the missing feed fix is not reported'
-grep -q "waiting for a fixed package in the feed" "$root/luci-ikev2-manager/setup.js" ||
-	fail 'the overview does not explain the vulnerability warning'
+# The strongSwan part of the report, run against stubs: a vulnerability is a
+# warning that names whether a fix is in the feed, never a failed report, and
+# the running charon counts as much as the installed packages.
+cat >"$tmp/bin/swanctl" <<'STUB'
+#!/bin/sh
+case "$(cat "$TEST_RUNNING" 2>/dev/null)" in
+	hang) exec sleep 30 ;;
+	'') exit 1 ;;
+	*) printf 'strongSwan %s charon (Linux, 6.12.94, aarch64)\n' "$(cat "$TEST_RUNNING")" ;;
+esac
+STUB
+chmod +x "$tmp/bin/swanctl"
+strongswan_report() {
+	printf '%s\n' "$3" >"$tmp/running"
+	TEST_RUNNING="$tmp/running" IKEV2_PACKAGE_MANAGER=apk PATH="$tmp/bin:$PATH" sh -c '
+		. "$1/ikev2-manager-runtime/lib/package-manager.sh"
+		. "$1/ikev2-manager-runtime/lib/system-doctor.sh"
+		test_installed="$2" test_available="$3" test_server="$4"
+		pkg_version() { printf "%s\n" "$test_installed"; }
+		pkg_available_version() { printf "%s\n" "$test_available"; }
+		pkg_version_at_least() { pkg_version_string_at_least "$test_installed" "$2"; }
+		strongswan_cohort_version() { printf "%s\n" "$test_installed"; }
+		getv() { [ "$1.$2" = server.enabled ] && echo "$test_server"; }
+		ok=1 dependencies_ok=1
+		doctor_strongswan
+		printf "ok=%s\n" "$ok"' sh "$root" "$1" "$2" "$4"
+}
+expect_report() {
+	grep -qx "$2" "$tmp/report" || {
+		sed 's/^/  /' "$tmp/report" >&2
+		fail "$1: no line $2"
+	}
+}
+strongswan_report 6.0.3-r2 '' 6.0.3 1 >"$tmp/report"
+expect_report 'no fix in the feed' 'strongswan_eap_server_security=warn:6.0.3-r2-cve-2026-47895-awaiting-feed'
+expect_report 'no fix in the feed' 'security_ok=0'
+expect_report 'a known vulnerability fails the whole report' 'ok=1'
+expect_report 'the running charon matches' 'strongswan_running=ok:6.0.3'
+strongswan_report 6.0.3-r2 6.0.8-r1 6.0.3 1 >"$tmp/report"
+expect_report 'a fix in the feed' 'strongswan_eap_server_security=warn:6.0.3-r2-cve-2026-47895-update-available'
+strongswan_report 6.0.7-r0 '' 6.0.3 1 >"$tmp/report"
+expect_report 'upgraded, not restarted' 'strongswan_running=warn:6.0.3-restart-pending-6.0.7'
+expect_report 'upgraded, not restarted' 'security_ok=0'
+expect_report 'upgraded, not restarted' 'strongswan_eap_server_security=ok:6.0.7-r0'
+strongswan_report 6.0.7-r0 '' 6.0.7 1 >"$tmp/report"
+expect_report 'upgraded and restarted' 'strongswan_running=ok:6.0.7'
+grep -q '^security_ok=' "$tmp/report" && fail 'a fixed, running strongSwan still reported insecure'
+strongswan_report 6.0.3-r2 '' 6.0.3 0 >"$tmp/report"
+grep -q '^security_ok=' "$tmp/report" && fail 'a vulnerable server that is off was reported insecure'
+strongswan_report 6.0.7-r0 '' '' 1 >"$tmp/report"
+expect_report 'charon not answering' 'strongswan_running=notice:not-answering'
+started="$(date +%s)"
+strongswan_report 6.0.7-r0 '' hang 1 >"$tmp/report"
+expect_report 'a hanging charon' 'strongswan_running=notice:not-answering'
+[ $(( $(date +%s) - started )) -lt 10 ] || fail 'a hanging charon stalled the report'
 
 printf '%s\n' 'version policy tests OK'
