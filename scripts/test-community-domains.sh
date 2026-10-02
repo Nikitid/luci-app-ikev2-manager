@@ -84,6 +84,10 @@ run_helper() (
 	PATH="$tmp/bin:$PATH" \
 	IKEV2_MANUAL_FILE="$tmp/manual" \
 	IKEV2_MANUAL_CIDR_FILE="$tmp/manual-cidrs" \
+	IKEV2_MANUAL_EXCLUDE_FILE="$tmp/manual-exclude" \
+	IKEV2_MANUAL_EXCLUDE_CIDR_FILE="$tmp/manual-exclude-cidrs" \
+	IKEV2_BYPASS_FILE="$tmp/bypass" \
+	IKEV2_BYPASS_CIDR_FILE="$tmp/bypass-cidrs" \
 	IKEV2_SELECTED_FILE="$tmp/selected" \
 	IKEV2_FINAL_FILE="$tmp/domains" \
 	IKEV2_CIDR_FILE="$tmp/cidrs" \
@@ -259,6 +263,71 @@ grep -Fq 'is missing or not a regular file' "$tmp/apply.failure" || {
 	exit 1
 }
 
+# Never through the tunnel. An excluded domain takes itself and its subdomains
+# out of the routed list; a routed domain above an excluded one stays, the
+# excluded part going to the bypass list for the routing to keep out. Excluded
+# addresses go to their own list whatever else selects them.
+cp "$tmp/manual" "$tmp/manual.saved"
+cp "$tmp/selected" "$tmp/selected.saved"
+printf '%s\n' bank.example mail.bank.example google.example routed.example >"$tmp/input-excl0001.domains"
+printf '%s\n' 198.51.100.0/24 >"$tmp/input-excl0001.cidrs"
+cp "$tmp/selected" "$tmp/input-excl0001.services"
+printf '%s\n' Bank.Example mail.google.example >"$tmp/input-excl0001.xdomains"
+printf '%s\n' 192.0.2.7 198.51.100.0/25 >"$tmp/input-excl0001.xcidrs"
+run_helper _apply-input 100-x excl0001
+for name in bank.example mail.bank.example; do
+	! grep -Fxq "$name" "$tmp/domains" || { printf 'an excluded domain is still routed: %s\n' "$name" >&2; exit 1; }
+done
+grep -Fxq google.example "$tmp/domains" && grep -Fxq routed.example "$tmp/domains" ||
+	{ printf 'a domain outside the exclusions left the routed list\n' >&2; exit 1; }
+printf '%s\n' bank.example mail.google.example | cmp -s - "$tmp/bypass" ||
+	{ printf 'the excluded domains are not the bypass list:\n' >&2; cat "$tmp/bypass" >&2; exit 1; }
+printf '%s\n' 192.0.2.7/32 198.51.100.0/25 | cmp -s - "$tmp/bypass-cidrs" ||
+	{ printf 'the excluded addresses are not the bypass list\n' >&2; exit 1; }
+grep -q '^excluded_domains=2$' "$tmp/status" || { printf 'the status does not count exclusions\n' >&2; exit 1; }
+# A page that predates the exclusions sends three files; the lists stay.
+printf '%s\n' bank.example routed.example >"$tmp/input-excl0002.domains"
+printf '%s\n' 198.51.100.0/24 >"$tmp/input-excl0002.cidrs"
+cp "$tmp/selected" "$tmp/input-excl0002.services"
+run_helper _apply-input 100-y excl0002
+grep -iFxq bank.example "$tmp/manual-exclude" && ! grep -Fxq bank.example "$tmp/domains" ||
+	{ printf 'an update from an older page dropped the exclusions\n' >&2; exit 1; }
+# A service made to exclude sends its domains and networks to the bypass lists.
+cat >"$tmp/service-input-excl0003.meta" <<'EOF'
+operation=save
+id=banks
+label=Banks
+selected=1
+mode=exclude
+EOF
+printf '%s\n' othbank.example >"$tmp/service-input-excl0003.domains"
+printf '%s\n' 203.0.113.64/26 >"$tmp/service-input-excl0003.cidrs"
+run_helper _apply-service 200-x excl0003
+grep -Fxq othbank.example "$tmp/bypass" && grep -Fxq 203.0.113.64/26 "$tmp/bypass-cidrs" ||
+	{ printf 'an exclusion service did not reach the bypass lists\n' >&2; exit 1; }
+! grep -Fxq othbank.example "$tmp/domains" && ! grep -Fxq 203.0.113.64/26 "$tmp/cidrs" ||
+	{ printf 'an exclusion service was routed through the tunnel\n' >&2; exit 1; }
+run_helper services | grep -Fxq 'banks|Banks|custom|1|1|exclude' ||
+	{ printf 'the catalogue does not say the service excludes\n' >&2; exit 1; }
+cat >"$tmp/service-input-excl0004.meta" <<'EOF'
+operation=delete
+id=banks
+label=Banks
+selected=0
+EOF
+: >"$tmp/service-input-excl0004.domains"
+: >"$tmp/service-input-excl0004.cidrs"
+run_helper _apply-service 200-y excl0004
+[ ! -e "$tmp/user/banks.mode" ] || { printf 'a deleted service left its mode behind\n' >&2; exit 1; }
+: >"$tmp/input-excl0005.xdomains"
+: >"$tmp/input-excl0005.xcidrs"
+cp "$tmp/manual.saved" "$tmp/input-excl0005.domains"
+printf '%s\n' 203.0.113.10 198.51.100.0/24 >"$tmp/input-excl0005.cidrs"
+cp "$tmp/selected.saved" "$tmp/input-excl0005.services"
+run_helper _apply-input 100-z excl0005
+[ ! -s "$tmp/bypass" ] && [ ! -s "$tmp/bypass-cidrs" ] ||
+	{ printf 'emptied exclusion lists left a bypass behind\n' >&2; exit 1; }
+
 # A custom service is stored independently of the common manual list and can
 # be enabled in the same atomic operation that creates it.
 cat >"$tmp/service-input-cust0001.meta" <<'EOF'
@@ -271,7 +340,7 @@ printf '%s\n' custom.example >"$tmp/service-input-cust0001.domains"
 printf '%s\n' 203.0.113.0/24 >"$tmp/service-input-cust0001.cidrs"
 run_helper _apply-service 200-1 cust0001
 run_helper services >"$tmp/services.out"
-grep -Fxq 'customsvc|Custom service|custom|1|1' "$tmp/services.out"
+grep -Fxq 'customsvc|Custom service|custom|1|1|route' "$tmp/services.out"
 grep -Fxq customsvc "$tmp/selected"
 grep -Fxq custom.example "$tmp/domains"
 grep -Fxq 203.0.113.0/24 "$tmp/cidrs"
@@ -326,7 +395,7 @@ if grep -Fxq local.example "$tmp/domains"; then
 	exit 1
 fi
 run_helper services >"$tmp/services.out"
-grep -Fxq 'local|Local override|override|1|0' "$tmp/services.out"
+grep -Fxq 'local|Local override|override|1|0|route' "$tmp/services.out"
 
 cat >"$tmp/service-input-reset001.meta" <<'EOF'
 operation=reset
@@ -381,7 +450,7 @@ printf '%s\n' retired.example >"$tmp/user/retired.lst"
 printf '%s\n' 'Retired override' >"$tmp/user/retired.name"
 printf '%s\n' override >"$tmp/user/retired.origin"
 run_helper services >"$tmp/services.out"
-grep -Fxq 'retired|Retired override|custom|1|0' "$tmp/services.out"
+grep -Fxq 'retired|Retired override|custom|1|0|route' "$tmp/services.out"
 cat >"$tmp/service-input-retire01.meta" <<'EOF'
 operation=delete
 id=retired

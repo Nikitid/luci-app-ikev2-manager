@@ -255,6 +255,28 @@ The active policy is built from:
 - `/etc/pbr-ikev2-domains.manual.txt`;
 - `/etc/pbr-ikev2-addresses.manual.txt`.
 
+What never goes through the tunnel is built beside it, from
+`/etc/pbr-ikev2-domains.exclude.txt`, `/etc/pbr-ikev2-addresses.exclude.txt`
+and the selected services made to exclude, into
+`/etc/pbr-ikev2-domains.bypass.txt` and `/etc/pbr-ikev2-addresses.bypass.txt`.
+An excluded domain takes itself and its subdomains out of the routed list. A
+routed domain above an excluded one stays; the excluded part is kept out
+further down:
+
+- dnsmasq sends an excluded name to its own resolvers (`server=/name/#`) even
+  inside a selected one, and in both engines learns its addresses into
+  `bypass_learned4`/`6` (`nftset`, where the most specific name wins);
+- sing-box resolves an excluded name for real over WAN ahead of every FakeIP
+  rule, and sends a connection sniffed to one direct;
+- policy routing leaves `bypass4` (the excluded addresses) and the learned
+  sets unmarked, ahead of every rule that marks for the tunnel.
+
+A full-route device sends everything into the tunnel. When its row asks
+for it (`respect_exclusions`), policy routing re-marks its packets to an
+excluded destination for the WAN table instead. An address exclusion does not
+reach a selected domain's FakeIP connection, which sing-box opens by name:
+exclude the domain for that.
+
 Every input is normalized in a temporary directory. Service downloads are
 size-limited, validated and cached. Downloaded service-network lists may contain
 only bounded public prefixes and are capped per service, so an upstream list

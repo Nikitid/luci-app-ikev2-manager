@@ -1938,8 +1938,12 @@ case "${1:-}" in
 	device-async)
 		shift
 		case "${1:-}" in
-			add-subnet | remove-subnet | remove-override | set-unmanaged | set-included | clear-policy)
+			add-subnet | remove-subnet | remove-override | set-unmanaged | clear-policy)
 				[ "$#" -eq 2 ] || die 'Expected device action and address'
+				;;
+			set-included)
+				{ [ "$#" -eq 2 ] || [ "$#" -eq 3 ]; } ||
+					die 'Expected set-included address [respect]'
 				;;
 			add-override)
 				[ "$#" -eq 3 ] || die 'Expected add-override address mode'

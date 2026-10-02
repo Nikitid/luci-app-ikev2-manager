@@ -19,6 +19,14 @@ manual_cidr_file="${IKEV2_MANUAL_CIDR_FILE:-/etc/pbr-ikev2-addresses.manual.txt}
 selected_file="${IKEV2_SELECTED_FILE:-/etc/pbr-ikev2-community-selected.txt}"
 final_file="${IKEV2_FINAL_FILE:-/etc/pbr-ikev2-domains.txt}"
 cidr_file="${IKEV2_CIDR_FILE:-/etc/pbr-ikev2-service-cidrs.txt}"
+# Never through the tunnel: the operator's two lists, and what they and the
+# exclusion services add up to. An excluded domain also takes its subdomains
+# out of the routed list; the routing keeps excluded addresses out of the
+# tunnel whatever else selects them.
+manual_exclude_file="${IKEV2_MANUAL_EXCLUDE_FILE:-/etc/pbr-ikev2-domains.exclude.txt}"
+manual_exclude_cidr_file="${IKEV2_MANUAL_EXCLUDE_CIDR_FILE:-/etc/pbr-ikev2-addresses.exclude.txt}"
+bypass_file="${IKEV2_BYPASS_FILE:-/etc/pbr-ikev2-domains.bypass.txt}"
+bypass_cidr_file="${IKEV2_BYPASS_CIDR_FILE:-/etc/pbr-ikev2-addresses.bypass.txt}"
 catalog_file="${IKEV2_CATALOG_FILE:-/usr/share/ikev2-domains/community-services}"
 public_suffix_file="${IKEV2_PUBLIC_SUFFIXES:-/usr/share/ikev2-domains/public-suffixes}"
 subnet_catalog_file="${IKEV2_SUBNET_CATALOG_FILE:-/etc/pbr-ikev2-community-subnet-services}"
@@ -317,6 +325,13 @@ catalog_services() {
 	} | normalize_services
 }
 
+# A user-created service either routes through the tunnel or keeps its
+# destinations out of it.
+service_mode() {
+	[ "$(sed -n '1p' "$user_services_dir/$1.mode" 2>/dev/null)" = exclude ] &&
+		printf 'exclude\n' || printf 'route\n'
+}
+
 service_has_cidrs() {
 	local service="$1"
 	if [ -f "$user_services_dir/$service.lst" ]; then
@@ -337,8 +352,8 @@ list_service_records() {
 		[ "$origin" = builtin ] || customized=1
 		ip=0
 		service_has_cidrs "$service" && ip=1
-		printf '%s|%s|%s|%s|%s\n' \
-			"$service" "$label" "$origin" "$customized" "$ip"
+		printf '%s|%s|%s|%s|%s|%s\n' \
+			"$service" "$label" "$origin" "$customized" "$ip" "$(service_mode "$service")"
 	done
 }
 
@@ -360,8 +375,9 @@ read_service() {
 	fi
 	origin="$(service_origin "$service")"
 	label="$(service_label "$service")"
-	printf 'id=%s\norigin=%s\ncustomized=%s\nlabel=%s\n' \
-		"$service" "$origin" "$([ "$origin" = builtin ] && echo 0 || echo 1)" "$label"
+	printf 'id=%s\norigin=%s\ncustomized=%s\nlabel=%s\nmode=%s\n' \
+		"$service" "$origin" "$([ "$origin" = builtin ] && echo 0 || echo 1)" "$label" \
+		"$(service_mode "$service")"
 	printf '%s\n' '---domains---'
 	cat "$work/domains"
 	printf '%s\n' '---cidrs---'
@@ -691,6 +707,13 @@ write_simple_status() {
 	rm -f "$tmp"
 }
 
+publish_output() {
+	cp "$1" "$2.tmp" && chmod 600 "$2.tmp" && mv "$2.tmp" "$2" || {
+		rm -f "$2.tmp"
+		return 1
+	}
+}
+
 restore_output() {
 	local backup="$1" destination="$2"
 	if [ -f "$backup" ]; then
@@ -724,6 +747,8 @@ apply_once() {
 
 	[ -f "$manual_file" ] || cp "$final_file" "$manual_file"
 	[ -f "$manual_cidr_file" ] || : >"$manual_cidr_file"
+	[ -f "$manual_exclude_file" ] || : >"$manual_exclude_file"
+	[ -f "$manual_exclude_cidr_file" ] || : >"$manual_exclude_cidr_file"
 	[ -f "$selected_file" ] || : >"$selected_file"
 
 	if ! normalize_domains "$manual_file" >"$normalized_manual" ||
@@ -759,14 +784,43 @@ apply_once() {
 	[ -z "$action_id" ] ||
 		write_simple_status "$action_id" running 'Building the combined policy list...' || true
 
+	if ! normalize_domains "$manual_exclude_file" >"$work/exclude.manual"; then
+		rm -rf "$work"
+		return 1
+	fi
+	{
+		cat "$work/exclude.manual"
+		while IFS= read -r service; do
+			[ -n "$service" ] && [ "$(service_mode "$service")" = exclude ] &&
+				cat "$work/$service.lst"
+		done <"$selected"
+	} | sort -u >"$work/bypass"
+	# A routed domain inside an excluded one is dropped; a routed domain above
+	# an excluded one stays, and the routing keeps the excluded part out.
 	{
 		cat "$normalized_manual"
 		while IFS= read -r service; do
-			[ -n "$service" ] && cat "$work/$service.lst"
+			[ -n "$service" ] && [ "$(service_mode "$service")" = route ] &&
+				cat "$work/$service.lst"
 		done <"$selected"
-	} | sort -u >"$work/final"
+	} | awk -v excluded="$work/bypass" '
+		BEGIN { while ((getline line <excluded) > 0) skip[line] = 1 }
+		{
+			name = $0
+			while (name != "") {
+				if (name in skip) next
+				if (index(name, ".") == 0) break
+				name = substr(name, index(name, ".") + 1)
+			}
+			print
+		}
+	' | sort -u >"$work/final"
 
 	if ! normalize_cidrs "$manual_cidr_file" >"$work/manual.cidrs"; then
+		rm -rf "$work"
+		return 1
+	fi
+	if ! normalize_cidrs "$manual_exclude_cidr_file" >"$work/bypass.cidrs.unsorted"; then
 		rm -rf "$work"
 		return 1
 	fi
@@ -778,11 +832,17 @@ apply_once() {
 			return 1
 		fi
 		[ -s "$work/$service.cidrs" ] || continue
-		cat "$work/$service.cidrs" >>"$work/cidrs.unsorted"
+		if [ "$(service_mode "$service")" = exclude ]; then
+			cat "$work/$service.cidrs" >>"$work/bypass.cidrs.unsorted"
+		else
+			cat "$work/$service.cidrs" >>"$work/cidrs.unsorted"
+		fi
 	done <"$selected"
 	sort -u "$work/cidrs.unsorted" 2>/dev/null >"$work/cidrs"
+	sort -u "$work/bypass.cidrs.unsorted" 2>/dev/null >"$work/bypass.cidrs"
 
-	if [ ! -s "$work/final" ] && [ ! -s "$work/cidrs" ] && [ -s "$selected" ]; then
+	if [ ! -s "$work/final" ] && [ ! -s "$work/cidrs" ] &&
+	   [ ! -s "$work/bypass" ] && [ ! -s "$work/bypass.cidrs" ] && [ -s "$selected" ]; then
 		echo 'refusing to install an empty domain list (services selected but no domains resolved)' >&2
 		rm -rf "$work"
 		return 1
@@ -799,6 +859,8 @@ apply_once() {
 	if [ -e "$final_file" ] && [ -e "$cidr_file" ] &&
 	   cmp -s "$work/final" "$final_file" &&
 	   cmp -s "$work/cidrs" "$cidr_file" &&
+	   cmp -s "$work/bypass" "$bypass_file" 2>/dev/null &&
+	   cmp -s "$work/bypass.cidrs" "$bypass_cidr_file" 2>/dev/null &&
 	   "$restart_helper" --check; then
 		[ -z "$action_id" ] ||
 			write_simple_status "$action_id" running \
@@ -806,17 +868,20 @@ apply_once() {
 	else
 		[ ! -e "$final_file" ] || cp "$final_file" "$work/final.before"
 		[ ! -e "$cidr_file" ] || cp "$cidr_file" "$work/cidrs.before"
+		[ ! -e "$bypass_file" ] || cp "$bypass_file" "$work/bypass.before"
+		[ ! -e "$bypass_cidr_file" ] || cp "$bypass_cidr_file" "$work/bypass.cidrs.before"
 		[ -z "$action_id" ] ||
 			write_simple_status "$action_id" running 'Restarting policy routing...' || true
-		if ! cp "$work/final" "$final_file.tmp" ||
-		   ! chmod 600 "$final_file.tmp" || ! mv "$final_file.tmp" "$final_file" ||
-		   ! cp "$work/cidrs" "$cidr_file.tmp" ||
-		   ! chmod 600 "$cidr_file.tmp" || ! mv "$cidr_file.tmp" "$cidr_file" ||
+		if ! publish_output "$work/final" "$final_file" ||
+		   ! publish_output "$work/cidrs" "$cidr_file" ||
+		   ! publish_output "$work/bypass" "$bypass_file" ||
+		   ! publish_output "$work/bypass.cidrs" "$bypass_cidr_file" ||
 		   ! restart_policy; then
 			restore_output "$work/final.before" "$final_file" || true
 			restore_output "$work/cidrs.before" "$cidr_file" || true
+			restore_output "$work/bypass.before" "$bypass_file" || true
+			restore_output "$work/bypass.cidrs.before" "$bypass_cidr_file" || true
 			restart_policy >/dev/null 2>&1 || true
-			rm -f "$final_file.tmp" "$cidr_file.tmp"
 			rm -rf "$work"
 			return 1
 		fi
@@ -833,6 +898,8 @@ apply_once() {
 		echo "domains=$domain_count"
 		echo "cidrs=$cidr_count"
 		echo "custom_cidrs=$custom_cidr_count"
+		echo "excluded_domains=$(wc -l <"$work/bypass" | tr -d ' ')"
+		echo "excluded_cidrs=$(wc -l <"$work/bypass.cidrs" | tr -d ' ')"
 		echo "selected=$(tr '\n' ',' <"$selected" | sed 's/,$//')"
 		[ -z "$stale" ] || echo "cached_services=$stale"
 	} >"$work/status"
@@ -853,7 +920,7 @@ apply_failed() {
 }
 
 apply_staged_input() {
-	local action_id="$1" token="$2" work kind source destination bytes
+	local action_id="$1" token="$2" work kind kinds source destination bytes
 	local restore_kind restore_destination
 	valid_input_token "$token" || {
 		apply_failed 'the submitted input token is malformed'
@@ -867,7 +934,14 @@ apply_staged_input() {
 		apply_failed 'no writable temporary directory'
 		return 1
 	}
-	for kind in domains cidrs services; do
+	# The exclusion lists are optional: a page that predates them sends three
+	# files, and the lists it does not know stay as they are.
+	kinds='domains cidrs services'
+	for kind in xdomains xcidrs; do
+		source="$(input_file "$token" "$kind")"
+		[ ! -e "$source" ] && [ ! -L "$source" ] || kinds="$kinds $kind"
+	done
+	for kind in $kinds; do
 		source="$(input_file "$token" "$kind")"
 		[ -f "$source" ] && [ ! -L "$source" ] || {
 			rm -rf "$work"
@@ -876,8 +950,8 @@ apply_staged_input() {
 		}
 		bytes="$(wc -c <"$source" | tr -d ' ')"
 		case "$kind" in
-			domains) [ "$bytes" -le "$max_total_bytes" ] ;;
-			cidrs) [ "$bytes" -le 1048576 ] ;;
+			domains | xdomains) [ "$bytes" -le "$max_total_bytes" ] ;;
+			cidrs | xcidrs) [ "$bytes" -le 1048576 ] ;;
 			services) [ "$bytes" -le 65536 ] ;;
 		esac || {
 			rm -rf "$work"
@@ -886,35 +960,23 @@ apply_staged_input() {
 		}
 	done
 	# Capture every previous input before replacing any of them. This keeps a
-	# failed three-file publish from deleting an input that was not backed up yet.
-	for kind in domains cidrs services; do
-		case "$kind" in
-			domains) destination="$manual_file" ;;
-			cidrs) destination="$manual_cidr_file" ;;
-			services) destination="$selected_file" ;;
-		esac
+	# failed multi-file publish from deleting an input that was not backed up yet.
+	for kind in $kinds; do
+		destination="$(staged_destination "$kind")"
 		[ ! -e "$destination" ] || cp "$destination" "$work/$kind.before" || {
 			rm -rf "$work"
 			apply_failed "unable to back up the current $kind list"
 			return 1
 		}
 	done
-	for kind in domains cidrs services; do
-		case "$kind" in
-			domains) destination="$manual_file" ;;
-			cidrs) destination="$manual_cidr_file" ;;
-			services) destination="$selected_file" ;;
-		esac
+	for kind in $kinds; do
+		destination="$(staged_destination "$kind")"
 		source="$(input_file "$token" "$kind")"
 		if ! cp "$source" "${destination}.new.$$" ||
 		   ! chmod 600 "${destination}.new.$$" ||
 		   ! mv "${destination}.new.$$" "$destination"; then
-			for restore_kind in domains cidrs services; do
-				case "$restore_kind" in
-					domains) restore_destination="$manual_file" ;;
-					cidrs) restore_destination="$manual_cidr_file" ;;
-					services) restore_destination="$selected_file" ;;
-				esac
+			for restore_kind in $kinds; do
+				restore_destination="$(staged_destination "$restore_kind")"
 				restore_output "$work/$restore_kind.before" "$restore_destination" || true
 			done
 			rm -f "${destination}.new.$$"
@@ -923,22 +985,32 @@ apply_staged_input() {
 			return 1
 		fi
 	done
-	for kind in domains cidrs services; do rm -f "$(input_file "$token" "$kind")"; done
+	for kind in $kinds; do rm -f "$(input_file "$token" "$kind")"; done
 	if apply_once "$action_id"; then
 		rm -rf "$work"
 		return 0
 	fi
-	restore_output "$work/domains.before" "$manual_file" || true
-	restore_output "$work/cidrs.before" "$manual_cidr_file" || true
-	restore_output "$work/services.before" "$selected_file" || true
+	for kind in $kinds; do
+		restore_output "$work/$kind.before" "$(staged_destination "$kind")" || true
+	done
 	rm -rf "$work"
 	return 1
+}
+
+staged_destination() {
+	case "$1" in
+		domains) printf '%s\n' "$manual_file" ;;
+		cidrs) printf '%s\n' "$manual_cidr_file" ;;
+		services) printf '%s\n' "$selected_file" ;;
+		xdomains) printf '%s\n' "$manual_exclude_file" ;;
+		xcidrs) printf '%s\n' "$manual_exclude_cidr_file" ;;
+	esac
 }
 
 restore_service_files() {
 	local backup="$1" service="$2" kind
 	mkdir -p "$user_services_dir"
-	for kind in lst cidrs name origin; do
+	for kind in lst cidrs name origin mode; do
 		rm -f "$user_services_dir/$service.$kind"
 		[ ! -e "$backup/$kind" ] ||
 			cp "$backup/$kind" "$user_services_dir/$service.$kind"
@@ -964,7 +1036,7 @@ set_service_selected() {
 
 apply_staged_service() {
 	local action_id="$1" token="$2" meta domains cidrs operation service label
-	local selected origin work kind bytes extension
+	local selected origin work kind bytes extension mode
 	valid_input_token "$token" || {
 		apply_failed 'the submitted service token is malformed'
 		return 1
@@ -987,6 +1059,11 @@ apply_staged_service() {
 	service="$(sed -n 's/^id=//p' "$meta" | sed -n '1p')"
 	label="$(sed -n 's/^label=//p' "$meta" | sed -n '1p')"
 	selected="$(sed -n 's/^selected=//p' "$meta" | sed -n '1p')"
+	# Absent from a page that predates exclusion services: the service keeps
+	# what it was.
+	mode="$(sed -n 's/^mode=//p' "$meta" | sed -n '1p')"
+	[ -n "$mode" ] || mode="$(service_mode "$service")"
+	case "$mode" in route | exclude) ;; *) apply_failed 'invalid service mode'; return 1 ;; esac
 	case "$operation" in save | reset | delete) ;; *) apply_failed 'invalid service operation'; return 1 ;; esac
 	valid_service_id "$service" || { apply_failed 'invalid service identifier'; return 1; }
 	case "$selected" in 0 | 1 | keep) ;; *) apply_failed 'invalid service selection state'; return 1 ;; esac
@@ -997,7 +1074,7 @@ apply_staged_service() {
 
 	work="$(mktemp -d)" || return 1
 	mkdir -p "$work/service-before"
-	for kind in lst cidrs name origin; do
+	for kind in lst cidrs name origin mode; do
 		[ ! -e "$user_services_dir/$service.$kind" ] ||
 			cp "$user_services_dir/$service.$kind" "$work/service-before/$kind"
 	done
@@ -1016,6 +1093,12 @@ apply_staged_service() {
 		if [ "$origin" != custom ]; then
 			if base_service_exists "$service"; then origin=override; else origin=custom; fi
 		fi
+		# A prepared service routes; only one the operator made can exclude.
+		[ "$mode" = route ] || [ "$origin" = custom ] || {
+			rm -rf "$work"
+			apply_failed 'only a user-created service can keep its destinations out of the tunnel'
+			return 1
+		}
 		mkdir -p "$user_services_dir" || { rm -rf "$work"; return 1; }
 		chmod 700 "$user_services_dir"
 		for kind in domains cidrs; do
@@ -1034,6 +1117,13 @@ apply_staged_service() {
 		chmod 600 "$user_services_dir/$service.name.new" "$user_services_dir/$service.origin.new"
 		mv "$user_services_dir/$service.name.new" "$user_services_dir/$service.name"
 		mv "$user_services_dir/$service.origin.new" "$user_services_dir/$service.origin"
+		if [ "$mode" = exclude ]; then
+			printf 'exclude\n' >"$user_services_dir/$service.mode.new" &&
+				chmod 600 "$user_services_dir/$service.mode.new" &&
+				mv "$user_services_dir/$service.mode.new" "$user_services_dir/$service.mode"
+		else
+			rm -f "$user_services_dir/$service.mode"
+		fi
 		;;
 	reset)
 		base_service_exists "$service" || {
@@ -1042,7 +1132,8 @@ apply_staged_service() {
 			return 1
 		}
 		rm -f "$user_services_dir/$service.lst" "$user_services_dir/$service.cidrs" \
-			"$user_services_dir/$service.name" "$user_services_dir/$service.origin"
+			"$user_services_dir/$service.name" "$user_services_dir/$service.origin" \
+			"$user_services_dir/$service.mode"
 		;;
 	delete)
 		[ "$(service_origin "$service")" = custom ] || {
@@ -1052,7 +1143,8 @@ apply_staged_service() {
 		}
 		selected=0
 		rm -f "$user_services_dir/$service.lst" "$user_services_dir/$service.cidrs" \
-			"$user_services_dir/$service.name" "$user_services_dir/$service.origin"
+			"$user_services_dir/$service.name" "$user_services_dir/$service.origin" \
+			"$user_services_dir/$service.mode"
 		;;
 	esac
 

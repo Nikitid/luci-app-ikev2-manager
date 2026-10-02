@@ -27,6 +27,8 @@ remote gateway.
   inbound VPN clients;
 - DNS upstream over UDP, TCP, DoT, DoH, HTTP/3, DoQ or DNSCrypt, including
   independent resolver groups for explicit domain suffixes;
+- destinations that never go through the tunnel, by domain or address, which
+  win over every selected service, optionally also for full-route devices;
 - inbound client profiles for Apple, Android (strongSwan app) and Windows
   VPNv2/NRPT, including a reusable Windows setup application plus separate
   VPNv2 XML profiles, with no PowerShell, and a one-time QR link that installs

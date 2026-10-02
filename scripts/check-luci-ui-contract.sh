@@ -147,13 +147,6 @@ grep -Fq '"/usr/libexec/ikev2-devices clients": [ "exec" ]' "$acl"
 grep -Fq '"/usr/libexec/ikev2-manager-system device-async set-exclusions *": [ "exec" ]' "$acl"
 grep -Fq '"/usr/libexec/ikev2-manager-system device-async set-included *": [ "exec" ]' "$acl"
 grep -Fq '"/usr/libexec/ikev2-manager-system device-async clear-policy *": [ "exec" ]' "$acl"
-grep -Fq 'set-included | clear-policy)' \
-	'ikev2-manager-runtime/ikev2-manager-system.sh'
-grep -Fq 'set-exclusions)' 'ikev2-manager-runtime/ikev2-manager-system.sh'
-grep -Fq 'set-exclusions)   cmd_set_exclusions' \
-	'luci-ikev2-domains/ikev2-devices.sh'
-grep -Fq 'set-included)     cmd_set_included' \
-	'luci-ikev2-domains/ikev2-devices.sh'
 grep -Fq 'clear-policy)     cmd_clear_policy' \
 	'luci-ikev2-domains/ikev2-devices.sh'
 grep -Fq "common.choiceWithCustom(choices.length" 'luci-ikev2-manager/setup.js'

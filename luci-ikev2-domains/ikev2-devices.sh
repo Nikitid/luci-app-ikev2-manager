@@ -93,6 +93,7 @@ cmd_set_exclusions() {
 	fi
 	if ! device_set_flag "$addr" dns_passthrough "$dns" ||
 	   ! device_set_flag "$addr" dpi_passthrough "$dpi" ||
+	   ! device_set_flag "$addr" respect_exclusions 0 ||
 	   ! render_policies; then
 		restore_pbr "$backup" device-firewall
 		return 1
@@ -100,14 +101,17 @@ cmd_set_exclusions() {
 	commit_and_restart "$backup" device-firewall
 }
 
-# Full-VPN inclusion intentionally carries no exclusion flags.
+# Full-VPN inclusion carries no exclusion flags of its own. RESPECT sends what
+# is never to go through the tunnel to WAN for this device too.
 cmd_set_included() {
-	local addr="${1:-}" backup
+	local addr="${1:-}" respect="${2:-0}" backup
 	valid_addr "$addr" || { printf 'valid IPv4 address or subnet required\n' >&2; exit 1; }
+	case "$respect" in 0 | 1) ;; *) printf 'switch values must be 0 or 1\n' >&2; return 1 ;; esac
 	backup="$(backup_pbr)" || return 1
 	if ! device_migrate || ! device_set "$addr" fullroute ||
 	   ! device_set_flag "$addr" dns_passthrough 0 ||
 	   ! device_set_flag "$addr" dpi_passthrough 0 ||
+	   ! device_set_flag "$addr" respect_exclusions "$respect" ||
 	   ! render_policies; then
 		restore_pbr "$backup" device-firewall
 		return 1
@@ -132,6 +136,7 @@ cmd_clear_policy() {
 	esac
 	if ! device_set_flag "$addr" dns_passthrough 0 ||
 	   ! device_set_flag "$addr" dpi_passthrough 0 ||
+	   ! device_set_flag "$addr" respect_exclusions 0 ||
 	   ! render_policies; then
 		restore_pbr "$backup" device-firewall
 		return 1
@@ -251,6 +256,7 @@ cmd_dump() {
 		flags=''
 		device_flag_enabled "$address" dns_passthrough && flags="$flags dns=1"
 		device_flag_enabled "$address" dpi_passthrough && flags="$flags dpi=1"
+		device_flag_enabled "$address" respect_exclusions && flags="$flags respect=1"
 		case "$mode" in
 			none)
 				printf 'addr=%s mode=none%s\n' "$address" "$flags"
@@ -434,9 +440,9 @@ case "${1:-}" in
 	set-flag)         cmd_set_flag "${2:-}" "${3:-}" "${4:-}" ;;
 	set-unmanaged)    cmd_set_unmanaged "${2:-}" ;;
 	set-exclusions)   cmd_set_exclusions "${2:-}" "${3:-}" "${4:-}" "${5:-}" ;;
-	set-included)     cmd_set_included "${2:-}" ;;
+	set-included)     cmd_set_included "${2:-}" "${3:-0}" ;;
 	clear-policy)     cmd_clear_policy "${2:-}" ;;
     *)
-		printf 'usage: %s {dump|clients|networks|zones|add-subnet <addr>|remove-subnet <addr>|add-override <addr> <mode>|remove-override <addr>|set-flag <addr> <dns_passthrough|dpi_passthrough> <0|1>|set-unmanaged <addr>|set-exclusions <addr> <pbr> <dns> <zapret>|set-included <addr>|clear-policy <addr>}\n' "$0" >&2
+		printf 'usage: %s {dump|clients|networks|zones|add-subnet <addr>|remove-subnet <addr>|add-override <addr> <mode>|remove-override <addr>|set-flag <addr> <dns_passthrough|dpi_passthrough> <0|1>|set-unmanaged <addr>|set-exclusions <addr> <pbr> <dns> <zapret>|set-included <addr> [respect]|clear-policy <addr>}\n' "$0" >&2
         exit 1 ;;
 esac

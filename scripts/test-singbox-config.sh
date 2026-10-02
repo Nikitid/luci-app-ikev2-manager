@@ -82,6 +82,26 @@ render "$tmp/in" "$tmp/out" || fail 'compatibility for ordinary names was refuse
 [ "$(query "$tmp/out" '"domain_suffix" in c["dns"]["rules"][-1] or "rule_set" in c["dns"]["rules"][-1]')" = False ] ||
 	fail 'compatibility for ordinary names is limited to some names'
 
+# Domains never to go through the tunnel resolve for real over WAN before any
+# FakeIP rule, and a connection sniffed to one leaves directly even from a
+# full-route device; without the list, nothing of it appears.
+{
+	base
+	printf 'bypass_ruleset_path\t/etc/bypass.json\n'
+} >"$tmp/in"
+render "$tmp/in" "$tmp/out" || fail 'the bypass list was refused'
+[ "$(query "$tmp/out" 'c["dns"]["rules"][0]')" = "{'rule_set': ['ikev2-bypass'], 'action': 'route', 'server': 'upstream'}" ] ||
+	fail 'excluded domains are not resolved for real ahead of FakeIP'
+[ "$(query "$tmp/out" '[r.get("outbound") for r in c["route"]["rules"] if r.get("rule_set") == ["ikev2-bypass"]]')" = "['direct-out']" ] ||
+	fail 'a connection to an excluded domain is not sent direct'
+[ "$(query "$tmp/out" '[i for i, r in enumerate(c["route"]["rules"]) if r.get("rule_set") == ["ikev2-bypass"]][0] < [i for i, r in enumerate(c["route"]["rules"]) if r.get("inbound") == ["tproxy-router-in"]][0]')" = True ] ||
+	fail 'the full-route path is decided before the exclusions'
+[ "$(query "$tmp/out" '[r["path"] for r in c["route"]["rule_set"] if r["tag"] == "ikev2-bypass"]')" = "['/etc/bypass.json']" ] ||
+	fail 'the bypass rule-set is not loaded from its file'
+base >"$tmp/in"
+render "$tmp/in" "$tmp/out"
+[ "$(query "$tmp/out" '"ikev2-bypass" in str(c)')" = False ] || fail 'an empty bypass list left rules behind'
+
 # Values are data: quoting in one cannot change the document around it.
 {
 	base | sed 's#^doh_path	.*#doh_path	/q"],"x":["#'

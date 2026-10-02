@@ -6,6 +6,8 @@
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
 var manualAddressFile = '/etc/pbr-ikev2-addresses.manual.txt';
+var excludeFile = '/etc/pbr-ikev2-domains.exclude.txt';
+var excludeAddressFile = '/etc/pbr-ikev2-addresses.exclude.txt';
 var selectedFile  = '/etc/pbr-ikev2-community-selected.txt';
 var statusFile    = '/tmp/ikev2-domains-community.status';
 var communityHelper = '/usr/libexec/ikev2-domains-community';
@@ -140,7 +142,11 @@ function serviceChip(record, selected) {
 		ipNetworks ? E('span', {
 			'class': 'ikev2-chip-mark',
 			'title': _('Includes direct service IP networks')
-		}, [ 'IP' ]) : ''
+		}, [ 'IP' ]) : '',
+		record.mode === 'exclude' ? E('span', {
+			'class': 'ikev2-chip-mark',
+			'title': _('Never through the tunnel')
+		}, [ '⊘' ]) : ''
 	]);
 	chip.className += (broad ? ' broad' : '') +
 		(selected[name] ? ' selected' : '');
@@ -205,11 +211,11 @@ function renderServiceGroups(services, selected) {
 function parseServiceRecords(text) {
 	return (text || '').replace(/\r/g, '').split('\n').map(function(line) {
 		var fields = line.split('|');
-		if (fields.length !== 5 || !/^[a-z0-9_]+$/.test(fields[0]))
+		if ((fields.length !== 5 && fields.length !== 6) || !/^[a-z0-9_]+$/.test(fields[0]))
 			return null;
 		return {
 			id: fields[0], label: fields[1], origin: fields[2],
-			customized: fields[3], ip: fields[4]
+			customized: fields[3], ip: fields[4], mode: fields[5] || 'route'
 		};
 	}).filter(Boolean);
 }
@@ -340,18 +346,24 @@ return view.extend({
 			L.resolveDefault(fs.read(manualAddressFile), ''),
 			L.resolveDefault(fs.exec(communityHelper, [ 'sources' ]), {
 				code: 1, stdout: ''
-			})
+			}),
+			L.resolveDefault(fs.read(excludeFile), ''),
+			L.resolveDefault(fs.read(excludeAddressFile), '')
 		]);
 	},
 
 	doSave: function(result, onUpdated) {
 		var textarea   = document.querySelector('#ikev2-domain-list');
 		var addressTextarea = document.querySelector('#ikev2-address-list');
+		var excludeTextarea = document.querySelector('#ikev2-exclude-domain-list');
+		var excludeAddressTextarea = document.querySelector('#ikev2-exclude-address-list');
 		var domains;
 		var addresses;
+		var excluded;
+		var excludedAddresses;
 		var selected = Object.keys(serviceSelection).sort();
 
-		if (!textarea || !addressTextarea) {
+		if (!textarea || !addressTextarea || !excludeTextarea || !excludeAddressTextarea) {
 			result.err(_('Editor is not ready.'));
 			return Promise.reject(new Error('textarea-missing'));
 		}
@@ -359,6 +371,8 @@ return view.extend({
 		try {
 			domains = normalizeDomains(textarea.value);
 			addresses = normalizeAddresses(addressTextarea.value);
+			excluded = normalizeDomains(excludeTextarea.value);
+			excludedAddresses = normalizeAddresses(excludeAddressTextarea.value);
 		}
 		catch (error) {
 			result.err(error.message);
@@ -368,13 +382,17 @@ return view.extend({
 		var manualValue   = domains.join('\n') + (domains.length ? '\n' : '');
 		var addressValue = addresses.join('\n') + (addresses.length ? '\n' : '');
 		var selectedValue = selected.join('\n') + (selected.length ? '\n' : '');
+		var excludeValue = excluded.join('\n') + (excluded.length ? '\n' : '');
+		var excludeAddressValue = excludedAddresses.join('\n') + (excludedAddresses.length ? '\n' : '');
 
 			var token = common.inputToken();
 			var inputPrefix = '/tmp/ikev2-domains-input-' + token;
 			return Promise.all([
 				fs.write(inputPrefix + '.domains', manualValue, 384),
 				fs.write(inputPrefix + '.cidrs', addressValue, 384),
-				fs.write(inputPrefix + '.services', selectedValue, 384)
+				fs.write(inputPrefix + '.services', selectedValue, 384),
+				fs.write(inputPrefix + '.xdomains', excludeValue, 384),
+				fs.write(inputPrefix + '.xcidrs', excludeAddressValue, 384)
 			])
 					.then(function() {
 						result.busy(_('Rebuilding the routing list…'));
@@ -382,6 +400,8 @@ return view.extend({
 							_('Unable to start the routing list rebuild')).then(function(response) {
 							textarea.value = manualValue;
 							addressTextarea.value = addressValue;
+							excludeTextarea.value = excludeValue;
+							excludeAddressTextarea.value = excludeAddressValue;
 						var actionId = parseStatus(response.stdout || '').action_id;
 						if (!actionId)
 							throw new Error(_('Action did not start'));
@@ -421,6 +441,8 @@ return view.extend({
 		/* ── Domains tab ────────────────────────────────────────────────── */
 		var manual = data[0] || '';
 		var manualAddresses = data[6] || '';
+		var excludedDomains = data[8] || '';
+		var excludedAddresses = data[9] || '';
 		var selected = {};
 		var selectedLines = (data[1] || '').trim().split(/\s+/).filter(Boolean);
 		var status = (data[2] || '').trim();
@@ -623,6 +645,12 @@ return view.extend({
 			'spellcheck': 'false',
 			'placeholder': '203.0.113.0/24'
 		});
+		// A service of one's own may keep its destinations out of the tunnel
+		// instead of sending them into it; a prepared one always routes.
+		var serviceExclude = E('input', { 'type': 'checkbox', 'class': 'cbi-input-checkbox' });
+		var serviceExcludeLabel = common.fieldLabel(_('Never through the tunnel'),
+			_('Its domains and networks are kept out of the tunnel, like the lists at the bottom of the page.'));
+		var serviceExcludeControl = common.switchLabel(serviceExclude);
 		var serviceEditorTitle = E('h3');
 		var servicePicker = E('select', {
 			'class': 'cbi-input-select'
@@ -656,7 +684,7 @@ return view.extend({
 		var policyTracker = null;
 		var serviceTracker = null;
 
-		var serviceFields = [ serviceId, serviceName, serviceDomains, serviceCidrs ];
+		var serviceFields = [ serviceId, serviceName, serviceExclude, serviceDomains, serviceCidrs ];
 		serviceFields.forEach(function(field) {
 			field.addEventListener('input', function() { serviceDirty = true; });
 			field.addEventListener('change', function() { serviceDirty = true; });
@@ -779,6 +807,10 @@ return view.extend({
 				(details.label === record.id ? serviceLabel(record.id) : details.label) : '';
 			serviceDomains.value = details ? details.domains.replace(/\n$/, '') : '';
 			serviceCidrs.value = details ? details.cidrs.replace(/\n$/, '') : '';
+			var ownService = !record || record.origin === 'custom';
+			serviceExclude.checked = !!details && details.mode === 'exclude';
+			serviceExcludeLabel.style.display = ownService ? '' : 'none';
+			serviceExcludeControl.style.display = ownService ? '' : 'none';
 			serviceReset.style.display = record && record.origin !== 'custom' &&
 				record.customized === '1' ? '' : 'none';
 			serviceDelete.style.display = record && record.origin === 'custom' ? '' : 'none';
@@ -836,11 +868,12 @@ return view.extend({
 			return openService(record, sourceButton);
 		}
 
-		function serviceMeta(operation, id, label) {
+		function serviceMeta(operation, id, label, mode) {
 			return 'operation=' + operation + '\n' +
 				'id=' + id + '\n' +
 				'label=' + label + '\n' +
-				'selected=' + (operation === 'delete' ? '0' : 'keep') + '\n';
+				'selected=' + (operation === 'delete' ? '0' : 'keep') + '\n' +
+				'mode=' + mode + '\n';
 		}
 
 		function reconcileServiceRecord(operation, previous, id, label, hasCidrs) {
@@ -892,7 +925,8 @@ return view.extend({
 			var token = common.inputToken();
 			var prefix = '/tmp/ikev2-service-input-' + token;
 			return Promise.all([
-				fs.write(prefix + '.meta', serviceMeta(operation, id, label), 384),
+				fs.write(prefix + '.meta', serviceMeta(operation, id, label,
+					serviceExclude.checked && (!previous || previous.origin === 'custom') ? 'exclude' : 'route'), 384),
 				fs.write(prefix + '.domains', domains.join('\n') + (domains.length ? '\n' : ''), 384),
 				fs.write(prefix + '.cidrs', cidrs.join('\n') + (cidrs.length ? '\n' : ''), 384)
 			]).then(function() {
@@ -987,6 +1021,7 @@ return view.extend({
 			serviceId,
 			common.fieldLabel(_('Service name')),
 			serviceName,
+			serviceExcludeLabel, serviceExcludeControl,
 			common.fieldLabel(_('Domain suffixes'), _('One domain suffix per line. Subdomains are included automatically.')),
 			serviceDomains,
 			common.fieldLabel(_('IPv4 addresses and networks'), _('Optional; one IPv4 address or CIDR per line.')),
@@ -1081,7 +1116,23 @@ return view.extend({
 						'class': 'cbi-input-textarea ikev2-domain-editor',
 						'spellcheck': 'false',
 						'placeholder': '203.0.113.10\n198.51.100.0/24'
-					}, [ manualAddresses ]))
+					}, [ manualAddresses ])),
+				common.section(_('Domains never through the tunnel'),
+					_('One domain per line; its subdomains are excluded too. It wins over every selected service and custom domain.'),
+					E('textarea', {
+						'id': 'ikev2-exclude-domain-list',
+						'class': 'cbi-input-textarea ikev2-domain-editor',
+						'spellcheck': 'false',
+						'placeholder': 'bank.example'
+					}, [ excludedDomains ])),
+				common.section(_('Addresses never through the tunnel'),
+					_('One IPv4 address or CIDR network per line. Traffic to them never takes the tunnel, whatever selects it.'),
+					E('textarea', {
+						'id': 'ikev2-exclude-address-list',
+						'class': 'cbi-input-textarea ikev2-domain-editor',
+						'spellcheck': 'false',
+						'placeholder': '198.51.100.0/24'
+					}, [ excludedAddresses ]))
 			])
 		]);
 
@@ -1229,8 +1280,12 @@ return view.extend({
 			read: function() {
 				var domains = domainsContent.querySelector('#ikev2-domain-list');
 				var addresses = domainsContent.querySelector('#ikev2-address-list');
+				var excluded = domainsContent.querySelector('#ikev2-exclude-domain-list');
+				var excludedAddresses = domainsContent.querySelector('#ikev2-exclude-address-list');
 				return JSON.stringify([ domains ? domains.value : '',
-					addresses ? addresses.value : '', Object.keys(serviceSelection).sort() ]);
+					addresses ? addresses.value : '', excluded ? excluded.value : '',
+					excludedAddresses ? excludedAddresses.value : '',
+					Object.keys(serviceSelection).sort() ]);
 			}
 		});
 		serviceTracker = common.trackChanges(serviceSave, serviceFields);

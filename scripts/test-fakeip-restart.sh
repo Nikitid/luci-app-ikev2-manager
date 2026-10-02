@@ -45,7 +45,10 @@ config_file="$tmp/domain-router.json"
 ucode_bin=ucode
 runtime_lib_dir="$root/ikev2-manager-runtime/lib"
 ruleset_file="$tmp/rules.json"
+bypass_ruleset_file="$tmp/bypass.json"
+bypass_domain_file="$tmp/bypass.txt"
 init_config() { :; }
+foreign_servers_file() { return 1; }
 defaultv() { printf "%s\n" fakeip; }
 check_config() { printf 'render\n' >>"$tmp/calls"; printf 'rendered\n' >"$config_file"; }
 nft_start() { printf 'nft\n' >>"$tmp/calls"; }

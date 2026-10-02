@@ -517,7 +517,7 @@ reset_application_state() {
 	rm -f /etc/ikev2-manager/domain-router-cache.db
 	rm -f /etc/ikev2-manager/domain-router-rules.json
 	rm -f /etc/ikev2-manager/domain-router.json /etc/ikev2-manager/pbr-set4.dump
-	rm -f /etc/ikev2-dnsmasq.servers
+	rm -f /etc/ikev2-dnsmasq.servers /etc/ikev2-manager/domain-router-bypass.json
 	# Addresses learned for the old selection, kept for the next boot; a
 	# reinstall would otherwise start routing them again.
 	rm -f /etc/ikev2-manager/routing-dst4.dump /etc/ikev2-manager/routing-dst6.dump
@@ -532,6 +532,10 @@ reset_application_state() {
 	for file in /etc/pbr-ikev2-domains.txt \
 		/etc/pbr-ikev2-domains.manual.txt \
 		/etc/pbr-ikev2-addresses.manual.txt \
+		/etc/pbr-ikev2-domains.exclude.txt \
+		/etc/pbr-ikev2-addresses.exclude.txt \
+		/etc/pbr-ikev2-domains.bypass.txt \
+		/etc/pbr-ikev2-addresses.bypass.txt \
 		/etc/pbr-ikev2-community-selected.txt; do
 		: >"$file" || return 1
 		chmod 600 "$file" || return 1

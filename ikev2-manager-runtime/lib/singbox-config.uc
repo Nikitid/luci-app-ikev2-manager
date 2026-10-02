@@ -13,7 +13,8 @@
 // bootstrap_host bootstrap_port doh_host doh_port doh_path fakeip_range
 // final_server dns_address dns_port tproxy_address tproxy_port
 // direct_tproxy_port router_tproxy_port controller_address controller_secret
-// ruleset_path, and optionally https_all 1. Repeated: covered CIDR,
+// ruleset_path, and optionally https_all 1 and bypass_ruleset_path, the
+// domains never to go through the tunnel. Repeated: covered CIDR,
 // https_suffix SUFFIX, and segment TAG PORT SUFFIX... in routing order.
 
 'use strict';
@@ -113,14 +114,24 @@ function render(input) {
 		inet4_range: required(input, 'fakeip_range')
 	});
 
-	let dns_rules = [
+	// Never through the tunnel: resolved for real over WAN, ahead of every
+	// FakeIP rule, whatever selects the name.
+	let bypass = input.bypass_ruleset_path ? [ 'ikev2-bypass' ] : null;
+	let dns_rules = bypass ? [
+		{
+			rule_set: bypass,
+			action: 'route',
+			server: 'upstream'
+		}
+	] : [];
+	push(dns_rules,
 		{
 			rule_set: domains,
 			query_type: [ 'HTTPS' ],
 			action: 'predefined',
 			rcode: 'NOERROR'
 		}
-	];
+	);
 	if (length(input.https_suffix) > 0)
 		push(dns_rules, {
 			domain_suffix: input.https_suffix,
@@ -239,6 +250,11 @@ function render(input) {
 					action: 'route',
 					outbound: 'direct-out'
 				},
+				...(bypass ? [ {
+					rule_set: bypass,
+					action: 'route',
+					outbound: 'direct-out'
+				} ] : []),
 				{
 					inbound: [ 'tproxy-router-in' ],
 					action: 'route',
@@ -263,7 +279,13 @@ function render(input) {
 					tag: 'ikev2-domains',
 					format: 'source',
 					path: required(input, 'ruleset_path')
-				}
+				},
+				...(bypass ? [ {
+					type: 'local',
+					tag: 'ikev2-bypass',
+					format: 'source',
+					path: input.bypass_ruleset_path
+				} ] : [])
 			],
 			final: 'direct-out',
 			default_domain_resolver: 'upstream'

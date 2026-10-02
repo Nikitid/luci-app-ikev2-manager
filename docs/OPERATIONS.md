@@ -441,6 +441,20 @@ Existing
 matching conntrack sessions are removed after a successful update so they
 cannot retain an older WAN route.
 
+**Domains never through the tunnel** and **Addresses never through the
+tunnel**, below the two custom lists, win over every selected service, custom
+entry and service network. A service of one's own can do the same with
+**Never through the tunnel** in its editor; it is marked ⊘ among the chips. A
+full-route device keeps sending everything into the tunnel unless its row's
+Routing box is ticked: then its excluded destinations go to WAN as well. What
+the exclusions add up to is in `/etc/pbr-ikev2-domains.bypass.txt` and
+`/etc/pbr-ikev2-addresses.bypass.txt`; the status reports `excluded_domains`
+and `excluded_cidrs`, and the counters of the `bypass` rules show the traffic:
+
+```sh
+nft list chain inet ikev2_routing prerouting | grep bypass
+```
+
 Prepared services are edited from **Manage services**. This stores a complete
 local override; **Restore prepared service** removes only that override after
 confirmation. **Add service** creates a separately named domain/CIDR list, so

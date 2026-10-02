@@ -444,6 +444,26 @@ return view.extend({
 			return node;
 		}
 
+		// A full-route device sends everything into the tunnel. Ticked, what is
+		// never to go through the tunnel goes to WAN for it too.
+		function respectCheck(entry) {
+			var title = _('Send destinations that never go through the tunnel to WAN for this device too');
+			var control = E('input', {
+				'type': 'checkbox',
+				'checked': entry.respect === '1' ? '' : null,
+				'aria-label': title
+			});
+			control.addEventListener('change', function() {
+				control.disabled = true;
+				self.deviceAction([ 'set-included', entry.addr, control.checked ? '1' : '0' ], null, result)
+					.then(function(status) {
+						if (!status)
+							refreshList(lastDump);
+					});
+			});
+			return E('label', { 'class': 'ikev2-policy-check', 'title': title }, [ control, E('span', {}) ]);
+		}
+
 		// An exclusion with nothing ticked has no effect and the router drops
 		// it, so unticking the last box made the row vanish under the pointer.
 		// That box stays ticked; Remove is what deletes the rule.
@@ -502,7 +522,7 @@ return view.extend({
 					]),
 					E('span', {}, [ common.pill(included ? _('Inclusion') : _('Exclusion'),
 						included ? 'good' : 'warn') ]),
-					included ? E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]) :
+					included ? respectCheck(entry) :
 						policyCheck(entry, 'pbr', _('Exclude from project routing'), checks),
 					included ? E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]) :
 						policyCheck(entry, 'dns', _('Use the device DNS without interception'), checks),

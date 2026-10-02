@@ -72,9 +72,11 @@ device_valid_mode() {
 }
 
 # Per-device opt-outs. Each is stored as a boolean option on the section.
+# respect_exclusions belongs to a full-route device: what is never to go
+# through the tunnel goes to WAN for it too.
 device_valid_flag() {
 	case "${1:-}" in
-		dns_passthrough | dpi_passthrough) return 0 ;;
+		dns_passthrough | dpi_passthrough | respect_exclusions) return 0 ;;
 	esac
 	return 1
 }
@@ -135,7 +137,7 @@ device_prune() {
 	section="$(device_section "$address")"
 	[ "$(uci -q get "${device_config}.${section}.route_mode" 2>/dev/null || true)" = none ] ||
 		return 0
-	for flag in dns_passthrough dpi_passthrough; do
+	for flag in dns_passthrough dpi_passthrough respect_exclusions; do
 		[ "$(uci -q get "${device_config}.${section}.${flag}" 2>/dev/null || echo 0)" != 1 ] ||
 			return 0
 	done

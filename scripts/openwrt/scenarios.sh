@@ -369,6 +369,61 @@ before="$(nft -j list table inet ikev2_device_policy | md5sum)"
 	fail 'unchanged device routing was reinstalled'
 nft list table inet ikev2_device_policy | grep -q '0x01000000' || fail 'full-route devices do not use the tunnel mark'
 
+# --- never through the tunnel, packet by packet -----------------------------
+
+step 'what is never to go through the tunnel stays out of it, a full-route device too when it asks'
+# A client on its own LAN, through a veth pair: the counters show which rule
+# each packet met. The routes and neighbours only get the packets onto the
+# wire; what happens to them afterwards does not matter here.
+ip link add v0 type veth peer name v1
+ip link set v0 up
+ip link set v1 up
+ip addr add 192.168.9.1/24 dev v1
+ip addr add 192.168.9.50/32 dev v0
+ip route add 203.0.113.0/24 dev v0
+for address in 203.0.113.5 203.0.113.6; do
+	ip neigh replace "$address" lladdr "$(cat /sys/class/net/v1/address)" dev v0
+done
+send() { ping -c 1 -W 1 -I 192.168.9.50 "$1" >/dev/null 2>&1 || :; }
+hits() { nft list chain inet ikev2_routing prerouting | grep -F "$1" | grep -c 'counter packets [1-9]'; }
+uci -q batch <<'EOF'
+set network.lan.device='v1'
+set ikev2-manager.device_192_168_9_50=device_policy
+set ikev2-manager.device_192_168_9_50.address='192.168.9.50'
+set ikev2-manager.device_192_168_9_50.route_mode='fullroute'
+set ikev2-manager.device_192_168_9_50.respect_exclusions='1'
+commit
+EOF
+printf '203.0.113.5\n' >/etc/pbr-ikev2-addresses.bypass.txt
+/usr/libexec/ikev2-device-routing sync || fail 'device routing did not install for the veth client'
+"$routing" sync || fail 'policy routing did not install with exclusions'
+send 203.0.113.5
+send 203.0.113.6
+[ "$(hits 'ip saddr @respect4 ip daddr @bypass4')" = 1 ] ||
+	fail 'an excluded address from a full-route device that respects exclusions was not sent to WAN'
+uci delete ikev2-manager.device_192_168_9_50.respect_exclusions
+uci commit ikev2-manager
+"$routing" sync
+send 203.0.113.5
+[ "$(hits 'ip saddr @respect4')" = 0 ] && [ "$(hits 'ip daddr @bypass4 counter')" = 0 ] ||
+	fail 'a full-route device that does not ask had its excluded address taken out of the tunnel'
+uci delete ikev2-manager.device_192_168_9_50
+uci commit ikev2-manager
+/usr/libexec/ikev2-device-routing sync
+"$routing" sync
+send 203.0.113.5
+send 203.0.113.6
+[ "$(nft list chain inet ikev2_routing prerouting | grep -F 'ip daddr @bypass4 counter packets 1 ' | grep -vc saddr)" = 1 ] ||
+	fail 'an excluded address of a selected network was not left out of the tunnel'
+[ "$(hits 'iifname @src_ifaces ip daddr @service4')" = 1 ] ||
+	fail 'the rest of the selected network did not go into the tunnel'
+rm -f /etc/pbr-ikev2-addresses.bypass.txt
+ip link del v0
+uci set network.lan.device='br-lan'
+uci commit network
+"$routing" sync
+/usr/libexec/ikev2-device-routing sync
+
 # --- the inbound users' firewall ------------------------------------------
 
 step 'the inbound user policy installs and fingerprints its table'
@@ -587,6 +642,8 @@ printf 'chatgpt.com\n' >/tmp/selected.txt
 	set +e
 	config=ikev2-manager
 	domain_file=/tmp/selected.txt
+	bypass_domain_file=/tmp/bypass.txt
+	: >"$bypass_domain_file"
 	dnsmasq_servers_file=/etc/ikev2-dnsmasq.servers
 	dns_address=127.0.0.42
 	dns_port=53
@@ -610,6 +667,14 @@ printf 'chatgpt.com\n' >/tmp/selected.txt
 	[ "$(ls -i /etc/ikev2-dnsmasq.servers | awk '{ print $1 }')" = "$inode" ] ||
 		fail 'the servers file was replaced, which a jailed dnsmasq would not see'
 	[ "$(answer example.net)" = 198.18.0.5 ] || fail 'a domain added to the list did not reach sing-box'
+
+	step '  a domain never to route, inside a selected one, goes to the ordinary resolver'
+	printf 'mail.chatgpt.com\n' >"$bypass_domain_file"
+	write_dnsmasq_servers && /etc/init.d/dnsmasq reload
+	[ "$(answer smtp.mail.chatgpt.com)" = 9.9.9.1 ] || fail 'an excluded domain reached sing-box'
+	[ "$(answer chat.chatgpt.com)" = 198.18.0.5 ] || fail 'the exclusion took the selected domain with it'
+	: >"$bypass_domain_file"
+	write_dnsmasq_servers && /etc/init.d/dnsmasq reload
 
 	step '  ordinary names keep resolving while sing-box is down'
 	kill "$(cat /tmp/upstream-53-127.0.0.42.pid)"

@@ -6,6 +6,10 @@
 /etc/pbr-ikev2-domains.txt
 /etc/pbr-ikev2-domains.manual.txt
 /etc/pbr-ikev2-addresses.manual.txt
+/etc/pbr-ikev2-domains.exclude.txt
+/etc/pbr-ikev2-addresses.exclude.txt
+/etc/pbr-ikev2-domains.bypass.txt
+/etc/pbr-ikev2-addresses.bypass.txt
 /etc/pbr-ikev2-community-selected.txt
 /etc/pbr-ikev2-service-cidrs.txt
 /etc/pbr-ikev2-community-cache/

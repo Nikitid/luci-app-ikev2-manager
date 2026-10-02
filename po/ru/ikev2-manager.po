@@ -4151,3 +4151,36 @@ msgstr "Android, приложение strongSwan"
 
 msgid "QR code for a phone"
 msgstr "QR-код для телефона"
+
+msgid "Never through the tunnel"
+msgstr "Никогда через туннель"
+
+msgid "Its domains and networks are kept out of the tunnel, like the lists at the bottom of the page."
+msgstr "Его домены и сети не идут через туннель, как списки внизу страницы."
+
+msgid "Domains never through the tunnel"
+msgstr "Домены никогда через туннель"
+
+msgid "One domain per line; its subdomains are excluded too. It wins over every selected service and custom domain."
+msgstr "Один домен в строке; его поддомены исключаются тоже. Сильнее любого выбранного сервиса и своего домена."
+
+msgid "Addresses never through the tunnel"
+msgstr "Адреса никогда через туннель"
+
+msgid "One IPv4 address or CIDR network per line. Traffic to them never takes the tunnel, whatever selects it."
+msgstr "Один IPv4-адрес или сеть CIDR в строке. Трафик к ним никогда не идёт через туннель, что бы его ни выбирало."
+
+msgid "Domains never to route reloaded without restarting DNS"
+msgstr "Домены «никогда через туннель» перезагружены без перезапуска DNS"
+
+msgid "dnsmasq did not take the domains never to route"
+msgstr "dnsmasq не принял домены «никогда через туннель»"
+
+msgid "Send destinations that never go through the tunnel to WAN for this device too"
+msgstr "Направлять в WAN и для этого устройства адреса, которые никогда не идут через туннель"
+
+msgid "only a user-created service can keep its destinations out of the tunnel"
+msgstr "держать адреса вне туннеля может только свой сервис"
+
+msgid "invalid service mode"
+msgstr "неверный режим сервиса"

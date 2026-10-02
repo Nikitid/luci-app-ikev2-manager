@@ -58,7 +58,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | --- | --- | --- |
 | Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v8.js` |
 | Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v8.js` |
-| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v8.js` |
+| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v9.js` |
 | Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v7.js` |
 | VPN Users | `luci-ikev2-manager/users.js` | `view/ikev2-manager/users-v12.js` |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |

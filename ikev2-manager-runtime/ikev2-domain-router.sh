@@ -18,6 +18,10 @@ config='ikev2-manager'
 domain_file="${IKEV2_DOMAIN_FILE:-/etc/pbr-ikev2-domains.txt}"
 config_file="${IKEV2_DOMAIN_CONFIG:-/etc/ikev2-manager/domain-router.json}"
 ruleset_file="${IKEV2_DOMAIN_RULESET:-/etc/ikev2-manager/domain-router-rules.json}"
+# Domains never to go through the tunnel, and the rule-set sing-box reads
+# them from; it exists only while the list has something in it.
+bypass_domain_file="${IKEV2_BYPASS_DOMAINS:-/etc/pbr-ikev2-domains.bypass.txt}"
+bypass_ruleset_file="${IKEV2_BYPASS_RULESET:-/etc/ikev2-manager/domain-router-bypass.json}"
 work_dir="${IKEV2_DOMAIN_WORK_DIR:-/etc/ikev2-manager/domain-router}"
 state_file="${IKEV2_DOMAIN_STATE:-/var/run/ikev2-domain-router.status}"
 tunnel_dns_state="${IKEV2_TUNNEL_DNS_STATE:-/var/run/ikev2-tunnel-dns.state}"
@@ -435,6 +439,21 @@ render_ruleset() {
 		>"${ruleset_file}.new"
 	chmod 600 "${ruleset_file}.new"
 	mv "${ruleset_file}.new" "$ruleset_file"
+	if bypass_listed; then
+		validate_domain_file "$bypass_domain_file" ||
+			die 'The list of domains never to route is invalid or exceeds resource limits'
+		printf '{"version":3,"rules":[{"domain_suffix":%s}]}\n' \
+			"$(json_array_file "$bypass_domain_file")" >"${bypass_ruleset_file}.new"
+		chmod 600 "${bypass_ruleset_file}.new"
+		mv "${bypass_ruleset_file}.new" "$bypass_ruleset_file"
+	else
+		rm -f "$bypass_ruleset_file"
+	fi
+}
+
+# Whether any domain is never to go through the tunnel.
+bypass_listed() {
+	grep -q '^[[:space:]]*[^#[:space:]]' "$bypass_domain_file" 2>/dev/null
 }
 
 render_config() {
@@ -516,6 +535,8 @@ EOF
 			controller_address "$controller_address" \
 			controller_secret "$controller_secret" \
 			ruleset_path "${ruleset_ref:-$ruleset_file}"
+		! bypass_listed ||
+			printf 'bypass_ruleset_path\t%s\n' "${bypass_ruleset_ref:-$bypass_ruleset_file}"
 		sort -u "$covered_file" | awk 'NF { printf "covered\t%s\n", $1 }'
 		dns_segment_https_suffixes | awk 'NF { printf "https_suffix\t%s\n", $1 }'
 		dns_segment_inputs
@@ -552,6 +573,7 @@ backup_generated() {
 	mkdir -p "$backup_dir"
 	[ -s "$config_file" ] && cp "$config_file" "$backup_dir/config.json"
 	[ -s "$ruleset_file" ] && cp "$ruleset_file" "$backup_dir/rules.json"
+	[ ! -s "$bypass_ruleset_file" ] || cp "$bypass_ruleset_file" "$backup_dir/bypass.json"
 }
 
 restore_generated() {
@@ -563,6 +585,10 @@ restore_generated() {
 	if [ -s "$backup_dir/rules.json" ]; then
 		cp "$backup_dir/rules.json" "${ruleset_file}.restore"
 		mv "${ruleset_file}.restore" "$ruleset_file"
+	fi
+	if [ -s "$backup_dir/bypass.json" ]; then
+		cp "$backup_dir/bypass.json" "${bypass_ruleset_file}.restore"
+		mv "${bypass_ruleset_file}.restore" "$bypass_ruleset_file"
 	fi
 }
 
@@ -969,6 +995,13 @@ render_dnsmasq_servers() {
 		$0 == "" || substr($0, 1, 1) == "#" { next }
 		{ printf "server=/%s/%s\n", tolower($0), target }
 	' "$domain_file"
+	# A domain never to go through the tunnel goes to dnsmasq's own
+	# resolvers, "#", even inside a selected one: the longest name wins.
+	[ ! -r "$bypass_domain_file" ] || awk '
+		{ gsub(/\r/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
+		$0 == "" || substr($0, 1, 1) == "#" { next }
+		{ printf "server=/%s/#\n", tolower($0) }
+	' "$bypass_domain_file"
 }
 
 # The file is bind-mounted into dnsmasq's jail, so it is rewritten in place: a
@@ -1611,6 +1644,8 @@ config_matches_rendered() (
 	cp "$current" "$work/candidate.json" || exit 1
 	ruleset_ref="$ruleset_file"
 	ruleset_file="$work/rules.json"
+	bypass_ruleset_ref="$bypass_ruleset_file"
+	bypass_ruleset_file="$work/bypass.json"
 	config_file="$work/candidate.json"
 	render_config >/dev/null 2>&1 || exit 1
 	"$ucode_bin" "$runtime_lib_dir/singbox-config.uc" equal "$current" "$work/candidate.json"
@@ -1639,6 +1674,7 @@ refresh_rules() {
 	else
 		: >"$backup"
 	fi
+	bypass_before="$(cat "$bypass_ruleset_file" 2>/dev/null)"
 	if ! ( render_ruleset ); then
 		rm -f "$backup"
 		write_status error 'New domain rules failed validation; previous rules remain active'
@@ -1646,6 +1682,18 @@ refresh_rules() {
 	fi
 	if [ -s "$backup" ] && cmp -s "$backup" "$ruleset_file"; then
 		rm -f "$backup"
+		# Only the domains never to route changed, or nothing did: sing-box
+		# reloads its rule-set by itself, dnsmasq is told by HUP.
+		if [ "$bypass_before" != "$(cat "$bypass_ruleset_file" 2>/dev/null)" ] &&
+		   ! foreign_servers_file; then
+			write_dnsmasq_servers &&
+				{ [ "$servers_changed" = 0 ] || /etc/init.d/dnsmasq reload; } || {
+				write_status error 'dnsmasq did not take the domains never to route'
+				return 1
+			}
+			write_status active 'Domains never to route reloaded without restarting DNS'
+			return 0
+		fi
 		write_status active 'FakeIP domain rules are unchanged'
 		return 0
 	fi

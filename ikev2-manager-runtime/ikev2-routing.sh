@@ -40,6 +40,10 @@ sa_helper="${IKEV2_SA_HELPER:-/usr/libexec/ikev2-sa}"
 system_helper="${IKEV2_SYSTEM_HELPER:-/usr/libexec/ikev2-manager-system}"
 vip_file="${IKEV2_VIP_FILE:-/var/run/ikev2-vip4}"
 domain_file="${IKEV2_DOMAIN_LIST:-/etc/pbr-ikev2-domains.txt}"
+# Never through the tunnel: the addresses as listed, and the domains whose
+# addresses dnsmasq learns into a set of their own.
+bypass_cidr_file="${IKEV2_BYPASS_CIDRS:-/etc/pbr-ikev2-addresses.bypass.txt}"
+bypass_domain_file="${IKEV2_BYPASS_DOMAINS:-/etc/pbr-ikev2-domains.bypass.txt}"
 dump_dir="${IKEV2_ROUTING_DUMP_DIR:-/var/run}"
 persist_dir="${IKEV2_ROUTING_PERSIST_DIR:-/etc/ikev2-manager}"
 dnsmasq_file_name='ikev2-routing'
@@ -64,7 +68,7 @@ rule_wan=28002
 # The domain sets are filled by dnsmasq when matching by address, or copied
 # from PBR in overlay mode. With FakeIP sing-box routes by name and they stay
 # empty.
-runtime_volatile_sets='dst4 dst6'
+runtime_volatile_sets='dst4 dst6 bypass_learned4 bypass_learned6'
 # An address dnsmasq answered with stays this long after its last answer: a
 # client may keep using it from its own cache, and the kernel moves the
 # expiry on whenever dnsmasq adds it again. Sets without a timeout kept every
@@ -224,7 +228,7 @@ sync_rules() {
 # The table is changed in place, never recreated: the domain sets hold what
 # dnsmasq learned, and a new table would start them empty.
 write_ruleset() {
-	local set_mark="counter meta mark set meta mark & 0xf0ffffff | $tunnel_mark" family
+	local set_mark="counter meta mark set meta mark & 0xf0ffffff | $tunnel_mark" family set
 	printf 'add table inet %s\n' "$table"
 	printf 'add chain inet %s ikev2_manager_owned { comment "IKEv2 Manager policy routing"; }\n' "$table"
 	# After every hook that decides a packet's path: the device table (-152),
@@ -240,13 +244,17 @@ write_ruleset() {
 	printf 'add set inet %s src_ifaces { type ifname; }\n' "$table"
 	printf 'add set inet %s src4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
 	printf 'add set inet %s service4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
+	printf 'add set inet %s bypass4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
+	printf 'add set inet %s respect4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
 	# The keyword is an argument so that no line reads as a call of BusyBox's
 	# optional timeout applet to scripts/check-busybox-compat.sh.
 	for family in 4 6; do
 		printf 'add set inet %s dst%s { type ipv%s_addr; flags interval, timeout; %s %s; auto-merge; }\n' \
 			"$table" "$family" "$family" timeout "$dst_timeout"
+		printf 'add set inet %s bypass_learned%s { type ipv%s_addr; flags interval, timeout; %s %s; auto-merge; }\n' \
+			"$table" "$family" "$family" timeout "$dst_timeout"
 	done
-	for name in src_ifaces src4 service4; do
+	for name in src_ifaces src4 service4 bypass4 respect4; do
 		printf 'flush set inet %s %s\n' "$table" "$name"
 	done
 	# Whatever an address engine or PBR left there would be routed by address
@@ -260,6 +268,16 @@ write_ruleset() {
 		printf 'add element inet %s src4 { %s }\n' "$table" "$(elements "$work/src4")"
 	[ ! -s "$work/service4" ] ||
 		printf 'add element inet %s service4 { %s }\n' "$table" "$(elements "$work/service4")"
+	[ ! -s "$work/bypass4" ] ||
+		printf 'add element inet %s bypass4 { %s }\n' "$table" "$(elements "$work/bypass4")"
+	[ ! -s "$work/respect4" ] ||
+		printf 'add element inet %s respect4 { %s }\n' "$table" "$(elements "$work/respect4")"
+	# A full-route device that respects the exclusions has them sent to WAN,
+	# where device routing has already sent everything else into the tunnel.
+	for set in bypass4 bypass_learned4; do
+		printf 'add rule inet %s prerouting meta mark & %s == %s ip saddr @respect4 ip daddr @%s counter meta mark set meta mark & 0xf0ffffff | 0x%08x return\n' \
+			"$table" "$mark_mask" "$tunnel_mark" "$set" "$rule_wan_mark"
+	done
 	# A mark of ours is final. So is any other in the bits the rest of the
 	# router uses - a WAN exclusion, FakeIP delivery, another VPN - except
 	# PBR's own tunnel mark, which only says the same thing as ours.
@@ -270,6 +288,11 @@ write_ruleset() {
 	else
 		printf 'add rule inet %s prerouting meta mark & 0x00ff0000 != 0 return\n' "$table"
 	fi
+	# What is never to go through the tunnel is left unmarked, whatever
+	# selects it below.
+	printf 'add rule inet %s prerouting ip daddr @bypass4 counter return\n' "$table"
+	printf 'add rule inet %s prerouting ip daddr @bypass_learned4 counter return\n' "$table"
+	printf 'add rule inet %s prerouting ip6 daddr @bypass_learned6 counter return\n' "$table"
 	for match in 'iifname @src_ifaces' 'ip saddr @src4'; do
 		fakeip_engine ||
 			printf 'add rule inet %s prerouting %s ip daddr @dst4 %s\n' "$table" "$match" "$set_mark"
@@ -277,6 +300,17 @@ write_ruleset() {
 	done
 	fakeip_engine ||
 		printf 'add rule inet %s prerouting iifname @src_ifaces ip6 daddr @dst6 %s\n' "$table" "$set_mark"
+}
+
+# Addresses learned for a domain that is no longer excluded would keep it out
+# of the tunnel for the week they live; a changed list starts them afresh.
+forget_bypass_learned() {
+	local list
+	list="$(sha256sum <"$bypass_domain_file" 2>/dev/null | awk '{ print $1 }')"
+	[ "$(cat "$state_file.bypass" 2>/dev/null)" != "$list" ] || return 0
+	"$nft_bin" flush set inet "$table" bypass_learned4 2>/dev/null || :
+	"$nft_bin" flush set inet "$table" bypass_learned6 2>/dev/null || :
+	printf '%s\n' "$list" >"$state_file.bypass"
 }
 
 # Whether destination set dst4 or dst6 predates the timeout it now carries.
@@ -317,6 +351,15 @@ dnsmasq_confdirs() {
 # sets. Only Standard mode needs it: in reliable mode sing-box answers those
 # names itself.
 render_nftset() {
+	# The excluded domains in either engine: dnsmasq resolves them itself,
+	# and the most specific name wins, so an excluded name under a selected
+	# one fills only this set.
+	[ ! -r "$bypass_domain_file" ] || awk -v table="$table" '
+		{ sub(/#.*/, ""); gsub(/[ \t\r]/, ""); $0 = tolower($0) }
+		/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/ && !/\.\./ {
+			printf "nftset=/%s/4#inet#%s#bypass_learned4,6#inet#%s#bypass_learned6\n", $0, table, table
+		}
+	' "$bypass_domain_file"
 	! fakeip_engine || return 0
 	# Until an Apply retires it, PBR's domain policy still has dnsmasq fill
 	# its sets, which are copied here; two nftset lines for one name would
@@ -433,6 +476,9 @@ desired_state() {
 	sort -u "$work/sources.raw" >"$work/sources" || return 1
 	device_addresses domain >"$work/src4" || die 'Device routing configuration is not valid'
 	address_lines "$service_file" | sort -u >"$work/service4"
+	address_lines "$bypass_cidr_file" | sort -u >"$work/bypass4"
+	device_flag_addresses respect_exclusions >"$work/respect4" ||
+		die 'Device routing configuration is not valid'
 	pbr_tunnel=''
 	local values
 	if values="$(mark_values "$(pbr_mark_rule pbr_ikev2out)")"; then
@@ -446,6 +492,10 @@ desired_state() {
 		cat "$work/src4"
 		printf 'service4\n'
 		cat "$work/service4"
+		printf 'bypass4\n'
+		cat "$work/bypass4"
+		printf 'respect4\n'
+		cat "$work/respect4"
 	} | sha256sum | awk '{ print $1 }')"
 }
 
@@ -477,6 +527,7 @@ sync_runtime() {
 		record_runtime "$state_file" "$signature" ||
 			die 'Unable to read back the installed policy routing rules'
 	fi
+	forget_bypass_learned
 	restore_sets
 	# The switch from PBR keeps what its sets learned; in overlay mode they
 	# are the only source.
@@ -530,7 +581,7 @@ stop_runtime() {
 	"$ip_bin" -4 route flush table "$tunnel_table" 2>/dev/null || :
 	"$ip_bin" -6 route flush table "$tunnel_table" 2>/dev/null || :
 	"$ip_bin" -4 route flush table "$wan_table" 2>/dev/null || :
-	rm -f "$state_file"
+	rm -f "$state_file" "$state_file.bypass"
 }
 
 status_runtime() {

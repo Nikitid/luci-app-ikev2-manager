@@ -564,6 +564,33 @@ function textOf(node) {
 	if (node.textContent) return node.textContent;
 	return (node.children || []).map(textOf).join(' ');
 }
+function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved ]); }
+
+// A full-route device row offers to send what is never to go through the
+// tunnel to WAN; the box says what is stored and sends the device's address.
+const respectCalls = [];
+const fullRoutePage = setupView.render([
+	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
+	{ stdout: 'addr=192.168.1.40 mode=fullroute respect=1\n' }, { stdout: '' }, { stdout: '' }
+]);
+const respectBox = nodesOf(fullRoutePage).find(function(node) {
+	return node.tagName === 'INPUT' && /never go through the tunnel/.test(node.attrs['aria-label'] || '');
+});
+if (!respectBox || !respectBox.checked)
+	fail('a full-route device row does not show that it respects the exclusions');
+// After the other checks that stub exec, and once the job has started.
+const respectStored = Promise.resolve().then(dnsSentReady).then(function() {
+	const execBefore = fsStub.exec;
+	fsStub.exec = function(file, args) { respectCalls.push((args || []).join(' ')); return Promise.resolve({ code: 0, stdout: '' }); };
+	respectBox.checked = false;
+	respectBox.listeners.change();
+	return new Promise(function(resolve) { setImmediate(resolve); }).then(function() {
+		fsStub.exec = execBefore;
+		if (respectCalls[0] !== 'device-async set-included 192.168.1.40 0')
+			fail('unticking the box does not store it for the device: ' + JSON.stringify(respectCalls));
+	});
+});
+
 // A dnsmasq that does not resolve as Reliable mode set it up is named as the
 // reason the mode is degraded.
 const degradedPage = setupView.render([
@@ -662,6 +689,42 @@ if (editorSource.indexOf("fs.exec(communityHelper, [ 'sources' ])") < 0)
 	fail('the policy page does not read list sources');
 if (editorSource.indexOf("startArgs: [ 'refresh-schedule', 'force' ]") < 0)
 	fail('the policy page cannot start a list update');
+// Never through the tunnel: two lists beside the two routed ones, saved with
+// them, and services of one's own that exclude are marked in the catalogue.
+const excludePage = editor.render([
+	'example.com\n', 'banks openai', policyStatus,
+	{ code: 0, stdout: 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' },
+	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
+	{ code: 0, stdout: 'now=1789300000' }, 'bank.example\n', '192.0.2.7\n'
+]);
+const byId = {};
+collect(excludePage, function(node) { return node.attrs && node.attrs.id; }, []).forEach(function(node) {
+	byId[node.attrs.id] = node;
+});
+[ 'ikev2-domain-list', 'ikev2-address-list', 'ikev2-exclude-domain-list', 'ikev2-exclude-address-list' ]
+	.forEach(function(id) { if (!byId[id]) fail('the policy page has no ' + id + ' editor'); });
+if (textOf(byId['ikev2-exclude-domain-list']).trim() !== 'bank.example' ||
+	textOf(byId['ikev2-exclude-address-list']).trim() !== '192.0.2.7')
+	fail('the exclusion editors do not show the stored lists');
+if (!collect(excludePage, function(node) { return node.tagName === 'SPAN' && textOf(node) === '⊘'; }, []).length)
+	fail('an exclusion service is not marked in the catalogue');
+Object.keys(byId).forEach(function(id) { byId[id].value = textOf(byId[id]); });
+byId['ikev2-exclude-domain-list'].value = 'Bank.Example\n\nother.example';
+const policyWrites = {};
+const saveStub = { ok() {}, err() {}, warn() {}, busy() {}, clear() {} };
+// After the DNS form, which shares the write stub and saves asynchronously.
+const policySaved = dnsSent.then(function() {
+	fsStub.write = function(file, content) { policyWrites[file.replace(/^.*\./, '')] = content; return Promise.resolve(); };
+	const previousQuery = documentStub.querySelector;
+	documentStub.querySelector = function(selector) { return byId[selector.replace(/^#/, '')] || null; };
+	return Promise.resolve(editor.doSave(saveStub)).then(function() {
+		documentStub.querySelector = previousQuery;
+		fsStub.write = function() { return Promise.resolve(); };
+		if (policyWrites.xdomains !== 'bank.example\nother.example\n' || policyWrites.xcidrs !== '192.0.2.7/32\n')
+			fail('the exclusion lists are not saved normalised beside the others: ' + JSON.stringify(policyWrites));
+	});
+});
+
 try {
 	editor.render([ '', '', '', { code: 0, stdout: '' }, '', { code: 0, stdout: '' }, '',
 		{ code: 0, stdout: 'now=1789300000\nrefresh_due=1' } ]);
@@ -770,7 +833,7 @@ const reportSaved = Promise.resolve(reportButton.listeners.click()).then(functio
 		fail('the report is not saved as a dated text file');
 });
 
-Promise.all([ dnsSent, reportSaved ]).then(function() {
+Promise.all([ dnsSent, reportSaved, policySaved, respectStored ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS
