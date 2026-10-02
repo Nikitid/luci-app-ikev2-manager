@@ -14,6 +14,14 @@
 #     CERT=/etc/swanctl/x509/<server>.pem  optional
 #     T_services= T_tunnel= T_domains= T_dns= T_inbound= T_cert=
 #     T_security=   optional: doctor security findings
+#     T_traffic=    optional: tunnel throughput
+#
+# Each monitor also charts a number as its "ping", the one that moves before
+# its state does: the watcher's share of a CPU core, the tunnel's round trip,
+# connections through the FakeIP router (or destinations learned when matching
+# by address), how long an uncached name takes to resolve, connected inbound
+# clients and the certificate's days left; T_traffic charts the tunnel's
+# kbit/s. Rates come from counters kept in /var/run between runs.
 #
 # The domain check follows the router's settings: with FakeIP and the
 # router's own traffic routed it checks where a request leaves; otherwise it
@@ -70,6 +78,36 @@ trace() {
 		awk -F= '$1=="ip"{i=$2} $1=="loc"{l=$2} END{if (i!="") print i" "l}'
 }
 
+# Counters from the previous run, for rates. /proc/uptime does not jump with
+# the clock and counts in hundredths of a second.
+STATE=/var/run/ikev2-kuma.state
+uptime_cs() { awk '{ sub(/\./, "", $1); print $1 + 0 }' /proc/uptime; }
+was=$(cat "$STATE" 2>/dev/null)
+previous() { printf '%s\n' "$was" | sed -n "s/^$1=//p" | head -n 1; }
+now_cs=$(uptime_cs)
+then_cs=$(previous uptime_cs)
+elapsed=$(( now_cs - ${then_cs:-$now_cs} ))
+
+# the watcher run by procd, and the CPU it and what it waited for have used
+watcher_pid=''
+for p in $(pidof ikev2-health 2>/dev/null); do
+	[ "$(awk '{ print $4 }' "/proc/$p/stat" 2>/dev/null)" = 1 ] && watcher_pid=$p
+done
+watcher_ticks=$(awk '{ print $14 + $15 + $16 + $17 }' "/proc/$watcher_pid/stat" 2>/dev/null)
+counter() { cat "/sys/class/net/ipsec-out/statistics/$1" 2>/dev/null; }
+rx=$(counter rx_bytes); tx=$(counter tx_bytes)
+{
+	printf 'uptime_cs=%s\n' "$now_cs"
+	printf 'watcher_pid=%s\nwatcher_ticks=%s\n' "$watcher_pid" "$watcher_ticks"
+	printf 'rx=%s\ntx=%s\n' "$rx" "$tx"
+} >"$STATE.new" && mv "$STATE.new" "$STATE"
+# <now> <before>: a per-second rate of the counter's growth over the interval;
+# empty on the first run, after a restart or when it went backwards
+rate() {
+	[ -n "$1" ] && [ -n "$2" ] && [ "$elapsed" -gt 0 ] || return 0
+	awk -v now="$1" -v was="$2" -v cs="$elapsed" 'BEGIN { if (now >= was) printf "%.2f", (now - was) * 100 / cs }'
+}
+
 # report: collect failures, then push; bad lines start with a cross
 bad=""
 fail() { bad="$bad
@@ -90,7 +128,12 @@ v=$(echo "$dr" | field service); [ "$v" = running ] || fail "FakeIP-маршру
 v=$(echo "$dr" | field healthy); [ "$v" = yes ] || fail "FakeIP нездоров: $(echo "$dr" | field message)"
 v=$(echo "$state" | field routing_paused); [ "$v" = 0 ] || fail "маршрутизация на паузе"
 v=$(echo "$doctor" | field dependencies_ok); [ -z "$v" ] || [ "$v" = 1 ] || fail "doctor: не хватает зависимостей"
-report "$T_services" "FakeIP работает, маршрутизация не на паузе"
+# 100 ticks a second are a whole core, so ticks a second are percent
+cpu=''
+[ "$watcher_pid" != "$(previous watcher_pid)" ] ||
+	cpu=$(rate "$watcher_ticks" "$(previous watcher_ticks)")
+report "$T_services" "FakeIP работает, маршрутизация не на паузе${cpu:+, watcher $(printf '%.1f' "$cpu")% ядра}" \
+	"$(printf '%.0f' "${cpu:-0}")"
 
 # 2. outbound tunnel
 $SA installed proxy-out proxy4 || fail "CHILD_SA proxy4 не установлен"
@@ -108,6 +151,15 @@ report "$T_tunnel" "туннель поднят, выход $tun, задержк
 answer=$(resolve "$PBR_DOMAIN" 127.0.0.1)
 how="через туннель"
 if [ "$(echo "$dr" | field engine)" = fakeip ]; then
+	# The controller listens on loopback; its secret goes in on stdin, not
+	# on a command line every process can read.
+	json=/etc/ikev2-manager/domain-router.json
+	controller=$(jsonfilter -i "$json" -e '@.experimental.clash_api.external_controller' 2>/dev/null)
+	secret=$(jsonfilter -i "$json" -e '@.experimental.clash_api.secret' 2>/dev/null)
+	connections=$(printf 'header = "Authorization: Bearer %s"\n' "$secret" |
+		curl -s -m 5 -K - "http://$controller/connections" 2>/dev/null |
+		jsonfilter -e '@.connections[*].id' 2>/dev/null | grep -c .)
+	count="соединений через FakeIP: $connections"
 	case "$answer" in 198.18.*) ;; *) fail "$PBR_DOMAIN резолвится в ${answer:-ничего}, а не в FakeIP";; esac
 	if [ "$(echo "$dr" | field route_router_traffic)" = 1 ]; then
 		pbr=$(trace "$PBR_DOMAIN"); pbr_ip=${pbr%% *}
@@ -123,17 +175,25 @@ else
 	[ -n "$answer" ] && nft get element inet ikev2_routing dst4 "{ $answer }" >/dev/null 2>&1 ||
 		fail "адреса $PBR_DOMAIN (${answer:-нет ответа}) нет в наборе маршрутизации"
 	how="в наборе маршрутизации ($answer)"
+	connections=$(nft list set inet ikev2_routing dst4 2>/dev/null | tr ',' '\n' |
+		grep -c '[0-9]\.[0-9]*\.[0-9]')
+	count="адресов в наборе: $connections"
 fi
 [ -n "$wan_ip" ] && [ "$wan_ip" != "$tun_ip" ] || fail "$CONTROL_DOMAIN выходит не через WAN (${wan:-нет ответа})"
-report "$T_domains" "$PBR_DOMAIN $how, $CONTROL_DOMAIN напрямую ($wan)"
+report "$T_domains" "$PBR_DOMAIN $how, $CONTROL_DOMAIN напрямую ($wan), $count" "${connections:-0}"
 
 # 4. DNS
 [ -n "$(resolve example.com 127.0.0.1)" ] || fail "роутер не резолвит example.com"
+# A name nobody asked for before goes all the way to the upstream; it does
+# not exist, and the answer saying so is what is timed.
+started=$(uptime_cs)
+nslookup "kuma-$now_cs-$$.example.com" 127.0.0.1 >/dev/null 2>&1
+lookup_ms=$(( ($(uptime_cs) - started) * 10 ))
 # doctor reports these only where they apply; a notice is a check not run yet
 for k in dns_segments fakeip_data_plane; do
 	v=$(echo "$doctor" | field "$k"); case "$v" in '' | ok* | notice*) ;; *) fail "doctor $k: $v";; esac
 done
-report "$T_dns" "резолв, DNS-сегменты и FakeIP в порядке"
+report "$T_dns" "резолв, DNS-сегменты и FakeIP в порядке, новое имя за $lookup_ms мс" "$lookup_ms"
 
 # 5. inbound server
 if [ "$(echo "$state" | field server_enabled)" = 1 ]; then
@@ -149,7 +209,8 @@ if [ "$(echo "$state" | field server_enabled)" = 1 ]; then
 else
 	fail "входящий сервер выключен"
 fi
-report "$T_inbound" "сервер принимает, клиентов: $($SA sessions ikev2-in 2>/dev/null | grep -c .)"
+clients=$($SA sessions ikev2-in 2>/dev/null | grep -c .)
+report "$T_inbound" "сервер принимает, клиентов: $clients" "$clients"
 
 # 6. server certificate
 if [ -n "$CERT" ] && [ -f "$CERT" ] && ! command -v openssl >/dev/null 2>&1; then
@@ -162,10 +223,22 @@ elif [ -n "$CERT" ] && [ -f "$CERT" ]; then
 	left=$(( ( $(date -d "$end" +%s 2>/dev/null || echo 0) - $(date +%s) ) / 86400 ))
 	cn=$(openssl x509 -in "$CERT" -noout -subject 2>/dev/null | sed 's/.*CN *= *//')
 	[ "$left" -gt 21 ] || fail "$cn истекает через $left дн."
-	report "$T_cert" "$cn действует ещё $left дн."
+	report "$T_cert" "$cn действует ещё $left дн." "$left"
 fi
 
-# 7. security findings from doctor (only when a token is configured)
+# 7. tunnel throughput since the last run (only when a token is configured)
+if [ -n "$T_traffic" ]; then
+	down=$(rate "$rx" "$(previous rx)"); up=$(rate "$tx" "$(previous tx)")
+	if [ -n "$down" ] && [ -n "$up" ]; then
+		kbit=$(awk -v d="$down" -v u="$up" 'BEGIN { printf "%.0f", (d + u) * 8 / 1000 }')
+		report "$T_traffic" "$(awk -v d="$down" -v u="$up" 'BEGIN {
+			printf "через туннель: вниз %.2f, вверх %.2f Мбит/с", d * 8 / 1e6, u * 8 / 1e6 }')" "$kbit"
+	else
+		report "$T_traffic" "первый замер, скорость будет в следующем" 0
+	fi
+fi
+
+# 8. security findings from doctor (only when a token is configured)
 if [ -n "$T_security" ]; then
 	# doctor prints security_ok only when it is 0
 	[ "$(echo "$doctor" | field security_ok)" != 0 ] ||

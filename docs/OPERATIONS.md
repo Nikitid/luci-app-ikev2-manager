@@ -222,6 +222,15 @@ a config others could write; list the directory in `/etc/sysupgrade.conf`.
 Use `https` for the Kuma URL where possible: the tokens are part of it. A
 push monitor goes down on its own when the router stops reporting.
 
+Each monitor also charts a number in its ping field, the one that moves before
+its state does: the watcher's share of one CPU core (with what it waited for),
+the tunnel's round trip in milliseconds, connections through the FakeIP router
+or, when matching by address, destinations in the routing set, how long a name
+nobody asked for before takes to resolve, connected inbound clients and the
+certificate's days left. An optional `T_traffic` monitor charts the tunnel's
+throughput in kbit/s. Rates are taken between runs from counters kept in
+`/var/run/ikev2-kuma.state`, so the first run after a boot reports none.
+
 The same page stores an ordered tunnel-DNS DoH list and IPv4 bootstrap
 resolvers. The first DoH endpoint is primary. Every three minutes, and every
 minute while it fails, the health process verifies its TLS path through
