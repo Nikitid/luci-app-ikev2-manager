@@ -4130,3 +4130,24 @@ msgstr "Диагностический отчёт"
 
 msgid "A text file of the router state for a bug report. Passwords, keys and tokens are left out; public and MAC addresses and host and user names are replaced."
 msgstr "Текстовый файл с состоянием роутера для сообщения об ошибке. Пароли, ключи и токены в него не попадают; публичные и MAC-адреса, имена хостов и пользователей заменены."
+
+msgid "Could not create the link"
+msgstr "Не удалось создать ссылку"
+
+msgid "Scan it with the phone camera before %s. The link opens once, from the local network or the VPN."
+msgstr "Отсканируйте камерой телефона до %s. Ссылка открывается один раз, из локальной сети или через VPN."
+
+msgid "QR code for %s"
+msgstr "QR-код для %s"
+
+msgid "The profile the link opens contains the VPN password. Show the code only to the phone it is for."
+msgstr "Профиль по ссылке содержит пароль VPN. Показывайте код только тому телефону, для которого он."
+
+msgid "iPhone or iPad"
+msgstr "iPhone или iPad"
+
+msgid "Android, strongSwan app"
+msgstr "Android, приложение strongSwan"
+
+msgid "QR code for a phone"
+msgstr "QR-код для телефона"

@@ -1942,6 +1942,14 @@ case "${1:-}" in
 		[ "$#" -eq 3 ] || die 'Expected: profile-export apple|windows|android user'
 		export_user_profile "$2" "$3"
 		;;
+	profile-link)
+		[ "$#" -eq 3 ] || die 'Expected: profile-link apple|android user'
+		profile_link_create "$2" "$3"
+		;;
+	profile-link-serve)
+		[ "$#" -eq 3 ] || die 'Expected: profile-link-serve token address'
+		profile_link_serve "$2" "$3"
+		;;
 	server-get)
 		for key in enabled identity pool4 gateway4 dns4 cert_source cert_file key_file dpd ike_rekey child_rekey mtu mobike fragmentation custom_config; do
 			printf '%s=%s\n' "$key" "$(getv server "$key")"

@@ -41,6 +41,7 @@ install_file 600 openwrt/files/etc/pbr-ikev2-addresses.manual.txt /etc/pbr-ikev2
 install_file 644 openwrt/files/lib/upgrade/keep.d/ikev2-manager /lib/upgrade/keep.d/ikev2-manager
 
 install_file 755 luci-ikev2-manager/ikev2-manager.sh /usr/libexec/ikev2-manager
+install_file 755 luci-ikev2-manager/ikev2-profile.cgi /www/cgi-bin/ikev2-profile
 install_file 755 ikev2-manager-runtime/ikev2-manager-system.sh /usr/libexec/ikev2-manager-system
 install_file 644 ikev2-manager-runtime/lib/actions.sh /usr/libexec/ikev2-manager.d/actions.sh
 install_file 644 ikev2-manager-runtime/lib/package-manager.sh /usr/libexec/ikev2-manager.d/package-manager.sh

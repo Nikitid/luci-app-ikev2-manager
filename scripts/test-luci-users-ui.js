@@ -125,6 +125,9 @@ function setBusy(button, busy) {
 }
 
 let users = [];
+const linkRequests = [];
+const qrPayloads = [];
+const uqr = { renderSVG: text => { qrPayloads.push(text); return '<svg width="10" height="10"></svg>'; } };
 let userInput = '';
 let modal = null;
 const fileApi = {
@@ -142,6 +145,10 @@ const fileApi = {
 			stdout: 'allow_router=0\nallow_internet=1\nallow_lan=1\n'
 		});
 		if (args[0] === 'server-get') return Promise.resolve({ stdout: 'custom_config=0\n' });
+		if (args[0] === 'profile-link') {
+			linkRequests.push(args.slice(1).join(' '));
+			return Promise.resolve({ stdout: 'token=0123456789abcdef0123456789abcdef\nexpires=1790000600\n' });
+		}
 		if (args[0] === 'user-secret-set') {
 			const fields = userInput.split('\n');
 			if (fields[0] === 'add') users.push({
@@ -215,7 +222,8 @@ const ui = {
 };
 const poll = { add: () => {} };
 const L = { resolveDefault: (promise, fallback) => Promise.resolve(promise).catch(() => fallback) };
-const windowMock = { confirm: () => true, setTimeout, Event: function() {} };
+const windowMock = { confirm: () => true, setTimeout, Event: function() {},
+	location: { origin: 'http://192.168.1.1' } };
 const documentMock = {};
 const view = { extend: object => object };
 const translate = value => value;
@@ -225,8 +233,8 @@ const source = fsNode.readFileSync('luci-ikev2-manager/users.js', 'utf8');
 // every page agree on one build; here it only has to be a versioned name.
 assert(/'require ikev2-manager\.shared-v\d+ as common';/.test(source),
 	'VPN Users uses a cache-versioned shared style and translation module');
-const factory = new Function('view', 'fs', 'ui', 'poll', 'common', 'L', 'E', '_', 'window', 'document', source);
-const page = factory(view, fileApi, ui, poll, common, L, E, translate, windowMock, documentMock);
+const factory = new Function('view', 'fs', 'ui', 'poll', 'common', 'L', 'E', '_', 'window', 'document', 'uqr', source);
+const page = factory(view, fileApi, ui, poll, common, L, E, translate, windowMock, documentMock, uqr);
 
 (async () => {
 	const data = await page.load();
@@ -258,6 +266,18 @@ const page = factory(view, fileApi, ui, poll, common, L, E, translate, windowMoc
 		'user card has a direct Android profile action');
 	assert(!root.textContent.includes('Client profiles'),
 		'user card does not require a profile download dialog');
+
+	// The QR asks the router for a one-time link to the chosen phone's
+	// profile and encodes that link, on the address the page was opened on.
+	await findByTitle(root, 'QR code for a phone').attrs.click();
+	const android = find(modal, 'button', 'Android, strongSwan app');
+	await android.attrs.click();
+	assert.deepStrictEqual(linkRequests, [ 'android test-user' ], 'the QR asks for a link to the Android profile');
+	assert.deepStrictEqual(qrPayloads,
+		[ 'http://192.168.1.1/cgi-bin/ikev2-profile?t=0123456789abcdef0123456789abcdef' ],
+		'the QR encodes the one-time link on the page origin');
+	assert(modal.textContent.includes('The link opens once'), 'the dialog says the link opens once');
+	ui.hideModal();
 
 	await findByTitle(root, 'Access policy').attrs.click({
 		currentTarget: findByTitle(root, 'Access policy')

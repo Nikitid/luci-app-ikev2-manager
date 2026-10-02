@@ -148,6 +148,8 @@ define Package/luci-app-ikev2-manager/install
 
 	$(INSTALL_DIR) $(1)/usr/libexec
 	$(INSTALL_BIN) ./luci-ikev2-manager/ikev2-manager.sh $(1)/usr/libexec/ikev2-manager
+	$(INSTALL_DIR) $(1)/www/cgi-bin
+	$(INSTALL_BIN) ./luci-ikev2-manager/ikev2-profile.cgi $(1)/www/cgi-bin/ikev2-profile
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-manager-system.sh $(1)/usr/libexec/ikev2-manager-system
 	$(INSTALL_DIR) $(1)/usr/libexec/ikev2-manager.d
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/actions.sh $(1)/usr/libexec/ikev2-manager.d/actions.sh

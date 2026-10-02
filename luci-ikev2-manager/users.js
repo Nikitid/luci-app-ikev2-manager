@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require poll';
+'require uqr';
 'require ikev2-manager.shared-v11 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
@@ -104,9 +105,9 @@ function downloadWindowsInstaller(button, result) {
 
 function downloadProfile(platform, user, button, result) {
 	var suffix = platform === 'apple' ? '.mobileconfig' :
-		(platform === 'windows' ? '.vpnv2.xml' : '-android.txt');
+		(platform === 'windows' ? '.vpnv2.xml' : '.sswan');
 	var mime = platform === 'apple' ? 'application/x-apple-aspen-config' :
-		(platform === 'windows' ? 'application/xml' : 'text/plain');
+		(platform === 'windows' ? 'application/xml' : 'application/vnd.strongswan.profile');
 	var safeUser = user.replace(/[^A-Za-z0-9._-]+/g, '_');
 	return common.runAction({
 		button: button,
@@ -128,35 +129,61 @@ function downloadProfile(platform, user, button, result) {
 	});
 }
 
-function profileDialog(user, result) {
+// A QR for the phone itself: it opens a link the router serves once, within
+// ten minutes and only inside its own networks, so the password never sits
+// in a file on the computer.
+function qrIcon() {
+	return E('<svg class="ikev2-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+		'<path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h2v2h-2v-2Zm4 0h2v2h-2v-2Zm-4 4h2v2h-2v-2Zm4 0h2v2h-2v-2Zm-2-2h2v2h-2v-2Z"></path></svg>');
+}
+
+function qrDialog(user) {
+	// White behind the code whatever the theme: a camera reads dark on light.
+	var code = E('div', {
+		'class': 'ikev2-profile-qr',
+		'style': 'width:220px;max-width:100%;margin:1rem auto 0;padding:12px;background:#fff;box-sizing:border-box'
+	});
+	var result = common.inlineResult();
 	function platformButton(platform, label) {
-		var button = E('button', {
-			'class': 'cbi-button cbi-button-action', 'type': 'button'
-		}, [ label ]);
+		var button = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button' }, [ label ]);
 		button.addEventListener('click', function() {
-			return downloadProfile(platform, user, button, result);
+			return common.runAction({
+				button: button,
+				result: result,
+				busy: _('Generating...'),
+				run: function() {
+					return common.execChecked(helper, [ 'profile-link', platform, user ],
+						_('Could not create the link')).then(function(response) {
+						var link = common.parseKeyValues(response.stdout || '');
+						if (!/^[0-9a-f]{32}$/.test(link.token || ''))
+							throw new Error(_('Could not create the link'));
+						var url = window.location.origin + '/cgi-bin/ikev2-profile?t=' + link.token;
+						var svg = uqr.renderSVG(url, {
+							pixelSize: 4, whiteColor: 'white', blackColor: 'black', ecc: 'M', border: 4
+						}).replace(/<svg([^>]*) width="([0-9]+)" height="([0-9]+)"/,
+							'<svg$1 viewBox="0 0 $2 $3"');
+						code.replaceChildren(E(svg));
+						var until = new Date(Number(link.expires) * 1000);
+						result.ok(_('Scan it with the phone camera before %s. The link opens once, from the local network or the VPN.')
+							.format(until.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+					});
+				}
+			});
 		});
 		return button;
 	}
-	ui.showModal(_('Client profile for %s').format(user), [
+	ui.showModal(_('QR code for %s').format(user), [
 		E('div', { 'class': 'ikev2-note warn' }, [
-			_('Apple and Android downloads contain the VPN password. Store them securely and delete them after installation.')
+			_('The profile the link opens contains the VPN password. Show the code only to the phone it is for.')
 		]),
-		E('div', { 'class': 'ikev2-form-grid', 'style': 'margin-top:1rem' }, [
-			common.fieldLabel(_('Apple'),
-				_('Install the mobileconfig in Settings on iPhone, iPad or macOS.')),
-			platformButton('apple', _('Download mobileconfig')),
-			common.fieldLabel(_('Windows'),
-				_('Download this XML, then select it in Nikitid IKEv2 Setup. The same application works with profiles from any server.')),
-			platformButton('windows', _('Download VPNv2 XML')),
-			common.fieldLabel(_('Android'),
-				_('Use these values in the built-in IKEv2 EAP client.')),
-			platformButton('android', _('Download setup details'))
+		E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:1rem' }, [
+			platformButton('apple', _('iPhone or iPad')),
+			platformButton('android', _('Android, strongSwan app'))
 		]),
+		code,
+		result.node,
 		E('div', { 'class': 'right', 'style': 'margin-top:1rem' }, [
-			E('button', {
-				'class': 'btn', 'type': 'button', 'click': ui.hideModal
-			}, [ _('Close') ])
+			E('button', { 'class': 'btn', 'type': 'button', 'click': ui.hideModal }, [ _('Close') ])
 		])
 	]);
 }
@@ -618,7 +645,14 @@ return view.extend({
 							}),
 							squareAction('android', _('Download Android profile'), 'cbi-button-action', function(ev) {
 								return downloadProfile('android', entry.name, ev.currentTarget, actionResult);
-							})
+							}),
+							E('button', {
+								'class': 'cbi-button ikev2-platform-action cbi-button-action',
+								'type': 'button',
+								'title': _('QR code for a phone'),
+								'aria-label': _('QR code for a phone'),
+								'click': function() { qrDialog(entry.name); }
+							}, [ qrIcon() ])
 						]),
 						squareAction('settings', _('Access policy'), 'cbi-button-edit', function() {
 							userDialog(_('VPN user access'), entry, false, actionResult, refresh);

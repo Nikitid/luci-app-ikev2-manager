@@ -1,6 +1,10 @@
 #!/bin/sh
-# Client profile export for Apple, Windows and Android devices. Sourced by
-# ikev2-manager, whose configuration helpers and globals it uses.
+# Client profile export for Apple, Windows and Android devices, and the
+# one-time links a phone opens from a QR. Sourced by ikev2-manager, whose
+# configuration helpers and globals it uses.
+
+profile_link_dir="${IKEV2_PROFILE_LINK_DIR:-/var/run/ikev2-profile-links}"
+profile_link_ttl=600
 
 xml_escape() {
 	printf '%s' "$1" | awk '{
@@ -19,6 +23,25 @@ xml_escape() {
 			else
 				printf "%s", character
 		}
+	}'
+}
+
+# Character by character, as xml_escape: BusyBox awk reads backslashes in a
+# gsub replacement differently from other awks, and a quote in a password then
+# went out unescaped.
+json_escape() {
+	printf '%s' "$1" | awk 'BEGIN { RS = "\001" } {
+		out = ""
+		for (i = 1; i <= length($0); i++) {
+			c = substr($0, i, 1)
+			if (c == "\\") out = out "\\\\"
+			else if (c == "\"") out = out "\\\""
+			else if (c == "\t") out = out "\\t"
+			else if (c == "\r") out = out "\\r"
+			else if (c == "\n") out = out "\\n"
+			else out = out c
+		}
+		printf "%s", out
 	}'
 }
 
@@ -110,19 +133,18 @@ export_windows_profile() {
 EOF
 }
 
+# Android gets the strongSwan app's own profile, which the app imports from a
+# download. Its "shared_secret" carries the password, from app version 2.5.3.
 export_android_profile() {
-	local user="$1" password
-	password="$(profile_password "$user")" || die 'VPN user does not exist'
-	cat <<EOF
-Profile: IKEv2 - $user
-Type: IKEv2 EAP (username/password)
-Server: $(getv server identity)
-Remote ID: $(getv server identity)
-Username: $user
-Password: $password
-CA certificate: Use system certificates / automatic validation
-DNS supplied by VPN: $(getv server dns4)
-EOF
+	local user="$1" identity password mtu uuid
+	identity="$(getv server identity)"
+	password="$(profile_password "$user")" || die 'VPN user password cannot be decoded'
+	mtu="$(getv_default server mtu 1400)"
+	case "$mtu" in '' | *[!0-9]*) mtu=1400 ;; esac
+	uuid="$(profile_uuid "android-profile:$identity:$user" | tr 'A-F' 'a-f')"
+	printf '{"uuid":"%s","name":"%s","type":"ikev2-eap","remote":{"addr":"%s","id":"%s"},"local":{"eap_id":"%s","shared_secret":"%s"},"mtu":%s}\n' \
+		"$uuid" "$(json_escape "IKEv2 - $user")" "$(json_escape "$identity")" \
+		"$(json_escape "$identity")" "$(json_escape "$user")" "$(json_escape "$password")" "$mtu"
 }
 
 export_user_profile() {
@@ -136,4 +158,84 @@ export_user_profile() {
 		android) export_android_profile "$user" ;;
 		*) die 'Expected profile platform: apple, windows or android' ;;
 	esac
+}
+
+# A link a phone opens once, from the QR the VPN Users page shows: it lives
+# ten minutes and holds the user and the platform, not the profile, which is
+# made when the link is opened.
+profile_link_create() {
+	local platform="${1:-}" user="${2:-}" now expires token link old
+	case "$platform" in apple | android) ;; *) die 'Expected profile platform: apple or android' ;; esac
+	valid_user "$user" || die 'Invalid username'
+	user_exists "$user" || die 'VPN user does not exist'
+	[ "$(getv server enabled)" = 1 ] || die 'Inbound server is disabled'
+	now="$(date +%s)"
+	expires=$((now + profile_link_ttl))
+	mkdir -p "$profile_link_dir" && chmod 700 "$profile_link_dir" ||
+		die 'Unable to prepare the profile links'
+	for link in "$profile_link_dir"/*; do
+		[ -f "$link" ] || continue
+		old="$(cut -f3 "$link" 2>/dev/null)"
+		case "$old" in '' | *[!0-9]*) old=0 ;; esac
+		[ "$old" -gt "$now" ] || rm -f "$link"
+	done
+	token="$(openssl rand -hex 16)" || die 'Unable to create a profile link'
+	( umask 077; printf '%s\t%s\t%s\n' "$platform" "$user" "$expires" >"$profile_link_dir/$token" ) ||
+		die 'Unable to create a profile link'
+	printf 'token=%s\nexpires=%s\n' "$token" "$expires"
+}
+
+# Only from the router's own networks and the VPN: the link carries the
+# password, and the web server may be reachable from further out.
+profile_link_local_address() {
+	local address="${1#::ffff:}"
+	case "$address" in
+		10.* | 192.168.* | 127.*) return 0 ;;
+		172.1[6-9].* | 172.2[0-9].* | 172.3[01].*) return 0 ;;
+		100.6[4-9].* | 100.[7-9][0-9].* | 100.1[01][0-9].* | 100.12[0-7].*) return 0 ;;
+		[Ff][Ee][89AaBb]?:* | [Ff][CcDd]??:*) return 0 ;;
+	esac
+	return 1
+}
+
+profile_link_refuse() {
+	printf 'Status: %s\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n\r\n%s\n' \
+		"$1" "$2"
+}
+
+# What the CGI answers: the profile once, inside its ten minutes.
+profile_link_serve() {
+	local token="${1:-}" address="${2:-}" file platform user expires body type name
+	case "$token" in
+		*[!0-9a-f]* | '') profile_link_refuse '404 Not Found' 'Unknown link.'; return 0 ;;
+	esac
+	[ "${#token}" -eq 32 ] || { profile_link_refuse '404 Not Found' 'Unknown link.'; return 0; }
+	profile_link_local_address "$address" || {
+		profile_link_refuse '403 Forbidden' 'Open this link from the local network or the VPN.'
+		return 0
+	}
+	file="$profile_link_dir/$token"
+	# Renaming succeeds once, so a second scan, even at the same moment,
+	# finds nothing.
+	mv "$file" "$file.used" 2>/dev/null || {
+		profile_link_refuse '410 Gone' 'This link was used already or has expired.'
+		return 0
+	}
+	IFS="$(printf '\t')" read -r platform user expires <"$file.used" || :
+	rm -f "$file.used"
+	case "$expires" in '' | *[!0-9]*) expires=0 ;; esac
+	[ "$expires" -gt "$(date +%s)" ] || {
+		profile_link_refuse '410 Gone' 'This link was used already or has expired.'
+		return 0
+	}
+	if ! body="$( ( export_user_profile "$platform" "$user" ) 2>/dev/null)"; then
+		profile_link_refuse '410 Gone' 'This profile is no longer available.'
+		return 0
+	fi
+	case "$platform" in
+		apple) type='application/x-apple-aspen-config'; name="$user.mobileconfig" ;;
+		*) type='application/vnd.strongswan.profile'; name="$user.sswan" ;;
+	esac
+	printf 'Status: 200 OK\r\nContent-Type: %s\r\nContent-Disposition: attachment; filename="%s"\r\nCache-Control: no-store\r\n\r\n%s\n' \
+		"$type" "$name" "$body"
 }

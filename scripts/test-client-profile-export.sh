@@ -50,7 +50,6 @@ export_profile() {
 
 export_profile apple >"$tmp/apple.mobileconfig"
 export_profile windows >"$tmp/windows.xml"
-export_profile android >"$tmp/android.txt"
 
 python3 - "$tmp/apple.mobileconfig" "$tmp/windows.xml" <<'PY'
 import sys
@@ -78,9 +77,51 @@ if grep -Fq "$password" "$tmp/windows.xml" || grep -Fq "$encoded" "$tmp/windows.
 	printf 'Windows VPNv2 profile unexpectedly contains the user password\n' >&2
 	exit 1
 fi
-grep -Fq "Password: $password" "$tmp/android.txt"
-if grep -Fq "Password: 0s$encoded" "$tmp/android.txt"; then
-	printf 'Android instructions contain the encoded strongSwan secret\n' >&2
+
+# Android gets the strongSwan app's profile: JSON, with the password intact
+# rather than the encoded secret.
+export_profile android >"$tmp/user.sswan"
+python3 - "$tmp/user.sswan" "$password" <<'PY'
+import json
+import sys
+
+profile = json.load(open(sys.argv[1]))
+assert profile["type"] == "ikev2-eap", profile
+assert profile["remote"] == {"addr": "vpn.example.test", "id": "vpn.example.test"}, profile
+assert profile["local"] == {"eap_id": "user.name@example", "shared_secret": sys.argv[2]}, profile
+assert profile["mtu"] == 1400, profile
+PY
+
+# A link opens once, inside its ten minutes, from a private address only.
+manager() {
+	PATH="$tmp/bin:$PATH" \
+	IKEV2_ROOT="$tmp/root" \
+	IKEV2_UCI_BIN="$tmp/bin/uci" \
+	IKEV2_RUNTIME_LIB_DIR="$tmp/root/usr/libexec/ikev2-manager.d" \
+	IKEV2_PROFILE_LINK_DIR="$tmp/links" \
+		sh "$root/luci-ikev2-manager/ikev2-manager.sh" "$@"
+}
+token="$(manager profile-link android user.name@example | sed -n 's/^token=//p')"
+printf '%s\n' "$token" | grep -Eq '^[0-9a-f]{32}$' || { printf 'no link token: %s\n' "$token" >&2; exit 1; }
+[ "$(stat -f %Lp "$tmp/links" 2>/dev/null || stat -c %a "$tmp/links")" = 700 ] ||
+	{ printf 'the link directory is readable by others\n' >&2; exit 1; }
+manager profile-link-serve "$token" 203.0.113.7 >"$tmp/served"
+grep -q '^Status: 403' "$tmp/served" || { printf 'a public address got the profile\n' >&2; exit 1; }
+manager profile-link-serve "$token" '::ffff:192.168.1.20' >"$tmp/served"
+grep -q '^Status: 200' "$tmp/served" &&
+	grep -q '^Content-Type: application/vnd.strongswan.profile' "$tmp/served" &&
+	grep -Fq "\"shared_secret\":" "$tmp/served" ||
+	{ printf 'a local phone did not get the profile\n' >&2; cat "$tmp/served" >&2; exit 1; }
+manager profile-link-serve "$token" 192.168.1.20 >"$tmp/served"
+grep -q '^Status: 410' "$tmp/served" || { printf 'a link opened twice\n' >&2; exit 1; }
+token="$(manager profile-link apple user.name@example | sed -n 's/^token=//p')"
+printf 'apple\tuser.name@example\t1\n' >"$tmp/links/$token"
+manager profile-link-serve "$token" 10.20.30.15 >"$tmp/served"
+grep -q '^Status: 410' "$tmp/served" || { printf 'an expired link was served\n' >&2; exit 1; }
+manager profile-link-serve '../etc/passwd' 10.20.30.15 >"$tmp/served"
+grep -q '^Status: 404' "$tmp/served" || { printf 'a malformed token was looked up\n' >&2; exit 1; }
+if manager profile-link windows user.name@example >/dev/null 2>&1; then
+	printf 'a link was made for a platform a phone cannot open\n' >&2
 	exit 1
 fi
 

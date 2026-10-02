@@ -352,6 +352,16 @@ the router came back matching by address with its segments down. Disabling
 now uses `shutdown`, which keeps the engine, and enabling restarts the
 segments and resumes FakeIP.
 
+## BusyBox awk reads a gsub replacement's backslashes its own way
+
+`gsub(/"/, "\\\"")` puts a backslash before the quote in macOS and GNU awk.
+BusyBox awk drops it, so a JSON profile went out with a password's quote and
+backslash unescaped - and every test passed, because they run on the
+developer's awk. Escape character by character with `substr`, as
+`xml_escape` and `json_escape` in `lib/manager-profiles.sh` do.
+
+Guarded by `scripts/openwrt/scenarios.sh`.
+
 ## dnsmasq's servers file is a bind mount in its jail
 
 OpenWrt starts dnsmasq in ujail and mounts the `serversfile` option's file

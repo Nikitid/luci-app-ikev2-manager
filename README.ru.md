@@ -29,8 +29,10 @@ Ubuntu](https://github.com/Nikitid/ikev2-ubuntu).
 - DNS upstream через UDP, TCP, DoT, DoH, HTTP/3, DoQ или DNSCrypt, включая
   явный аварийный DNS от WAN-провайдера и независимые группы резолверов
   для заданных доменных суффиксов;
-- профили входящих клиентов для Apple, Android и Windows VPNv2/NRPT, включая
-  универсальное приложение Windows и отдельные профили VPNv2 XML без PowerShell;
+- профили входящих клиентов для Apple, Android (приложение strongSwan) и
+  Windows VPNv2/NRPT, включая универсальное приложение Windows и отдельные
+  профили VPNv2 XML без PowerShell, и одноразовую QR-ссылку, по которой профиль
+  ставится на телефон без файла на компьютере;
 - ACME и интерфейс LuCI на русском и английском языках.
 
 ## Требования

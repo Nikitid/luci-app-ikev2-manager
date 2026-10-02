@@ -68,6 +68,7 @@
 				"/usr/libexec/ikev2-manager disconnect-all": [ "exec" ],
 				"/usr/libexec/ikev2-manager diagnostic-start *": [ "exec" ],
 				"/usr/libexec/ikev2-manager profile-export *": [ "exec" ],
+				"/usr/libexec/ikev2-manager profile-link *": [ "exec" ],
 				"/tmp/ikev2-acme-*.in": [ "write" ],
 				"/tmp/ikev2-manager-dns-*.in": [ "write" ],
 				"/tmp/ikev2-manager-dns-segment-*.in": [ "write" ],

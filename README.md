@@ -27,8 +27,10 @@ remote gateway.
   inbound VPN clients;
 - DNS upstream over UDP, TCP, DoT, DoH, HTTP/3, DoQ or DNSCrypt, including
   independent resolver groups for explicit domain suffixes;
-- inbound client profiles for Apple, Android and Windows VPNv2/NRPT, including
-  a reusable Windows setup application plus separate VPNv2 XML profiles, with no PowerShell;
+- inbound client profiles for Apple, Android (strongSwan app) and Windows
+  VPNv2/NRPT, including a reusable Windows setup application plus separate
+  VPNv2 XML profiles, with no PowerShell, and a one-time QR link that installs
+  the phone profile without a file on the computer;
 - ACME and Russian/English LuCI interfaces.
 
 ## Requirements

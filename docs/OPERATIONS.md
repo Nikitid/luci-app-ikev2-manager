@@ -695,9 +695,18 @@ device is bypassed in both directions without changing any Zapret strategy. The
 Unmanaged preset combines direct WAN with both flags; the runtime refuses to
 install it if neither integration mark can be validated.
 
-The VPN Users page can generate Apple mobileconfig, Android details and a
-separate Windows VPNv2 XML for each user. Apple and Android output contains the
-current password and must be deleted after use. The Windows XML contains a
+The VPN Users page can generate Apple mobileconfig, a `.sswan` profile for the
+strongSwan Android app and a separate Windows VPNv2 XML for each user. Apple
+and Android output contains the current password (the strongSwan app reads it
+from `shared_secret` since version 2.5.3) and must be deleted after use.
+
+**QR code for a phone** puts neither file on the computer. It shows a QR of a
+one-time link, `/cgi-bin/ikev2-profile?t=TOKEN` on the address the page was
+opened on; the phone's camera opens it and the profile installs from there.
+The link lives ten minutes, opens once, and only from a private address - the
+router's own networks and the VPN. It holds the user and the platform, not the
+profile, which is made when the link is opened; the pending links are in
+`/var/run/ikev2-profile-links`, mode 700. The Windows XML contains a
 catch-all NRPT rule for the VPN resolver but no password and is also suitable
 for MDM. Download the reusable `Nikitid-IKEv2-Setup.exe` once from the top of
 the page, select any downloaded XML in it and choose Install. It requests UAC

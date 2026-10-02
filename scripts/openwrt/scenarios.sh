@@ -662,6 +662,19 @@ uci -q delete ikev2-manager.dnsseg_ru
 uci -q delete ikev2-manager.dns.via_singbox
 uci commit ikev2-manager
 
+# --- a phone profile, escaped by BusyBox awk --------------------------------
+
+step 'a password with quotes and backslashes survives the strongSwan app profile'
+(
+	set +u
+	. /usr/libexec/ikev2-manager.d/manager-profiles.sh
+	secret="$(printf 'p&<se"cr\\et>\t%sx' "'")"
+	printf '{"a":"%s"}\n' "$(json_escape "$secret")" >/tmp/profile.json
+	[ "$(jsonfilter -i /tmp/profile.json -e @.a)" = "$secret" ] ||
+		fail "the password did not survive JSON: $(cat /tmp/profile.json)"
+)
+rm -f /tmp/profile.json
+
 # --- the diagnostics report, with BusyBox awk -------------------------------
 
 step 'the diagnostics report leaves no secret, address or name behind on BusyBox'
