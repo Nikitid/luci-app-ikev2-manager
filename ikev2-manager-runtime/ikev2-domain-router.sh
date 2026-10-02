@@ -429,7 +429,34 @@ local_devices() {
 	[ "$(defaultv server enabled 0)" = 1 ] && printf 'ipsec-in\n'
 }
 
+# The names of exit $1 after the first, beside the first exit's list.
+exit_domain_file() {
+	printf '%s.exit-%s.txt\n' "${domain_file%.txt}" "$1"
+}
+
+# The rule set of exit $2 built from the first exit's rule set path $1.
+exit_ruleset() {
+	printf '%s.exit-%s.json\n' "${1%.json}" "$2"
+}
+
+# The TProxy port of the devices sent whole through exit $1 after the first.
+exit_tproxy_port() {
+	printf '%s\n' $((1610 + $1))
+}
+
+# The exits after the first with names of their own: a configured tunnel
+# with a list. Expects tunnel_settings_load.
+named_exits() {
+	local exit
+	for exit in $tunnel_list; do
+		[ "$exit" != 1 ] || continue
+		[ -e "$(exit_domain_file "$exit")" ] || continue
+		printf '%s\n' "$exit"
+	done
+}
+
 render_ruleset() {
+	local exit list
 	[ -f "$domain_file" ] || die 'Active domain list is missing'
 	validate_domain_file "$domain_file" ||
 		die 'Active domain list is invalid or exceeds resource limits'
@@ -449,6 +476,20 @@ render_ruleset() {
 	else
 		rm -f "$bypass_ruleset_file"
 	fi
+	tunnel_settings_load
+	for exit in 2 3 4 5 6 7 8; do
+		list="$(exit_domain_file "$exit")"
+		case " $(named_exits | tr '\n' ' ') " in
+			*" $exit "*) ;;
+			*) rm -f "$(exit_ruleset "$ruleset_file" "$exit")"; continue ;;
+		esac
+		validate_domain_file "$list" ||
+			die "The domain list of tunnel $exit is invalid or exceeds resource limits"
+		printf '{"version":3,"rules":[{"domain_suffix":%s}]}\n' "$(json_array_file "$list")" \
+			>"$(exit_ruleset "$ruleset_file" "$exit").new"
+		chmod 600 "$(exit_ruleset "$ruleset_file" "$exit").new"
+		mv "$(exit_ruleset "$ruleset_file" "$exit").new" "$(exit_ruleset "$ruleset_file" "$exit")"
+	done
 }
 
 # Whether any domain is never to go through the tunnel.
@@ -464,11 +505,19 @@ tunnel_inputs() {
 		tunnel_names "$index"
 		printf 'tunnel\t%s\t%s\n' "$index" "$tunnel_link"
 	done
-	case "$tunnel_on" in *' '*) ;; *) return 0 ;; esac
 	for exit in $tunnel_list; do
 		tunnel_exit_chain "$exit"
 		[ -n "$tunnel_chain" ] || continue
 		printf 'exit\t%s\t%s\n' "$exit" "$(printf '%s' "$tunnel_chain" | tr ' ' '\t')"
+	done
+	for exit in $(named_exits); do
+		printf 'exit_rules\t%s\t%s\n' "$exit" "$(exit_ruleset "${ruleset_ref:-$ruleset_file}" "$exit")"
+	done
+	# Every configured exit has its devices' inbound, so a device moved
+	# between exits changes nftables only.
+	for exit in $tunnel_list; do
+		[ "$exit" != 1 ] || continue
+		printf 'exit_port\t%s\t%s\n' "$exit" "$(exit_tproxy_port "$exit")"
 	done
 }
 
@@ -647,6 +696,13 @@ backup_generated() {
 	[ -s "$config_file" ] && cp "$config_file" "$backup_dir/config.json"
 	[ -s "$ruleset_file" ] && cp "$ruleset_file" "$backup_dir/rules.json"
 	[ ! -s "$bypass_ruleset_file" ] || cp "$bypass_ruleset_file" "$backup_dir/bypass.json"
+	# The rule sets of the other exits, which the configuration names: one put
+	# back without its file would keep sing-box from starting.
+	local exit
+	for exit in 2 3 4 5 6 7 8; do
+		[ ! -s "$(exit_ruleset "$ruleset_file" "$exit")" ] ||
+			cp "$(exit_ruleset "$ruleset_file" "$exit")" "$backup_dir/rules.exit-$exit.json"
+	done
 }
 
 restore_generated() {
@@ -663,6 +719,13 @@ restore_generated() {
 		cp "$backup_dir/bypass.json" "${bypass_ruleset_file}.restore"
 		mv "${bypass_ruleset_file}.restore" "$bypass_ruleset_file"
 	fi
+	local exit list
+	for exit in 2 3 4 5 6 7 8; do
+		[ -s "$backup_dir/rules.exit-$exit.json" ] || continue
+		list="$(exit_ruleset "$ruleset_file" "$exit")"
+		cp "$backup_dir/rules.exit-$exit.json" "$list.restore"
+		mv "$list.restore" "$list"
+	done
 }
 
 snapshot_generated() {
@@ -767,10 +830,14 @@ listener_ready() {
 # page, the widget and doctor each ask for health; four netstat runs per ask
 # were a measurable part of the overview page's wait.
 listeners_ready() {
-	local sockets listener
+	local sockets listener exit ports=''
 	sockets="$(netstat -ln 2>/dev/null)" || return 1
+	tunnel_settings_load
+	for exit in $tunnel_list; do
+		[ "$exit" = 1 ] || ports="$ports $tproxy_address:$(exit_tproxy_port "$exit")"
+	done
 	for listener in "$dns_address:$dns_port" "$tproxy_address:$tproxy_port" \
-		"$tproxy_address:$direct_tproxy_port" "$tproxy_address:$router_tproxy_port"; do
+		"$tproxy_address:$direct_tproxy_port" "$tproxy_address:$router_tproxy_port" $ports; do
 		case "$sockets" in *"$listener"*) ;; *) return 1 ;; esac
 	done
 }
@@ -1062,12 +1129,17 @@ wanted_value() {
 # answered here, so Firefox keeps the router resolver, and with it FakeIP,
 # instead of its own DoH even while sing-box is down.
 render_dnsmasq_servers() {
+	local exit
 	printf 'server=/use-application-dns.net/\n'
-	awk -v target="$dns_address" '
-		{ gsub(/\r/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
-		$0 == "" || substr($0, 1, 1) == "#" { next }
-		{ printf "server=/%s/%s\n", tolower($0), target }
-	' "$domain_file"
+	# The names of every exit get their FakeIP addresses from sing-box.
+	tunnel_settings_load
+	for exit in 1 $(named_exits); do
+		awk -v target="$dns_address" '
+			{ gsub(/\r/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
+			$0 == "" || substr($0, 1, 1) == "#" { next }
+			{ printf "server=/%s/%s\n", tolower($0), target }
+		' "$([ "$exit" = 1 ] && printf '%s' "$domain_file" || exit_domain_file "$exit")"
+	done
 	# A domain never to go through the tunnel goes to dnsmasq's own
 	# resolvers, "#", even inside a selected one: the longest name wins.
 	[ ! -r "$bypass_domain_file" ] || awk '
@@ -1245,15 +1317,27 @@ validate_dns_server() {
 }
 
 # Print one domain the current rule-set adds over the rule-set file OLD.
+# A domain the rule set NEW has and OLD, which may be absent, has not.
 added_rule_domain() (
-	local old="$1" work
+	local old="$1" new="${2:-$ruleset_file}" work
 	work="$(mktemp -d)" || return 1
 	trap 'rm -rf "$work"' EXIT
-	jsonfilter -i "$old" -e '@.rules[*].domain_suffix[*]' >"$work/old" 2>/dev/null || :
-	jsonfilter -i "$ruleset_file" -e '@.rules[*].domain_suffix[*]' >"$work/new" 2>/dev/null ||
+	: >"$work/old"
+	[ ! -e "$old" ] ||
+		jsonfilter -i "$old" -e '@.rules[*].domain_suffix[*]' >"$work/old" 2>/dev/null || :
+	jsonfilter -i "$new" -e '@.rules[*].domain_suffix[*]' >"$work/new" 2>/dev/null ||
 		return 1
 	grep -vxF -f "$work/old" "$work/new" | head -n1
 )
+
+# The rule set file of exit $1: the first exit's, or one beside it.
+exit_rules_file() {
+	if [ "$1" = 1 ]; then
+		printf '%s\n' "$ruleset_file"
+	else
+		exit_ruleset "$ruleset_file" "$1"
+	fi
+}
 
 runtime_healthy() {
 	[ "$(defaultv domains engine nftset)" = fakeip ] || return 1
@@ -1750,20 +1834,34 @@ refresh_rules() {
 		refresh
 		return $?
 	fi
-	backup="$(mktemp /tmp/ikev2-domain-rules.XXXXXX)" || return 1
-	if [ -s "$ruleset_file" ]; then
-		cp "$ruleset_file" "$backup" || return 1
-	else
-		: >"$backup"
-	fi
+	# Every exit's rule set as it is now; one that is absent stays absent.
+	backup="$(mktemp -d /tmp/ikev2-domain-rules.XXXXXX)" || return 1
+	for exit in 1 2 3 4 5 6 7 8; do
+		file="$(exit_rules_file "$exit")"
+		[ ! -e "$file" ] || cp "$file" "$backup/$exit.json" || {
+			rm -rf "$backup"
+			return 1
+		}
+	done
 	bypass_before="$(cat "$bypass_ruleset_file" 2>/dev/null)"
 	if ! ( render_ruleset ); then
-		rm -f "$backup"
+		rm -rf "$backup"
 		write_status error 'New domain rules failed validation; previous rules remain active'
 		return 1
 	fi
-	if [ -s "$backup" ] && cmp -s "$backup" "$ruleset_file"; then
-		rm -f "$backup"
+	changed=0 added=''
+	for exit in 1 2 3 4 5 6 7 8; do
+		file="$(exit_rules_file "$exit")"
+		if [ -e "$backup/$exit.json" ] && [ -e "$file" ] && cmp -s "$backup/$exit.json" "$file"; then
+			continue
+		fi
+		[ -e "$backup/$exit.json" ] || [ -e "$file" ] || continue
+		changed=1
+		[ -n "$added" ] || [ ! -e "$file" ] ||
+			added="$(added_rule_domain "$backup/$exit.json" "$file")"
+	done
+	if [ "$changed" = 0 ]; then
+		rm -rf "$backup"
 		# Only the domains never to route changed, or nothing did: sing-box
 		# reloads its rule-set by itself, dnsmasq is told by HUP.
 		if [ "$bypass_before" != "$(cat "$bypass_ruleset_file" 2>/dev/null)" ] &&
@@ -1779,10 +1877,9 @@ refresh_rules() {
 		write_status active 'FakeIP domain rules are unchanged'
 		return 0
 	fi
-	# sing-box reloads the file asynchronously. Wait, boundedly, until a domain
+	# sing-box reloads the files asynchronously. Wait, boundedly, until a domain
 	# this change added resolves to FakeIP, which proves the reload rather than
 	# assuming it; then confirm the resolver still applies the whole policy.
-	added="$(added_rule_domain "$backup")"
 	attempt=0
 	while [ "$attempt" -lt 6 ]; do
 		if { [ -z "$added" ] ||
@@ -1797,7 +1894,7 @@ refresh_rules() {
 			     { [ "$servers_changed" = 0 ] || /etc/init.d/dnsmasq reload; } &&
 			     { [ -z "$added" ] ||
 			       is_fakeip "$(lookup_address "$added" 127.0.0.1)"; }; }; then
-				rm -f "$backup"
+				rm -rf "$backup"
 				write_status active 'FakeIP domain rules reloaded without restarting DNS'
 				return 0
 			fi
@@ -1806,21 +1903,20 @@ refresh_rules() {
 		attempt=$((attempt + 1))
 		sleep 1
 	done
-	if [ -s "$backup" ]; then
-		if ! cp "$backup" "${ruleset_file}.restore" ||
-		   ! mv "${ruleset_file}.restore" "$ruleset_file"; then
-			rm -f "${ruleset_file}.restore" "$backup"
+	for exit in 1 2 3 4 5 6 7 8; do
+		file="$(exit_rules_file "$exit")"
+		if [ -e "$backup/$exit.json" ]; then
+			cp "$backup/$exit.json" "$file.restore" && mv "$file.restore" "$file"
+		else
+			rm -f "$file"
+		fi || {
+			rm -f "$file.restore"
+			rm -rf "$backup"
 			write_status error 'New domain rules failed and the previous rules could not be restored'
 			return 1
-		fi
-	else
-		rm -f "$ruleset_file" || {
-			rm -f "$backup"
-			write_status error 'New domain rules failed and the empty previous policy could not be restored'
-			return 1
 		}
-	fi
-	rm -f "$backup"
+	done
+	rm -rf "$backup"
 	# Fall back to the existing transactional restart. It backs up the restored
 	# ruleset first, so a failed runtime validation still returns to the exact
 	# policy that was active before this update.

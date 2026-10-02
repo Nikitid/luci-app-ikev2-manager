@@ -27,7 +27,7 @@ etc/ikev2-manager/tunnels.secret
 etc/ikev2-manager/inbound.custom.conf etc/ikev2-manager/outbound.custom.conf
 etc/pbr-ikev2-domains.manual.txt etc/pbr-ikev2-addresses.manual.txt
 etc/pbr-ikev2-domains.exclude.txt etc/pbr-ikev2-addresses.exclude.txt
-etc/pbr-ikev2-community-selected.txt'
+etc/pbr-ikev2-community-selected.txt etc/pbr-ikev2-exits.txt'
 
 backup_input_file() {
 	case "$1" in '' | *[!A-Za-z0-9-]*) die 'Invalid backup input token' ;; esac

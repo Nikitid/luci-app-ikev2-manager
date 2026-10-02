@@ -158,6 +158,8 @@ case "$*" in
 	'-q get ikev2-manager.device_192_168_60_5.address') echo '192.168.60.5' ;;
 	'-q get ikev2-manager.device_192_168_60_5.route_mode') echo 'fullroute' ;;
 	'-q get ikev2-manager.device_192_168_60_5.dns_passthrough') echo 1 ;;
+	'-q get ikev2-manager.device_192_168_60_5.exit') [ -n "${TEST_DEVICE_EXIT:-}" ] && echo "$TEST_DEVICE_EXIT" ;;
+	'-q get ikev2-manager.tunnel_2') [ -n "${TEST_TUNNEL_2:-}" ] && echo tunnel ;;
 	'-q get ikev2-manager.device_192_168_60_9.address') echo '192.168.60.9' ;;
 	'-q get ikev2-manager.device_192_168_60_9.route_mode') echo 'exclude' ;;
 	'-q get ikev2-manager.device_192_168_60_9.dns_passthrough') echo 1 ;;
@@ -246,6 +248,7 @@ if "$helper" check; then
 fi
 mv "$tmp/rules.healthy" "$tmp/rules.nft"
 "$helper" check
+
 
 # A removed logical WAN must not leave DoT enforcement bound to its obsolete
 # physical interface. The active default route is the authoritative fallback
@@ -369,5 +372,29 @@ cp "$tmp/uci.baseline" "$tmp/bin/uci"
 TEST_PAUSED=1 "$helper" sync
 [ -s "$TEST_NFT_STATE" ] || { printf '%s\n' 'a sync during a pause removed the device policy' >&2; exit 1; }
 TEST_PAUSED=1 "$helper" check || { printf '%s\n' 'the device policy reported unhealthy during a pause' >&2; exit 1; }
+
+# A full-route device sent through the second tunnel: that exit's mark and
+# FakeIP inbound, and nothing of the first exit's; with the tunnel removed it
+# is the first exit's again.
+cp "$tmp/bin/uci.zapret2" "$tmp/bin/uci"
+"$helper" sync
+TEST_DEVICE_EXIT=2 TEST_TUNNEL_2=1
+export TEST_DEVICE_EXIT TEST_TUNNEL_2
+"$helper" check && { printf '%s\n' 'a device moved to another exit passed the check' >&2; exit 1; }
+"$helper" sync
+grep -Fq 'ip saddr 192.168.60.5 meta mark set meta mark & 0xf0ffffff | 0x03000000 counter accept comment "ikev2-device:fullroute-x2:192.168.60.5"' "$tmp/rules.nft" ||
+	{ printf '%s\n' 'a device of the second exit does not get its mark' >&2; exit 1; }
+for proto in tcp udp; do
+	grep -Fq "ip saddr @full_route_x2_ipv4 ip daddr 198.18.0.0/15 meta l4proto $proto meta mark set 0x00400002 tproxy ip to 127.0.0.1:1612" "$tmp/rules.nft" ||
+		{ printf '%s\n' 'a device of the second exit does not reach its FakeIP inbound' >&2; exit 1; }
+done
+! grep -Fq 'comment "ikev2-device:fullroute:192.168.60.5"' "$tmp/rules.nft" ||
+	{ printf '%s\n' 'a device of the second exit kept the first exit mark' >&2; exit 1; }
+unset TEST_TUNNEL_2
+"$helper" sync
+grep -Fq 'comment "ikev2-device:fullroute:192.168.60.5"' "$tmp/rules.nft" && ! grep -Fq full_route_x2 "$tmp/rules.nft" ||
+	{ printf '%s\n' 'a device of a removed tunnel did not return to the first exit' >&2; exit 1; }
+unset TEST_DEVICE_EXIT
+"$helper" sync
 
 printf '%s\n' 'device routing checks OK'

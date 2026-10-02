@@ -20,6 +20,7 @@ case "$*" in
 	'-q get ikev2-manager.globals.source_interface') echo lan ;;
 	'-q get network.lan.device') echo br-lan ;;
 	'-q get ikev2-manager.server.enabled') echo 0 ;;
+	'-q get ikev2-manager.tunnel_2') [ -n "${TEST_TUNNEL_2:-}" ] && echo tunnel ;;
 	'show ikev2-manager')
 		echo 'ikev2-manager.device_192_168_50_4=device_policy'
 		echo 'ikev2-manager.device_192_168_50_9=device_policy'
@@ -86,6 +87,7 @@ export IKEV2_NFT="$tmp/bin/nft"
 export IKEV2_DISCORD_TABLE='ikev2_discord_voice_test'
 export IKEV2_DISCORD_SIGNATURE="$tmp/signature"
 export IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib"
+export IKEV2_EXITS_FILE="$tmp/exits"
 
 "$helper" sync
 grep -Fq 'chain ikev2_manager_owned' "$tmp/rules.nft"
@@ -108,6 +110,17 @@ fi
 	echo 'unchanged Discord voice policy was reinstalled' >&2
 	exit 1
 }
+
+# Discord sent through the second tunnel: voice takes that exit's mark, and
+# the first one's again once the tunnel is gone.
+printf 'discord 2\n' >"$tmp/exits"
+TEST_TUNNEL_2=1 "$helper" sync
+grep -Fq 'meta mark & 0xf0ffffff | 0x03000000' "$tmp/rules.nft" ||
+	{ echo 'Discord voice did not follow the exit of its service' >&2; exit 1; }
+"$helper" sync
+grep -Fq 'meta mark & 0xf0ffffff | 0x01000000' "$tmp/rules.nft" ||
+	{ echo 'Discord voice kept the exit of a removed tunnel' >&2; exit 1; }
+rm -f "$tmp/exits"
 
 : >"$tmp/selected"
 "$helper" sync

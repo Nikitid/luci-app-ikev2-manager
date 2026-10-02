@@ -37,10 +37,10 @@ expect() {
 
 # Names follow the index; tunnel 1 keeps the names it always had.
 tunnel_names 1
-expect 'tunnel 1 names' "$tunnel_conn $tunnel_child $tunnel_link $tunnel_if_id $tunnel_mark $tunnel_table_id $tunnel_rule" \
+expect 'tunnel 1 names' "$tunnel_conn $tunnel_child $tunnel_link $tunnel_if_id $tunnel_fwmark $tunnel_table_id $tunnel_rule" \
 	'proxy-out proxy4 ipsec-out 42 0x01000000 1601 28001'
 tunnel_names 3
-expect 'tunnel 3 names' "$tunnel_section $tunnel_conn $tunnel_child $tunnel_link $tunnel_if_id $tunnel_mark $tunnel_table_id $tunnel_rule" \
+expect 'tunnel 3 names' "$tunnel_section $tunnel_conn $tunnel_child $tunnel_link $tunnel_if_id $tunnel_fwmark $tunnel_table_id $tunnel_rule" \
 	'tunnel_3 proxy-out-3 proxy4-3 ipsec-out3 53 0x04000000 1604 28004'
 expect 'connection index' "$(tunnel_index_of_conn proxy-out-3) $(tunnel_index_of_conn proxy-out)" '3 1'
 tunnel_index_of_conn proxy-out-x >/dev/null && fail 'a foreign connection was taken for a tunnel'

@@ -232,6 +232,44 @@ device_addresses() {
 	[ "$result" = 0 ]
 }
 
+# The exit of a device sent whole through a tunnel: its exit option when that
+# tunnel is configured, the first tunnel otherwise.
+device_exit() {
+	local address="$1" section exit
+	section="$(device_section "$address")"
+	exit="$(uci -q get "${device_config}.${section}.exit" 2>/dev/null || true)"
+	case "$exit" in [2-8]) ;; *) echo 1; return 0 ;; esac
+	if uci -q get "${device_config}.tunnel_$exit" >/dev/null 2>&1; then
+		echo "$exit"
+	else
+		echo 1
+	fi
+}
+
+# Full-route devices as "address exit" lines.
+device_fullroute_exits() {
+	local list address
+	list="$(device_addresses fullroute)" || return 1
+	for address in $list; do
+		printf '%s %s\n' "$address" "$(device_exit "$address")"
+	done
+}
+
+# Send a device's full route through exit EXIT; 1, the first tunnel, is the
+# default and stores nothing.
+device_set_exit() {
+	local address="$1" exit="$2" section
+	device_valid_address "$address" || return 1
+	case "$exit" in [1-8]) ;; *) return 1 ;; esac
+	section="$(device_section "$address")"
+	[ -n "$(uci -q get "${device_config}.${section}.route_mode" 2>/dev/null || true)" ] || return 1
+	if [ "$exit" = 1 ]; then
+		uci -q delete "${device_config}.${section}.exit" 2>/dev/null || true
+	else
+		uci set "${device_config}.${section}.exit=$exit" || return 1
+	fi
+}
+
 device_mode() {
 	local address="$1" work result=0
 	work="$(mktemp)" || return 1

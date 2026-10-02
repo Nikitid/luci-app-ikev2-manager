@@ -27,6 +27,10 @@ manual_exclude_file="${IKEV2_MANUAL_EXCLUDE_FILE:-/etc/pbr-ikev2-domains.exclude
 manual_exclude_cidr_file="${IKEV2_MANUAL_EXCLUDE_CIDR_FILE:-/etc/pbr-ikev2-addresses.exclude.txt}"
 bypass_file="${IKEV2_BYPASS_FILE:-/etc/pbr-ikev2-domains.bypass.txt}"
 bypass_cidr_file="${IKEV2_BYPASS_CIDR_FILE:-/etc/pbr-ikev2-addresses.bypass.txt}"
+# Which outbound tunnel a selected service or a manual list leaves by, as
+# "target exit" lines: a service id, @domains or @cidrs. Absent means the
+# first tunnel. The lists of the other exits sit beside the first one's.
+exits_file="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
 catalog_file="${IKEV2_CATALOG_FILE:-/usr/share/ikev2-domains/community-services}"
 public_suffix_file="${IKEV2_PUBLIC_SUFFIXES:-/usr/share/ikev2-domains/public-suffixes}"
 subnet_catalog_file="${IKEV2_SUBNET_CATALOG_FILE:-/etc/pbr-ikev2-community-subnet-services}"
@@ -729,8 +733,103 @@ restart_policy() {
 	"$restart_helper" --wait
 }
 
+# The list file of exit $2 for the first exit's file $1: the same file for
+# exit 1, name.exit-N.txt beside it for the others.
+exit_file() {
+	if [ "$2" = 1 ]; then
+		printf '%s\n' "$1"
+	else
+		printf '%s.exit-%s.txt\n' "${1%.txt}" "$2"
+	fi
+}
+
+# Exits other than the first, in the order they take precedence.
+other_exits='2 3 4 5 6 7 8'
+
+# The exit of a target: what the map says when that tunnel is configured,
+# otherwise the first. A removed tunnel's services leave by the first one.
+exit_of() {
+	local target="$1" exit
+	exit="$(awk -v target="$target" '$1 == target { print $2; exit }' "${exit_map:-$exits_file}" 2>/dev/null)"
+	case "$exit" in [2-8]) ;; *) echo 1; return 0 ;; esac
+	if uci -q get "ikev2-manager.tunnel_$exit" >/dev/null 2>&1; then
+		echo "$exit"
+	else
+		echo 1
+	fi
+}
+
+normalize_exits() {
+	awk '
+		{
+			gsub(/\r/, "")
+			if ($0 ~ /^[ \t]*$/)
+				next
+			if (NF != 2 || $1 !~ /^(@domains|@cidrs|[a-z0-9_]+)$/ || $2 !~ /^[1-8]$/) {
+				printf "invalid exit line: %s\n", $0 > "/dev/stderr"
+				exit 1
+			}
+			if ($1 in seen)
+				next
+			seen[$1] = 1
+			print $1, $2
+		}
+	' "${1:--}"
+}
+
+# Whether the lists of the exits after the first are what WORK built: present
+# for an exit with entries, absent for one without.
+exit_lists_current() {
+	local work="$1" exit kind list
+	for exit in $other_exits; do
+		for kind in final cidrs; do
+			[ "$kind" = final ] && list="$final_file" || list="$cidr_file"
+			list="$(exit_file "$list" "$exit")"
+			if [ -e "$work/$kind.$exit" ]; then
+				cmp -s "$work/$kind.$exit" "$list" || return 1
+			else
+				[ ! -e "$list" ] || return 1
+			fi
+		done
+	done
+}
+
+publish_exit_lists() {
+	local work="$1" exit kind list
+	for exit in $other_exits; do
+		for kind in final cidrs; do
+			[ "$kind" = final ] && list="$final_file" || list="$cidr_file"
+			list="$(exit_file "$list" "$exit")"
+			if [ -e "$work/$kind.$exit" ]; then
+				publish_output "$work/$kind.$exit" "$list" || return 1
+			else
+				rm -f "$list" || return 1
+			fi
+		done
+	done
+}
+
+# Keep from stdin only the names no earlier exit already takes: a name, or a
+# domain under one, listed in TAKEN. Earlier exits win, so sing-box, which
+# reads the exits in order, and dnsmasq, which takes the most specific name,
+# agree on where every name goes.
+drop_taken_names() {
+	awk -v taken="$1" '
+		BEGIN { while ((getline line <taken) > 0) skip[line] = 1 }
+		{
+			name = $0
+			while (name != "") {
+				if (name in skip) next
+				if (index(name, ".") == 0) break
+				name = substr(name, index(name, ".") + 1)
+			}
+			print
+		}
+	'
+}
+
 apply_once() {
-	local work selected normalized_manual service failed stale
+	local work selected normalized_manual service failed stale exit exits_used kind list exit_map
 	local selected_count domain_count cidr_count custom_cidr_count pids pid action_id
 	local batch_count final_bytes
 	action_id="${1:-}"
@@ -795,26 +894,31 @@ apply_once() {
 				cat "$work/$service.lst"
 		done <"$selected"
 	} | sort -u >"$work/bypass"
+	if [ -f "$exits_file" ]; then
+		if ! normalize_exits "$exits_file" >"$work/exits"; then
+			rm -rf "$work"
+			return 1
+		fi
+	else
+		: >"$work/exits"
+	fi
+	exit_map="$work/exits"
+	# Each routed name into the list of its exit.
+	for exit in 1 $other_exits; do : >"$work/routed.$exit"; done
+	cat "$normalized_manual" >>"$work/routed.$(exit_of @domains)"
+	while IFS= read -r service; do
+		[ -n "$service" ] && [ "$(service_mode "$service")" = route ] || continue
+		cat "$work/$service.lst" >>"$work/routed.$(exit_of "$service")"
+	done <"$selected"
 	# A routed domain inside an excluded one is dropped; a routed domain above
-	# an excluded one stays, and the routing keeps the excluded part out.
-	{
-		cat "$normalized_manual"
-		while IFS= read -r service; do
-			[ -n "$service" ] && [ "$(service_mode "$service")" = route ] &&
-				cat "$work/$service.lst"
-		done <"$selected"
-	} | awk -v excluded="$work/bypass" '
-		BEGIN { while ((getline line <excluded) > 0) skip[line] = 1 }
-		{
-			name = $0
-			while (name != "") {
-				if (name in skip) next
-				if (index(name, ".") == 0) break
-				name = substr(name, index(name, ".") + 1)
-			}
-			print
-		}
-	' | sort -u >"$work/final"
+	# an excluded one stays, and the routing keeps the excluded part out. Then
+	# a name the exits before have taken is dropped as well.
+	cp "$work/bypass" "$work/taken"
+	for exit in $other_exits 1; do
+		drop_taken_names "$work/taken" <"$work/routed.$exit" | sort -u >"$work/final.$exit"
+		[ "$exit" = 1 ] || cat "$work/final.$exit" >>"$work/taken"
+	done
+	mv "$work/final.1" "$work/final"
 
 	if ! normalize_cidrs "$manual_cidr_file" >"$work/manual.cidrs"; then
 		rm -rf "$work"
@@ -824,7 +928,8 @@ apply_once() {
 		rm -rf "$work"
 		return 1
 	fi
-	cp "$work/manual.cidrs" "$work/cidrs.unsorted"
+	for exit in 1 $other_exits; do : >"$work/cidrs.unsorted.$exit"; done
+	cat "$work/manual.cidrs" >>"$work/cidrs.unsorted.$(exit_of @cidrs)"
 	while IFS= read -r service; do
 		[ -n "$service" ] || continue
 		if ! download_service_cidrs "$service" "$work/$service.cidrs"; then
@@ -835,20 +940,32 @@ apply_once() {
 		if [ "$(service_mode "$service")" = exclude ]; then
 			cat "$work/$service.cidrs" >>"$work/bypass.cidrs.unsorted"
 		else
-			cat "$work/$service.cidrs" >>"$work/cidrs.unsorted"
+			cat "$work/$service.cidrs" >>"$work/cidrs.unsorted.$(exit_of "$service")"
 		fi
 	done <"$selected"
-	sort -u "$work/cidrs.unsorted" 2>/dev/null >"$work/cidrs"
+	# A network an exit before has taken is not listed again; overlapping
+	# networks are settled by the order the routing matches the exits in.
+	: >"$work/cidrs.taken"
+	for exit in $other_exits 1; do
+		sort -u "$work/cidrs.unsorted.$exit" | grep -vxFf "$work/cidrs.taken" >"$work/cidrs.$exit" || :
+		cat "$work/cidrs.$exit" >>"$work/cidrs.taken"
+	done
+	mv "$work/cidrs.1" "$work/cidrs"
 	sort -u "$work/bypass.cidrs.unsorted" 2>/dev/null >"$work/bypass.cidrs"
+	exits_used=''
+	for exit in $other_exits; do
+		[ -s "$work/final.$exit" ] || [ -s "$work/cidrs.$exit" ] || continue
+		exits_used="$exits_used $exit"
+	done
 
-	if [ ! -s "$work/final" ] && [ ! -s "$work/cidrs" ] &&
+	if [ ! -s "$work/final" ] && [ ! -s "$work/cidrs" ] && [ -z "$exits_used" ] &&
 	   [ ! -s "$work/bypass" ] && [ ! -s "$work/bypass.cidrs" ] && [ -s "$selected" ]; then
 		echo 'refusing to install an empty domain list (services selected but no domains resolved)' >&2
 		rm -rf "$work"
 		return 1
 	fi
-	domain_count="$(wc -l <"$work/final" | tr -d ' ')"
-	final_bytes="$(wc -c <"$work/final" | tr -d ' ')"
+	domain_count="$(cat "$work/final" "$work"/final.[2-8] | wc -l | tr -d ' ')"
+	final_bytes="$(cat "$work/final" "$work"/final.[2-8] | wc -c | tr -d ' ')"
 	if [ "$domain_count" -gt "$max_total_domains" ] ||
 	   [ "$final_bytes" -gt "$max_total_bytes" ]; then
 		echo "combined domain list exceeds resource limits: $domain_count entries, $final_bytes bytes" >&2
@@ -856,11 +973,19 @@ apply_once() {
 		return 1
 	fi
 
+	# The lists each exit should have, empty ones absent.
+	for exit in $other_exits; do
+		case " $exits_used " in
+			*" $exit "*) ;;
+			*) rm -f "$work/final.$exit" "$work/cidrs.$exit" ;;
+		esac
+	done
 	if [ -e "$final_file" ] && [ -e "$cidr_file" ] &&
 	   cmp -s "$work/final" "$final_file" &&
 	   cmp -s "$work/cidrs" "$cidr_file" &&
 	   cmp -s "$work/bypass" "$bypass_file" 2>/dev/null &&
 	   cmp -s "$work/bypass.cidrs" "$bypass_cidr_file" 2>/dev/null &&
+	   exit_lists_current "$work" &&
 	   "$restart_helper" --check; then
 		[ -z "$action_id" ] ||
 			write_simple_status "$action_id" running \
@@ -870,17 +995,29 @@ apply_once() {
 		[ ! -e "$cidr_file" ] || cp "$cidr_file" "$work/cidrs.before"
 		[ ! -e "$bypass_file" ] || cp "$bypass_file" "$work/bypass.before"
 		[ ! -e "$bypass_cidr_file" ] || cp "$bypass_cidr_file" "$work/bypass.cidrs.before"
+		for exit in $other_exits; do
+			for kind in final cidrs; do
+				[ "$kind" = final ] && list="$final_file" || list="$cidr_file"
+				list="$(exit_file "$list" "$exit")"
+				[ ! -e "$list" ] || cp "$list" "$work/$kind.$exit.before"
+			done
+		done
 		[ -z "$action_id" ] ||
 			write_simple_status "$action_id" running 'Restarting policy routing...' || true
 		if ! publish_output "$work/final" "$final_file" ||
 		   ! publish_output "$work/cidrs" "$cidr_file" ||
 		   ! publish_output "$work/bypass" "$bypass_file" ||
 		   ! publish_output "$work/bypass.cidrs" "$bypass_cidr_file" ||
+		   ! publish_exit_lists "$work" ||
 		   ! restart_policy; then
 			restore_output "$work/final.before" "$final_file" || true
 			restore_output "$work/cidrs.before" "$cidr_file" || true
 			restore_output "$work/bypass.before" "$bypass_file" || true
 			restore_output "$work/bypass.cidrs.before" "$bypass_cidr_file" || true
+			for exit in $other_exits; do
+				restore_output "$work/final.$exit.before" "$(exit_file "$final_file" "$exit")" || true
+				restore_output "$work/cidrs.$exit.before" "$(exit_file "$cidr_file" "$exit")" || true
+			done
 			restart_policy >/dev/null 2>&1 || true
 			rm -rf "$work"
 			return 1
@@ -900,6 +1037,10 @@ apply_once() {
 		echo "custom_cidrs=$custom_cidr_count"
 		echo "excluded_domains=$(wc -l <"$work/bypass" | tr -d ' ')"
 		echo "excluded_cidrs=$(wc -l <"$work/bypass.cidrs" | tr -d ' ')"
+		for exit in $exits_used; do
+			echo "exit_${exit}_domains=$(wc -l <"$work/final.$exit" | tr -d ' ')"
+			echo "exit_${exit}_cidrs=$(wc -l <"$work/cidrs.$exit" | tr -d ' ')"
+		done
 		echo "selected=$(tr '\n' ',' <"$selected" | sed 's/,$//')"
 		[ -z "$stale" ] || echo "cached_services=$stale"
 	} >"$work/status"
@@ -934,10 +1075,10 @@ apply_staged_input() {
 		apply_failed 'no writable temporary directory'
 		return 1
 	}
-	# The exclusion lists are optional: a page that predates them sends three
-	# files, and the lists it does not know stay as they are.
+	# The exclusion lists and the exit map are optional: a page that predates
+	# them sends three files, and what it does not know stays as it is.
 	kinds='domains cidrs services'
-	for kind in xdomains xcidrs; do
+	for kind in xdomains xcidrs exits; do
 		source="$(input_file "$token" "$kind")"
 		[ ! -e "$source" ] && [ ! -L "$source" ] || kinds="$kinds $kind"
 	done
@@ -952,7 +1093,7 @@ apply_staged_input() {
 		case "$kind" in
 			domains | xdomains) [ "$bytes" -le "$max_total_bytes" ] ;;
 			cidrs | xcidrs) [ "$bytes" -le 1048576 ] ;;
-			services) [ "$bytes" -le 65536 ] ;;
+			services | exits) [ "$bytes" -le 65536 ] ;;
 		esac || {
 			rm -rf "$work"
 			apply_failed "submitted $kind input exceeds its size limit ($bytes bytes)"
@@ -1004,6 +1145,7 @@ staged_destination() {
 		services) printf '%s\n' "$selected_file" ;;
 		xdomains) printf '%s\n' "$manual_exclude_file" ;;
 		xcidrs) printf '%s\n' "$manual_exclude_cidr_file" ;;
+		exits) printf '%s\n' "$exits_file" ;;
 	esac
 }
 

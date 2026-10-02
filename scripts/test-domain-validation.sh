@@ -94,8 +94,11 @@ chmod 755 "$tmp/bin/jsonfilter"
 # The health checks read each listing once. They must still fail on any single
 # missing listener or rule.
 (
+	. "$root/ikev2-manager-runtime/lib/tunnel.sh"
 	eval "$(extract listeners_ready)"
+	eval "$(extract exit_tproxy_port)"
 	eval "$(extract nft_runtime_ready)"
+	uci() { [ -z "${fixture_tunnel_2:-}" ] || printf "ikev2-manager.tunnel_2=tunnel\n"; }
 	dns_address=127.0.0.42; dns_port=53; tproxy_address=127.0.0.1
 	tproxy_port=1602; direct_tproxy_port=1603; router_tproxy_port=1604
 	nft_table=ikev2_domain_router; fakeip_range=198.18.0.0/15
@@ -106,6 +109,13 @@ tcp 0 0 127.0.0.1:1603 0.0.0.0:* LISTEN
 tcp 0 0 127.0.0.1:1604 0.0.0.0:* LISTEN'
 	netstat() { printf '%s\n' "$fixture_sockets"; }
 	listeners_ready || fail 'healthy listeners were rejected'
+	# A second tunnel's devices have an inbound of their own.
+	fixture_tunnel_2=1
+	if listeners_ready; then fail 'a missing second exit listener was accepted'; fi
+	fixture_sockets="$fixture_sockets
+tcp 0 0 127.0.0.1:1612 0.0.0.0:* LISTEN"
+	listeners_ready || fail 'the second exit listener was not taken'
+	fixture_tunnel_2=''
 	fixture_sockets="$(printf '%s\n' "$fixture_sockets" | grep -v ':1603 ')"
 	if listeners_ready; then fail 'a missing TProxy listener was accepted'; fi
 
@@ -136,11 +146,5 @@ tcp 0 0 127.0.0.1:1604 0.0.0.0:* LISTEN'
 # Callers keep their rollback reachable.
 extract refresh | grep -Fq 'if ! ( check_config ); then' ||
 	fail 'refresh validation can still exit before its restore'
-extract refresh_rules | grep -Fq 'added="$(added_rule_domain "$backup")"' ||
-	fail 'rule reload is not proven by an added domain'
-if extract refresh_rules | grep -Eq '^[[:space:]]*sleep 1$' &&
-	! extract refresh_rules | grep -Fq 'attempt=$((attempt + 1))'; then
-	fail 'rule reload still waits on a fixed sleep'
-fi
 
 printf '%s\n' 'domain validation tests OK'

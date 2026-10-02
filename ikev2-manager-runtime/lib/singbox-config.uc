@@ -16,8 +16,10 @@
 // ruleset_path, and optionally https_all 1 and bypass_ruleset_path, the
 // domains never to go through the tunnel. Repeated: covered CIDR,
 // https_suffix SUFFIX, and segment TAG PORT SUFFIX... in routing order;
-// tunnel INDEX LINK for each enabled outbound tunnel and, with more than one,
-// exit INDEX TUNNEL... with the tunnels each exit may use, preferred first.
+// tunnel INDEX LINK for each enabled outbound tunnel; exit INDEX TUNNEL...
+// with the tunnels each exit may use, preferred first; exit_rules INDEX PATH,
+// the rule set of the names an exit after the first carries; exit_port INDEX
+// PORT, the TProxy port of the devices sent whole through that exit.
 //
 // With one tunnel the configuration is the one there always was, bound to
 // that tunnel's link. With more, every tunnel has its own outbound and its
@@ -48,7 +50,7 @@ function count(value, name) {
 }
 
 function read_input() {
-	let input = { covered: [], https_suffix: [], segment: [], tunnel: [], exit: [] };
+	let input = { covered: [], https_suffix: [], segment: [], tunnel: [], exit: [], exit_rules: [], exit_port: [] };
 	for (let line in split(stdin.read('all') ?? '', '\n')) {
 		if (line == '')
 			continue;
@@ -62,6 +64,10 @@ function read_input() {
 			push(input.tunnel, { index: fields[1], link: fields[2] });
 		else if (key == 'exit')
 			push(input.exit, { index: fields[1], tunnels: slice(fields, 2) });
+		else if (key == 'exit_rules')
+			push(input.exit_rules, { index: fields[1], path: fields[2] });
+		else if (key == 'exit_port')
+			push(input.exit_port, { index: fields[1], port: fields[2] });
 		else
 			input[key] = fields[1];
 	}
@@ -140,6 +146,13 @@ function tunnel_outbound(index, link) {
 	};
 }
 
+function flatten(lists) {
+	let out = [];
+	for (let list in lists)
+		push(out, ...list);
+	return out;
+}
+
 function render(input) {
 	let domains = [ 'ikev2-domains' ];
 	let tunnels = map(input.tunnel, (t) => ({ index: tunnel_index(t.index), link: link_name(t.link) }));
@@ -167,9 +180,21 @@ function render(input) {
 		push(servers, ...tunnel_resolvers(input, t.index, t.link));
 		push(outbounds, tunnel_outbound(t.index, t.link));
 	}
-	// The outbound the first exit's traffic leaves by: the tunnel itself, or
-	// with more tunnels the selector that stands another in for it.
-	let tunnel_out = 'ikev2-out';
+	// Where an exit's traffic leaves: with one tunnel that tunnel, when it
+	// serves the exit; with more the selector that stands another in for it;
+	// with none, nowhere - the connection is refused, it never goes direct.
+	let chains = {};
+	for (let e in input.exit)
+		chains[tunnel_index(e.index)] = e.tunnels;
+	let exit_out = (exit) => {
+		if (several)
+			return length(filter(outbounds, (o) => o.tag == `exit-${exit}`)) ? `exit-${exit}` : null;
+		// Input without exits is the layout there always was.
+		if (!length(input.exit))
+			return 'ikev2-out';
+		return index(chains[exit] ?? [], tunnels[0].index) >= 0 ? 'ikev2-out' : null;
+	};
+	let to = (outbound) => outbound ? { action: 'route', outbound: outbound } : { action: 'reject' };
 	let final_server = required(input, 'final_server');
 	if (several) {
 		let enabled = {};
@@ -192,11 +217,11 @@ function render(input) {
 				interrupt_exist_connections: true
 			});
 		}
-		if (!length(filter(outbounds, (o) => o.tag == 'exit-1')))
-			die('the first exit has no tunnel');
-		tunnel_out = 'exit-1';
 		// Names resolved through the tunnel resolve through whichever tunnel
-		// the first exit uses now.
+		// the first exit uses now, and over WAN while it has none, as they
+		// do with the client disabled.
+		if (final_server == 'ikev2-upstream' && !exit_out('1'))
+			final_server = 'upstream';
 		if (final_server == 'ikev2-upstream') {
 			push(servers,
 				{
@@ -226,6 +251,16 @@ function render(input) {
 			final_server = 'exit-1-dns';
 		}
 	}
+	let tunnel_out = exit_out('1');
+	// Every exit's names get FakeIP addresses; each exit's own rule set routes
+	// them, ahead of the first exit's.
+	let exit_rule_sets = map(input.exit_rules, (e) => ({ index: tunnel_index(e.index), path: e.path }));
+	for (let e in exit_rule_sets) {
+		if (e.index == '1' || type(e.path) != 'string' || e.path == '')
+			die(`invalid exit rule set: ${e.index}`);
+		push(domains, `ikev2-domains-${e.index}`);
+	}
+	let exit_inbounds = map(input.exit_port, (e) => ({ index: tunnel_index(e.index), port: port(e.port, 'exit tproxy port') }));
 	for (let segment in input.segment)
 		push(servers, {
 			type: 'udp',
@@ -341,7 +376,13 @@ function render(input) {
 				tag: 'tproxy-router-in',
 				listen: tproxy,
 				listen_port: port(input.router_tproxy_port, 'router tproxy port')
-			}
+			},
+			...map(exit_inbounds, (e) => ({
+				type: 'tproxy',
+				tag: `tproxy-exit-${e.index}-in`,
+				listen: tproxy,
+				listen_port: e.port
+			}))
 		],
 		outbounds: outbounds,
 		route: {
@@ -351,7 +392,8 @@ function render(input) {
 					action: 'hijack-dns'
 				},
 				{
-					inbound: [ 'tproxy-in', 'tproxy-direct-in', 'tproxy-router-in' ],
+					inbound: [ 'tproxy-in', 'tproxy-direct-in', 'tproxy-router-in',
+						...map(exit_inbounds, (e) => `tproxy-exit-${e.index}-in`) ],
 					action: 'sniff',
 					timeout: '300ms'
 				},
@@ -365,17 +407,32 @@ function render(input) {
 					action: 'route',
 					outbound: 'direct-out'
 				} ] : []),
+				...map(exit_inbounds, (e) => ({
+					inbound: [ `tproxy-exit-${e.index}-in` ],
+					...to(exit_out(e.index))
+				})),
+				...flatten(map(exit_rule_sets, (e) => [
+					{
+						inbound: [ 'tproxy-router-in' ],
+						rule_set: [ `ikev2-domains-${e.index}` ],
+						...to(exit_out(e.index))
+					},
+					{
+						inbound: [ 'tproxy-in' ],
+						source_ip_cidr: input.covered,
+						rule_set: [ `ikev2-domains-${e.index}` ],
+						...to(exit_out(e.index))
+					}
+				])),
 				{
 					inbound: [ 'tproxy-router-in' ],
-					action: 'route',
-					outbound: tunnel_out
+					...to(tunnel_out)
 				},
 				{
 					inbound: [ 'tproxy-in' ],
 					source_ip_cidr: input.covered,
-					rule_set: domains,
-					action: 'route',
-					outbound: tunnel_out
+					rule_set: [ 'ikev2-domains' ],
+					...to(tunnel_out)
 				},
 				{
 					inbound: [ 'tproxy-in' ],
@@ -395,7 +452,13 @@ function render(input) {
 					tag: 'ikev2-bypass',
 					format: 'source',
 					path: input.bypass_ruleset_path
-				} ] : [])
+				} ] : []),
+				...map(exit_rule_sets, (e) => ({
+					type: 'local',
+					tag: `ikev2-domains-${e.index}`,
+					format: 'source',
+					path: e.path
+				}))
 			],
 			final: 'direct-out',
 			default_domain_resolver: 'upstream'

@@ -370,6 +370,9 @@ tunnels_apply_action() {
 	done
 	ensure_extra_tunnels || rc=1
 	/usr/libexec/ikev2-sync-vips || :
+	# The lists of each exit follow the tunnels configured: a removed one's
+	# services return to the first exit.
+	/usr/libexec/ikev2-domains-community apply >/dev/null || return 1
 	/usr/libexec/ikev2-routing sync-all || return 1
 	/usr/libexec/ikev2-domain-router refresh || return 1
 	return "$rc"

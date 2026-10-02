@@ -67,6 +67,16 @@ printf '%s\n' "$*" >>"$TEST_RESTART_LOG"
 exit 0
 EOF
 chmod 755 "$tmp/bin/restart-helper"
+# The tunnels configured, one index a line.
+cat >"$tmp/bin/uci" <<'EOF'
+#!/bin/sh
+[ "$1" = -q ] && shift
+case "$1 $2" in
+	'get ikev2-manager.tunnel_'[2-8]) grep -qx "${2#ikev2-manager.tunnel_}" "$TEST_TUNNELS" 2>/dev/null && echo tunnel ;;
+	*) exit 1 ;;
+esac
+EOF
+chmod 755 "$tmp/bin/uci"
 
 printf '%s\n' local.example >"$tmp/local/local.lst"
 printf '%s\n' direct.example >"$tmp/local/direct.lst"
@@ -88,6 +98,8 @@ run_helper() (
 	IKEV2_MANUAL_EXCLUDE_CIDR_FILE="$tmp/manual-exclude-cidrs" \
 	IKEV2_BYPASS_FILE="$tmp/bypass" \
 	IKEV2_BYPASS_CIDR_FILE="$tmp/bypass-cidrs" \
+	IKEV2_EXITS_FILE="$tmp/exits" \
+	TEST_TUNNELS="$tmp/tunnels" \
 	IKEV2_SELECTED_FILE="$tmp/selected" \
 	IKEV2_FINAL_FILE="$tmp/domains" \
 	IKEV2_CIDR_FILE="$tmp/cidrs" \
@@ -327,6 +339,60 @@ cp "$tmp/selected.saved" "$tmp/input-excl0005.services"
 run_helper _apply-input 100-z excl0005
 [ ! -s "$tmp/bypass" ] && [ ! -s "$tmp/bypass-cidrs" ] ||
 	{ printf 'emptied exclusion lists left a bypass behind\n' >&2; exit 1; }
+
+# Exits. A service or a manual list sent to another tunnel lists its names
+# and networks for that exit alone; a name another exit already takes is not
+# listed again, an exclusion still wins, and an exit with no configured tunnel
+# is the first one.
+printf '%s\n' 2 >"$tmp/tunnels"
+printf '%s\n' x.remote.example direct.example bank.example >"$tmp/input-exit0001.domains"
+printf '%s\n' 203.0.113.10 >"$tmp/input-exit0001.cidrs"
+printf "%s\n" direct local remote >"$tmp/input-exit0001.services"
+printf '%s\n' bank.example >"$tmp/input-exit0001.xdomains"
+: >"$tmp/input-exit0001.xcidrs"
+printf 'remote 2\n@cidrs 2\nlocal 5\n' >"$tmp/input-exit0001.exits"
+run_helper _apply-input 300-x exit0001 || { cat "$tmp/log" >&2; exit 1; }
+printf '%s\n' remote.example | cmp -s - "$tmp/domains.exit-2.txt" ||
+	{ printf 'the second exit does not list its service:\n' >&2; cat "$tmp/domains.exit-2.txt" >&2; exit 1; }
+! grep -Fxq remote.example "$tmp/domains" ||
+	{ printf 'a service of the second exit is still in the first\n' >&2; exit 1; }
+! grep -Fxq x.remote.example "$tmp/domains" ||
+	{ printf 'a name the second exit takes was listed for the first\n' >&2; exit 1; }
+grep -Fxq direct.example "$tmp/domains" && grep -Fxq local.example "$tmp/domains" ||
+	{ printf 'the first exit lost its own services, or an unconfigured exit took one\n' >&2; exit 1; }
+! grep -Fxq bank.example "$tmp/domains" "$tmp/domains.exit-2.txt" ||
+	{ printf 'an exit was routed past an exclusion\n' >&2; exit 1; }
+printf '%s\n' 203.0.113.10/32 8.8.8.0/24 | cmp -s - "$tmp/cidrs.exit-2.txt" ||
+	{ printf 'the second exit does not list its networks:\n' >&2; cat "$tmp/cidrs.exit-2.txt" >&2; exit 1; }
+! grep -Fxq 8.8.8.0/24 "$tmp/cidrs" && grep -Fxq 91.108.4.0/22 "$tmp/cidrs" ||
+	{ printf 'the networks were not split between the exits\n' >&2; exit 1; }
+[ ! -e "$tmp/domains.exit-5.txt" ] || { printf 'an unconfigured tunnel got an exit list\n' >&2; exit 1; }
+grep -q '^exit_2_domains=1$' "$tmp/status" || { printf 'the status does not count the second exit\n' >&2; exit 1; }
+grep -qx 'remote 2' "$tmp/exits" || { printf 'the exit map was not stored\n' >&2; exit 1; }
+# A malformed map is refused and changes nothing.
+cp "$tmp/domains" "$tmp/domains.kept"
+cp "$tmp/domains" "$tmp/input-exit0002.domains"
+printf '%s\n' 203.0.113.10 >"$tmp/input-exit0002.cidrs"
+printf "%s\n" direct local remote >"$tmp/input-exit0002.services"
+printf 'remote 9\n' >"$tmp/input-exit0002.exits"
+run_helper _apply-input 300-y exit0002 2>/dev/null && { printf 'a malformed exit map was accepted\n' >&2; exit 1; }
+grep -qx 'remote 2' "$tmp/exits" && [ -s "$tmp/domains.exit-2.txt" ] ||
+	{ printf 'a refused exit map changed the configuration\n' >&2; exit 1; }
+# The tunnel removed: its services come back to the first exit and its lists go.
+: >"$tmp/tunnels"
+run_helper apply || { cat "$tmp/log" >&2; exit 1; }
+grep -Fxq remote.example "$tmp/domains" && grep -Fxq 8.8.8.0/24 "$tmp/cidrs" ||
+	{ printf 'a removed tunnel did not return its service to the first exit\n' >&2; exit 1; }
+[ ! -e "$tmp/domains.exit-2.txt" ] && [ ! -e "$tmp/cidrs.exit-2.txt" ] ||
+	{ printf 'a removed tunnel kept its exit lists\n' >&2; exit 1; }
+# Back to no map at all.
+cp "$tmp/manual.saved" "$tmp/input-exit0003.domains"
+printf '%s\n' 203.0.113.10 198.51.100.0/24 >"$tmp/input-exit0003.cidrs"
+printf "%s\n" direct local remote >"$tmp/input-exit0003.services"
+: >"$tmp/input-exit0003.xdomains"
+: >"$tmp/input-exit0003.xcidrs"
+: >"$tmp/input-exit0003.exits"
+run_helper _apply-input 300-z exit0003 || { cat "$tmp/log" >&2; exit 1; }
 
 # A custom service is stored independently of the common manual list and can
 # be enabled in the same atomic operation that creates it.

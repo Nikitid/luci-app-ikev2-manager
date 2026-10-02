@@ -4,6 +4,9 @@ set -u
 
 config='ikev2-manager'
 selected_file="${IKEV2_SELECTED_SERVICES:-/etc/pbr-ikev2-community-selected.txt}"
+# Voice leaves by the exit chosen for the Discord service; see the community
+# helper.
+exits_file="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
 nft_bin="${IKEV2_NFT:-/usr/sbin/nft}"
 table="${IKEV2_DISCORD_TABLE:-ikev2_discord_voice}"
 signature_file="${IKEV2_DISCORD_SIGNATURE:-/var/run/ikev2-discord-voice.signature}"
@@ -90,6 +93,14 @@ sync_runtime() {
 	mark="${rule%%/*}"
 	mask="${rule#*/}"
 	mark_value=$((mark))
+	exit="$(awk '$1 == "discord" { print $2; exit }' "$exits_file" 2>/dev/null)"
+	case "$exit" in
+		[2-8])
+			# The mark of another exit, when its tunnel is configured (tunnel.sh).
+			! uci -q get "$config.tunnel_$exit" >/dev/null 2>&1 ||
+				mark_value=$(((exit + 1) << 24))
+			;;
+	esac
 	mask_value=$((mask))
 	clear_value=$((0xffffffff ^ mask_value))
 	mark_hex="$(printf '0x%08x' "$mark_value")"

@@ -43,7 +43,7 @@ tunnel_names() {
 	tunnel_table_id=$((1600 + tunnel_mark_value))
 	tunnel_rule=$((28000 + tunnel_mark_value))
 	# Marks run 1 to 9, one hex digit.
-	tunnel_mark="0x0${tunnel_mark_value}000000"
+	tunnel_fwmark="0x0${tunnel_mark_value}000000"
 }
 
 # The index of a tunnel by its connection name, or nothing for another name.

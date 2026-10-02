@@ -187,8 +187,36 @@ render "$tmp/in" "$tmp/one.json" || fail 'a lone third tunnel was refused'
 render "$tmp/in" "$tmp/bad.json" 2>/dev/null && fail 'an exit over a tunnel that is not enabled was rendered'
 { base; printf 'tunnel\t1\tipsec-out\ntunnel\t2\teth0\nexit\t1\t1\t2\n'; } >"$tmp/in"
 render "$tmp/in" "$tmp/bad.json" 2>/dev/null && fail 'a tunnel on a link that is not a tunnel link was rendered'
-{ base; printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\nexit\t2\t2\n'; } >"$tmp/in"
-render "$tmp/in" "$tmp/bad.json" 2>/dev/null && fail 'several tunnels without a first exit were rendered'
+# A first exit no tunnel serves refuses what it would carry, and names go to
+# the WAN resolver as with the client off; nothing of it goes direct.
+{ base | sed 's/^final_server\tupstream$/final_server\tikev2-upstream/'; printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\nexit\t2\t2\n'; } >"$tmp/in"
+render "$tmp/in" "$tmp/noexit.json" || fail 'several tunnels without a first exit were refused'
+[ "$(query "$tmp/noexit.json" '[r["action"] for r in c["route"]["rules"] if r.get("inbound") in (["tproxy-router-in"], ["tproxy-in"]) and r.get("rule_set", ["ikev2-domains"]) == ["ikev2-domains"] and "source_ip_cidr" in r or r.get("inbound") == ["tproxy-router-in"]]')" = "['reject', 'reject']" ] ||
+	fail 'a first exit without a tunnel did not refuse its traffic'
+[ "$(query "$tmp/noexit.json" 'c["dns"]["final"]')" = upstream ] ||
+	fail 'names were sent through a first exit that has no tunnel'
+# Exits with names of their own: each a rule set ahead of the first exit's,
+# its names given FakeIP addresses, its devices an inbound of their own; with
+# one tunnel an exit that tunnel does not serve refuses what it would carry.
+{
+	base
+	printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\n'
+	printf 'exit\t1\t1\t2\nexit\t2\t2\t1\nexit_rules\t2\t/var/x2.json\nexit_port\t2\t1612\n'
+} >"$tmp/in"
+render "$tmp/in" "$tmp/exits.json" || fail 'exit rule sets were refused'
+[ "$(query "$tmp/exits.json" '[(r.get("inbound"), r.get("rule_set"), r.get("outbound", r["action"])) for r in c["route"]["rules"] if r.get("action") in ("route", "reject") and r.get("outbound") != "direct-out"]')" = \
+	"[(['tproxy-exit-2-in'], None, 'exit-2'), (['tproxy-router-in'], ['ikev2-domains-2'], 'exit-2'), (['tproxy-in'], ['ikev2-domains-2'], 'exit-2'), (['tproxy-router-in'], None, 'exit-1'), (['tproxy-in'], ['ikev2-domains'], 'exit-1')]" ] ||
+	fail "the exits are not routed in order: $(query "$tmp/exits.json" '[r for r in c["route"]["rules"]]')"
+[ "$(query "$tmp/exits.json" '[r["rule_set"] for r in c["dns"]["rules"] if r.get("server") == "fakeip"]')" = "[['ikev2-domains', 'ikev2-domains-2']]" ] ||
+	fail 'the names of the second exit get no FakeIP addresses'
+[ "$(query "$tmp/exits.json" '[(i["tag"], i["listen_port"]) for i in c["inbounds"] if i["tag"].startswith("tproxy-exit")]')" = "[('tproxy-exit-2-in', 1612)]" ] ||
+	fail 'the devices of the second exit have no inbound'
+{ base; printf 'tunnel\t1\tipsec-out\nexit\t1\t1\nexit_rules\t3\t/var/x3.json\n'; } >"$tmp/in"
+render "$tmp/in" "$tmp/one-exit.json" || fail 'one tunnel with an exit list was refused'
+[ "$(query "$tmp/one-exit.json" '[(r.get("rule_set"), r.get("outbound", r["action"])) for r in c["route"]["rules"] if r.get("inbound") == ["tproxy-in"] and "rule_set" in r]')" = \
+	"[(['ikev2-domains-3'], 'reject'), (['ikev2-domains'], 'ikev2-out')]" ] ||
+	fail 'with one tunnel an exit it does not serve was not refused'
+
 # The probe follows the link it is given.
 printf '%s\t%s\n' bootstrap_host 8.8.8.8 bootstrap_port 53 doh_host dns.example \
 	doh_port 443 doh_path /dns-query dns_address 127.0.0.77 link ipsec-out2 >"$tmp/in"

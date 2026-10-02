@@ -26,7 +26,7 @@ extract() {
 		body && $0 == close_with { exit }
 	' "$router"
 }
-for name in prepare config_matches_rendered refresh_rules; do
+for name in prepare config_matches_rendered refresh_rules added_rule_domain exit_rules_file exit_ruleset; do
 	extract "$name" >>"$tmp/functions.sh"
 	grep -q "^$name() " "$tmp/functions.sh" || fail "function is missing: $name"
 done
@@ -36,7 +36,13 @@ cat >"$tmp/bin/sing-box" <<'EOF'
 #!/bin/sh
 [ -e "$STUB_DIR/config-valid" ]
 EOF
-chmod +x "$tmp/bin/sing-box"
+# The domains of a rule set, one a line, as jsonfilter prints them.
+cat >"$tmp/bin/jsonfilter" <<'EOF'
+#!/bin/sh
+[ "$1" = -i ] && [ -r "$2" ] || exit 1
+sed -n 's/.*"domain_suffix":\[\([^]]*\)\].*/\1/p' "$2" | tr ',' '\n' | tr -d '"' | grep .
+EOF
+chmod +x "$tmp/bin/sing-box" "$tmp/bin/jsonfilter"
 STUB_DIR="$tmp"
 PATH="$tmp/bin:$PATH"
 export STUB_DIR PATH
@@ -55,7 +61,14 @@ nft_start() { printf 'nft\n' >>"$tmp/calls"; }
 refresh() { printf 'refresh\n' >>"$tmp/calls"; }
 runtime_healthy() { :; }
 write_status() { printf '%s:%s\n' "$1" "${2:-}" >"$tmp/status"; }
-render_ruleset() { cp "$tmp/next-rules" "$ruleset_file"; }
+render_ruleset() {
+	cp "$tmp/next-rules" "$ruleset_file"
+	if [ -e "$tmp/next-rules-2" ]; then
+		cp "$tmp/next-rules-2" "${ruleset_file%.json}.exit-2.json"
+	else
+		rm -f "${ruleset_file%.json}.exit-2.json"
+	fi
+}
 render_config() { render_ruleset; cp "$tmp/next-config" "$config_file"; }
 . "$tmp/functions.sh"
 
@@ -96,6 +109,44 @@ printf '{"a": "with device", "b": [1, 2]}\n' >"$tmp/next-config"
 refresh_rules || fail 'a changed rule refresh failed'
 grep -qx refresh "$tmp/calls" || fail 'a configuration change was treated as a rule reload'
 [ "$(cat "$config_file")" = '{"a": "same", "b": [1, 2]}' ] || fail 'asking whether the configuration changed modified it'
+
+# Only the second exit's names changed: sing-box rereads that rule set by
+# itself, and dnsmasq is told only once a name it added gets a FakeIP address,
+# or it would cache the real one and send it past the tunnel.
+printf '{"b":[1,2],"a":"same"}\n' >"$tmp/next-config"
+printf '{"version":3,"rules":[{"domain_suffix":["one.example"]}]}\n' >"$tmp/next-rules"
+cp "$tmp/next-rules" "$ruleset_file"
+printf '{"version":3,"rules":[{"domain_suffix":["two.example"]}]}\n' >"${ruleset_file%.json}.exit-2.json"
+printf '{"version":3,"rules":[{"domain_suffix":["two.example","new.example"]}]}\n' >"$tmp/next-rules-2"
+dns_address=127.0.0.42
+servers_changed=0
+sleep() { :; }
+validate_dns_server() { :; }
+lookup_address() {
+	printf '%s %s\n' "$1" "$2" >>"$tmp/lookups"
+	if [ "$(grep -c "^new.example 127.0.0.42" "$tmp/lookups")" -ge 3 ]; then echo 198.18.0.9; else echo 203.0.113.9; fi
+}
+is_fakeip() { case "$1" in 198.18.*) return 0 ;; *) return 1 ;; esac; }
+write_dnsmasq_servers() { printf 'servers after %s lookups\n' "$(wc -l <"$tmp/lookups" | tr -d ' ')" >>"$tmp/calls"; }
+: >"$tmp/calls"
+: >"$tmp/lookups"
+refresh_rules || fail 'a change of the second exit names failed'
+grep -qx 'servers after 3 lookups' "$tmp/calls" ||
+	fail "dnsmasq was told before the new name of the second exit had FakeIP: $(cat "$tmp/calls")"
+! grep -qx refresh "$tmp/calls" || fail 'a change of the second exit names restarted the resolver'
+grep -q 'without restarting DNS' "$tmp/status" || fail 'the reload was not reported'
+# When the name never gets FakeIP the rule sets go back and the resolver is
+# restarted the transactional way.
+printf '{"version":3,"rules":[{"domain_suffix":["two.example","new.example","late.example"]}]}\n' >"$tmp/next-rules-2"
+cp "${ruleset_file%.json}.exit-2.json" "$tmp/before-2"
+lookup_address() { echo 203.0.113.9; }
+: >"$tmp/calls"
+refresh_rules || :
+cmp -s "$tmp/before-2" "${ruleset_file%.json}.exit-2.json" ||
+	fail 'a failed reload of the second exit names was not rolled back'
+grep -qx refresh "$tmp/calls" || fail 'a failed reload did not fall back to the full refresh'
+! grep -q '^servers' "$tmp/calls" || fail 'dnsmasq was told of names sing-box never took'
+rm -f "$tmp/next-rules-2" "${ruleset_file%.json}.exit-2.json"
 
 grep -q '^	if ! /usr/libexec/ikev2-domain-router prepare; then$' \
 	"$root/ikev2-manager-runtime/ikev2-domain-router.init" ||

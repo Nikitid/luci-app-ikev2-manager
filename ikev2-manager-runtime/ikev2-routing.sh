@@ -75,7 +75,9 @@ extra_rule_priorities='28003 28004 28005 28006 28007 28008 28009'
 # The domain sets are filled by dnsmasq when matching by address, or copied
 # from PBR in overlay mode. With FakeIP sing-box routes by name and they stay
 # empty.
-runtime_volatile_sets='dst4 dst6 bypass_learned4 bypass_learned6'
+runtime_volatile_sets='dst4 dst6 bypass_learned4 bypass_learned6
+dst4_x2 dst6_x2 dst4_x3 dst6_x3 dst4_x4 dst6_x4 dst4_x5 dst6_x5
+dst4_x6 dst6_x6 dst4_x7 dst6_x7 dst4_x8 dst6_x8'
 # An address dnsmasq answered with stays this long after its last answer: a
 # client may keep using it from its own cache, and the kernel moves the
 # expiry on whenever dnsmasq adds it again. Sets without a timeout kept every
@@ -200,6 +202,39 @@ exits=1
 load_tunnels() {
 	tunnel_settings_load
 	exits="${tunnel_list:-1}"
+}
+
+# The list of exit $2 beside the first exit's list $1, as the community
+# helper writes it: name.exit-N.txt.
+exit_list() {
+	printf '%s.exit-%s.txt\n' "${1%.txt}" "$2"
+}
+
+# The exits after the first that have destinations of their own: a configured
+# tunnel with a list. Expects load_tunnels.
+active_exits() {
+	local exit
+	for exit in $exits; do
+		[ "$exit" != 1 ] || continue
+		[ -e "$(exit_list "$domain_file" "$exit")" ] ||
+			[ -e "$(exit_list "$service_file" "$exit")" ] || continue
+		printf '%s\n' "$exit"
+	done
+}
+
+# The destination sets dnsmasq fills: the first exit's, then each other one's.
+learned_sets() {
+	local exit
+	printf 'dst4\ndst6\n'
+	for exit in $(active_exits); do
+		printf 'dst4_x%s\ndst6_x%s\n' "$exit" "$exit"
+	done
+}
+
+# The mark of exit $1, as nft writes it.
+exit_mark() {
+	tunnel_names "$1"
+	printf '0x%08x\n' $((tunnel_mark_value << 24))
 }
 
 # The tunnel links a table routes into by default, one per line.
@@ -349,7 +384,8 @@ EOF
 # The table is changed in place, never recreated: the domain sets hold what
 # dnsmasq learned, and a new table would start them empty.
 write_ruleset() {
-	local set_mark="counter meta mark set meta mark & 0xf0ffffff | $tunnel_mark" family set
+	local set_mark="counter meta mark set meta mark & 0xf0ffffff | $tunnel_mark" family set exit exit_set tunnel_marks
+	local existing name
 	printf 'add table inet %s\n' "$table"
 	printf 'add chain inet %s ikev2_manager_owned { comment "IKEv2 Manager policy routing"; }\n' "$table"
 	# After every hook that decides a packet's path: the device table (-152),
@@ -361,6 +397,14 @@ write_ruleset() {
 	for family in 4 6; do
 		dst_set_outdated "$family" || continue
 		printf 'delete set inet %s dst%s\n' "$table" "$family"
+	done
+	# The sets of an exit with nothing listed any more go with it; the chain
+	# that used them was flushed above.
+	existing="$("$nft_bin" list table inet "$table" 2>/dev/null | awk '$1 == "set" { print $2 }')"
+	for name in $existing; do
+		case "$name" in service4_x[2-8] | dst4_x[2-8] | dst6_x[2-8]) ;; *) continue ;; esac
+		grep -qx "${name##*_x}" "$work/exits" ||
+			printf 'delete set inet %s %s\n' "$table" "$name"
 	done
 	printf 'add set inet %s src_ifaces { type ifname; }\n' "$table"
 	printf 'add set inet %s src4 { type ipv4_addr; flags interval; auto-merge; }\n' "$table"
@@ -375,6 +419,19 @@ write_ruleset() {
 		printf 'add set inet %s bypass_learned%s { type ipv%s_addr; flags interval, timeout; %s %s; auto-merge; }\n' \
 			"$table" "$family" "$family" timeout "$dst_timeout"
 	done
+	# The sets of the other exits, ahead of the first exit's in the chain.
+	while read -r exit; do
+		printf 'add set inet %s service4_x%s { type ipv4_addr; flags interval; auto-merge; }\n' "$table" "$exit"
+		for family in 4 6; do
+			printf 'add set inet %s dst%s_x%s { type ipv%s_addr; flags interval, timeout; %s %s; auto-merge; }\n' \
+				"$table" "$family" "$exit" "$family" timeout "$dst_timeout"
+		done
+		printf 'flush set inet %s service4_x%s\n' "$table" "$exit"
+		! fakeip_engine ||
+			printf 'flush set inet %s dst4_x%s\nflush set inet %s dst6_x%s\n' "$table" "$exit" "$table" "$exit"
+		[ ! -s "$work/service4_x$exit" ] ||
+			printf 'add element inet %s service4_x%s { %s }\n' "$table" "$exit" "$(elements "$work/service4_x$exit")"
+	done <"$work/exits"
 	for name in src_ifaces src4 service4 bypass4 respect4; do
 		printf 'flush set inet %s %s\n' "$table" "$name"
 	done
@@ -394,10 +451,20 @@ write_ruleset() {
 	[ ! -s "$work/respect4" ] ||
 		printf 'add element inet %s respect4 { %s }\n' "$table" "$(elements "$work/respect4")"
 	# A full-route device that respects the exclusions has them sent to WAN,
-	# where device routing has already sent everything else into the tunnel.
+	# where device routing has already sent everything else into a tunnel.
+	tunnel_marks="$tunnel_mark"
+	if tunnel_several; then
+		tunnel_marks=''
+		for exit in $exits; do
+			tunnel_marks="$tunnel_marks${tunnel_marks:+, }$(exit_mark "$exit")"
+		done
+		tunnel_marks="{ $tunnel_marks }"
+	else
+		tunnel_marks="== $tunnel_mark"
+	fi
 	for set in bypass4 bypass_learned4; do
-		printf 'add rule inet %s prerouting meta mark & %s == %s ip saddr @respect4 ip daddr @%s counter meta mark set meta mark & 0xf0ffffff | 0x%08x return\n' \
-			"$table" "$mark_mask" "$tunnel_mark" "$set" "$rule_wan_mark"
+		printf 'add rule inet %s prerouting meta mark & %s %s ip saddr @respect4 ip daddr @%s counter meta mark set meta mark & 0xf0ffffff | 0x%08x return\n' \
+			"$table" "$mark_mask" "$tunnel_marks" "$set" "$rule_wan_mark"
 	done
 	# A mark of ours is final. So is any other in the bits the rest of the
 	# router uses - a WAN exclusion, FakeIP delivery, another VPN - except
@@ -414,6 +481,18 @@ write_ruleset() {
 	printf 'add rule inet %s prerouting ip daddr @bypass4 counter return\n' "$table"
 	printf 'add rule inet %s prerouting ip daddr @bypass_learned4 counter return\n' "$table"
 	printf 'add rule inet %s prerouting ip6 daddr @bypass_learned6 counter return\n' "$table"
+	# The other exits first, in order, each mark final: an earlier exit takes
+	# what a later one lists as well, as the community helper decided.
+	while read -r exit; do
+		exit_set="counter meta mark set meta mark & 0xf0ffffff | $(exit_mark "$exit") return"
+		for match in 'iifname @src_ifaces' 'ip saddr @src4'; do
+			fakeip_engine ||
+				printf 'add rule inet %s prerouting %s ip daddr @dst4_x%s %s\n' "$table" "$match" "$exit" "$exit_set"
+			printf 'add rule inet %s prerouting %s ip daddr @service4_x%s %s\n' "$table" "$match" "$exit" "$exit_set"
+		done
+		fakeip_engine ||
+			printf 'add rule inet %s prerouting iifname @src_ifaces ip6 daddr @dst6_x%s %s\n' "$table" "$exit" "$exit_set"
+	done <"$work/exits"
 	for match in 'iifname @src_ifaces' 'ip saddr @src4'; do
 		fakeip_engine ||
 			printf 'add rule inet %s prerouting %s ip daddr @dst4 %s\n' "$table" "$match" "$set_mark"
@@ -472,6 +551,7 @@ dnsmasq_confdirs() {
 # sets. Only Standard mode needs it: in reliable mode sing-box answers those
 # names itself.
 render_nftset() {
+	local exit list suffix
 	# The excluded domains in either engine: dnsmasq resolves them itself,
 	# and the most specific name wins, so an excluded name under a selected
 	# one fills only this set.
@@ -486,13 +566,17 @@ render_nftset() {
 	# its sets, which are copied here; two nftset lines for one name would
 	# leave which set dnsmasq fills to its parser.
 	[ "$(uci -q get pbr.ikev2pbr_domains.enabled 2>/dev/null || echo 0)" != 1 ] || return 0
-	[ -r "$domain_file" ] || return 0
-	awk -v table="$table" '
-		{ sub(/#.*/, ""); gsub(/[ \t\r]/, ""); $0 = tolower($0) }
-		/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/ && !/\.\./ {
-			printf "nftset=/%s/4#inet#%s#dst4,6#inet#%s#dst6\n", $0, table, table
-		}
-	' "$domain_file"
+	for exit in 1 $(active_exits); do
+		list="$domain_file" suffix=''
+		[ "$exit" = 1 ] || { list="$(exit_list "$domain_file" "$exit")"; suffix="_x$exit"; }
+		[ -r "$list" ] || continue
+		awk -v table="$table" -v suffix="$suffix" '
+			{ sub(/#.*/, ""); gsub(/[ \t\r]/, ""); $0 = tolower($0) }
+			/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/ && !/\.\./ {
+				printf "nftset=/%s/4#inet#%s#dst4%s,6#inet#%s#dst6%s\n", $0, table, suffix, table, suffix
+			}
+		' "$list"
+	done
 }
 
 # Writes or removes the nftset file in each instance's confdir; dnsmasq reads
@@ -535,57 +619,57 @@ set_elements() {
 
 # Copies of the destination sets mean nothing when sing-box routes by name.
 drop_set_dumps() {
-	rm -f "$dump_dir/ikev2-routing-dst4.dump" "$dump_dir/ikev2-routing-dst6.dump" \
-		"$persist_dir/routing-dst4.dump" "$persist_dir/routing-dst6.dump"
+	rm -f "$dump_dir"/ikev2-routing-dst*.dump "$persist_dir"/routing-dst*.dump
 }
 
 # What dnsmasq taught the sets survives a firewall reload and, from the
 # copy saved on shutdown, a reboot: clients with a warm DNS cache would
 # otherwise reach selected names directly until they ask again.
 dump_sets() {
-	local family
+	local set
 	if fakeip_engine; then
 		drop_set_dumps
 		return 0
 	fi
 	runtime_owned || return 0
-	for family in 4 6; do
-		set_elements "dst$family" >"$dump_dir/ikev2-routing-dst$family.dump.new" || :
-		if [ -s "$dump_dir/ikev2-routing-dst$family.dump.new" ]; then
-			mv "$dump_dir/ikev2-routing-dst$family.dump.new" "$dump_dir/ikev2-routing-dst$family.dump"
+	load_tunnels
+	for set in $(learned_sets); do
+		set_elements "$set" >"$dump_dir/ikev2-routing-$set.dump.new" || :
+		if [ -s "$dump_dir/ikev2-routing-$set.dump.new" ]; then
+			mv "$dump_dir/ikev2-routing-$set.dump.new" "$dump_dir/ikev2-routing-$set.dump"
 		else
-			rm -f "$dump_dir/ikev2-routing-dst$family.dump.new"
+			rm -f "$dump_dir/ikev2-routing-$set.dump.new"
 		fi
 	done
 }
 
 persist_sets() {
-	local family
+	local set
 	dump_sets
 	! fakeip_engine || return 0
 	mkdir -p "$persist_dir"
-	for family in 4 6; do
-		[ -s "$dump_dir/ikev2-routing-dst$family.dump" ] || continue
-		cp "$dump_dir/ikev2-routing-dst$family.dump" "$persist_dir/routing-dst$family.dump.new" &&
-			chmod 600 "$persist_dir/routing-dst$family.dump.new" &&
-			mv "$persist_dir/routing-dst$family.dump.new" "$persist_dir/routing-dst$family.dump"
+	for set in $(learned_sets); do
+		[ -s "$dump_dir/ikev2-routing-$set.dump" ] || continue
+		cp "$dump_dir/ikev2-routing-$set.dump" "$persist_dir/routing-$set.dump.new" &&
+			chmod 600 "$persist_dir/routing-$set.dump.new" &&
+			mv "$persist_dir/routing-$set.dump.new" "$persist_dir/routing-$set.dump"
 	done
 }
 
 restore_sets() {
-	local family dump elements
+	local set dump elements
 	if fakeip_engine; then
 		drop_set_dumps
 		return 0
 	fi
-	for family in 4 6; do
-		[ -z "$(set_elements "dst$family" | head -n1)" ] || continue
-		dump="$dump_dir/ikev2-routing-dst$family.dump"
-		[ -s "$dump" ] || dump="$persist_dir/routing-dst$family.dump"
+	for set in $(learned_sets); do
+		[ -z "$(set_elements "$set" | head -n1)" ] || continue
+		dump="$dump_dir/ikev2-routing-$set.dump"
+		[ -s "$dump" ] || dump="$persist_dir/routing-$set.dump"
 		[ -s "$dump" ] || continue
 		elements="$(tr '\n' ',' <"$dump" | sed 's/,$//')"
 		[ -z "$elements" ] ||
-			"$nft_bin" add element inet "$table" "dst$family" "{ $elements }" 2>/dev/null || :
+			"$nft_bin" add element inet "$table" "$set" "{ $elements }" 2>/dev/null || :
 	done
 }
 
@@ -600,6 +684,11 @@ desired_state() {
 	address_lines "$bypass_cidr_file" | sort -u >"$work/bypass4"
 	device_flag_addresses respect_exclusions >"$work/respect4" ||
 		die 'Device routing configuration is not valid'
+	active_exits >"$work/exits"
+	local exit
+	while read -r exit; do
+		address_lines "$(exit_list "$service_file" "$exit")" | sort -u >"$work/service4_x$exit"
+	done <"$work/exits"
 	pbr_tunnel=''
 	local values
 	if values="$(mark_values "$(pbr_mark_rule pbr_ikev2out)")"; then
@@ -617,6 +706,11 @@ desired_state() {
 		cat "$work/bypass4"
 		printf 'respect4\n'
 		cat "$work/respect4"
+		printf 'tunnels %s\n' "$exits"
+		while read -r exit; do
+			printf 'exit %s\n' "$exit"
+			cat "$work/service4_x$exit"
+		done <"$work/exits"
 	} | sha256sum | awk '{ print $1 }')"
 }
 

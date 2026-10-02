@@ -11,6 +11,9 @@
 /etc/pbr-ikev2-domains.bypass.txt
 /etc/pbr-ikev2-addresses.bypass.txt
 /etc/pbr-ikev2-community-selected.txt
+/etc/pbr-ikev2-exits.txt
+/etc/pbr-ikev2-domains.exit-*.txt
+/etc/pbr-ikev2-service-cidrs.exit-*.txt
 /etc/pbr-ikev2-service-cidrs.txt
 /etc/pbr-ikev2-community-cache/
 /etc/ikev2-manager/domain-router-cache.db

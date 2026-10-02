@@ -262,6 +262,10 @@ case "$command:$*" in
 	'show:ikev2-manager')
 		echo 'ikev2-manager.client=client'
 		echo "ikev2-manager.client.enabled='1'"
+		if [ -n "${TEST_TUNNEL_2:-}" ]; then
+			echo 'ikev2-manager.tunnel_2=tunnel'
+			echo "ikev2-manager.tunnel_2.enabled='1'"
+		fi
 		echo 'ikev2-manager.dnsseg_national=dns_segment'
 		echo 'ikev2-manager.dnsseg_private=dns_segment'
 		echo 'ikev2-manager.device_192_168_1_0_24=device_policy'
@@ -289,6 +293,42 @@ IKEV2_TUNNEL_DNS_STATE="$tmp/tunnel-dns.state" \
 jq -e . "$tmp/domain-router.json" >/dev/null
 [ -z "${IKEV2_TEST_SING_BOX:-}" ] ||
 	"$IKEV2_TEST_SING_BOX" check -c "$tmp/domain-router.json"
+
+# A second tunnel with names of its own: its rule set beside the first one's,
+# named in the configuration, its devices' inbound, and dnsmasq sending its
+# names to sing-box for their FakeIP addresses.
+printf '%s\n' second.example >"$tmp/domains.exit-2.txt"
+exits_env() {
+	PATH="$tmp/bin:$PATH" \
+	TEST_TUNNEL_2=1 \
+	IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib" \
+	IKEV2_DOMAIN_FILE="$tmp/domains.txt" \
+	IKEV2_DOMAIN_CONFIG="$tmp/domain-router-exits.json" \
+	IKEV2_DOMAIN_RULESET="$tmp/domain-router-rules.json" \
+	IKEV2_DOMAIN_WORK_DIR="$tmp/work" \
+	IKEV2_TUNNEL_DNS_STATE="$tmp/tunnel-dns.state" \
+	IKEV2_TUNNEL_STATE="$tmp/tunnels.state" \
+		"$@"
+}
+exits_env sh "$root/ikev2-manager-runtime/ikev2-domain-router.sh" render
+jq -e '.rules[0].domain_suffix == ["second.example"]' "$tmp/domain-router-rules.exit-2.json" >/dev/null ||
+	{ printf '%s\n' 'the second exit rule set was not rendered' >&2; exit 1; }
+jq -e --arg path "$tmp/domain-router-rules.exit-2.json" '
+	([.route.rule_set[] | select(.tag == "ikev2-domains-2") | .path] == [$path]) and
+	([.inbounds[] | select(.tag == "tproxy-exit-2-in") | .listen_port] == [1612])
+' "$tmp/domain-router-exits.json" >/dev/null ||
+	{ printf '%s\n' 'the configuration does not name the second exit rule set and inbound' >&2; exit 1; }
+for name in exit_domain_file named_exits render_dnsmasq_servers; do
+	sed -n "/^$name() {/,/^}/p" "$root/ikev2-manager-runtime/ikev2-domain-router.sh"
+done >"$tmp/servers.sh"
+exits_env sh -c '
+	domain_file="$1" dns_address=127.0.0.42 bypass_domain_file=/nonexistent
+	. "$2/ikev2-manager-runtime/lib/tunnel.sh"
+	. "$3"
+	render_dnsmasq_servers' sh "$tmp/domains.txt" "$root" "$tmp/servers.sh" >"$tmp/servers.out"
+grep -qx 'server=/second.example/127.0.0.42' "$tmp/servers.out" && grep -qx 'server=/example.com/127.0.0.42' "$tmp/servers.out" ||
+	{ printf '%s\n' 'dnsmasq does not send the second exit names to sing-box' >&2; cat "$tmp/servers.out" >&2; exit 1; }
+rm -f "$tmp/domains.exit-2.txt"
 
 # A DNS transaction captures an independently verified last-known-good runtime.
 # Corrupting either saved file must make the fallback reject the snapshot before

@@ -488,6 +488,66 @@ send 203.0.113.6
 [ "$(hits 'iifname @src_ifaces ip daddr @service4')" = 1 ] ||
 	fail 'the rest of the selected network did not go into the tunnel'
 rm -f /etc/pbr-ikev2-addresses.bypass.txt
+
+step 'a second exit takes its own network ahead of the first, which lists the whole range'
+uci -q batch <<'EOF'
+set ikev2-manager.tunnel_2=tunnel
+set ikev2-manager.tunnel_2.enabled='1'
+commit ikev2-manager
+EOF
+printf '203.0.113.6/32\n' >/etc/pbr-ikev2-service-cidrs.exit-2.txt
+"$routing" sync || fail 'policy routing did not install with a second exit'
+# What each packet leaves with, counted after the policy routing has marked it.
+nft -f - <<'EOF'
+table inet exit_probe {
+	chain prerouting {
+		type filter hook prerouting priority mangle + 10; policy accept;
+		ip daddr 203.0.113.6 meta mark & 0x0f000000 == 0x03000000 counter
+		ip daddr 203.0.113.5 meta mark & 0x0f000000 == 0x01000000 counter
+	}
+}
+EOF
+send 203.0.113.6
+send 203.0.113.5
+[ "$(hits 'iifname @src_ifaces ip daddr @service4_x2')" = 1 ] ||
+	fail 'the second exit network was not matched for its tunnel'
+[ "$(hits 'iifname @src_ifaces ip daddr @service4 counter')" = 1 ] ||
+	fail 'the first exit took a packet of the second, or lost its own'
+[ "$(nft list chain inet exit_probe prerouting | grep -c 'counter packets [1-9]')" = 2 ] ||
+	fail "the exits did not leave with their marks: $(nft list chain inet exit_probe prerouting; nft list chain inet ikev2_routing prerouting)"
+nft delete table inet exit_probe
+# A device sent whole through the second exit keeps its mark, whatever the
+# first exit lists.
+uci -q batch <<'EOF'
+set ikev2-manager.device_192_168_9_50=device_policy
+set ikev2-manager.device_192_168_9_50.address='192.168.9.50'
+set ikev2-manager.device_192_168_9_50.route_mode='fullroute'
+set ikev2-manager.device_192_168_9_50.exit='2'
+commit ikev2-manager
+EOF
+ip neigh replace 203.0.113.7 lladdr "$(cat /sys/class/net/v1/address)" dev v0
+/usr/libexec/ikev2-device-routing sync || fail 'device routing did not install a device on the second exit'
+"$routing" sync
+nft -f - <<'EOF'
+table inet exit_probe {
+	chain prerouting {
+		type filter hook prerouting priority mangle + 10; policy accept;
+		ip saddr 192.168.9.50 ip daddr 203.0.113.7 meta mark & 0x0f000000 == 0x03000000 counter
+	}
+}
+EOF
+send 203.0.113.7
+[ "$(nft list chain inet exit_probe prerouting | grep -c 'counter packets [1-9]')" = 1 ] ||
+	fail "a device of the second exit did not leave with its mark: $(nft list table inet ikev2_device_policy | grep fullroute)"
+nft delete table inet exit_probe
+uci delete ikev2-manager.device_192_168_9_50
+uci commit ikev2-manager
+/usr/libexec/ikev2-device-routing sync
+rm -f /etc/pbr-ikev2-service-cidrs.exit-2.txt
+uci delete ikev2-manager.tunnel_2
+uci commit ikev2-manager
+"$routing" sync
+nft list table inet ikev2_routing | grep -q service4_x2 && fail 'a removed exit kept its set'
 ip link del v0
 uci set network.lan.device='br-lan'
 uci commit network

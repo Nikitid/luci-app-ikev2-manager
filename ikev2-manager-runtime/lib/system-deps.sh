@@ -542,6 +542,8 @@ reset_application_state() {
 		: >"$file" || return 1
 		chmod 600 "$file" || return 1
 	done
+	rm -f /etc/pbr-ikev2-exits.txt /etc/pbr-ikev2-domains.exit-*.txt \
+		/etc/pbr-ikev2-service-cidrs.exit-*.txt
 }
 
 remove_deps() {

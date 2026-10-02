@@ -309,6 +309,30 @@ grep -qx '192.168.2.0/24 dev br-lan' "$S/route4-1603" || fail 'replies to the LA
 grep -qx 'default dev ipsec-out2 metric 10' "$S/route4-1603" || fail 'the second exit does not route into its tunnel'
 grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'the first exit left its own tunnel'
 "$helper" check || fail 'two installed exits failed the check'
+# Destinations of the second exit: its own sets and mark, matched before the
+# first exit's so that it keeps what both list, and dnsmasq fills its sets.
+printf '198.51.100.0/24\n' >"$tmp/services.exit-2.txt"
+printf 'second.example\n' >"$tmp/domains.exit-2.txt"
+"$helper" check && fail 'a new exit list passed the check'
+"$helper" sync || fail 'the second exit lists did not install'
+grep -q 'add element inet ikev2_routing_test service4_x2 { 198.51.100.0/24 }' "$S/nft.rules" ||
+	fail 'the second exit networks were not loaded'
+second="$(grep -n 'ip daddr @service4_x2 counter meta mark set meta mark & 0xf0ffffff | 0x03000000 return' "$S/nft.rules" | head -n1 | cut -d: -f1)"
+first="$(grep -n 'ip daddr @service4 counter' "$S/nft.rules" | head -n1 | cut -d: -f1)"
+[ -n "$second" ] && [ -n "$first" ] && [ "$second" -lt "$first" ] ||
+	fail 'the second exit is not marked, or not ahead of the first'
+grep -q 'ip daddr @dst4_x2 counter meta mark set meta mark & 0xf0ffffff | 0x03000000 return' "$S/nft.rules" ||
+	fail 'the second exit learned addresses are not marked'
+grep -q 'iifname @src_ifaces ip daddr @service4 counter meta mark set meta mark & 0xf0ffffff | 0x01000000$' "$S/nft.rules" ||
+	fail 'the first exit lost its own mark to another exit'
+grep -q 'meta mark & 0x0f000000 { 0x01000000, 0x03000000 } ip saddr @respect4' "$S/nft.rules" ||
+	fail 'a full-route device of the second exit does not respect the exclusions'
+grep -qx 'nftset=/second.example/4#inet#ikev2_routing_test#dst4_x2,6#inet#ikev2_routing_test#dst6_x2' \
+	"$S/dnsmasq.d/ikev2-routing" || fail 'dnsmasq does not fill the second exit sets'
+"$helper" check || fail 'the installed exit lists failed the check'
+rm -f "$tmp/services.exit-2.txt" "$tmp/domains.exit-2.txt"
+"$helper" sync
+! grep -q service4_x2 "$S/nft.rules" || fail 'an exit without lists kept its sets'
 printf 'exit 1 2\nexit 2 2\n' >"$S/tunnels.state"
 "$helper" check && fail 'an exit routed past the tunnel the watcher chose passed the check'
 "$helper" sync
