@@ -3,7 +3,7 @@
 #
 # What identifies the router, its owner or its users does not leave in it:
 # values of settings named like a password, secret, key or token are dropped,
-# and so is anything between PEM markers; the tunnel's server and identities,
+# and so is anything between PEM markers; every tunnel's server and identities,
 # the server name, the VPN user names and the router's host name become
 # placeholders, and so do public IPv4 and IPv6 addresses and MAC addresses.
 # Private, loopback, FakeIP and documentation ranges stay, as do the well-known
@@ -25,6 +25,19 @@ diagnostics_identities() {
 		value="$(uci -q get "$config.${pair%%:*}" 2>/dev/null || true)"
 		[ -z "$value" ] || printf '%s\t<%s>\n' "$value" "${pair#*:}"
 	done
+	# The other tunnels, numbered as they are in the report.
+	for section in $(uci -q show "$config" 2>/dev/null |
+		sed -n "s/^$config\.\(tunnel_[2-8]\)=tunnel$/\1/p"); do
+		for pair in remote_address:server remote_id:server-id username:user; do
+			value="$(uci -q get "$config.$section.${pair%%:*}" 2>/dev/null || true)"
+			[ -z "$value" ] || printf '%s\t<tunnel-%s-%s>\n' "$value" "${section#tunnel_}" "${pair#*:}"
+		done
+	done
+	# Their credential store names the same users. It exists only once a
+	# second tunnel was saved, and the report runs under set -e.
+	value="${IKEV2_TUNNELS_SECRET_DB:-/etc/ikev2-manager/tunnels.secret}"
+	[ ! -r "$value" ] ||
+		awk -F '\t' 'NF >= 2 && $2 != "" { printf "%s\t<tunnel-%s-user>\n", $2, $1 }' "$value"
 	for section in $(uci -q show "$config" 2>/dev/null |
 		sed -n "s/^$config\.\(user_[^.=]*\)=.*/\1/p"); do
 		value="$(uci -q get "$config.$section.username" 2>/dev/null || true)"
@@ -210,11 +223,17 @@ diagnostics_swanctl() {
 }
 
 diagnostics_routes() {
-	local table
+	local table routes
 	ip -4 rule show
 	for table in 1601 1602 51820; do
 		printf -- '-- table %s\n' "$table"
 		ip -4 route show table "$table"
+	done
+	# The tables of the other tunnels, those that hold a route.
+	for table in 1603 1604 1605 1606 1607 1608 1609; do
+		routes="$(ip -4 route show table "$table" 2>/dev/null || :)"
+		[ -n "$routes" ] || continue
+		printf -- '-- table %s\n%s\n' "$table" "$routes"
 	done
 	printf -- '-- addresses\n'
 	ip -4 -o addr show
@@ -236,6 +255,16 @@ diagnostics_log() {
 		tail -n 400
 }
 
+# Each tunnel's state, which tunnel each exit uses now and since when, and the
+# tunnel chosen for each service and list.
+diagnostics_tunnels() {
+	/usr/libexec/ikev2-manager tunnels-status
+	printf -- '-- selection\n'
+	cat "${IKEV2_TUNNEL_STATE:-/var/run/ikev2-tunnels.state}" 2>/dev/null || :
+	printf -- '-- exits\n'
+	cat /etc/pbr-ikev2-exits.txt 2>/dev/null || :
+}
+
 diagnostics_action_logs() {
 	local log
 	for log in /tmp/ikev2-system-action.log /tmp/ikev2-domain-router.log \
@@ -252,6 +281,7 @@ diagnostics_collect() {
 	diagnostics_section 'Readiness' "$0" doctor
 	diagnostics_section 'Router settings' "$0" get
 	diagnostics_section 'Outbound tunnel' /usr/libexec/ikev2-manager client-get
+	diagnostics_section 'Tunnels' diagnostics_tunnels
 	diagnostics_section 'Security associations' diagnostics_swanctl --list-sas
 	diagnostics_section 'Loaded connections' diagnostics_swanctl --list-conns
 	diagnostics_section 'Domain routing' /usr/libexec/ikev2-domain-router status
