@@ -589,7 +589,13 @@ sync_firewall() {
 
 	uci set firewall.ikev2pbr_out=zone
 	uci set "firewall.ikev2pbr_out.name=$outbound_zone"
-	uci set firewall.ikev2pbr_out.device='ipsec-out'
+	# Every outbound tunnel link is in the zone: the first always, the others
+	# while their tunnel is enabled.
+	uci add_list firewall.ikev2pbr_out.device='ipsec-out'
+	for index in 2 3 4 5 6 7 8; do
+		[ "$(getv "tunnel_$index" enabled)" = 1 ] || continue
+		uci add_list "firewall.ikev2pbr_out.device=ipsec-out$index"
+	done
 	uci set firewall.ikev2pbr_out.input='REJECT'
 	uci set firewall.ikev2pbr_out.output='ACCEPT'
 	uci set firewall.ikev2pbr_out.forward='REJECT'
@@ -1050,7 +1056,7 @@ routing_paused() {
 }
 
 # Pause stops using the tunnel without letting anything that would enter it
-# leave through WAN: a separate table refuses whatever reaches ipsec-out, so
+# leave through WAN: a separate table refuses whatever reaches a tunnel link, so
 # selected destinations and full-tunnel devices lose access until resume, as
 # they would with the tunnel down. Nothing else changes - routing, FakeIP, DNS
 # and the device policy keep running as configured - so resume is immediate
@@ -1068,11 +1074,11 @@ table inet $pause_table {
 	}
 	chain forward {
 		type filter hook forward priority filter - 5; policy accept;
-		oifname "ipsec-out" counter reject with icmpx admin-prohibited
+		oifname "ipsec-out*" counter reject with icmpx admin-prohibited
 	}
 	chain output {
 		type filter hook output priority filter - 5; policy accept;
-		oifname "ipsec-out" meta l4proto != { icmp, ipv6-icmp } counter reject with icmpx admin-prohibited
+		oifname "ipsec-out*" meta l4proto != { icmp, ipv6-icmp } counter reject with icmpx admin-prohibited
 	}
 }
 EOF
@@ -1080,7 +1086,7 @@ EOF
 
 pause_block_present() {
 	[ "$(nft list table inet "$pause_table" 2>/dev/null |
-		grep -c 'oifname "ipsec-out".* reject')" = 2 ]
+		grep -c 'oifname "ipsec-out\*".* reject')" = 2 ]
 }
 
 pause_block_remove() {

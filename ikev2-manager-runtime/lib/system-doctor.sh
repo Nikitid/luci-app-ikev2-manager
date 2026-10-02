@@ -236,17 +236,31 @@ doctor_checks() {
 		fi
 	fi
 
-	# Reserved XFRM if_id 42 (ipsec-out) and 43 (ipsec-in). A foreign xfrm
-	# interface holding either id collides with the ones this app creates.
+	# Reserved XFRM if_id 42 (ipsec-out), 43 (ipsec-in) and 52-58 (ipsec-out2
+	# to ipsec-out8, see tunnel.sh). A foreign xfrm interface holding one
+	# collides with the ones this app creates.
 	xfrm_conflict="$(
 		ip -d link show type xfrm 2>/dev/null | awk '
 			/^[0-9]+:/ { name = $2; sub(/@.*/, "", name); sub(/:$/, "", name); next }
 			/if_id/ {
 				for (i = 1; i <= NF; i++)
 					if ($i == "if_id") id = $(i + 1)
-				if (name != "ipsec-out" && name != "ipsec-in" &&
-				    (id == "42" || id == "0x2a" || id == "43" || id == "0x2b"))
+				n = (id ~ /^0x/) ? sprintf("%d", strtonum_hex(id)) : id + 0
+				if (n == 42 && name == "ipsec-out") next
+				if (n == 43 && name == "ipsec-in") next
+				if (n >= 52 && n <= 58 && name == "ipsec-out" (n - 50)) next
+				if (n == 42 || n == 43 || (n >= 52 && n <= 58))
 					print name ":" id
+			}
+			function strtonum_hex(h,   i, c, v) {
+				v = 0
+				h = tolower(substr(h, 3))
+				for (i = 1; i <= length(h); i++) {
+					c = index("0123456789abcdef", substr(h, i, 1)) - 1
+					if (c < 0) return -1
+					v = v * 16 + c
+				}
+				return v
 			}
 		'
 	)"
@@ -258,7 +272,9 @@ doctor_checks() {
 	fi
 
 	xfrm_name_conflicts=''
-	for name_id in 'ipsec-out:42:0x2a' 'ipsec-in:43:0x2b'; do
+	for name_id in 'ipsec-out:42:0x2a' 'ipsec-in:43:0x2b' 'ipsec-out2:52:0x34' \
+		'ipsec-out3:53:0x35' 'ipsec-out4:54:0x36' 'ipsec-out5:55:0x37' \
+		'ipsec-out6:56:0x38' 'ipsec-out7:57:0x39' 'ipsec-out8:58:0x3a'; do
 		name="${name_id%%:*}"
 		rest="${name_id#*:}"
 		expected_dec="${rest%%:*}"

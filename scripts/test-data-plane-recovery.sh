@@ -31,7 +31,7 @@ extract() {
 	' "$router"
 }
 
-for name in getv defaultv state_number data_plane_canary save_data_plane_state \
+for name in getv defaultv state_number first_exit_outbound data_plane_canary save_data_plane_state \
 	data_plane_check recover_reliable_mode; do
 	extract "$name" >>"$tmp/functions.sh"
 	grep -q "^$name() " "$tmp/functions.sh" || fail "function is missing: $name"
@@ -61,7 +61,10 @@ stubs='
 	data_plane_state="$tmp/run/data-plane.state"
 	tunnel_dns_state="$tmp/run/tunnel-dns.state"
 	lock_dir="$tmp/run/lock"
+	IKEV2_TUNNEL_STATE="$tmp/run/tunnels.state"
+	. "$root/ikev2-manager-runtime/lib/tunnel.sh"
 	. "$tmp/functions.sh"
+	first_exit_link() { echo ipsec-out; }
 	date() { cat "$tmp/now"; }
 	logger() { :; }
 	quality_mark() { :; }
@@ -268,11 +271,13 @@ setup
 	eval "$(extract data_plane_canary)"
 	. "$root/ikev2-manager-runtime/lib/controller.sh"
 	data_plane_canary_urls='https://a.example/ https://b.example/'
+	config_file="$tmp/run/domain-router.json"
 	fixture_secret="$(printf '%064d' 7)"
 	jsonfilter() {
 		case "$*" in
 			*clash_api.secret*) printf '%s\n' "$fixture_secret" ;;
 			*@.delay*) sed -n 's/.*"delay":\([0-9]*\).*/\1/p' "$2" ;;
+			*'"exit-1"'*) [ ! -e "$tmp/several" ] || printf 'selector\n' ;;
 		esac
 	}
 	curl() {
@@ -295,6 +300,14 @@ setup
 	grep -q '^auth$' "$tmp/calls" || fail 'canary did not authenticate'
 	: >"$tmp/second-ok"
 	data_plane_canary || fail 'canary did not fall back to its second target'
+	# With several tunnels the fetch goes through the first exit's selector,
+	# whichever tunnel it stands on.
+	: >"$tmp/several"
+	: >"$tmp/calls"
+	data_plane_canary || fail 'canary failed through the first exit'
+	grep -Fq 'http://127.0.0.44:1605/proxies/exit-1/delay?timeout=5000&url=' "$tmp/calls" ||
+		fail 'canary did not test the first exit'
+	rm -f "$tmp/several"
 
 	# A controller that does not answer at all fails at once: a frozen instance
 	# would hold every further target for the full timeout.

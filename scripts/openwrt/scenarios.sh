@@ -219,6 +219,76 @@ ip -4 route get 203.0.113.5 from 192.168.1.50 iif br-lan mark 0x1000000 2>&1 |
 ip -4 route get 192.168.1.20 from 192.168.1.50 iif br-lan mark 0x1000000 2>&1 |
 	grep -q 'dev br-lan' || fail 'a marked packet to the LAN left the LAN'
 
+# --- several tunnels -----------------------------------------------------------
+
+step 'each exit routes into the tunnel it uses, falls back to another, never the WAN'
+# Dummy links stand in for the XFRM ones: route selection is what is tested.
+for link in ipsec-out:10.20.20.10 ipsec-out2:10.30.0.7; do
+	ip link add "${link%%:*}" type dummy 2>/dev/null || :
+	ip link set "${link%%:*}" up
+	ip addr add "${link#*:}/32" dev "${link%%:*}" 2>/dev/null || :
+done
+printf '10.20.20.10\n' >/var/run/ikev2-vip4
+printf '10.30.0.7\n' >/var/run/ikev2-vip4-2
+uci -q batch <<'EOF'
+set ikev2-manager.client=client
+set ikev2-manager.client.enabled='1'
+set ikev2-manager.tunnel_2=tunnel
+set ikev2-manager.tunnel_2.enabled='1'
+commit
+EOF
+sas() {
+	printf '{"errors":[],"data":[%s]}\n' "$1" >/tmp/sa.json
+}
+sa1='{"proxy-out":{"local-vips":["10.20.20.10"],"child-sas":{"proxy4-1":{"name":"proxy4","state":"INSTALLED"}}}}'
+sa2='{"proxy-out-2":{"local-vips":["10.30.0.7"],"child-sas":{"proxy4-2-1":{"name":"proxy4-2","state":"INSTALLED"}}}}'
+export IKEV2_SA_JSON=/tmp/sa.json
+exit_dev() {
+	ip -4 route get 203.0.113.5 from 192.168.1.50 iif br-lan mark "$1" 2>&1
+}
+sas "$sa1,$sa2"
+rm -f /var/run/ikev2-tunnels.state
+"$routing" sync || fail 'two tunnels did not install'
+ip -4 rule show | grep -q '^28003:.*fwmark 0x3000000/0xf000000 lookup 1603' || fail 'the second exit has no rule'
+ip -6 rule show | grep -q '^28003:' || fail 'the second exit is not closed for IPv6'
+exit_dev 0x1000000 | grep -q 'dev ipsec-out ' || fail "the first exit does not use its tunnel: $(exit_dev 0x1000000)"
+exit_dev 0x3000000 | grep -q 'dev ipsec-out2 ' || fail "the second exit does not use its tunnel: $(exit_dev 0x3000000)"
+ip -6 route get 2001:db8::5 from fd00::50 iif br-lan mark 0x3000000 2>&1 | grep -q 'unreachable' ||
+	fail 'IPv6 marked for the second exit was not refused'
+"$routing" check || fail 'two installed exits failed the check'
+# The watcher moved the first exit to the second tunnel.
+printf 'exit 1 2\nexit 2 2\n' >/var/run/ikev2-tunnels.state
+"$routing" check && fail 'a first exit routed past the tunnel chosen for it passed the check'
+"$routing" sync
+exit_dev 0x1000000 | grep -q 'dev ipsec-out2 ' || fail 'the first exit did not move to the second tunnel'
+# The second tunnel goes: both exits fall back to the first at once.
+sas "$sa1"
+"$routing" sync
+exit_dev 0x1000000 | grep -q 'dev ipsec-out ' || fail 'the first exit did not fall back to its own tunnel'
+exit_dev 0x3000000 | grep -q 'dev ipsec-out ' || fail 'the second exit did not fall back to the first tunnel'
+# None left: both refused, neither reaches the WAN.
+sas ''
+"$routing" sync
+exit_dev 0x1000000 | grep -q 'unreachable' || fail "the first exit opened with no tunnel up: $(exit_dev 0x1000000)"
+exit_dev 0x3000000 | grep -q 'unreachable' || fail "the second exit opened with no tunnel up: $(exit_dev 0x3000000)"
+# Removed: its rule and table go, the first exit stays.
+sas "$sa1"
+rm -f /var/run/ikev2-tunnels.state
+uci delete ikev2-manager.tunnel_2
+uci commit ikev2-manager
+"$routing" sync
+ip -4 rule show | grep -q '^28003:' && fail 'the rule of a removed tunnel was kept'
+[ -z "$(ip -4 route show table 1603)" ] || fail 'the table of a removed tunnel was kept'
+exit_dev 0x1000000 | grep -q 'dev ipsec-out ' || fail 'removing a tunnel took the first exit with it'
+"$routing" check || fail 'one tunnel again failed the check'
+unset IKEV2_SA_JSON
+rm -f /tmp/sa.json /var/run/ikev2-vip4 /var/run/ikev2-vip4-2
+uci delete ikev2-manager.client
+uci commit ikev2-manager
+ip link del ipsec-out2
+ip link del ipsec-out
+"$routing" sync
+
 # --- Discord voice, with nothing of PBR left ----------------------------------
 
 step 'Discord voice routing takes its sources from the application, not PBR'
@@ -477,7 +547,7 @@ step 'a pause closes the tunnel and resume opens it, with real nft'
 uci set ikev2-manager.domains.paused='1'
 uci commit ikev2-manager
 /usr/libexec/ikev2-manager-system _pause-sync || fail 'the pause block did not install'
-[ "$(nft list table inet ikev2_pause | grep -c 'oifname "ipsec-out".* reject')" = 2 ] ||
+[ "$(nft list table inet ikev2_pause | grep -c 'oifname "ipsec-out\*".* reject')" = 2 ] ||
 	fail 'the pause does not refuse both forwarded and router traffic to the tunnel'
 nft list chain inet ikev2_pause output | grep -q 'l4proto != { icmp, ipv6-icmp }' ||
 	fail 'the pause stops the tunnel quality pings too'

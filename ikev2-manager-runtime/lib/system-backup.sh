@@ -3,7 +3,7 @@
 # or to move to another one. Sourced by ikev2-manager-system.
 #
 # It holds what the operator made: the configuration, VPN users and their
-# passwords, the outbound password, custom services and lists, raw strongSwan
+# passwords, the outbound passwords, custom services and lists, raw strongSwan
 # additions, the server certificate with its key and the ACME settings. It
 # leaves out what this router owns: the WAN and protected networks, firewall
 # zones, the snapshots of the DNS it had before, the domain-routing engine,
@@ -23,6 +23,7 @@ server.firewall_zone server.outbound_zone dns.saved dns.fallback_verified
 domains.engine domains.paused domains.dns_saved domains.prev_noresolv
 domains.prev_cachesize domains.prev_server'
 backup_files='etc/ikev2-manager/users.db etc/ikev2-manager/client.secret
+etc/ikev2-manager/tunnels.secret
 etc/ikev2-manager/inbound.custom.conf etc/ikev2-manager/outbound.custom.conf
 etc/pbr-ikev2-domains.manual.txt etc/pbr-ikev2-addresses.manual.txt
 etc/pbr-ikev2-domains.exclude.txt etc/pbr-ikev2-addresses.exclude.txt

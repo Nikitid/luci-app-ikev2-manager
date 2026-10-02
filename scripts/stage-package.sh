@@ -64,6 +64,7 @@ install_file 644 ikev2-manager-runtime/lib/manager-users.sh /usr/libexec/ikev2-m
 install_file 644 ikev2-manager-runtime/lib/manager-server.sh /usr/libexec/ikev2-manager.d/manager-server.sh
 install_file 644 ikev2-manager-runtime/lib/manager-acme.sh /usr/libexec/ikev2-manager.d/manager-acme.sh
 install_file 644 ikev2-manager-runtime/lib/manager-profiles.sh /usr/libexec/ikev2-manager.d/manager-profiles.sh
+install_file 644 ikev2-manager-runtime/lib/manager-tunnels.sh /usr/libexec/ikev2-manager.d/manager-tunnels.sh
 install_file 755 ikev2-manager-runtime/ikev2-health.sh /usr/libexec/ikev2-health
 install_file 755 ikev2-manager-runtime/ikev2-sync-vips.sh /usr/libexec/ikev2-sync-vips
 install_file 755 ikev2-manager-runtime/ikev2-sa.sh /usr/libexec/ikev2-sa

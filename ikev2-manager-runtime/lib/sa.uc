@@ -12,6 +12,10 @@
 //   sessions IKE           "identity<TAB>address" for each EAP client
 //   loopback-connecting IKE
 //                          a CONNECTING IKE_SA bound to a loopback address
+//   tunnels                "index<TAB>installed<TAB>address" for each outbound
+//                          tunnel with an IKE_SA: proxy-out is 1, proxy-out-N
+//                          is N; installed is 1 when its CHILD_SA is, address
+//                          its first virtual IPv4 or -
 
 'use strict';
 
@@ -57,9 +61,44 @@ function list(value) {
 
 let command = ARGV[0];
 let ike = ARGV[1];
-if (!command || !ike) {
-	warn('usage: sa.uc {installed IKE CHILD|present IKE|local-vips IKE|sessions IKE|session-ids IKE IDENTITY|loopback-connecting IKE}\n');
+if (!command || (!ike && command != 'tunnels')) {
+	warn('usage: sa.uc {installed IKE CHILD|present IKE|local-vips IKE|sessions IKE|session-ids IKE IDENTITY|loopback-connecting IKE|tunnels}\n');
 	exit(2);
+}
+
+// Every outbound tunnel in one pass over one snapshot: the watcher asks once
+// per pass whatever the number of tunnels.
+if (command == 'tunnels') {
+	let seen = {};
+	for (let entry in snapshot.data) {
+		if (type(entry) != 'object')
+			continue;
+		for (let name, sa in entry) {
+			let m = match(name, /^proxy-out(-([2-8]))?$/);
+			if (!m || type(sa) != 'object')
+				continue;
+			let index = m[2] || '1';
+			let child = index == '1' ? 'proxy4' : `proxy4-${index}`;
+			let installed = false;
+			if (type(sa['child-sas']) == 'object')
+				for (let key, c in sa['child-sas'])
+					if (type(c) == 'object' && c.name == child && c.state == 'INSTALLED')
+						installed = true;
+			let address = '-';
+			for (let vip in list(sa['local-vips']))
+				if (address == '-' && match(vip, /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/))
+					address = vip;
+			let line = seen[index];
+			// A second IKE_SA of the same connection, during a reauthentication
+			// or a make-before-break rekey: either one installed is enough.
+			if (line && line.installed)
+				continue;
+			seen[index] = { installed: installed, address: address };
+		}
+	}
+	for (let index in sort(keys(seen)))
+		print(index, '\t', seen[index].installed ? 1 : 0, '\t', seen[index].address, '\n');
+	exit(0);
 }
 
 let sas = ike_sas(ike);

@@ -15,6 +15,7 @@ action_lock_status="${IKEV2_ACTION_LOCK_STATUS:-/var/run/ikev2-action.lock.statu
 
 run_dir="${IKEV2_RUN_DIR:-/var/run}"
 status_file="$run_dir/ikev2-health.status"
+tunnel_state_file="${IKEV2_TUNNEL_STATE:-$run_dir/ikev2-tunnels.state}"
 probe_interval=20
 dns_probe_state="$run_dir/ikev2-dns-segments-probe.state"
 dns_probe_interval=60
@@ -57,10 +58,6 @@ vip_file="${IKEV2_VIP_FILE:-/var/run/ikev2-vip4}"
 net_dir="${IKEV2_NET_DIR:-/sys/class/net}"
 nft_bin="${IKEV2_NFT:-/usr/sbin/nft}"
 uci_bin="${IKEV2_UCI_BIN:-uci}"
-
-has_proxy4() {
-	"$sa_helper" installed proxy-out proxy4
-}
 
 # The schedule is read and written without starting a process: the loop wakes
 # every few seconds, and a cat or mv each time added up to most of its cost.
@@ -162,6 +159,9 @@ load_settings() {
 	done <<EOF
 $settings
 EOF
+	tunnel_settings_parse <<EOF
+$settings
+EOF
 }
 
 # Whether a network link exists and is up, read from sysfs without starting a
@@ -207,8 +207,13 @@ repair() {
 # while the server is off. Checked from sysfs every pass; the init script
 # also puts the inbound gateway address back, so it runs once a minute too.
 links_current() {
-	[ "$client_enabled" = 1 ] || [ "$server_enabled" = 1 ] || return 0
+	local index
+	[ -n "$tunnel_on" ] || [ "$server_enabled" = 1 ] || return 0
 	link_up ipsec-out || return 1
+	for index in $tunnel_on; do
+		[ "$index" != 1 ] || continue
+		link_up "ipsec-out$index" || return 1
+	done
 	if [ "$server_enabled" = 1 ]; then
 		link_up ipsec-in
 	else
@@ -292,7 +297,8 @@ trap 'last_pass=0' USR1
 trap 'health_cleanup' EXIT
 
 tunnel_was_up=0
-sa_was_installed=-1
+sa_was_up=-
+exits_pending=0
 last_pass=0
 last_checks=0
 probe_last=0
@@ -347,21 +353,57 @@ while true; do
 	fi
 	links_current || repair "$xfrm_init" start
 
-	sa_installed=0
-	[ "$client_enabled" != 1 ] || ! has_proxy4 || sa_installed=1
-	# The tunnel default route follows the SA: written when it comes up,
-	# removed when it goes, at once rather than at the next check.
-	if [ "$sa_installed" != "$sa_was_installed" ]; then
-		if [ "$sa_installed" = 1 ]; then
-			"$sync_vips_helper" >/dev/null 2>&1 || :
-		else
-			rm -f "$vip_file"
-			probe_last=0
-			probe_failures=0
-		fi
-		repair "$routing_helper" sync
+	# One SA snapshot a pass, whatever the number of tunnels: those with an
+	# installed CHILD_SA, and of them those whose link is up to carry traffic.
+	sa_up='' tunnels_up=''
+	if [ -n "$tunnel_on" ]; then
+		sa_lines="$("$sa_helper" tunnels 2>/dev/null)" || sa_lines=''
+		while IFS='	' read -r index installed address; do
+			[ "$installed" = 1 ] || continue
+			case " $tunnel_on " in *" $index "*) ;; *) continue ;; esac
+			sa_up="$sa_up${sa_up:+ }$index"
+			tunnel_names "$index"
+			link_up "$tunnel_link" || continue
+			tunnels_up="$tunnels_up${tunnels_up:+ }$index"
+		done <<EOF
+$sa_lines
+EOF
 	fi
-	sa_was_installed="$sa_installed"
+	sa_installed=0
+	case " $sa_up " in *' 1 '*) [ "$client_enabled" != 1 ] || sa_installed=1 ;; esac
+	# The tunnel default routes follow the SAs: written when one comes up,
+	# removed when it goes, at once rather than at the next check.
+	routing_due=0
+	if [ "$sa_up" != "$sa_was_up" ]; then
+		for index in $sa_was_up; do
+			case " $sa_up " in *" $index "*) continue ;; esac
+			if [ "$index" = 1 ]; then
+				rm -f "$vip_file"
+				probe_last=0
+				probe_failures=0
+			else
+				rm -f "$vip_file-$index"
+			fi
+		done
+		[ -z "$sa_up" ] || "$sync_vips_helper" >/dev/null 2>&1 || :
+		routing_due=1
+	fi
+	sa_was_up="$sa_up"
+	# Which tunnel each exit uses; a tunnel coming back takes its exit back
+	# only after it has stayed up, so this can change with no SA changing.
+	tunnel_select "$now" "$tunnels_up"
+	[ -z "$tunnel_changes" ] || routing_due=1
+	[ "$routing_due" = 0 ] || repair "$routing_helper" sync
+	if [ -n "$tunnel_changes" ] && tunnel_several; then
+		logger -t ikev2-health "exits now use: $tunnel_changes" 2>/dev/null || :
+		exits_pending=1
+	fi
+	# sing-box follows through its controller, which a restarting resolver
+	# does not answer: the choice is offered again every pass until taken.
+	if [ "$exits_pending" = 1 ] && action_lock_try_acquire watcher "watcher-$$"; then
+		! "$domain_router_helper" exits-apply >/dev/null 2>&1 || exits_pending=0
+		release_action_lock
+	fi
 
 	if [ $((now - last_checks)) -ge "$check_interval" ] || [ "$now" -lt "$last_checks" ]; then
 		last_checks="$now"
@@ -393,14 +435,14 @@ while true; do
 		printf 'state=%s updated=%s probe_failures=%s routing_policy=%s\n' \
 			"$state" "$now" "$probe_failures" "$routing_policy_state" >"$status_file"
 	else
-		# strongSwan normally owns reconnects. Its boot-time start_action can
-		# run before WAN is usable, however, and that initial failure is not
-		# reliably retried. ensure-client is idempotent, locked and
-		# rate-limited, so the watcher safely fills that gap without racing
-		# manual actions or hotplug.
-		"$manager_helper" ensure-client >/dev/null 2>&1 || :
 		printf 'state=down updated=%s\n' "$now" >"$status_file"
 	fi
+	# strongSwan normally owns reconnects. Its boot-time start_action can run
+	# before WAN is usable, however, and that initial failure is not reliably
+	# retried. ensure-client is idempotent, locked and rate-limited per
+	# tunnel, so the watcher safely fills that gap for every enabled tunnel
+	# without racing manual actions or hotplug.
+	[ "$sa_up" = "$tunnel_on" ] || "$manager_helper" ensure-client >/dev/null 2>&1 || :
 
 	# The resolver can outlive a tunnel outage in a state that no longer carries
 	# traffic. The helper paces its own checks; the watcher asks once a minute,

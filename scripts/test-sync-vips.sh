@@ -17,19 +17,20 @@ fail() {
 	exit 1
 }
 
-# The SA list must be scoped to the owning connection, never scraped wholesale.
-grep -Fq "connection='proxy-out'" "$script" ||
-	fail 'the owning connection name is not pinned'
-grep -Fq 'local-vips "$connection"' "$script" ||
-	fail 'the SA list is not scoped to the owning connection'
-
 bin="$tmp/bin"
 mkdir -p "$bin"
 
-cat >"$bin/uci" <<'STUB'
+cat >"$bin/uci" <<STUB
 #!/bin/sh
-printf '1\n'
+case "\$*" in
+	*show*) cat "$tmp/uci-show" ;;
+	*) printf '1\\n' ;;
+esac
 STUB
+cat >"$tmp/uci-show" <<'EOF'
+ikev2-manager.client=client
+ikev2-manager.client.enabled='1'
+EOF
 
 # Two IKEv2 clients are up. proxy-out is this application's; site-link belongs
 # to another package and is listed after it, so an unfiltered scrape that keeps
@@ -45,6 +46,7 @@ export IKEV2_SA_HELPER IKEV2_RUNTIME_LIB_DIR IKEV2_SA_JSON
 cat >"$bin/ip" <<STUB
 #!/bin/sh
 case "\$*" in
+	*"addr show dev ipsec-out2"*) : ;;
 	*"addr show dev ipsec-out"*) printf '9: ipsec-out    inet 10.253.44.2/32 scope global ipsec-out\n' ;;
 	*"link show ipsec-out"*) : ;;
 	*) printf '%s\n' "\$*" >>"$tmp/ip-calls" ;;
@@ -70,5 +72,32 @@ grep -Fq 'addr add 10.20.20.10/32 dev ipsec-out' "$tmp/ip-calls" ||
 if grep -Fq '10.253.44.2' "$tmp/ip-calls"; then
 	fail 'a foreign virtual IP was installed on ipsec-out'
 fi
+
+# A second tunnel gets its own address on its own link, and the first keeps
+# its own.
+cat >>"$tmp/uci-show" <<'EOF'
+ikev2-manager.tunnel_2=tunnel
+ikev2-manager.tunnel_2.enabled='1'
+ikev2-manager.tunnel_3=tunnel
+ikev2-manager.tunnel_3.enabled='0'
+EOF
+cat >"$tmp/sa.json" <<'JSON'
+{"errors":[],"data":[{"proxy-out-2":{"state":"ESTABLISHED","local-vips":["10.30.0.7"]}},{"proxy-out-3":{"state":"ESTABLISHED","local-vips":["10.40.0.9"]}},{"proxy-out":{"state":"ESTABLISHED","local-vips":["10.20.20.10"]}},{"site-link":{"state":"ESTABLISHED","local-vips":["10.253.44.2"]}}]}
+JSON
+: >"$tmp/ip-calls"
+PATH="$bin:$PATH" "$tmp/sync-vips" || fail 'sync helper exited non-zero with two tunnels'
+[ "$(cat "$tmp/ikev2-vip4-2")" = '10.30.0.7' ] || fail 'the second tunnel address was not recorded'
+grep -Fq 'addr add 10.30.0.7/32 dev ipsec-out2' "$tmp/ip-calls" ||
+	fail 'the second tunnel address was not installed on its own link'
+[ ! -e "$tmp/ikev2-vip4-3" ] && ! grep -Fq '10.40.0.9' "$tmp/ip-calls" ||
+	fail 'a disabled tunnel got an address'
+grep -Fq 'addr add 10.20.20.10/32 dev ipsec-out' "$tmp/ip-calls" ||
+	fail 'the first tunnel lost its address to the second'
+
+# With the first tunnel down, the status is still the first tunnel's.
+cat >"$tmp/sa.json" <<'JSON'
+{"errors":[],"data":[{"proxy-out-2":{"state":"ESTABLISHED","local-vips":["10.30.0.7"]}}]}
+JSON
+PATH="$bin:$PATH" "$tmp/sync-vips" && fail 'the first tunnel without an address was reported synced'
 
 printf 'sync vips tests OK\n'

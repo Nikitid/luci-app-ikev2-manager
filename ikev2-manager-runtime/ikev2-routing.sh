@@ -15,6 +15,11 @@
 #
 #   mark 0x01000000/0x0f000000  table 1601  the tunnel, unreachable without it
 #   mark 0x02000000/0x0f000000  table 1602  the WAN, for exclusions
+#   mark 0x0N000000/0x0f000000  table 160N  the exit of another tunnel, N 3-9
+#
+# Each tunnel table routes into the tunnel its exit uses now - its own, or
+# another standing in for it, as the watcher chose (tunnel.sh) - and is
+# unreachable when none of them is up.
 #
 # IPv6 destinations of a selected name are marked too, into an IPv6 table
 # holding only an unreachable default: the tunnel is IPv4-only, so they fail
@@ -65,6 +70,8 @@ wan_table=1602
 rule_main=28000
 rule_tunnel=28001
 rule_wan=28002
+# The exits of tunnels 2 to 8; see tunnel.sh.
+extra_rule_priorities='28003 28004 28005 28006 28007 28008 28009'
 # The domain sets are filled by dnsmasq when matching by address, or copied
 # from PBR in overlay mode. With FakeIP sing-box routes by name and they stay
 # empty.
@@ -77,6 +84,7 @@ dst_timeout=7d
 
 . "$runtime_lib_dir/nft-runtime.sh"
 . "$runtime_lib_dir/devices.sh"
+. "$runtime_lib_dir/tunnel.sh"
 
 die() {
 	printf '%s\n' "$*" >&2
@@ -134,11 +142,80 @@ wan_default() {
 	esac
 }
 
+# The SAs of every tunnel, read once per run: "index<TAB>installed<TAB>address".
+sa_tunnels=''
+sa_tunnels_read=0
+load_sa_tunnels() {
+	[ "$sa_tunnels_read" = 0 ] || return 0
+	sa_tunnels="$("$sa_helper" tunnels 2>/dev/null || :)"
+	sa_tunnels_read=1
+}
+
+# Whether tunnel $1 carries traffic: its CHILD_SA is installed and its link is
+# up with the address it was given.
 tunnel_ready() {
-	[ -s "$vip_file" ] || return 1
-	"$ip_bin" link show ipsec-out 2>/dev/null | grep -q 'UP' || return 1
-	"$sa_helper" installed proxy-out proxy4 || return 1
-	"$ip_bin" -4 addr show dev ipsec-out 2>/dev/null | grep -Fq "$(cat "$vip_file")/"
+	local index="${1:-1}" file="$vip_file" line_index line_installed installed address
+	[ "$index" = 1 ] || file="$vip_file-$index"
+	[ -s "$file" ] || return 1
+	tunnel_names "$index"
+	"$ip_bin" link show "$tunnel_link" 2>/dev/null | grep -q 'UP' || return 1
+	load_sa_tunnels
+	installed=0
+	while IFS="$(printf '\t')" read -r line_index line_installed address; do
+		[ "$line_index" = "$index" ] && installed="$line_installed"
+	done <<EOF
+$sa_tunnels
+EOF
+	[ "$installed" = 1 ] || return 1
+	"$ip_bin" -4 addr show dev "$tunnel_link" 2>/dev/null | grep -Fq "$(cat "$file")/"
+}
+
+# Print the link exit $1 routes into now, nothing when none is up: the tunnel
+# the watcher chose while it is still ready, otherwise the first ready one in
+# the exit's chain. The watcher puts back its own choice on its next pass.
+exit_link() {
+	local exit="$1" chosen candidate
+	chosen="$(tunnel_exit_selected "$exit" 2>/dev/null || echo 0)"
+	tunnel_exit_chain "$exit"
+	case " $tunnel_chain " in
+		*" $chosen "*)
+			if tunnel_ready "$chosen"; then
+				tunnel_names "$chosen"
+				printf '%s\n' "$tunnel_link"
+				return 0
+			fi
+			;;
+	esac
+	for candidate in $tunnel_chain; do
+		tunnel_ready "$candidate" || continue
+		tunnel_names "$candidate"
+		printf '%s\n' "$tunnel_link"
+		return 0
+	done
+	return 0
+}
+
+# The tunnels and their exits, read when a command starts.
+exits=1
+load_tunnels() {
+	tunnel_settings_load
+	exits="${tunnel_list:-1}"
+}
+
+# The tunnel links a table routes into by default, one per line.
+default_links() {
+	printf '%s\n' "$1" | awk '$1 == "default" && $2 == "dev" && $3 ~ /^ipsec-out[2-8]?$/ { print $3 }'
+}
+
+# The exit tables after the first, as "rule mark table" lines for the tunnels
+# configured now.
+extra_exits() {
+	local index
+	for index in $tunnel_list; do
+		[ "$index" != 1 ] || continue
+		tunnel_names "$index"
+		printf '%s %s %s\n' "$tunnel_rule" "$(printf '0x%x' $((tunnel_mark_value << 24)))" "$tunnel_table_id"
+	done
 }
 
 ensure_rule() {
@@ -153,7 +230,7 @@ ensure_rule() {
 delete_rules() {
 	local family priority
 	for family in 4 6; do
-		for priority in "$rule_main" "$rule_tunnel" "$rule_wan"; do
+		for priority in "$rule_main" "$rule_tunnel" "$rule_wan" $extra_rule_priorities; do
 			while "$ip_bin" -"$family" rule del priority "$priority" 2>/dev/null; do :; done
 		done
 	done
@@ -164,37 +241,51 @@ route_listed() {
 	printf '%s\n' "$1" | awk -v want="$2" 'index($0 " ", want " ") == 1 { found = 1 } END { exit !found }'
 }
 
-# Routes first: a rule pointing at a table without its unreachable default
-# would let marked traffic fall through to the WAN. A route already in place
-# is not written again: every write is announced to whatever watches the
-# routing tables, and the watcher syncs on every pass.
-sync_routes() {
-	local lan subnet inbound wan routes4 routes6
-	routes4="$("$ip_bin" -4 route show table "$tunnel_table" 2>/dev/null || true)"
-	routes6="$("$ip_bin" -6 route show table "$tunnel_table" 2>/dev/null || true)"
+# sync_exit_routes TABLE LINK INBOUND: one exit's table. LINK is the tunnel
+# link it routes into, empty for none; INBOUND the inbound clients' network.
+sync_exit_routes() {
+	local exit_table="$1" link="$2" inbound="$3" lan subnet routes4 routes6 current
+	routes4="$("$ip_bin" -4 route show table "$exit_table" 2>/dev/null || true)"
+	routes6="$("$ip_bin" -6 route show table "$exit_table" 2>/dev/null || true)"
 	printf '%s\n' "$routes4" | grep -Eq '^unreachable default .*metric 32767( |$)' ||
-		"$ip_bin" -4 route replace unreachable default metric 32767 table "$tunnel_table" || return 1
+		"$ip_bin" -4 route replace unreachable default metric 32767 table "$exit_table" || return 1
 	printf '%s\n' "$routes6" | grep -Eq '^unreachable default .*metric 32767( |$)' ||
-		"$ip_bin" -6 route replace unreachable default metric 32767 table "$tunnel_table" 2>/dev/null || :
+		"$ip_bin" -6 route replace unreachable default metric 32767 table "$exit_table" 2>/dev/null || :
 	# Replies to local and inbound clients stay local whatever is marked.
 	while IFS= read -r lan; do
 		subnet="$("$ip_bin" -4 route show dev "$lan" scope link 2>/dev/null |
 			awk '$1 ~ /^[0-9.]+\/[0-9]+$/ { print $1; exit }')"
 		[ -n "$subnet" ] || continue
 		route_listed "$routes4" "$subnet dev $lan" ||
-			"$ip_bin" -4 route replace "$subnet" dev "$lan" table "$tunnel_table" || return 1
+			"$ip_bin" -4 route replace "$subnet" dev "$lan" table "$exit_table" || return 1
 	done <"$work/sources"
+	[ -z "$inbound" ] || route_listed "$routes4" "$inbound dev ipsec-in" ||
+		"$ip_bin" -4 route replace "$inbound" dev ipsec-in table "$exit_table" || return 1
+	# One default into a tunnel at most, and none when no tunnel of the exit is
+	# up: the unreachable default then stops what is marked for it.
+	for current in $(default_links "$routes4"); do
+		[ "$current" != "$link" ] || continue
+		"$ip_bin" -4 route del default dev "$current" metric 10 table "$exit_table" || return 1
+	done
+	if [ -n "$link" ]; then
+		printf '%s\n' "$routes4" | grep -Eq "^default dev $link( .*)? metric 10( |\$)" ||
+			"$ip_bin" -4 route replace default dev "$link" metric 10 table "$exit_table" || return 1
+	fi
+}
+
+# Routes first: a rule pointing at a table without its unreachable default
+# would let marked traffic fall through to the WAN. A route already in place
+# is not written again: every write is announced to whatever watches the
+# routing tables, and the watcher syncs on every pass.
+sync_routes() {
+	local exit wan inbound=''
 	if [ "$(uci -q get "$config.server.enabled" 2>/dev/null || echo 0)" = 1 ]; then
 		inbound="$("$system_helper" gateway-network 2>/dev/null || true)"
-		[ -z "$inbound" ] || route_listed "$routes4" "$inbound dev ipsec-in" ||
-			"$ip_bin" -4 route replace "$inbound" dev ipsec-in table "$tunnel_table" || return 1
 	fi
-	if tunnel_ready; then
-		printf '%s\n' "$routes4" | grep -Eq '^default dev ipsec-out( .*)? metric 10( |$)' ||
-			"$ip_bin" -4 route replace default dev ipsec-out metric 10 table "$tunnel_table" || return 1
-	elif printf '%s\n' "$routes4" | grep -q '^default dev ipsec-out'; then
-		"$ip_bin" -4 route del default dev ipsec-out metric 10 table "$tunnel_table" || return 1
-	fi
+	for exit in $exits; do
+		tunnel_names "$exit"
+		sync_exit_routes "$tunnel_table_id" "$(exit_link "$exit")" "$inbound" || return 1
+	done
 	if wan="$(wan_default)"; then
 		route_listed "$("$ip_bin" -4 route show table "$wan_table" 2>/dev/null || true)" "default $wan" ||
 			# shellcheck disable=SC2086
@@ -207,9 +298,21 @@ sync_routes() {
 # Every rule this installs, exactly. Other software deletes rules by pattern:
 # stopping PBR removes each "lookup main suppress_prefixlength" rule.
 rules_present() {
-	local rules4 rules6
+	local rules4 rules6 priority mark exit_table stale
 	rules4="$("$ip_bin" -4 rule show 2>/dev/null)"
 	rules6="$("$ip_bin" -6 rule show 2>/dev/null)"
+	while read -r priority mark exit_table; do
+		[ -n "$priority" ] || continue
+		printf '%s\n' "$rules4" | grep -Eq "^$priority:[[:space:]]+from all fwmark $mark/$rule_mask lookup $exit_table\$" || return 1
+		printf '%s\n' "$rules6" | grep -Eq "^$priority:[[:space:]]+from all fwmark $mark/$rule_mask lookup $exit_table\$" || return 1
+	done <<EOF
+$(extra_exits)
+EOF
+	# No rule of a tunnel removed since.
+	for priority in $extra_rule_priorities; do
+		printf '%s\n' "$(extra_exits)" | grep -q "^$priority " && continue
+		printf '%s\n%s\n' "$rules4" "$rules6" | grep -q "^$priority:" && return 1
+	done
 	printf '%s\n' "$rules4" | grep -Eq "^$rule_main:[[:space:]]+from all lookup main suppress_prefixlength 1\$" &&
 		printf '%s\n' "$rules4" | grep -Eq "^$rule_tunnel:[[:space:]]+from all fwmark $rule_tunnel_mark/$rule_mask lookup $tunnel_table\$" &&
 		printf '%s\n' "$rules4" | grep -Eq "^$rule_wan:[[:space:]]+from all fwmark $rule_wan_mark/$rule_mask lookup $wan_table\$" &&
@@ -218,11 +321,29 @@ rules_present() {
 }
 
 sync_rules() {
+	local priority mark exit_table family wanted
 	ensure_rule 4 "$rule_main" 'lookup main suppress_prefixlength 1' &&
 		ensure_rule 4 "$rule_tunnel" "fwmark $rule_tunnel_mark/$rule_mask lookup $tunnel_table" &&
 		ensure_rule 4 "$rule_wan" "fwmark $rule_wan_mark/$rule_mask lookup $wan_table" &&
 		ensure_rule 6 "$rule_main" 'lookup main suppress_prefixlength 1' &&
-		ensure_rule 6 "$rule_tunnel" "fwmark $rule_tunnel_mark/$rule_mask lookup $tunnel_table"
+		ensure_rule 6 "$rule_tunnel" "fwmark $rule_tunnel_mark/$rule_mask lookup $tunnel_table" ||
+		return 1
+	wanted="$(extra_exits)"
+	while read -r priority mark exit_table; do
+		[ -n "$priority" ] || continue
+		ensure_rule 4 "$priority" "fwmark $mark/$rule_mask lookup $exit_table" || return 1
+		ensure_rule 6 "$priority" "fwmark $mark/$rule_mask lookup $exit_table" || return 1
+	done <<EOF
+$wanted
+EOF
+	# The rules and tables of a tunnel removed since go with it.
+	for priority in $extra_rule_priorities; do
+		printf '%s\n' "$wanted" | grep -q "^$priority " && continue
+		for family in 4 6; do
+			while "$ip_bin" -"$family" rule del priority "$priority" 2>/dev/null; do :; done
+			"$ip_bin" -"$family" route flush table $((priority - 28000 + 1600)) 2>/dev/null || :
+		done
+	done
 }
 
 # The table is changed in place, never recreated: the domain sets hold what
@@ -500,6 +621,7 @@ desired_state() {
 }
 
 sync_runtime() {
+	load_tunnels
 	if ! active; then
 		# Called every watcher pass: nothing to stop costs one rule listing.
 		[ -e "$state_file" ] || "$ip_bin" -4 rule show 2>/dev/null | grep -q "^$rule_tunnel:" ||
@@ -538,7 +660,8 @@ sync_runtime() {
 }
 
 check_runtime() {
-	local dir routes
+	local dir routes exit
+	load_tunnels
 	active || {
 		! runtime_exists && ! "$ip_bin" -4 rule show 2>/dev/null | grep -q "^$rule_tunnel:"
 		return
@@ -558,20 +681,20 @@ check_runtime() {
 		fi
 	done
 	rules_present || return 1
-	routes="$("$ip_bin" -4 route show table "$tunnel_table" 2>/dev/null || true)"
-	printf '%s\n' "$routes" | grep -Eq '^unreachable default .*metric 32767' || return 1
-	# The tunnel default follows the tunnel. The watcher syncs when the SA comes
+	# Each tunnel default follows its exit. The watcher syncs when an SA comes
 	# or goes; this catches a change it did not see.
-	if tunnel_ready; then
-		printf '%s\n' "$routes" | grep -Eq '^default dev ipsec-out( .*)? metric 10( |$)' || return 1
-	else
-		! printf '%s\n' "$routes" | grep -q '^default dev ipsec-out' || return 1
-	fi
+	for exit in $exits; do
+		tunnel_names "$exit"
+		routes="$("$ip_bin" -4 route show table "$tunnel_table_id" 2>/dev/null || true)"
+		printf '%s\n' "$routes" | grep -Eq '^unreachable default .*metric 32767' || return 1
+		[ "$(default_links "$routes")" = "$(exit_link "$exit")" ] || return 1
+	done
 	rm -rf "$work"
 	trap - EXIT INT TERM
 }
 
 stop_runtime() {
+	local priority
 	remove_dnsmasq
 	delete_rules
 	if runtime_exists; then
@@ -581,13 +704,25 @@ stop_runtime() {
 	"$ip_bin" -4 route flush table "$tunnel_table" 2>/dev/null || :
 	"$ip_bin" -6 route flush table "$tunnel_table" 2>/dev/null || :
 	"$ip_bin" -4 route flush table "$wan_table" 2>/dev/null || :
+	for priority in $extra_rule_priorities; do
+		"$ip_bin" -4 route flush table $((priority - 28000 + 1600)) 2>/dev/null || :
+		"$ip_bin" -6 route flush table $((priority - 28000 + 1600)) 2>/dev/null || :
+	done
 	rm -f "$state_file" "$state_file.bypass"
 }
 
+# tunnel= is the first exit's, as it always was; exit_N= names the link each
+# exit routes into, none when it is unreachable.
 status_runtime() {
+	local exit link
+	load_tunnels
 	printf 'backend=native\n'
 	if runtime_owned; then printf 'runtime=installed\n'; else printf 'runtime=absent\n'; fi
-	if tunnel_ready; then printf 'tunnel=up\n'; else printf 'tunnel=down\n'; fi
+	if [ -n "$(exit_link 1)" ]; then printf 'tunnel=up\n'; else printf 'tunnel=down\n'; fi
+	for exit in $exits; do
+		link="$(exit_link "$exit")"
+		printf 'exit_%s=%s\n' "$exit" "${link:-none}"
+	done
 }
 
 # Everything that routes by the marks: policy routing first, so the rules

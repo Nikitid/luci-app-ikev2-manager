@@ -260,6 +260,8 @@ case "$command:$*" in
 	'get:ikev2-manager.device_192_168_1_0_24.address') echo 192.168.1.0/24 ;;
 	'get:ikev2-manager.device_192_168_1_0_24.route_mode') echo domain ;;
 	'show:ikev2-manager')
+		echo 'ikev2-manager.client=client'
+		echo "ikev2-manager.client.enabled='1'"
 		echo 'ikev2-manager.dnsseg_national=dns_segment'
 		echo 'ikev2-manager.dnsseg_private=dns_segment'
 		echo 'ikev2-manager.device_192_168_1_0_24=device_policy'

@@ -3,8 +3,9 @@
 #
 # Copy or link this as `uci` into a test's PATH and point UCI_STUB_DIR at a
 # writable directory. Each config becomes one file whose lines are either
-# `<section>=<type>` or `<section>.<option>=<value>`, which is the same shape
-# `uci show` prints, so fixtures stay readable.
+# `<section>=<type>` or `<section>.<option>=<value>`, which is the shape
+# `uci show` prints, so fixtures stay readable. `show` quotes option values,
+# as uci does: code that parses its output sees what it sees on a router.
 #
 # Supported: show, get, set, delete, add_list, export, import, commit, reorder.
 # Anything else exits 1 so an unmodelled call fails the test loudly instead of
@@ -78,7 +79,10 @@ case "$command" in
 		[ -f "$file" ] || exit 0
 		while IFS= read -r line; do
 			[ -n "$line" ] || continue
-			printf '%s.%s\n' "${1:-}" "$line"
+			case "${line%%=*}" in
+				*.*) printf "%s.%s='%s'\n" "${1:-}" "${line%%=*}" "${line#*=}" ;;
+				*) printf '%s.%s\n' "${1:-}" "$line" ;;
+			esac
 		done <"$file"
 		;;
 	get)

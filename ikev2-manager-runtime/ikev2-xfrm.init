@@ -6,7 +6,25 @@ STOP=89
 is_active() {
 	[ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || return 1
 	[ "$(uci -q get ikev2-manager.client.enabled)" = 1 ] ||
-	[ "$(uci -q get ikev2-manager.server.enabled)" = 1 ]
+	[ "$(uci -q get ikev2-manager.server.enabled)" = 1 ] ||
+	uci -q show ikev2-manager | grep -q "^ikev2-manager\.tunnel_[2-8]\.enabled='1'\$"
+}
+
+# The links of the tunnels after the first: up for an enabled tunnel, down for
+# one disabled or removed. See tunnel.sh for the numbering.
+sync_extra_links() {
+	local index link mtu
+	for index in 2 3 4 5 6 7 8; do
+		link="ipsec-out$index"
+		if [ "$(uci -q get "ikev2-manager.tunnel_$index.enabled")" = 1 ]; then
+			mtu="$(uci -q get "ikev2-manager.tunnel_$index.mtu" || echo 1400)"
+			ip link show "$link" >/dev/null 2>&1 ||
+				ip link add "$link" type xfrm if_id $((50 + index))
+			ip link set "$link" mtu "$mtu" up
+		else
+			ip link set "$link" down 2>/dev/null || true
+		fi
+	done
 }
 
 start() {
@@ -20,6 +38,7 @@ start() {
 	ip link show ipsec-out >/dev/null 2>&1 ||
 		ip link add ipsec-out type xfrm if_id 42
 	ip link set ipsec-out mtu "$out_mtu" up
+	sync_extra_links
 
 	if [ "$server_enabled" = 1 ]; then
 		ip link show ipsec-in >/dev/null 2>&1 ||
@@ -53,4 +72,7 @@ stop() {
 	# link is inert and disappears when the module unloads or the router reboots.
 	ip link set ipsec-in down 2>/dev/null || true
 	ip link set ipsec-out down 2>/dev/null || true
+	for index in 2 3 4 5 6 7 8; do
+		ip link set "ipsec-out$index" down 2>/dev/null || true
+	done
 }

@@ -48,6 +48,19 @@ snapshot '{"proxy-out":{"local-vips":["10.20.20.10","fd00::10"]}},{"site-link":{
 	fail "our virtual addresses were not listed: $(answers local-vips proxy-out)"
 [ "$(status local-vips ikev2-in)" = 1 ] || fail 'a connection without addresses listed some'
 
+# Every outbound tunnel at once: its own CHILD_SA name, its first IPv4 virtual
+# address, either IKE_SA of a connection that has two, and no other
+# connection's.
+snapshot '{"proxy-out":{"local-vips":["fd00::10","10.20.20.10"],"child-sas":{"proxy4-1":{"name":"proxy4","state":"INSTALLED"}}}},{"proxy-out-3":{"child-sas":{"proxy4-3-9":{"name":"proxy4","state":"INSTALLED"}}}},{"proxy-out-2":{"local-vips":["10.30.0.2"],"child-sas":{"proxy4-2-7":{"name":"proxy4-2","state":"INSTALLED"}}}},{"proxy-out-2":{"child-sas":{"proxy4-2-8":{"name":"proxy4-2","state":"REKEYING"}}}},{"proxy-out-9":{"child-sas":{"x":{"name":"proxy4-9","state":"INSTALLED"}}}},{"site-link":{"local-vips":["10.253.44.2"]}}'
+printf '1\t1\t10.20.20.10\n2\t1\t10.30.0.2\n3\t0\t-\n' >"$tmp/expected"
+answers tunnels >"$tmp/tunnels"
+cmp -s "$tmp/expected" "$tmp/tunnels" || {
+	cat "$tmp/tunnels" >&2
+	fail 'the outbound tunnels were not read by key'
+}
+snapshot ''
+[ "$(answers tunnels)" = '' ] && [ "$(status tunnels)" = 0 ] || fail 'no tunnel was not an empty answer'
+
 # Inbound sessions: each EAP client of the server, in order, and nothing else.
 snapshot '{"ikev2-in":{"remote-eap-id":"alice","remote-vips":["10.20.30.15"]}},{"site-link-in":{"remote-eap-id":"office","remote-vips":["10.253.44.2"]}},{"ikev2-in":{"remote-id":"no-eap","remote-vips":["10.20.30.16"]}},{"ikev2-in":{"remote-eap-id":"bob","remote-vips":["10.20.30.17","10.20.30.18"]}},{"ikev2-in":{"remote-eap-id":"carol"}},{"ikev2-in":{"remote-eap-id":"x\ty","remote-vips":["10.20.30.19"]}}'
 printf 'alice\t10.20.30.15\nbob\t10.20.30.17\n' >"$tmp/expected"

@@ -53,24 +53,99 @@ must_not_match '{"proxy-out":{"uniqueid":"5","state":"ESTABLISHED","local-host":
 must_not_match '{"ikev2-in":{"uniqueid":"4","state":"CONNECTING","local-host":"127.0.0.1","local-port":"500"}}'
 must_not_match '{"proxy-out":{"uniqueid":"9","state":"CONNECTING","local-host":"0.0.0.0","local-port":"500"}}'
 
-ensure_body="$(sed -n '/^ensure_client_action() {/,/^}/p' \
-	"$manager_source")"
-printf '%s\n' "$ensure_body" | grep -Fq 'outbound_peer_resolves || return 1' || {
-	printf 'recovery no longer waits for boot-time DNS\n' >&2
+# What recovery does, run against stubs: it waits for the peer to resolve,
+# discards only a loopback-bound IKE_SA, and syncs the address of whatever
+# comes up.
+sed -n '/^ensure_first_tunnel() {/,/^}/p' "$manager_source" |
+	sed "s#/usr/libexec/#$tmp/bin/#g" >"$tmp/ensure.sh"
+[ -s "$tmp/ensure.sh" ] || {
+	printf 'outbound recovery is missing\n' >&2
 	exit 1
 }
-printf '%s\n' "$ensure_body" | grep -Fq 'if has_loopback_connecting_outbound; then' || {
-	printf 'ensure-client does not use the boot-stall detector\n' >&2
-	exit 1
-}
-printf '%s\n' "$ensure_body" | grep -Fq 'swanctl_quiet --terminate --ike proxy-out --timeout 5' || {
-	printf 'ensure-client does not discard the stalled outbound IKE_SA\n' >&2
-	exit 1
-}
-printf '%s\n' "$ensure_body" | grep -Fq '/usr/libexec/ikev2-sync-vips || return 1' || {
-	printf 'an automatic replacement would not synchronise its virtual IP\n' >&2
-	exit 1
-}
+mkdir -p "$tmp/bin"
+for helper in ikev2-sync-vips ikev2-routing; do
+	printf '#!/bin/sh\nprintf "%%s %%s\\n" %s "$*" >>"%s/calls"\n[ ! -e "%s/fail-%s" ]\n' \
+		"$helper" "$tmp" "$tmp" "$helper" >"$tmp/bin/$helper"
+	chmod 755 "$tmp/bin/$helper"
+done
+(
+	root=''
+	action_lock_dir="$tmp/action.lock"
+	auto_connect_lock="$tmp/auto.lock"
+	auto_connect_attempt="$tmp/auto.attempt"
+	system_helper=true
+	getv() { echo 1; }
+	getv_default() { echo "$3"; }
+	in_range() { [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]; }
+	logger() { :; }
+	call() { printf '%s\n' "$*" >>"$tmp/calls"; }
+	has_outbound_sa() { [ -e "$tmp/sa-up" ]; }
+	has_loopback_connecting_outbound() { [ -e "$tmp/loopback" ]; }
+	outbound_peer_resolves() { [ -e "$tmp/resolves" ]; }
+	swanctl_quiet() { call swanctl "$@"; }
+	initiate_outbound() { call initiate; : >"$tmp/sa-up"; }
+	. "$tmp/ensure.sh"
+	run() {
+		: >"$tmp/calls"
+		rm -f "$auto_connect_attempt"
+		( ensure_first_tunnel )
+	}
+	expect_calls() {
+		grep -Fqx -- "$1" "$tmp/calls" || {
+			printf '%s: missing call "%s" in:\n' "$2" "$1" >&2
+			cat "$tmp/calls" >&2
+			exit 1
+		}
+	}
+	# Boot-time DNS not ready: nothing is initiated, the watcher retries.
+	if run; then
+		printf 'recovery reported success before the peer resolved\n' >&2
+		exit 1
+	fi
+	! grep -q 'initiate\|swanctl' "$tmp/calls" || {
+		printf 'recovery initiated before the peer resolved\n' >&2
+		exit 1
+	}
+	: >"$tmp/resolves"
+	# A loopback-bound IKE_SA is discarded; the replacement charon started meanwhile
+	# is kept and its address synchronised.
+	: >"$tmp/loopback"
+	sh -c ': >"$1"' x "$tmp/sa-up.later"
+	has_outbound_sa() { [ -e "$tmp/sa-up" ] || { [ -e "$tmp/sa-up.later" ] && grep -q terminate "$tmp/calls"; }; }
+	run || {
+		printf 'recovery from a loopback-bound IKE_SA failed\n' >&2
+		exit 1
+	}
+	expect_calls 'swanctl --terminate --ike proxy-out --timeout 5' 'loopback recovery'
+	expect_calls 'ikev2-sync-vips ' 'loopback recovery'
+	! grep -q '^initiate' "$tmp/calls" || {
+		printf 'recovery initiated a second IKE_SA beside its replacement\n' >&2
+		exit 1
+	}
+	rm -f "$tmp/loopback" "$tmp/sa-up.later" "$tmp/sa-up"
+	has_outbound_sa() { [ -e "$tmp/sa-up" ]; }
+	# A plain outage: initiated, then its address and routes follow.
+	run || {
+		printf 'recovery from an outage failed\n' >&2
+		exit 1
+	}
+	expect_calls initiate 'outage recovery'
+	expect_calls 'ikev2-sync-vips ' 'outage recovery'
+	expect_calls 'ikev2-routing sync-all' 'outage recovery'
+	# A tunnel that came up without its address is not reported recovered.
+	rm -f "$tmp/sa-up"
+	: >"$tmp/fail-ikev2-sync-vips"
+	if run; then
+		printf 'recovery without the tunnel address was reported done\n' >&2
+		exit 1
+	fi
+	rm -f "$tmp/fail-ikev2-sync-vips"
+	# A healthy tunnel is left alone.
+	run && [ ! -s "$tmp/calls" ] || {
+		printf 'recovery touched a healthy tunnel\n' >&2
+		exit 1
+	}
+)
 
 grep -Fq 'STOP=02' "$root/ikev2-manager-runtime/ikev2-health.init" || {
 	printf 'health watcher does not stop before dependent services\n' >&2

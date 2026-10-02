@@ -456,6 +456,78 @@ bypass_listed() {
 	grep -q '^[[:space:]]*[^#[:space:]]' "$bypass_domain_file" 2>/dev/null
 }
 
+# The enabled tunnels for the generator and, with more than one, the tunnels
+# each exit may use. Expects tunnel_settings_load.
+tunnel_inputs() {
+	local index exit
+	for index in $tunnel_on; do
+		tunnel_names "$index"
+		printf 'tunnel\t%s\t%s\n' "$index" "$tunnel_link"
+	done
+	case "$tunnel_on" in *' '*) ;; *) return 0 ;; esac
+	for exit in $tunnel_list; do
+		tunnel_exit_chain "$exit"
+		[ -n "$tunnel_chain" ] || continue
+		printf 'exit\t%s\t%s\n' "$exit" "$(printf '%s' "$tunnel_chain" | tr ' ' '\t')"
+	done
+}
+
+# The link the first exit routes into now: the tunnel the watcher chose, or
+# with no choice yet the first one its chain prefers; ipsec-out when no tunnel
+# is enabled.
+first_exit_link() {
+	local chosen
+	tunnel_settings_load
+	chosen="$(tunnel_exit_selected 1 2>/dev/null || echo 0)"
+	if [ "$chosen" = 0 ]; then
+		tunnel_exit_chain 1
+		chosen="${tunnel_chain%% *}"
+	fi
+	tunnel_names "${chosen:-1}"
+	printf '%s\n' "$tunnel_link"
+}
+
+# The outbound a page fetch through the first exit is asked of: its selector
+# when there is one, the single tunnel outbound otherwise.
+first_exit_outbound() {
+	if [ "$(jsonfilter -i "$config_file" -e '@.outbounds[@.tag="exit-1"].type' 2>/dev/null)" = selector ]; then
+		printf 'exit-1\n'
+	else
+		printf 'ikev2-out\n'
+	fi
+}
+
+# Put every exit selector of the running resolver on the tunnel the watcher
+# chose for it. An exit with no tunnel up keeps its selector where it is: the
+# routing table refuses that exit's traffic, and the selector's tunnel has no
+# SA to carry it. Fails when the controller did not take a choice, so the
+# watcher tries again.
+exits_apply() (
+	local work kind exit chosen rc=0
+	init_config
+	[ "$(defaultv domains engine nftset)" = fakeip ] || return 0
+	[ -s "$config_file" ] || return 0
+	tunnel_settings_load
+	work="$(mktemp -d)" || return 1
+	trap 'rm -rf "$work"' EXIT
+	trap 'exit 1' INT TERM
+	for exit in $tunnel_list; do
+		[ "$(jsonfilter -i "$config_file" -e "@.outbounds[@.tag=\"exit-$exit\"].type" 2>/dev/null)" = selector ] ||
+			continue
+		chosen="$(tunnel_exit_selected "$exit" 2>/dev/null || echo 0)"
+		[ "$chosen" != 0 ] || continue
+		[ -s "$work/curl.conf" ] || controller_curl_config "$work" || return 1
+		tunnel_names "$chosen"
+		kind="ikev2-out"
+		[ "$chosen" = 1 ] || kind="ikev2-out-$chosen"
+		curl -4fsS --noproxy '*' --connect-timeout 2 --max-time 5 \
+			--config "$work/curl.conf" -X PUT -H 'Content-Type: application/json' \
+			--data "{\"name\":\"$kind\"}" \
+			"http://$controller_address/proxies/exit-$exit" >/dev/null 2>&1 || rc=1
+	done
+	return "$rc"
+)
+
 render_config() {
 	render_ruleset
 	mkdir -p "$work_dir"
@@ -498,9 +570,9 @@ EOF
 	# that exposure, but couples every lookup to tunnel health: while the tunnel
 	# is down no name resolves at all. It is therefore opt-in, and only honoured
 	# while the outbound client is actually enabled.
+	tunnel_settings_load
 	final_server=upstream
-	if [ "$(defaultv dns tunnel_resolve 0)" = 1 ] &&
-	   [ "$(defaultv client enabled 0)" = 1 ]; then
+	if [ "$(defaultv dns tunnel_resolve 0)" = 1 ] && [ -n "$tunnel_on" ]; then
 		final_server=ikev2-upstream
 	fi
 
@@ -540,6 +612,7 @@ EOF
 		sort -u "$covered_file" | awk 'NF { printf "covered\t%s\n", $1 }'
 		dns_segment_https_suffixes | awk 'NF { printf "https_suffix\t%s\n", $1 }'
 		dns_segment_inputs
+		tunnel_inputs
 		# The same answer for every ordinary name, when they pass through here.
 		{ ordinary_via_singbox || foreign_servers_file; } &&
 			[ "$(defaultv dns https_compat 0)" = 1 ] && printf 'https_all\t1\n'
@@ -1257,7 +1330,7 @@ bounded_nslookup() {
 # Run the same DNS transport as the live resolver, without its cache or routing
 # listeners. This proves a DNS answer, not merely a successful TLS exchange.
 tunnel_dns_query() (
-	local endpoint="$1" bootstrap="$2" host port path parsed work worker='' attempt=0
+	local endpoint="$1" bootstrap="$2" link="${3:-ipsec-out}" host port path parsed work worker='' attempt=0
 	local address="${IKEV2_DNS_PROBE_ADDRESS:-127.0.0.44}"
 	parsed="$(parse_tunnel_doh "$endpoint")" || return 1
 	IFS="$(printf '\t')" read -r host port path <<EOF
@@ -1281,7 +1354,8 @@ EOF
 	trap 'exit 1' INT TERM
 	printf '%s\t%s\n' \
 		bootstrap_host "${bootstrap%:*}" bootstrap_port "${bootstrap##*:}" \
-		doh_host "$host" doh_port "$port" doh_path "$path" dns_address "$address" |
+		doh_host "$host" doh_port "$port" doh_path "$path" dns_address "$address" \
+		link "$link" |
 		"$ucode_bin" "$runtime_lib_dir/singbox-config.uc" probe >"$work/config.json" || return 1
 	chmod 600 "$work/config.json"
 	"${IKEV2_SING_BOX:-/usr/bin/sing-box}" run -c "$work/config.json" -D "$work" >"$work/log" 2>&1 &
@@ -1297,15 +1371,16 @@ EOF
 )
 
 probe_tunnel_dns() {
-	local endpoint="$1" bootstrap preferred attempted_bootstraps=''
+	local endpoint="$1" bootstrap preferred attempted_bootstraps='' link
 	probe_bootstrap=''
+	link="$(first_exit_link)"
 	preferred="$(selected_tunnel_bootstrap)"
 	# First prove the bootstrap that the running configuration actually uses.
 	for bootstrap in "$preferred" $(tunnel_dns_bootstrap); do
 		[ -n "$bootstrap" ] || continue
 		case " $attempted_bootstraps " in *" $bootstrap "*) continue ;; esac
 		attempted_bootstraps="${attempted_bootstraps:+$attempted_bootstraps }$bootstrap"
-		if tunnel_dns_query "$endpoint" "$bootstrap"; then
+		if tunnel_dns_query "$endpoint" "$bootstrap" "$link"; then
 			probe_bootstrap="$bootstrap"
 			return 0
 		fi
@@ -1317,16 +1392,22 @@ probe_tunnel_data_plane() {
 	# An alternate resolver can answer during a generally unstable tunnel.  A
 	# provider switch is disruptive because sing-box must reload, so first prove
 	# that unrelated HTTPS traffic also crosses the tunnel successfully.
-	tunnel_https_reachable 2 3
+	tunnel_https_reachable 2 3 "$(first_exit_link)"
 }
 
 rendered_tunnel_dns() {
-	local field value line='' tab
+	local field value line='' tab suffix=''
 	tab="$(printf '\t')"
 	[ -s "$config_file" ] || return 1
+	# Every tunnel resolver uses the same endpoint; with the first tunnel
+	# disabled its pair is absent and the next one's is read.
+	for suffix in '' -2 -3 -4 -5 -6 -7 -8; do
+		jsonfilter -i "$config_file" -e "@.dns.servers[@.tag=\"ikev2-upstream$suffix\"].server" >/dev/null 2>&1 &&
+			break
+	done
 	# Print endpoint host, port, path, then bootstrap host and port, tab-separated.
-	for field in ikev2-upstream.server ikev2-upstream.server_port ikev2-upstream.path \
-		ikev2-bootstrap.server ikev2-bootstrap.server_port; do
+	for field in "ikev2-upstream$suffix.server" "ikev2-upstream$suffix.server_port" \
+		"ikev2-upstream$suffix.path" "ikev2-bootstrap$suffix.server" "ikev2-bootstrap$suffix.server_port"; do
 		value="$(jsonfilter -i "$config_file" \
 			-e "@.dns.servers[@.tag=\"${field%%.*}\"].${field#*.}")" || return 1
 		line="${line:+$line$tab}$value"
@@ -1339,8 +1420,9 @@ tunnel_dns_check() {
 	local switched_at previous now switch_threshold switch_target_snapshot switch_previous_snapshot switch_failures_snapshot switch_bootstrap_snapshot
 	init_config
 	[ "$(defaultv domains engine nftset)" = fakeip ] || return 0
-	[ "$(defaultv client enabled 0)" = 1 ] || return 0
-	ip link show ipsec-out >/dev/null 2>&1 || return 0
+	tunnel_settings_load
+	[ -n "$tunnel_on" ] || return 0
+	ip link show "$(first_exit_link)" >/dev/null 2>&1 || return 0
 	validate_tunnel_dns
 	selected="$(selected_tunnel_dns)" || return 1
 	state_selected="$(sed -n 's/^selected=//p' "$tunnel_dns_state" 2>/dev/null | tail -n1)"
@@ -1440,7 +1522,7 @@ data_plane_canary() (
 		rc=0
 		curl -4fsS --noproxy '*' --connect-timeout 2 --max-time 8 \
 			--config "$work/curl.conf" \
-			"http://$controller_address/proxies/ikev2-out/delay?timeout=5000&url=$url" \
+			"http://$controller_address/proxies/$(first_exit_outbound)/delay?timeout=5000&url=$url" \
 			>"$work/delay" 2>/dev/null || rc=$?
 		case "$rc" in
 			0)
@@ -1492,8 +1574,8 @@ restart_resolver() {
 data_plane_check() {
 	local now failures restarts restarted_at backoff interval
 	init_config
-	if [ "$(defaultv domains engine nftset)" != fakeip ] ||
-	   [ "$(defaultv client enabled 0)" != 1 ]; then
+	tunnel_settings_load
+	if [ "$(defaultv domains engine nftset)" != fakeip ] || [ -z "$tunnel_on" ]; then
 		rm -f "$data_plane_state"
 		return 0
 	fi
@@ -1523,7 +1605,7 @@ data_plane_check() {
 		save_data_plane_state ok 0 "$restarts" "$restarted_at"
 		return 0
 	fi
-	if ! ip link show ipsec-out >/dev/null 2>&1 || ! probe_tunnel_data_plane; then
+	if ! ip link show "$(first_exit_link)" >/dev/null 2>&1 || ! probe_tunnel_data_plane; then
 		save_data_plane_state tunnel-down 0 "$restarts" "$restarted_at"
 		return 0
 	fi
@@ -1937,6 +2019,7 @@ case "${1:-}" in
 	ensure) ensure_runtime >>"$log_file" 2>&1 ;;
 	tunnel-dns-check) with_lock tunnel_dns_check >>"$log_file" 2>&1 ;;
 	data-plane-check) data_plane_check "${2:-}" >>"$log_file" 2>&1 ;;
+	exits-apply) exits_apply ;;
 	recover) with_lock recover_reliable_mode >>"$log_file" 2>&1 ;;
 	data-plane-state)
 		# The last recorded result only; no health probe, for reports.

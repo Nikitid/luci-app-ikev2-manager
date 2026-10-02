@@ -43,6 +43,8 @@ settings() {
 		"ikev2-manager.domains.paused='${1:-0}'" \
 		"ikev2-manager.client.enabled='1'" \
 		"ikev2-manager.server.enabled='1'" >"$S/uci.show"
+	[ -z "${2:-}" ] || printf "%s\n" "ikev2-manager.tunnel_2=tunnel" \
+		"ikev2-manager.tunnel_2.enabled='1'" >>"$S/uci.show"
 }
 settings 0
 
@@ -61,7 +63,8 @@ case \"\$1\" in check) [ ! -e \"\$S/routing-broken\" ] ;; sync) rm -f \"\$S/rout
 stub device "$record"
 stub discord "$record"
 stub user-policy "$record"
-stub domain-router "$record"
+stub domain-router "$record
+[ \"\$1\" != exits-apply ] || [ ! -e \"\$S/exits-refused\" ]"
 stub manager "$record"
 stub sync-vips "$record"
 stub community "$record"
@@ -70,7 +73,13 @@ stub xfrm "$record"
 stub quality "$record
 sleep 3"
 stub sa "$record
-case \"\$1\" in installed) [ -e \"\$S/sa-up\" ] ;; conn-loaded) exit 0 ;; *) exit 1 ;; esac"
+case \"\$1\" in
+	tunnels)
+		[ ! -e \"\$S/sa-up\" ] || printf '1\\t1\\t10.20.20.10\\n'
+		[ ! -e \"\$S/sa2-up\" ] || printf '2\\t1\\t10.30.0.7\\n' ;;
+	conn-loaded) exit 0 ;;
+	*) exit 1 ;;
+esac"
 ln -s "$(command -v flock)" "$tmp/bin/flock"
 printf 'state=ok\n' >"$tmp/run/data-plane.state"
 
@@ -101,6 +110,7 @@ IKEV2_SYNC_VIPS="$tmp/bin/sync-vips" \
 IKEV2_QUALITY_HELPER="$tmp/bin/quality" \
 IKEV2_COMMUNITY_HELPER="$tmp/bin/community" \
 IKEV2_XFRM_INIT="$tmp/bin/xfrm" \
+IKEV2_TUNNEL_RETURN_HOLD=3 \
 	sh "$root/ikev2-manager-runtime/ikev2-health.sh" &
 watcher=$!
 }
@@ -190,15 +200,55 @@ while kill -0 "$watcher" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 
 watcher=''
 grep -q '^routing persist' "$log" || fail 'the watcher stopped without keeping the destination sets'
 
+# A second tunnel stands in for the first: the exits move to it at once and
+# sing-box is told; the first takes them back only after it has stayed up.
+mkdir -p "$tmp/net/ipsec-out2"
+printf '0x1091\n' >"$tmp/net/ipsec-out2/flags"
+: >"$S/sa2-up"
+settings 0 two
+start_watcher
+state="$tmp/run/ikev2-tunnels.state"
+i=0
+while ! grep -qx 'exit 2 2' "$state" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+grep -qx 'exit 1 1' "$state" && grep -qx 'exit 2 2' "$state" || fail 'each exit did not start on its own tunnel'
+applies="$(count '^domain-router exits-apply')"
+before="$(count '^routing sync ')"
+ensures="$(count '^manager ensure-client')"
+rm -f "$S/sa-up"
+wait_for '^domain-router exits-apply' $((applies + 1)) 'sing-box was not moved to the standing-in tunnel'
+grep -qx 'exit 1 2' "$state" || fail 'the first exit did not move to the second tunnel'
+[ "$(count '^routing sync ')" -gt "$before" ] || fail 'the routes did not follow the exit'
+wait_for '^manager ensure-client' $((ensures + 1)) 'the lost tunnel was not reconnected while the other stood in'
+: >"$S/sa-up"
+sleep 1.5
+grep -qx 'exit 1 2' "$state" || fail 'the first tunnel took its exit back at once'
+wait_for '^domain-router exits-apply' $((applies + 2)) 'the first tunnel never took its exit back'
+grep -qx 'exit 1 1' "$state" || fail 'the first exit did not return to its tunnel'
+# A resolver that does not take the choice is asked again on the next pass.
+applies="$(count '^domain-router exits-apply')"
+: >"$S/exits-refused"
+rm -f "$S/sa-up"
+wait_for '^domain-router exits-apply' $((applies + 3)) 'a refused exit choice was not offered again'
+rm -f "$S/exits-refused"
+sleep 2
+applies="$(count '^domain-router exits-apply')"
+sleep 2
+[ "$(count '^domain-router exits-apply')" = "$applies" ] || fail 'a taken exit choice was offered again'
+: >"$S/sa-up"
+kill -TERM "$watcher"
+wait "$watcher" 2>/dev/null || :
+watcher=''
+rm -f "$S/sa2-up"
+
 # A signal from the inbound watcher, which follows strongSwan's events, runs
 # the next pass at once: the routes then follow the tunnel without waiting.
 settings 0
 start_watcher 30
-wait_for '^sa installed' 1 'the watcher did not start its first pass'
+wait_for '^sa tunnels' 1 'the watcher did not start its first pass'
 sleep 2
-passes="$(count '^sa installed')"
+passes="$(count '^sa tunnels')"
 kill -USR1 "$watcher"
-wait_for '^sa installed' $((passes + 1)) 'a wake-up signal did not run a pass'
+wait_for '^sa tunnels' $((passes + 1)) 'a wake-up signal did not run a pass'
 kill -TERM "$watcher"
 wait "$watcher" 2>/dev/null || :
 watcher=''

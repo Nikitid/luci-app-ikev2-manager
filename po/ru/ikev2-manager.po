@@ -4274,3 +4274,12 @@ msgstr "Импортированные настройки не применил�
 
 msgid "The imported settings did not apply, and restoring the previous settings did not finish"
 msgstr "Импортированные настройки не применились, и восстановление прежних не завершилось"
+
+msgid "Applying the outbound tunnels..."
+msgstr "Применение исходящих туннелей..."
+
+msgid "Tunnel settings saved and applied."
+msgstr "Настройки туннелей сохранены и применены."
+
+msgid "Tunnel settings were saved, but applying them failed; see /tmp/ikev2-manager-action.log and logread."
+msgstr "Настройки туннелей сохранены, но применить их не удалось; подробности в /tmp/ikev2-manager-action.log и logread."

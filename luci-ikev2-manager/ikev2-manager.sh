@@ -57,6 +57,8 @@ sa_helper="${IKEV2_SA_HELPER:-/usr/libexec/ikev2-sa}"
 . "$runtime_lib_dir/manager-server.sh"
 . "$runtime_lib_dir/manager-acme.sh"
 . "$runtime_lib_dir/manager-profiles.sh"
+. "$runtime_lib_dir/tunnel.sh"
+. "$runtime_lib_dir/manager-tunnels.sh"
 devices_library=0
 if [ -r "$runtime_lib_dir/devices.sh" ]; then
 	. "$runtime_lib_dir/devices.sh"
@@ -77,6 +79,7 @@ input_file_for() {
 	case "$kind" in
 		user) printf '/var/run/ikev2-manager-user-%s.in\n' "$token" ;;
 		client) printf '/var/run/ikev2-manager-client-%s.in\n' "$token" ;;
+		tunnel) printf '/var/run/ikev2-manager-tunnel-%s.in\n' "$token" ;;
 		server) printf '/var/run/ikev2-manager-server-%s.in\n' "$token" ;;
 		profile) printf '/var/run/ikev2-manager-profile-%s.in\n' "$token" ;;
 		acme) printf '/tmp/ikev2-acme-%s.in\n' "$token" ;;
@@ -931,10 +934,16 @@ render_client_secret() {
 	fi
 	IFS="$(printf '\t')" read -r username encoded <"$client_secret_db" || return 1
 	tmp="${outbound_secret}.new"
+	# With more tunnels the secret names the server too; see manager-tunnels.sh.
+	server_owner=''
+	if tunnel_secrets_need_server && remote_id="$(getv client remote_id)" && [ -n "$remote_id" ]; then
+		server_owner="
+		id-server = \"$remote_id\""
+	fi
 	cat >"$tmp" <<EOF
 secrets {
 	eap-proxy-out {
-		id = "$username"
+		id = "$username"$server_owner
 		secret = $encoded
 	}
 }
@@ -1121,6 +1130,7 @@ apply_all() {
 	render_server
 	render_client
 	render_client_secret
+	render_extra_tunnels
 	render_users
 	"$system_helper" apply
 	swanctl_quiet --load-all >/dev/null
@@ -1630,10 +1640,23 @@ outbound_peer_resolves() {
 	return 1
 }
 
+# Bring up every enabled outbound tunnel without tearing down a healthy one.
+# The first runs in a subshell: it releases its lock on exit.
+ensure_client_action() {
+	[ -z "$root" ] || return 0
+	[ "$(getv globals configured)" = 1 ] || return 0
+	ensure_rc=0
+	( ensure_first_tunnel ) || ensure_rc=1
+	"$system_helper" strongswan-security client >/dev/null 2>&1 || return "$ensure_rc"
+	[ ! -d "$action_lock_dir" ] || return "$ensure_rc"
+	ensure_extra_tunnels || ensure_rc=1
+	return "$ensure_rc"
+}
+
 # Bring up an enabled outbound client without tearing down an already healthy
 # SA. This is used by WAN hotplug and the health watcher, so it has its own
 # non-blocking lock and a short failure backoff to avoid duplicate initiations.
-ensure_client_action() {
+ensure_first_tunnel() {
 	[ -z "$root" ] || return 0
 	[ "$(getv globals configured)" = 1 ] || return 0
 	[ "$(getv client enabled)" = 1 ] || return 0
@@ -1801,6 +1824,14 @@ run_action() {
 				else
 					action_status "$id" error 'Settings were saved, but the tunnel did not come up; see logread.'
 				fi
+			fi
+			;;
+		tunnels-apply)
+			action_status "$id" running 'Applying the outbound tunnels...'
+			if tunnels_apply_action; then
+				action_status "$id" ok 'Tunnel settings saved and applied.'
+			else
+				action_status "$id" error 'Tunnel settings were saved, but applying them failed; see /tmp/ikev2-manager-action.log and logread.'
 			fi
 			;;
 		client-disable)
@@ -2012,6 +2043,12 @@ case "${1:-}" in
 	client-input)
 		[ -n "$client_input_file" ] || client_input_file="$(input_file_for client "${2:-}")"
 		consume_client_input
+		;;
+	tunnels-get)
+		tunnels_get
+		;;
+	tunnel-input)
+		consume_tunnel_input "${IKEV2_TUNNEL_INPUT:-$(input_file_for tunnel "${2:-}")}"
 		;;
 	reconnect-client)
 		[ "$(getv globals configured)" = 1 ] || die 'Complete and enable Overview first'

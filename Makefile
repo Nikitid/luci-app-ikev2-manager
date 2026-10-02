@@ -173,6 +173,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-server.sh $(1)/usr/libexec/ikev2-manager.d/manager-server.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-acme.sh $(1)/usr/libexec/ikev2-manager.d/manager-acme.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-profiles.sh $(1)/usr/libexec/ikev2-manager.d/manager-profiles.sh
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-tunnels.sh $(1)/usr/libexec/ikev2-manager.d/manager-tunnels.sh
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-health.sh $(1)/usr/libexec/ikev2-health
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-sync-vips.sh $(1)/usr/libexec/ikev2-sync-vips
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-sa.sh $(1)/usr/libexec/ikev2-sa
@@ -437,13 +438,18 @@ fail() {
 /usr/libexec/ikev2-manager-system disable >/dev/null 2>&1 ||
 	fail "unable to restore managed router state; package removal stopped before changing files"
 swanctl --terminate --ike proxy-out --timeout 3 >/dev/null 2>&1 || true
+for index in 2 3 4 5 6 7 8; do
+	swanctl --terminate --ike "proxy-out-$$index" --timeout 3 >/dev/null 2>&1 || true
+done
 swanctl --terminate --ike ikev2-in --timeout 3 >/dev/null 2>&1 || true
 swanctl --unload-conn proxy-out >/dev/null 2>&1 || true
 swanctl --unload-conn ikev2-in >/dev/null 2>&1 || true
 rm -f /etc/swanctl/conf.d/20-proxy-out.conf
+rm -f /etc/swanctl/conf.d/21-proxy-out-extra.conf
 rm -f /etc/swanctl/conf.d/30-inbound.conf
 rm -f /etc/swanctl/conf.d/90-proxy-out-secret.conf
 rm -f /etc/swanctl/conf.d/91-inbound-secrets.conf
+rm -f /etc/swanctl/conf.d/92-proxy-out-extra-secret.conf
 rm -f /etc/swanctl/x509/ikev2.pem
 rm -f /etc/swanctl/private/ikev2.key
 rm -f /etc/swanctl/x509ca/ikev2-le-isrg-root-*.pem

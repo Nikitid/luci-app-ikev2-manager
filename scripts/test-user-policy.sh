@@ -734,6 +734,28 @@ wait "$health_pid" 2>/dev/null || true
 	printf '%s\n' 'an outbound SA change did not wake the health watcher' >&2
 	exit 1
 }
+# Every outbound tunnel's, not only the first.
+sh -c 'trap "printf woken >>\"$1\"" USR1; : >"$1.ready"; while :; do sleep 1; done' wake "$tmp/health-woken-2" &
+health_pid=$!
+attempt=0
+while [ ! -e "$tmp/health-woken-2.ready" ] && [ "$attempt" -lt 30 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+printf '%s\n' "$health_pid" >"$tmp/health.lock/pid"
+printf '%s\n' \
+	'child-updown event {up=yes proxy-out-3 {uniqueid=31 child-sas {proxy4-3-1 {state=INSTALLED}}}}' >&9
+attempt=0
+while [ ! -s "$tmp/health-woken-2" ] && [ "$attempt" -lt 30 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+kill "$health_pid" 2>/dev/null || true
+wait "$health_pid" 2>/dev/null || true
+[ -s "$tmp/health-woken-2" ] || {
+	printf '%s\n' 'another outbound tunnel SA change did not wake the health watcher' >&2
+	exit 1
+}
 printf '%s\n' test-monitor-exit >&9
 attempt=0
 while kill -0 "$watch_pid" 2>/dev/null && [ "$attempt" -lt 5 ]; do

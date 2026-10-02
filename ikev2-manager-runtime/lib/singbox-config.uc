@@ -15,7 +15,16 @@
 // direct_tproxy_port router_tproxy_port controller_address controller_secret
 // ruleset_path, and optionally https_all 1 and bypass_ruleset_path, the
 // domains never to go through the tunnel. Repeated: covered CIDR,
-// https_suffix SUFFIX, and segment TAG PORT SUFFIX... in routing order.
+// https_suffix SUFFIX, and segment TAG PORT SUFFIX... in routing order;
+// tunnel INDEX LINK for each enabled outbound tunnel and, with more than one,
+// exit INDEX TUNNEL... with the tunnels each exit may use, preferred first.
+//
+// With one tunnel the configuration is the one there always was, bound to
+// that tunnel's link. With more, every tunnel has its own outbound and its
+// own resolvers bound to its link, so a name is resolved through the tunnel
+// that carries the connection, and each exit is a selector over its tunnels.
+// A selector starts on its first tunnel; the watcher moves it through the
+// controller, so a failover does not change this document.
 
 'use strict';
 
@@ -39,7 +48,7 @@ function count(value, name) {
 }
 
 function read_input() {
-	let input = { covered: [], https_suffix: [], segment: [] };
+	let input = { covered: [], https_suffix: [], segment: [], tunnel: [], exit: [] };
 	for (let line in split(stdin.read('all') ?? '', '\n')) {
 		if (line == '')
 			continue;
@@ -49,6 +58,10 @@ function read_input() {
 			push(input[key], fields[1]);
 		else if (key == 'segment')
 			push(input.segment, { tag: fields[1], port: fields[2], suffixes: slice(fields, 3) });
+		else if (key == 'tunnel')
+			push(input.tunnel, { index: fields[1], link: fields[2] });
+		else if (key == 'exit')
+			push(input.exit, { index: fields[1], tunnels: slice(fields, 2) });
 		else
 			input[key] = fields[1];
 	}
@@ -62,30 +75,42 @@ function required(input, key) {
 	return value;
 }
 
-function render(input) {
-	let domains = [ 'ikev2-domains' ];
-	let servers = [
-		{
-			type: 'udp',
-			tag: 'upstream',
-			server: required(input, 'upstream_host'),
-			server_port: port(input.upstream_port, 'upstream port')
-		},
+function tunnel_index(value) {
+	if (!match(value ?? '', /^[1-8]$/))
+		die(`invalid tunnel: ${value}`);
+	return value;
+}
+
+function link_name(value) {
+	if (!match(value ?? '', /^ipsec-out[2-8]?$/))
+		die(`invalid tunnel link: ${value}`);
+	return value;
+}
+
+// Tags of one tunnel's outbound and resolvers. The first keeps the names it
+// always had.
+function tunnel_tag(base, index) {
+	return index == '1' ? base : `${base}-${index}`;
+}
+
+function tunnel_resolvers(input, index, link) {
+	let bootstrap = tunnel_tag('ikev2-bootstrap', index);
+	return [
 		// The tunnel bootstrap uses TCP. sing-box keeps one shared UDP socket
 		// per server and replaces it only on a read or write error, never on
-		// a timeout; one opened while ipsec-out had no address kept the WAN
+		// a timeout; one opened while the link had no address kept the WAN
 		// source and failed silently until a restart. TCP picks the current
 		// source on every query.
 		{
 			type: 'tcp',
-			tag: 'ikev2-bootstrap',
+			tag: bootstrap,
 			server: required(input, 'bootstrap_host'),
 			server_port: port(input.bootstrap_port, 'bootstrap port'),
-			bind_interface: 'ipsec-out'
+			bind_interface: link
 		},
 		{
 			type: 'https',
-			tag: 'ikev2-upstream',
+			tag: tunnel_tag('ikev2-upstream', index),
 			server: required(input, 'doh_host'),
 			server_port: port(input.doh_port, 'tunnel DNS port'),
 			path: required(input, 'doh_path'),
@@ -93,14 +118,114 @@ function render(input) {
 				enabled: true,
 				server_name: input.doh_host
 			},
-			bind_interface: 'ipsec-out',
+			bind_interface: link,
 			domain_resolver: {
-				server: 'ikev2-bootstrap',
+				server: bootstrap,
 				strategy: 'ipv4_only'
 			},
 			connect_timeout: '5s'
 		}
 	];
+}
+
+function tunnel_outbound(index, link) {
+	return {
+		type: 'direct',
+		tag: tunnel_tag('ikev2-out', index),
+		bind_interface: link,
+		domain_resolver: {
+			server: tunnel_tag('ikev2-upstream', index),
+			strategy: 'ipv4_only'
+		}
+	};
+}
+
+function render(input) {
+	let domains = [ 'ikev2-domains' ];
+	let tunnels = map(input.tunnel, (t) => ({ index: tunnel_index(t.index), link: link_name(t.link) }));
+	let several = length(tunnels) > 1;
+	// One tunnel, or none enabled: the layout there always was, on that
+	// tunnel's link.
+	if (!several)
+		tunnels = [ { index: '1', link: length(tunnels) ? tunnels[0].link : 'ipsec-out' } ];
+	let servers = [
+		{
+			type: 'udp',
+			tag: 'upstream',
+			server: required(input, 'upstream_host'),
+			server_port: port(input.upstream_port, 'upstream port')
+		}
+	];
+	let outbounds = [
+		{
+			type: 'direct',
+			tag: 'direct-out',
+			domain_resolver: 'upstream'
+		}
+	];
+	for (let t in tunnels) {
+		push(servers, ...tunnel_resolvers(input, t.index, t.link));
+		push(outbounds, tunnel_outbound(t.index, t.link));
+	}
+	// The outbound the first exit's traffic leaves by: the tunnel itself, or
+	// with more tunnels the selector that stands another in for it.
+	let tunnel_out = 'ikev2-out';
+	let final_server = required(input, 'final_server');
+	if (several) {
+		let enabled = {};
+		for (let t in tunnels)
+			enabled[t.index] = true;
+		for (let e in input.exit) {
+			let members = [];
+			for (let index in e.tunnels) {
+				if (!enabled[tunnel_index(index)])
+					die(`exit ${e.index} names a tunnel that is not enabled: ${index}`);
+				push(members, tunnel_tag('ikev2-out', index));
+			}
+			if (length(members) == 0)
+				continue;
+			push(outbounds, {
+				type: 'selector',
+				tag: `exit-${tunnel_index(e.index)}`,
+				outbounds: members,
+				default: members[0],
+				interrupt_exist_connections: true
+			});
+		}
+		if (!length(filter(outbounds, (o) => o.tag == 'exit-1')))
+			die('the first exit has no tunnel');
+		tunnel_out = 'exit-1';
+		// Names resolved through the tunnel resolve through whichever tunnel
+		// the first exit uses now.
+		if (final_server == 'ikev2-upstream') {
+			push(servers,
+				{
+					type: 'tcp',
+					tag: 'exit-1-bootstrap',
+					server: required(input, 'bootstrap_host'),
+					server_port: port(input.bootstrap_port, 'bootstrap port'),
+					detour: 'exit-1'
+				},
+				{
+					type: 'https',
+					tag: 'exit-1-dns',
+					server: required(input, 'doh_host'),
+					server_port: port(input.doh_port, 'tunnel DNS port'),
+					path: required(input, 'doh_path'),
+					tls: {
+						enabled: true,
+						server_name: input.doh_host
+					},
+					detour: 'exit-1',
+					domain_resolver: {
+						server: 'exit-1-bootstrap',
+						strategy: 'ipv4_only'
+					},
+					connect_timeout: '5s'
+				});
+			final_server = 'exit-1-dns';
+		}
+	}
 	for (let segment in input.segment)
 		push(servers, {
 			type: 'udp',
@@ -188,7 +313,7 @@ function render(input) {
 		dns: {
 			servers: servers,
 			rules: dns_rules,
-			final: required(input, 'final_server'),
+			final: final_server,
 			independent_cache: true,
 			cache_capacity: count(input.cache_capacity, 'cache capacity')
 		},
@@ -218,22 +343,7 @@ function render(input) {
 				listen_port: port(input.router_tproxy_port, 'router tproxy port')
 			}
 		],
-		outbounds: [
-			{
-				type: 'direct',
-				tag: 'direct-out',
-				domain_resolver: 'upstream'
-			},
-			{
-				type: 'direct',
-				tag: 'ikev2-out',
-				bind_interface: 'ipsec-out',
-				domain_resolver: {
-					server: 'ikev2-upstream',
-					strategy: 'ipv4_only'
-				}
-			}
-		],
+		outbounds: outbounds,
 		route: {
 			rules: [
 				{
@@ -258,14 +368,14 @@ function render(input) {
 				{
 					inbound: [ 'tproxy-router-in' ],
 					action: 'route',
-					outbound: 'ikev2-out'
+					outbound: tunnel_out
 				},
 				{
 					inbound: [ 'tproxy-in' ],
 					source_ip_cidr: input.covered,
 					rule_set: domains,
 					action: 'route',
-					outbound: 'ikev2-out'
+					outbound: tunnel_out
 				},
 				{
 					inbound: [ 'tproxy-in' ],
@@ -298,7 +408,10 @@ function render(input) {
 			cache_file: {
 				enabled: true,
 				path: required(input, 'cache_path'),
-				store_fakeip: true
+				store_fakeip: true,
+				// A restart, procd's included, comes back on the tunnel each
+				// exit was moved to rather than on its first.
+				...(several ? { store_selected: true } : {})
 			}
 		}
 	};
@@ -306,8 +419,12 @@ function render(input) {
 
 // A throwaway resolver that answers only through one DoH endpoint over the
 // tunnel, to test that endpoint before the running engine is switched to it.
-// Keys: bootstrap_host bootstrap_port doh_host doh_port doh_path dns_address.
+// Keys: bootstrap_host bootstrap_port doh_host doh_port doh_path dns_address,
+// and optionally link.
 function render_probe(input) {
+	// Through the link of the tunnel the first exit uses now, ipsec-out unless
+	// named.
+	let link = link_name(input.link ?? 'ipsec-out');
 	return {
 		log: { disabled: true },
 		dns: {
@@ -317,7 +434,7 @@ function render_probe(input) {
 					tag: 'bootstrap',
 					server: required(input, 'bootstrap_host'),
 					server_port: port(input.bootstrap_port, 'bootstrap port'),
-					bind_interface: 'ipsec-out'
+					bind_interface: link
 				},
 				{
 					type: 'https',
@@ -326,7 +443,7 @@ function render_probe(input) {
 					server_port: port(input.doh_port, 'tunnel DNS port'),
 					path: required(input, 'doh_path'),
 					tls: { enabled: true, server_name: input.doh_host },
-					bind_interface: 'ipsec-out',
+					bind_interface: link,
 					connect_timeout: '2s',
 					domain_resolver: { server: 'bootstrap', strategy: 'ipv4_only' }
 				}

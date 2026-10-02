@@ -34,7 +34,7 @@ case "$*" in
 	'get ikev2-manager.server.enabled') echo 1 ;;
 	'get ikev2-manager.globals.source_include_vpn') echo 1 ;;
 	'get ikev2-manager.globals.device_schema') echo 2 ;;
-	'show ikev2-manager') : ;;
+	'show ikev2-manager') printf "ikev2-manager.client=client\nikev2-manager.client.enabled='1'\n"; cat "$S/tunnels" 2>/dev/null || : ;;
 	'get ikev2-manager.domains.engine') cat "$S/engine" 2>/dev/null || echo nftset ;;
 	'-X show dhcp') printf 'dhcp.cfg01411c=dnsmasq\n' ;;
 	'get pbr.ikev2pbr_domains.enabled') cat "$S/pbr-domains-policy" 2>/dev/null || exit 1 ;;
@@ -116,15 +116,27 @@ case "$1 $2" in
 		mv "$file.new" "$file"
 		;;
 	'route flush') rm -f "$S/route$family-$4" ;;
-	'link show') [ -e "$S/tunnel-down" ] || printf '9: ipsec-out: <NOARP,UP,LOWER_UP> mtu 1400\n' ;;
-	'addr show') printf '    inet 10.20.20.10/32 scope global ipsec-out\n' ;;
+	'link show')
+		case "$3" in
+			ipsec-out) [ -e "$S/tunnel-down" ] || printf '9: ipsec-out: <NOARP,UP,LOWER_UP> mtu 1400\n' ;;
+			*) [ -e "$S/link-$3" ] && printf '10: %s: <NOARP,UP,LOWER_UP> mtu 1400\n' "$3" ;;
+		esac
+		;;
+	'addr show')
+		case "$4" in
+			ipsec-out) printf '    inet 10.20.20.10/32 scope global ipsec-out\n' ;;
+			*) [ -e "$S/link-$4" ] && printf '    inet %s/32 scope global %s\n' "$(cat "$S/link-$4")" "$4" ;;
+		esac
+		;;
 	*) exit 1 ;;
 esac
 EOF
 
 cat >"$tmp/bin/sa" <<'EOF'
 #!/bin/sh
-[ ! -e "$S/tunnel-down" ]
+[ "$1" = tunnels ] || exit 1
+[ -e "$S/tunnel-down" ] || printf '1\t1\t10.20.20.10\n'
+cat "$S/sa-extra" 2>/dev/null || :
 EOF
 cat >"$tmp/bin/system" <<'EOF'
 #!/bin/sh
@@ -190,7 +202,7 @@ export IKEV2_NFT="$tmp/bin/nft" IKEV2_IP="$tmp/bin/ip" IKEV2_SA_HELPER="$tmp/bin
 export IKEV2_ROUTING_TABLE=ikev2_routing_test IKEV2_ROUTING_STATE="$S/routing.state"
 export IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib"
 export IKEV2_SERVICE_CIDRS="$tmp/services" IKEV2_VIP_FILE="$tmp/vip4"
-export IKEV2_SYSTEM_HELPER="$tmp/bin/system"
+export IKEV2_SYSTEM_HELPER="$tmp/bin/system" IKEV2_TUNNEL_STATE="$S/tunnels.state"
 export IKEV2_DNSMASQ_INIT="$tmp/bin/dnsmasq-init" IKEV2_DOMAIN_LIST="$tmp/domains"
 export IKEV2_ROUTING_DUMP_DIR="$S/run" IKEV2_ROUTING_PERSIST_DIR="$S/flash"
 mkdir -p "$S/run"
@@ -280,6 +292,48 @@ grep -qx 'unreachable default metric 32767' "$S/route4-1601" || fail 'the table 
 rm -f "$S/tunnel-down"
 "$helper" sync
 grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'the tunnel default did not return'
+
+# A second tunnel: its exit gets a rule and a table of its own, closed like
+# the first; each table routes into the tunnel the watcher chose for it while
+# that one is up, into the next one up in its chain when not, and nowhere
+# when none is.
+printf "ikev2-manager.tunnel_2=tunnel\nikev2-manager.tunnel_2.enabled='1'\n" >"$S/tunnels"
+printf '10.30.0.7\n' >"$S/link-ipsec-out2"
+printf '10.30.0.7\n' >"$tmp/vip4-2"
+printf '2\t1\t10.30.0.7\n' >"$S/sa-extra"
+"$helper" sync || fail 'a second tunnel did not install'
+grep -qx '28003:	from all fwmark 0x3000000/0xf000000 lookup 1603' "$S/rules4" || fail 'the second exit has no rule'
+grep -qx '28003:	from all fwmark 0x3000000/0xf000000 lookup 1603' "$S/rules6" || fail 'the second exit is not closed for IPv6'
+grep -qx 'unreachable default metric 32767' "$S/route4-1603" || fail 'the second exit table has no unreachable default'
+grep -qx '192.168.2.0/24 dev br-lan' "$S/route4-1603" || fail 'replies to the LAN would enter the second tunnel'
+grep -qx 'default dev ipsec-out2 metric 10' "$S/route4-1603" || fail 'the second exit does not route into its tunnel'
+grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'the first exit left its own tunnel'
+"$helper" check || fail 'two installed exits failed the check'
+printf 'exit 1 2\nexit 2 2\n' >"$S/tunnels.state"
+"$helper" check && fail 'an exit routed past the tunnel the watcher chose passed the check'
+"$helper" sync
+grep -qx 'default dev ipsec-out2 metric 10' "$S/route4-1601" || fail 'the first exit did not move to the tunnel chosen for it'
+[ "$(grep -c '^default dev' "$S/route4-1601")" = 1 ] || fail 'the first exit routes into two tunnels'
+printf '2\t0\t10.30.0.7\n' >"$S/sa-extra"
+"$helper" sync
+grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'the first exit did not fall back when its chosen tunnel went down'
+grep -qx 'default dev ipsec-out metric 10' "$S/route4-1603" || fail 'the second exit did not fall back to the first tunnel'
+: >"$S/tunnel-down"
+"$helper" sync
+grep -q '^default dev' "$S/route4-1601" "$S/route4-1603" && fail 'an exit kept a tunnel default with no tunnel up'
+"$helper" status | grep -qx 'exit_2=none' || fail 'an unreachable exit was not reported'
+rm -f "$S/tunnel-down"
+printf '2\t1\t10.30.0.7\n' >"$S/sa-extra"
+"$helper" sync
+"$helper" status | grep -qx 'exit_1=ipsec-out2' || fail 'the status does not name the link of an exit'
+# A tunnel removed takes its rule and table along.
+rm -f "$S/tunnels" "$S/sa-extra" "$S/tunnels.state"
+"$helper" check && fail 'the rule of a removed tunnel passed the check'
+"$helper" sync
+grep -q '^28003:' "$S/rules4" "$S/rules6" && fail 'the rule of a removed tunnel was kept'
+[ ! -s "$S/route4-1603" ] || fail 'the table of a removed tunnel was kept'
+grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'removing a tunnel took the first exit with it'
+"$helper" check || fail 'one tunnel again failed the check'
 
 # A WAN without a default keeps the last one.
 : >"$S/wan-down"

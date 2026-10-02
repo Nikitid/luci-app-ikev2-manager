@@ -523,9 +523,11 @@ reset_application_state() {
 	rm -f /etc/ikev2-manager/routing-dst4.dump /etc/ikev2-manager/routing-dst6.dump
 	rm -rf /etc/ikev2-manager/dns-original /etc/pbr-ikev2-community-cache
 	rm -f /etc/swanctl/conf.d/20-proxy-out.conf
+	rm -f /etc/swanctl/conf.d/21-proxy-out-extra.conf
 	rm -f /etc/swanctl/conf.d/30-inbound.conf
 	rm -f /etc/swanctl/conf.d/90-proxy-out-secret.conf
 	rm -f /etc/swanctl/conf.d/91-inbound-secrets.conf
+	rm -f /etc/swanctl/conf.d/92-proxy-out-extra-secret.conf
 	rm -f /etc/swanctl/x509/ikev2.pem /etc/swanctl/private/ikev2.key
 	rm -f /etc/swanctl/x509ca/ikev2-le-isrg-root-*.pem
 	rm -f /etc/swanctl/x509ca/ikev2-server-chain-*.pem

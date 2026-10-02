@@ -155,6 +155,47 @@ if ucode "$generator" probe <"$tmp/in2" >/dev/null 2>&1; then
 	fail 'a probe without a port was rendered'
 fi
 
+# Several tunnels: each its own outbound and resolvers on its own link, so a
+# name resolves through the tunnel that carries the connection; each exit a
+# selector over its tunnels, starting on its first whatever the watcher chose;
+# the first exit carries the selected domains and the router's own traffic.
+{
+	base | sed 's/^final_server\tupstream$/final_server\tikev2-upstream/'
+	printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\n'
+	printf 'exit\t1\t1\t2\nexit\t2\t2\t1\n'
+} >"$tmp/in"
+render "$tmp/in" "$tmp/multi.json" || fail 'two tunnels were refused'
+[ "$(query "$tmp/multi.json" '[(s["tag"], s.get("bind_interface"), s.get("detour")) for s in c["dns"]["servers"] if s["tag"] not in ("upstream", "fakeip")]')" = \
+	"[('ikev2-bootstrap', 'ipsec-out', None), ('ikev2-upstream', 'ipsec-out', None), ('ikev2-bootstrap-2', 'ipsec-out2', None), ('ikev2-upstream-2', 'ipsec-out2', None), ('exit-1-bootstrap', None, 'exit-1'), ('exit-1-dns', None, 'exit-1')]" ] ||
+	fail "the tunnel resolvers are not one pair per link: $(query "$tmp/multi.json" '[s["tag"] for s in c["dns"]["servers"]]')"
+[ "$(query "$tmp/multi.json" '[(o["tag"], o.get("bind_interface"), o.get("domain_resolver", {}).get("server") if isinstance(o.get("domain_resolver"), dict) else None) for o in c["outbounds"] if o["type"] == "direct" and o["tag"] != "direct-out"]')" = \
+	"[('ikev2-out', 'ipsec-out', 'ikev2-upstream'), ('ikev2-out-2', 'ipsec-out2', 'ikev2-upstream-2')]" ] ||
+	fail 'a tunnel outbound does not resolve through its own tunnel'
+[ "$(query "$tmp/multi.json" '[(o["tag"], o["outbounds"], o["default"], o["interrupt_exist_connections"]) for o in c["outbounds"] if o["type"] == "selector"]')" = \
+	"[('exit-1', ['ikev2-out', 'ikev2-out-2'], 'ikev2-out', True), ('exit-2', ['ikev2-out-2', 'ikev2-out'], 'ikev2-out-2', True)]" ] ||
+	fail 'the exits are not selectors over their tunnels'
+[ "$(query "$tmp/multi.json" '[r["outbound"] for r in c["route"]["rules"] if r.get("outbound", "").startswith(("ikev2", "exit"))]')" = \
+	"['exit-1', 'exit-1']" ] || fail 'the selected domains do not leave by the first exit'
+[ "$(query "$tmp/multi.json" 'c["dns"]["final"]')" = exit-1-dns ] ||
+	fail 'names resolved through the tunnel do not follow the first exit'
+# One tunnel enabled, not the first: the old layout, on its link.
+{ base; printf 'tunnel\t3\tipsec-out3\n'; } >"$tmp/in"
+render "$tmp/in" "$tmp/one.json" || fail 'a lone third tunnel was refused'
+[ "$(query "$tmp/one.json" '[(o["tag"], o.get("bind_interface")) for o in c["outbounds"]]')" = \
+	"[('direct-out', None), ('ikev2-out', 'ipsec-out3')]" ] || fail 'a lone tunnel did not take the old layout on its link'
+{ base; printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\nexit\t1\t1\t3\n'; } >"$tmp/in"
+render "$tmp/in" "$tmp/bad.json" 2>/dev/null && fail 'an exit over a tunnel that is not enabled was rendered'
+{ base; printf 'tunnel\t1\tipsec-out\ntunnel\t2\teth0\nexit\t1\t1\t2\n'; } >"$tmp/in"
+render "$tmp/in" "$tmp/bad.json" 2>/dev/null && fail 'a tunnel on a link that is not a tunnel link was rendered'
+{ base; printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\nexit\t2\t2\n'; } >"$tmp/in"
+render "$tmp/in" "$tmp/bad.json" 2>/dev/null && fail 'several tunnels without a first exit were rendered'
+# The probe follows the link it is given.
+printf '%s\t%s\n' bootstrap_host 8.8.8.8 bootstrap_port 53 doh_host dns.example \
+	doh_port 443 doh_path /dns-query dns_address 127.0.0.77 link ipsec-out2 >"$tmp/in"
+ucode "$generator" probe <"$tmp/in" >"$tmp/probe.json" || fail 'a probe on another link was refused'
+[ "$(query "$tmp/probe.json" '[s["bind_interface"] for s in c["dns"]["servers"]]')" = "['ipsec-out2', 'ipsec-out2']" ] ||
+	fail 'the probe did not use the link it was given'
+
 # The router script feeds the generator; nothing writes the document by hand.
 router="$root/ikev2-manager-runtime/ikev2-domain-router.sh"
 grep -Fq 'singbox-config.uc" render' "$router" || fail 'the router does not use the generator'
