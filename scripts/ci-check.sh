@@ -74,6 +74,7 @@ python3 ./scripts/test-audit-regressions.py
 ./scripts/test-sync-vips.sh
 ./scripts/test-tunnel-select.sh
 ./scripts/test-tunnel-manager.sh
+./scripts/test-tunnel-doctor.sh
 ./scripts/test-community-domains.sh
 ./scripts/test-pbr-restart.sh
 ./scripts/test-discord-voice-routing.sh

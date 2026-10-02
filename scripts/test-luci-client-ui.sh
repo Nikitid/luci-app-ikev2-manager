@@ -627,6 +627,19 @@ if (!/vulnerable \(CVE-2026-47895\); waiting for a fixed package in the feed/.te
 if (/restart-pending/.test(pendingText))
 	fail('the overview shows the raw restart code');
 
+// A tunnel problem is told by the tunnel's name, not as a code.
+const tunnelsDoctorText = textOf(setupView.render([
+	{ stdout: setupValue },
+	{ stdout: doctorOut + '\ntunnels=warn:2-down,1-no-link,exit-3-no-tunnel' },
+	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' },
+	{ stdout: 'tunnel=2\nname=NL\nenabled=1\n' }
+]));
+if (tunnelsDoctorText.indexOf('NL: down; Main tunnel: no interface; ' +
+	'Tunnel 3: its traffic has no tunnel left and is refused') < 0)
+	fail('the overview does not explain the tunnel problems');
+if (/exit-3|no-link|2-down/.test(tunnelsDoctorText))
+	fail('the overview shows a raw tunnel problem code');
+
 // A full-route device row offers to send what is never to go through the
 // tunnel to WAN; the box says what is stored and sends the device's address.
 const respectCalls = [];

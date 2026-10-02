@@ -92,6 +92,60 @@ strongswan_running_version() {
 # Answer every package question of one report from a single listing; see
 # pkg_cache_versions. The cache is dropped before returning, so a caller that
 # goes on to install packages asks the package manager again.
+# With more than one tunnel: every enabled one has its password and its link
+# and is up, and every exit something is sent through has a tunnel to use. A
+# router with one tunnel reports nothing here, as before there could be more.
+# Prints "tunnels=ok" or "tunnels=warn:" and a comma list of N-no-password,
+# N-no-link, N-down and exit-N-no-tunnel.
+doctor_tunnels() {
+	local index exit problems='' sa='' sa_read=0 assigned=''
+	tunnel_settings_load
+	tunnel_several || return 0
+	# A pause closes the tunnels; down is what it is meant to be then. With
+	# charon not answering, which doctor_strongswan reports, nothing is known.
+	if [ "$(defaultv domains paused 0)" != 1 ] &&
+		sa="$(pkg_run_bounded 5 "${IKEV2_SA_HELPER:-/usr/libexec/ikev2-sa}" tunnels 2>/dev/null)"; then
+		sa_read=1
+	fi
+	for index in $tunnel_on; do
+		tunnel_names "$index"
+		if [ "$index" != 1 ] && ! awk -F '\t' -v want="$index" '
+			$1 == want && $3 != "" { found = 1 }
+			END { exit !found }
+		' "${IKEV2_TUNNELS_SECRET_DB:-/etc/ikev2-manager/tunnels.secret}" 2>/dev/null; then
+			problems="$problems,$index-no-password"
+		elif ! ip link show dev "$tunnel_link" >/dev/null 2>&1; then
+			problems="$problems,$index-no-link"
+		elif [ "$sa_read" = 1 ] &&
+			! printf '%s\n' "$sa" | awk -F '\t' -v want="$index" '
+				$1 == want && $2 == 1 { up = 1 }
+				END { exit !up }
+			'; then
+			problems="$problems,$index-down"
+		fi
+	done
+	# What a service, a list or a device is sent through; an exit whose tunnel
+	# is not configured leaves by the first. The exits file exists only once a
+	# service was sent elsewhere, and under set -e a failed read would end the
+	# list before the devices.
+	assigned="$(
+		exits="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
+		{ [ ! -r "$exits" ] || awk '{ print $2 }' "$exits"
+		  device_fullroute_exits 2>/dev/null | awk '{ print $2 }'; } | sort -u
+	)"
+	for exit in 2 3 4 5 6 7 8; do
+		case " $(printf '%s' "$assigned" | tr '\n' ' ') " in *" $exit "*) ;; *) continue ;; esac
+		case " $tunnel_list " in *" $exit "*) ;; *) continue ;; esac
+		tunnel_exit_chain "$exit"
+		[ -n "$tunnel_chain" ] || problems="$problems,exit-$exit-no-tunnel"
+	done
+	if [ -n "$problems" ]; then
+		printf 'tunnels=warn:%s\n' "${problems#,}"
+	else
+		printf 'tunnels=ok\n'
+	fi
+}
+
 doctor() {
 	local doctor_rc=0
 	pkg_cache_versions
@@ -270,6 +324,7 @@ doctor_checks() {
 				printf 'tunnel_vip_placement=ok\n'
 			fi
 		fi
+		doctor_tunnels
 	fi
 
 	# Reserved XFRM if_id 42 (ipsec-out), 43 (ipsec-in) and 52-58 (ipsec-out2

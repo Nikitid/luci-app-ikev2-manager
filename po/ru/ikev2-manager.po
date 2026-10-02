@@ -4385,3 +4385,15 @@ msgstr "Туннели"
 
 msgid "Which tunnel each selected service and custom list leaves by. What is sent to another tunnel is matched ahead of the main one; while that tunnel is down it moves to the next one up, never to the WAN. Domains and addresses never through the tunnel win over all of them."
 msgstr "Через какой туннель уходит каждый выбранный сервис и каждый свой список. То, что отправлено в другой туннель, проверяется раньше основного; пока этот туннель не работает, трафик идёт через следующий работающий и никогда не в WAN. Домены и адреса «никогда не через туннель» важнее всего этого."
+
+msgid "%s: its traffic has no tunnel left and is refused"
+msgstr "%s: для его трафика не осталось туннеля, трафик отклоняется"
+
+msgid "%s: no password"
+msgstr "%s: нет пароля"
+
+msgid "%s: no interface"
+msgstr "%s: нет интерфейса"
+
+msgid "%s: down"
+msgstr "%s: не подключён"

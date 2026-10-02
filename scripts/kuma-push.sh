@@ -14,14 +14,17 @@
 #     CERT=/etc/swanctl/x509/<server>.pem  optional
 #     T_services= T_tunnel= T_domains= T_dns= T_inbound= T_cert=
 #     T_security=   optional: doctor security findings
-#     T_traffic=    optional: tunnel throughput
+#     T_traffic=    optional: throughput of all the tunnels together
+#     T_tunnel_2= ... T_tunnel_8=   optional: a monitor for each other tunnel
 #
 # Each monitor also charts a number as its "ping", the one that moves before
 # its state does: the watcher's share of a CPU core, the tunnel's round trip,
 # connections through the FakeIP router (or destinations learned when matching
 # by address), how long an uncached name takes to resolve, connected inbound
-# clients and the certificate's days left; T_traffic charts the tunnel's
-# kbit/s. Rates come from counters kept in /var/run between runs.
+# clients and the certificate's days left; T_traffic charts the tunnels'
+# kbit/s. Rates come from counters kept in /var/run between runs. With more
+# than one tunnel, T_tunnel also fails on what doctor finds wrong with any of
+# them, and a T_tunnel_N monitor charts tunnel N's round trip.
 #
 # The domain check follows the router's settings: with FakeIP and the
 # router's own traffic routed it checks where a request leaves; otherwise it
@@ -94,7 +97,11 @@ for p in $(pidof ikev2-health 2>/dev/null); do
 	[ "$(awk '{ print $4 }' "/proc/$p/stat" 2>/dev/null)" = 1 ] && watcher_pid=$p
 done
 watcher_ticks=$(awk '{ print $14 + $15 + $16 + $17 }' "/proc/$watcher_pid/stat" 2>/dev/null)
-counter() { cat "/sys/class/net/ipsec-out/statistics/$1" 2>/dev/null; }
+# summed over every tunnel link
+counter() {
+	cat /sys/class/net/ipsec-out*/statistics/"$1" 2>/dev/null |
+		awk '{ sum += $1 } END { if (NR) printf "%.0f\n", sum }'
+}
 rx=$(counter rx_bytes); tx=$(counter tx_bytes)
 {
 	printf 'uptime_cs=%s\n' "$now_cs"
@@ -135,17 +142,52 @@ cpu=''
 report "$T_services" "FakeIP работает, маршрутизация не на паузе${cpu:+, watcher $(printf '%.1f' "$cpu")% ядра}" \
 	"$(printf '%.0f' "${cpu:-0}")"
 
+# doctor's tunnels=warn:<list>, one problem per tunnel or exit, in words
+tunnel_problems() {
+	printf '%s\n' "${1#warn:}" | tr ',' '\n' | sed \
+		-e 's/^\([1-8]\)-down$/туннель \1 не подключён/' \
+		-e 's/^\([1-8]\)-no-link$/у туннеля \1 нет интерфейса/' \
+		-e 's/^\([1-8]\)-no-password$/у туннеля \1 нет пароля/' \
+		-e 's/^exit-\([1-8]\)-no-tunnel$/трафику туннеля \1 не осталось туннеля, он отклоняется/' |
+		awk 'NF { printf "%s%s", sep, $0; sep = "; " } END { print "" }'
+}
+
 # 2. outbound tunnel
 $SA installed proxy-out proxy4 || fail "CHILD_SA proxy4 не установлен"
 vip=$(ip -4 -o addr show dev ipsec-out 2>/dev/null | awk '{sub(/\/.*/,"",$4); print $4}' | head -n 1)
 [ -n "$vip" ] || fail "на ipsec-out нет виртуального адреса"
 fc=$($SYS failclosed-check 2>/dev/null | field failclosed_route)
 [ "$fc" = ok ] || fail "fail-closed маршрут: ${fc:-нет}"
+# doctor reports tunnels only when there is more than one
+v=$(echo "$doctor" | field tunnels); case "$v" in '' | ok*) ;; *) fail "$(tunnel_problems "$v")";; esac
 tun=$(trace www.cloudflare.com ipsec-out); tun_ip=${tun%% *}
 if [ -z "$tun_ip" ]; then fail "через туннель нет ответа"
 elif [ "$tun_ip" = "$wan_ip" ]; then fail "туннель выходит с домашнего IP $wan_ip"; fi
 rtt=$(ping -c 3 -W 2 -q -I ipsec-out 1.1.1.1 2>/dev/null | sed -n 's#.*= [0-9.]*/\([0-9.]*\)/.*#\1#p')
 report "$T_tunnel" "туннель поднят, выход $tun, задержка ${rtt%.*} мс" "${rtt%.*}"
+
+# 2b. each other tunnel with a token of its own: up, leaving from elsewhere
+# than WAN, and its round trip
+tunnels_status=$(/usr/libexec/ikev2-manager tunnels-status 2>/dev/null)
+for n in 2 3 4 5 6 7 8; do
+	eval "token=\${T_tunnel_$n:-}"
+	[ -n "$token" ] || continue
+	if [ "$(uci -q get "ikev2-manager.tunnel_$n.enabled")" != 1 ]; then
+		fail "туннель $n выключен"
+		report "$token" ""
+		continue
+	fi
+	$SA installed "proxy-out-$n" "proxy4-$n" || fail "CHILD_SA proxy4-$n не установлен"
+	ip -4 -o addr show dev "ipsec-out$n" 2>/dev/null | grep -q inet ||
+		fail "на ipsec-out$n нет виртуального адреса"
+	exit_n=$(trace www.cloudflare.com "ipsec-out$n"); exit_n_ip=${exit_n%% *}
+	if [ -z "$exit_n_ip" ]; then fail "через туннель $n нет ответа"
+	elif [ "$exit_n_ip" = "$wan_ip" ]; then fail "туннель $n выходит с домашнего IP $wan_ip"; fi
+	rtt_n=$(ping -c 3 -W 2 -q -I "ipsec-out$n" 1.1.1.1 2>/dev/null | sed -n 's#.*= [0-9.]*/\([0-9.]*\)/.*#\1#p')
+	carries=$(printf '%s\n' "$tunnels_status" | sed -n "s/^tunnel=$n .*carries=\([0-9,]*\).*/\1/p")
+	report "$token" "туннель $n поднят, выход $exit_n, задержка ${rtt_n%.*} мс${carries:+, несёт выходы $carries}" \
+		"${rtt_n%.*}"
+done
 
 # 3. domain policy: the selected domain takes the tunnel, the control one WAN
 answer=$(resolve "$PBR_DOMAIN" 127.0.0.1)
@@ -232,7 +274,7 @@ if [ -n "$T_traffic" ]; then
 	if [ -n "$down" ] && [ -n "$up" ]; then
 		kbit=$(awk -v d="$down" -v u="$up" 'BEGIN { printf "%.0f", (d + u) * 8 / 1000 }')
 		report "$T_traffic" "$(awk -v d="$down" -v u="$up" 'BEGIN {
-			printf "через туннель: вниз %.2f, вверх %.2f Мбит/с", d * 8 / 1e6, u * 8 / 1e6 }')" "$kbit"
+			printf "через туннели: вниз %.2f, вверх %.2f Мбит/с", d * 8 / 1e6, u * 8 / 1e6 }')" "$kbit"
 	else
 		report "$T_traffic" "первый замер, скорость будет в следующем" 0
 	fi

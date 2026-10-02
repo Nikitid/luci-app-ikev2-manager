@@ -191,7 +191,8 @@ function domainRuntimeStatus(value) {
 	return { label: _('Reliable mode degraded'), tone: 'bad', detail: detail };
 }
 
-function checkRows(doctor) {
+// TUNNEL_NAMES maps a tunnel index to the name it is shown by.
+function checkRows(doctor, tunnelNames) {
 	var labels = {
 		diagnostic_status: _('Readiness check'),
 		firmware_source: _('Firmware source'),
@@ -240,7 +241,8 @@ function checkRows(doctor) {
 		strongswan_running: _('Running strongSwan'),
 		strongswan_cohort: _('strongSwan package cohort'),
 		strongswan_x509: _('strongSwan X.509'),
-		device_policy_runtime: _('Device policy runtime')
+		device_policy_runtime: _('Device policy runtime'),
+		tunnels: _('Tunnels')
 	};
 	var rows = [];
 	Object.keys(labels).forEach(function(key) {
@@ -268,6 +270,23 @@ function checkRows(doctor) {
 				shown = _('%s runs; the installed %s takes effect when charon restarts').format(pending[1], pending[2]);
 			else if (shown === 'not-answering')
 				shown = _('charon did not answer');
+		}
+		else if (key === 'tunnels' && warn) {
+			shown = shown.split(',').map(function(item) {
+				var problem = /^(exit-)?([1-8])-(.+)$/.exec(item);
+				if (!problem)
+					return item;
+				var name = (tunnelNames || {})[problem[2]] || _('Tunnel %s').format(problem[2]);
+				if (problem[1])
+					return _('%s: its traffic has no tunnel left and is refused').format(name);
+				if (problem[3] === 'no-password')
+					return _('%s: no password').format(name);
+				if (problem[3] === 'no-link')
+					return _('%s: no interface').format(name);
+				if (problem[3] === 'down')
+					return _('%s: down').format(name);
+				return item;
+			}).join('; ');
 		}
 		else if (key === 'system_clock') {
 			var clock = new Date(shown);
@@ -311,7 +330,8 @@ function dependencyOverview(rows, detailsOpen) {
 		strongswan_eap_client_security: true,
 		strongswan_eap_server_security: true,
 		strongswan_running: true,
-		device_policy_runtime: true
+		device_policy_runtime: true,
+		tunnels: true
 	};
 	var issues = rows.filter(function(row) {
 		return row.tone === 'bad' || row.tone === 'warn';
@@ -647,7 +667,11 @@ return view.extend({
 		var value = common.parseKeyValues(data[0].stdout);
 		var doctor = common.parseKeyValues(data[1].stdout);
 		var netList = parseNetworks(data[2].stdout);
-		var depRows = checkRows(doctor);
+		var tunnelNames = {};
+		parseTunnelChoices((data[7] && data[7].stdout) || '').forEach(function(choice) {
+			tunnelNames[choice.index] = choice.name;
+		});
+		var depRows = checkRows(doctor, tunnelNames);
 		var ready = dependenciesReady(doctor);
 		var quality = common.parseKeyValues((data[6] && data[6].stdout) || '');
 
@@ -825,7 +849,7 @@ return view.extend({
 		var depsPill = common.pill('', 'neutral');
 
 		function renderDependencyChecks() {
-			depRows = checkRows(doctor);
+			depRows = checkRows(doctor, tunnelNames);
 			// Keep the details open across a refresh if the reader opened them.
 			var openDetails = depsChecks.querySelector && depsChecks.querySelector('details[open]');
 			depsChecks.replaceChildren(dependencyOverview(depRows, !!openDetails));

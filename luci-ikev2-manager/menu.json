@@ -14,7 +14,7 @@
 		"order": 5,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/setup-v9"
+			"path": "ikev2-manager/setup-v10"
 		}
 	},
 	"admin/services/ikev2-manager/users": {
