@@ -322,8 +322,9 @@ sync_routes() {
 		sync_exit_routes "$tunnel_table_id" "$(exit_link "$exit")" "$inbound" || return 1
 	done
 	if wan="$(wan_default)"; then
+		# $wan is a route's words: via, address, dev and device.
+		# shellcheck disable=SC2086
 		route_listed "$("$ip_bin" -4 route show table "$wan_table" 2>/dev/null || true)" "default $wan" ||
-			# shellcheck disable=SC2086
 			"$ip_bin" -4 route replace default $wan table "$wan_table" || return 1
 	fi
 	# A WAN without a default keeps the last one: exclusions then resume the

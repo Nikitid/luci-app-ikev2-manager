@@ -17,6 +17,7 @@ export PATH
 ./scripts/check-apk-feed.sh
 ./scripts/check-busybox-compat.sh
 ./scripts/check-shell-locals.sh
+./scripts/check-shellcheck.sh
 ./scripts/check-luci-view-names.sh
 
 find luci-ikev2-domains luci-ikev2-manager ikev2-manager-runtime scripts \
