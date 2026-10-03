@@ -479,10 +479,12 @@ function render(input) {
 			cache_file: {
 				enabled: true,
 				path: required(input, 'cache_path'),
-				store_fakeip: true,
-				// A restart, procd's included, comes back on the tunnel each
-				// exit was moved to rather than on its first.
-				...(several ? { store_selected: true } : {})
+				// With the cache enabled sing-box keeps each selector's choice
+				// in it by itself, so a restart, procd's included, comes back
+				// on the tunnel each exit was moved to rather than on its
+				// first. There is no key to ask for it: sing-box refuses a
+				// field it does not know, and the whole configuration with it.
+				store_fakeip: true
 			}
 		}
 	};

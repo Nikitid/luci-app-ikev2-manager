@@ -690,7 +690,9 @@ EOF
 
 check_config() {
 	command -v sing-box >/dev/null 2>&1 || die 'sing-box is not installed'
-	render_config
+	# A configuration that could not be written must not pass on the strength
+	# of the one already there, which sing-box accepts.
+	render_config || return 1
 	sing-box check -c "$config_file"
 }
 
@@ -833,12 +835,22 @@ listener_ready() {
 # All four resolver and TProxy listeners, from one socket listing. The status
 # page, the widget and doctor each ask for health; four netstat runs per ask
 # were a measurable part of the overview page's wait.
+# sing-box listens on everything its configuration gives it: the resolver,
+# the three inbounds every configuration has, and the inbound of each exit the
+# file on disk holds. Read from that file and not from the settings: a tunnel
+# saved but not applied has no inbound in it, a restart brings up only what
+# the file declares, and the watcher, missing the listener the settings asked
+# for, restarted the resolver on every pass and cut every routed connection
+# each time.
 listeners_ready() {
-	local sockets listener exit ports=''
+	local sockets listener port ports=''
 	sockets="$(netstat -ln 2>/dev/null)" || return 1
-	tunnel_settings_load
-	for exit in $tunnel_exits; do
-		[ "$exit" = 1 ] || ports="$ports $tproxy_address:$(exit_tproxy_port "$exit")"
+	for port in $(jsonfilter -i "$config_file" -e '@.inbounds[*].listen_port' 2>/dev/null); do
+		case "$port" in
+			"$dns_port" | "$tproxy_port" | "$direct_tproxy_port" | "$router_tproxy_port") ;;
+			*[!0-9]*) ;;
+			*) ports="$ports $tproxy_address:$port" ;;
+		esac
 	done
 	for listener in "$dns_address:$dns_port" "$tproxy_address:$tproxy_port" \
 		"$tproxy_address:$direct_tproxy_port" "$tproxy_address:$router_tproxy_port" $ports; do

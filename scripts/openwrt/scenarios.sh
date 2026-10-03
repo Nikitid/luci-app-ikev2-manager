@@ -934,6 +934,105 @@ uci -q delete ikev2-manager.dnsseg_ru
 uci -q delete ikev2-manager.dns.via_singbox
 uci commit ikev2-manager
 
+# --- the resolver configuration, read by sing-box itself ---------------------
+
+step 'sing-box accepts the configuration it is given, with one tunnel and with several'
+# With a second tunnel the configuration asked the cache to keep each
+# selector's choice, by a key sing-box does not have. It refuses a field it
+# does not know and the whole document with it, so adding a tunnel on the page
+# ended in "applying them failed" and every list rebuild after it in "Community
+# update failed". The unit test read the document; nothing asked sing-box.
+command -v sing-box >/dev/null 2>&1 || fail 'sing-box is not installed for the configuration scenario'
+# netifd does not run here; this stands in for its answer about the LAN.
+mv /bin/ubus /tmp/ubus.real
+cat >/bin/ubus <<'EOF2'
+#!/bin/sh
+[ "$1 $2 $3" = 'call network.interface.lan status' ] || exit 4
+printf '{"l3_device":"br-lan","device":"br-lan"}\n'
+EOF2
+chmod 755 /bin/ubus
+engine_before="$(uci -q get ikev2-manager.domains.engine || :)"
+client_before="$(uci -q get ikev2-manager.client || :)"
+client_on_before="$(uci -q get ikev2-manager.client.enabled || :)"
+[ ! -e /etc/pbr-ikev2-domains.txt ] || cp /etc/pbr-ikev2-domains.txt /tmp/domains.before
+uci -q batch <<'EOF2'
+set ikev2-manager.domains.engine='fakeip'
+set ikev2-manager.client=client
+set ikev2-manager.client.enabled='1'
+add_list dhcp.@dnsmasq[0].server='9.9.9.9'
+commit
+EOF2
+printf 'chatgpt.com\n' >/etc/pbr-ikev2-domains.txt
+# accepted WHAT: the helper's own check, which renders and then asks sing-box.
+accepted() {
+	/usr/libexec/ikev2-domain-router check >/tmp/singbox-check.log 2>&1 || {
+		sed 's/^/    /' /tmp/singbox-check.log >&2
+		fail "sing-box refused the configuration $1"
+	}
+}
+tags() { jsonfilter -i /etc/ikev2-manager/domain-router.json -e "$1" | tr '\n' ' '; }
+accepted 'of one tunnel'
+case " $(tags '@.outbounds[*].tag')" in
+	*' exit-'*) fail 'one tunnel was given selectors' ;;
+esac
+# A configuration that could not be written is not passed on the strength of
+# the one already there: the check went on to ask sing-box about the previous
+# file, which it accepts, and the refresh reported success with nothing new.
+uci -q del_list dhcp.@dnsmasq[0].server='9.9.9.9'
+uci -q get dhcp.@dnsmasq[0].server >/tmp/servers.before || :
+noresolv_before="$(uci -q get dhcp.@dnsmasq[0].noresolv || :)"
+uci -q delete dhcp.@dnsmasq[0].server || :
+uci set dhcp.@dnsmasq[0].noresolv='1'
+uci commit dhcp
+/usr/libexec/ikev2-domain-router check >/dev/null 2>&1 &&
+	fail 'a configuration that could not be written passed on the previous file'
+for server in $(cat /tmp/servers.before); do uci add_list dhcp.@dnsmasq[0].server="$server"; done
+uci add_list dhcp.@dnsmasq[0].server='9.9.9.9'
+if [ -n "$noresolv_before" ]; then
+	uci set dhcp.@dnsmasq[0].noresolv="$noresolv_before"
+else
+	uci -q delete dhcp.@dnsmasq[0].noresolv
+fi
+uci commit dhcp
+rm -f /tmp/servers.before
+uci -q batch <<'EOF2'
+set ikev2-manager.tunnel_2=tunnel
+set ikev2-manager.tunnel_2.enabled='1'
+set ikev2-manager.tunnel_2.backup='1'
+commit ikev2-manager
+EOF2
+accepted 'of two tunnels'
+for tag in ikev2-out-2 exit-1 exit-1s exit-2 exit-2s; do
+	case " $(tags '@.outbounds[*].tag')" in
+		*" $tag "*) ;;
+		*) fail "two tunnels were checked without the outbound $tag" ;;
+	esac
+done
+printf 'second.example\n' >/etc/pbr-ikev2-domains.exit-2.txt
+printf 'bound.example\n' >/etc/pbr-ikev2-domains.exit-2s.txt
+accepted 'of two tunnels with a list each'
+for tag in ikev2-domains-2 ikev2-domains-2s; do
+	case " $(tags '@.route.rule_set[*].tag')" in
+		*" $tag "*) ;;
+		*) fail "the lists of the second tunnel were checked without the rule set $tag" ;;
+	esac
+done
+rm -f /etc/pbr-ikev2-domains.exit-2.txt /etc/pbr-ikev2-domains.exit-2s.txt /tmp/singbox-check.log \
+	/etc/ikev2-manager/domain-router.json /etc/ikev2-manager/domain-router-rules*.json \
+	/etc/ikev2-manager/domain-router-bypass.json
+rm -f /etc/pbr-ikev2-domains.txt
+[ ! -e /tmp/domains.before ] || mv /tmp/domains.before /etc/pbr-ikev2-domains.txt
+uci -q delete ikev2-manager.tunnel_2
+uci -q del_list dhcp.@dnsmasq[0].server='9.9.9.9'
+uci -q set ikev2-manager.domains.engine="${engine_before:-nftset}"
+if [ -n "$client_before" ]; then
+	uci -q set ikev2-manager.client.enabled="${client_on_before:-0}"
+else
+	uci -q delete ikev2-manager.client
+fi
+uci commit
+mv /tmp/ubus.real /bin/ubus
+
 # --- a phone profile, escaped by BusyBox awk --------------------------------
 
 step 'a password with quotes and backslashes survives the strongSwan app profile'
@@ -1096,7 +1195,8 @@ kill -TERM "$watch"
 i=0
 # BusyBox sleep takes whole seconds only.
 while kill -0 "$watch" 2>/dev/null && [ "$i" -lt 2 ]; do sleep 1; i=$((i + 1)); done
-kill -0 "$watch" 2>/dev/null && fail 'the watcher did not stop within two seconds of TERM'
+kill -0 "$watch" 2>/dev/null &&
+	fail "the watcher did not stop within two seconds of TERM, busy with: $(ps w | grep -E 'ikev2|sing-box|curl|nslookup|sleep' | grep -v grep | awk '{ $1 = $2 = $3 = $4 = ""; print }' | tr '\n' ';')"
 ! grep -E 'syntax error|not found|bad number|unexpected' /tmp/watch.err ||
 	fail "the watcher hit a shell error: $(head -n 3 /tmp/watch.err)"
 rm -rf /tmp/watch-run /tmp/watch.err

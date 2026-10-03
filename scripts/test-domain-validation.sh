@@ -98,7 +98,9 @@ chmod 755 "$tmp/bin/jsonfilter"
 	eval "$(extract listeners_ready)"
 	eval "$(extract exit_tproxy_port)"
 	eval "$(extract nft_runtime_ready)"
-	uci() { [ -z "${fixture_tunnel_2:-}" ] || printf "ikev2-manager.tunnel_2=tunnel\n"; }
+	# What the configuration on disk gives sing-box to listen on.
+	jsonfilter() { printf '%s\n' 53 1602 1603 1604 ${fixture_exit_ports:-}; }
+	config_file="$tmp/config.json"
 	dns_address=127.0.0.42; dns_port=53; tproxy_address=127.0.0.1
 	tproxy_port=1602; direct_tproxy_port=1603; router_tproxy_port=1604
 	nft_table=ikev2_domain_router; fakeip_range=198.18.0.0/15
@@ -109,13 +111,21 @@ tcp 0 0 127.0.0.1:1603 0.0.0.0:* LISTEN
 tcp 0 0 127.0.0.1:1604 0.0.0.0:* LISTEN'
 	netstat() { printf '%s\n' "$fixture_sockets"; }
 	listeners_ready || fail 'healthy listeners were rejected'
-	# A second tunnel's devices have an inbound of their own.
-	fixture_tunnel_2=1
+	# A second tunnel's devices have an inbound of their own, once the
+	# configuration sing-box runs holds it.
+	fixture_exit_ports=1612
 	if listeners_ready; then fail 'a missing second exit listener was accepted'; fi
 	fixture_sockets="$fixture_sockets
 tcp 0 0 127.0.0.1:1612 0.0.0.0:* LISTEN"
 	listeners_ready || fail 'the second exit listener was not taken'
-	fixture_tunnel_2=''
+	fixture_exit_ports=''
+	# A tunnel saved in the settings but not applied has no inbound in that
+	# configuration, and a restart would not bring one up. The settings were
+	# read here, so the watcher restarted the resolver on every pass and cut
+	# every routed connection each time.
+	uci() { printf "ikev2-manager.client=client\nikev2-manager.client.enabled='1'\nikev2-manager.tunnel_2=tunnel\nikev2-manager.tunnel_2.enabled='1'\n"; }
+	fixture_sockets="$(printf '%s\n' "$fixture_sockets" | grep -v ':1612 ')"
+	listeners_ready || fail 'a tunnel not applied yet read as a resolver to restart'
 	fixture_sockets="$(printf '%s\n' "$fixture_sockets" | grep -v ':1603 ')"
 	if listeners_ready; then fail 'a missing TProxy listener was accepted'; fi
 
@@ -143,8 +153,20 @@ tcp 0 0 127.0.0.1:1612 0.0.0.0:* LISTEN"
 	if nft_runtime_ready; then fail 'a missing direct TProxy mark was accepted'; fi
 ) || fail 'resolver health scenario failed'
 
-# Callers keep their rollback reachable.
-extract refresh | grep -Fq 'if ! ( check_config ); then' ||
-	fail 'refresh validation can still exit before its restore'
+# Validation dies on bad input, and a refresh must still put the previous
+# configuration back: its rollback stays reachable.
+(
+	eval "$(extract refresh)"
+	init_config() { :; }
+	defaultv() { echo fakeip; }
+	mktemp() { mkdir -p "$tmp/refresh" && printf '%s\n' "$tmp/refresh"; }
+	backup_generated() { :; }
+	check_config() { exit 1; }
+	restore_generated() { : >"$tmp/restored"; }
+	write_status() { printf '%s\n' "$1" >"$tmp/refresh-status"; }
+	rc=0
+	refresh || rc=$?
+	[ "$rc" = 1 ] && [ -e "$tmp/restored" ] && [ "$(cat "$tmp/refresh-status")" = error ]
+) || fail 'refresh validation can still exit before its restore'
 
 printf '%s\n' 'domain validation tests OK'

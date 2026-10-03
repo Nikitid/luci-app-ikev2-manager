@@ -294,6 +294,33 @@ compare later listings with that, never with what they wrote. The inbound
 policy keeps its named fail-closed checks as well: a fingerprint accepts
 whatever was installed, including a table the generator got wrong.
 
+## sing-box refuses a field it does not know
+
+sing-box decodes its configuration strictly: one unknown key and the whole
+document is refused. The generator asked the cache to keep each selector's
+choice with a key that does not exist, and only with more than one tunnel, so
+every test and the one-tunnel router passed. Adding a second tunnel ended in
+"applying them failed" and each list rebuild after it in "Community update
+failed". A test that reads the rendered document cannot see this; the document
+has to be given to sing-box. With the cache enabled a selector's choice is
+stored without being asked for.
+
+Guarded by `scripts/openwrt/scenarios.sh`, which runs `sing-box check` on the
+configuration of one tunnel and of several.
+
+## Health is measured against what was applied, not what was saved
+
+Settings can be saved and their apply fail, which leaves the resolver running
+the previous configuration. The listener check took the inbounds it expected
+from the settings, found those of the new tunnel missing, and the watcher
+restarted the resolver on every pass: a restart loads the same file, so it
+never helped, and each one cut every routed connection. A check that leads to
+a restart must ask only for what a restart can bring up - what the
+configuration on disk declares. The pending change belongs to the apply that
+failed, which says so.
+
+Guarded by `scripts/test-domain-validation.sh`.
+
 ## The health watcher will undo what you just did
 
 `ikev2-health` repairs the FakeIP runtime on its own schedule. Any state change
