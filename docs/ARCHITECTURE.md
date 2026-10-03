@@ -72,7 +72,7 @@ matching SA is additionally rejected by the kernel XFRM policy.
 
 ```text
 ipsec-out    if_id 42     outbound client, tunnel 1
-ipsec-out2   if_id 52-58  outbound tunnels 2-8, ipsec-outN with if_id 50+N
+ipsec-out2   if_id 52-57  outbound tunnels 2-7, ipsec-outN with if_id 50+N
 ipsec-in     if_id 43     inbound server
 ```
 
@@ -88,32 +88,47 @@ reboots.
 
 ## Several tunnels
 
-Up to eight outbound tunnels can be configured. Tunnel 1 is the `client`
+Up to seven outbound tunnels can be configured. Tunnel 1 is the `client`
 section and keeps every name it had: `proxy-out`, `ipsec-out`, mark 0x01,
-table 1601, rule 28001. Tunnel N (2-8) is a `tunnel_N` section and uses
-`proxy-out-N`, `ipsec-outN`, mark N+1, table 1600+N+1 and rule 28000+N+1;
-mark 0x02 and table 1602 stay the WAN's. With one tunnel nothing is laid out
+table 1601, rule 28001. Tunnel N (2-7) is a `tunnel_N` section and uses
+`proxy-out-N` and `ipsec-outN`. With one tunnel nothing is laid out
 differently, down to the generated sing-box configuration.
 
 Every enabled tunnel stays connected. An exit is the class of traffic sent
-through one tunnel: what is not assigned elsewhere uses exit 1, and a
-service, a manual list or a full-route device can be assigned to another.
-Each exit has a chain: its own tunnel, then every other enabled tunnel that
-stands in for the rest (`backup`, on by default), in order. The watcher
-checks every tunnel on each pass and chooses a tunnel for each exit
-(`tunnel.sh`):
+through one tunnel, and with more than one tunnel each has two. Exit N may
+move: its chain is its own tunnel, then every other enabled tunnel that
+stands in for the rest (`backup`, on by default), in order. Exit Ns is bound:
+its chain is its own tunnel alone, for a service that must not leave from
+another place. What is not assigned elsewhere uses exit 1; a service, a
+manual list or a full-route device can be assigned to any exit. Each exit
+has a mark in `0x0f000000`, a table and a rule, which is why seven tunnels
+is the limit - fifteen marks, one of them the WAN's:
+
+```text
+exit  mark  table      rule
+1     1     1601       28001
+N     N+1   1600+mark  28000+mark   N from 2 to 7
+Ns    N+8   1600+mark  28000+mark   N from 1 to 7
+WAN   2     1602       28002        exclusions
+```
+
+The watcher checks every tunnel on each pass and chooses a tunnel for each
+exit (`tunnel.sh`):
 
 - an exit keeps its tunnel while that tunnel is up;
 - when it goes down, the first tunnel up in the chain takes over at once;
 - a tunnel earlier in the chain takes the exit back once it has been up for
   120 seconds;
-- with no tunnel of the chain up, the exit's traffic is refused.
+- with no tunnel of the chain up, the exit's traffic is refused - for a
+  bound exit that is whenever its own tunnel is down, and it returns the
+  moment that tunnel does.
 
 Traffic never falls back to the WAN. The choice is kept in
 `/var/run/ikev2-tunnels.state` and applied in two places: the exit's table
 gets a default through the chosen link at metric 10 over its unreachable
 default at metric 32767, and sing-box's `exit-N` selector switches to that
-tunnel's outbound, closing the connections it carried.
+tunnel's outbound, closing the connections it carried. A bound exit's
+selector holds its one tunnel and is never switched.
 
 ```text
 Name of exit N, recognised by name
@@ -121,19 +136,21 @@ client -> dnsmasq -> sing-box FakeIP -> TProxy -> rule set ikev2-domains-N
        -> selector exit-N -> the tunnel chosen for exit N
 
 Name or network of exit N, matched by address
-client -> ikev2_routing mark N+1 -> table 1600+N+1 -> the chosen link
+client -> ikev2_routing, the exit's mark -> its table -> the chosen link
 
 Full-route device of exit N
-FakeIP addresses: TProxy inbound on port 1610+N -> selector exit-N
-everything else:  device mark N+1 -> table 1600+N+1
+FakeIP addresses: TProxy inbound on port 1610+N (1620+N for Ns) -> selector
+everything else:  device rule, the exit's mark -> its table
 ```
 
 Each tunnel's sing-box outbound resolves the real address of a name through a
 DoH resolver bound to its own link, so a name is resolved through the tunnel
 that carries the connection. The router's own lookups through the tunnel
-follow exit 1. Exits 2-8 are matched first, in that order, and exit 1 last;
-a name or a network that two exits select is kept only by the first of them.
-A destination that never goes through the tunnel wins over all of them.
+follow exit 1. The exits are matched in the order 2s, 2, 3s, 3 ... 7s, 7, 1s
+and exit 1 last, so what is bound comes before what may move; a name or a
+network that two exits select is kept only by the first of them. A
+destination that never goes through the tunnel wins over all of them, and a
+service can be sent there as a whole.
 
 The tunnels' passwords are kept in `/etc/ikev2-manager/tunnels.secret`, mode
 600, and rendered into `/etc/swanctl/conf.d/92-proxy-out-extra-secret.conf`;

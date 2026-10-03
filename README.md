@@ -15,11 +15,11 @@ remote gateway.
 
 ## Features
 
-- outbound IKEv2/EAP client over an XFRM interface, with up to eight tunnels
+- outbound IKEv2/EAP client over an XFRM interface, with up to seven tunnels
   that stand in for each other;
 - VPN routing for services, domains, IPv4 addresses and CIDR networks, each
   service, manual list and full-route device through the tunnel chosen for
-  it;
+  it, free to move to another tunnel or bound to its own;
 - per-device modes for selected domains, full tunnel or direct WAN, independent
   DNS/DPI bypasses and a fully unmanaged preset;
 - FakeIP/TProxy domain routing and its own fail-closed policy routing, with
@@ -104,8 +104,10 @@ blocked while unrelated traffic continues through WAN.
 
 With more than one tunnel, every enabled tunnel stays connected. When the
 tunnel of a service is down, its traffic moves to the next tunnel that is up
-and returns two minutes after its own tunnel is back. It never falls back to
-WAN: with no tunnel up it is blocked.
+and returns two minutes after its own tunnel is back. A service that must
+not leave from another country is bound to its tunnel instead: it is blocked
+while that tunnel is down. Nothing falls back to WAN: with no tunnel up it is
+blocked.
 
 Clients must use router DNS for domain routing. Browser DoH, Android Private
 DNS and Apple Private Relay can bypass classification.

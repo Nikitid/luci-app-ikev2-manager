@@ -426,23 +426,35 @@ nft list chain inet ikev2_routing prerouting
 
 ### Several tunnels
 
-The outbound tunnel page adds tunnels under **More tunnels**; the policy
-editor's **Tunnels** section and the overview's device rules choose the
-tunnel of each service, manual list and full-route device. Both appear only
-with more than one tunnel. Tunnel N is stored in the `tunnel_N` section with
-the fields of `client` plus `name` and `backup`; its password is in
+The outbound tunnel page adds tunnels under **More tunnels**, seven at most.
+The policy routing page is a board: a field per tunnel with a zone for what
+may move to another tunnel and one for what is bound to it without backup, a
+field for what never goes through the tunnel, and the catalogue of services
+not in use. A chip - a service, or one of the two manual lists - is dragged
+between them, or clicked to choose its place; a service of one's own is
+created in a window from its name and its domains and addresses. The
+overview's device rules choose the same for a full-route device. With one
+tunnel there is one field through the tunnel and nothing to be bound against.
+
+Tunnel N is stored in the `tunnel_N` section with the fields of `client`
+plus `name` and `backup`; its password is in
 `/etc/ikev2-manager/tunnels.secret`, mode 600, never in UCI. The assignments
-are `target tunnel` lines in `/etc/pbr-ikev2-exits.txt`, where the target is
+are `target place` lines in `/etc/pbr-ikev2-exits.txt`, where the target is
 a service id, `@domains` or `@cidrs`, and the `exit` option of a device
-section; the first tunnel is the default and is never stored. A service of a
-removed tunnel leaves by the first one. The settings backup carries all of
-them.
+section. A place is a tunnel index (`2`: may move), an index and `s` (`2s`:
+bound, refused while that tunnel is down) or, for a service, `wan` (never
+through the tunnel). The first tunnel is the default and is not stored. A
+service of a removed tunnel leaves by the first one, so a tunnel something is
+bound to cannot be deleted until that is moved. The settings backup carries
+all of them.
 
 The watcher brings up every enabled tunnel whose SA is missing through the
 same rate-limited `ensure-client` action, and moves an exit to another
 tunnel as `docs/ARCHITECTURE.md` describes: at once when its tunnel goes
 down, back two minutes after it returns, never to the WAN. A tunnel with
-`backup` off carries only its own exits.
+`backup` off carries only its own exits; the first tunnel has the same
+switch on the page (`client.backup`). What is bound to a tunnel is refused
+while that tunnel is down and passes again the moment it is back.
 
 ```sh
 /usr/libexec/ikev2-manager tunnels-status
@@ -456,8 +468,9 @@ installed, its virtual address, and the exits it carries now. With more than
 one tunnel doctor adds `tunnels=ok`, or `tunnels=warn:` with a comma list of
 `N-no-password`, `N-no-link`, `N-down` (not while routing is paused) and
 `exit-N-no-tunnel`: something is sent through tunnel N, but neither it nor any
-tunnel standing in for it is enabled, so that traffic is refused. The
-overview shows them by the tunnels' names.
+tunnel standing in for it is enabled, so that traffic is refused;
+`exit-Ns-no-tunnel` says the same of what is bound to a tunnel that is
+switched off. The overview shows them by the tunnels' names.
 
 When selected domains are matched by address, dnsmasq adds every address it
 answers for them to `dst4` and `dst6`. An address stays for seven days after
