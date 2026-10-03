@@ -4520,3 +4520,9 @@ msgstr "Сохраняет, куда идёт каждый сервис и сп�
 
 msgid "Move the services and devices bound to this tunnel without backup first"
 msgstr "Сначала перенесите сервисы и устройства, привязанные к этому туннелю без резерва"
+
+msgid "Adds the resolvers your WAN provider hands out to the fallback group above. They are not a further tier: they are used on equal terms with the ones you configured. These queries are unencrypted and visible to the provider, and are never used for tunnel-routed destinations."
+msgstr "Добавляет DNS-серверы, которые выдаёт провайдер, в резервную группу выше. Это не отдельная ступень: они используются на равных с настроенными вами. Эти запросы не шифруются и видны провайдеру; для направлений через туннель они не используются никогда."
+
+msgid "One domain per line. Subdomains are included automatically."
+msgstr "По одному домену в строке. Поддомены включаются автоматически."

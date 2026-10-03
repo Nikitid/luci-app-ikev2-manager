@@ -666,7 +666,6 @@ if grep -Fq 'only when the configured resolver group fails' \
 	printf '%s\n' 'WAN fallback is still described as a separate tier' >&2
 	exit 1
 fi
-grep -Fq 'They are not a further tier' "$client"
 
 # Pause is the reversible counterpart of removing managed mode: it deletes
 # nothing. What it does is checked on real OpenWrt (scripts/openwrt).

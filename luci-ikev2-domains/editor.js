@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v13 as common';
+'require ikev2-manager.shared-v14 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -102,19 +102,6 @@ function exitsText() {
 			return '';
 		return target + ' ' + token + '\n';
 	}).join('');
-}
-
-// One field takes domains and addresses together; an address is a line that
-// is an IPv4 address or network.
-function splitDestinations(value) {
-	var domains = [], cidrs = [];
-	String(value || '').replace(/\r/g, '').split('\n').forEach(function(line) {
-		var entry = line.trim();
-		if (!entry)
-			return;
-		(/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(entry) ? cidrs : domains).push(entry);
-	});
-	return { domains: domains.join('\n'), cidrs: cidrs.join('\n') };
 }
 
 // An identifier for a new service from its name: the helper wants lowercase
@@ -1147,15 +1134,26 @@ return view.extend({
 			var name = E('input', {
 				'class': 'cbi-input-text',
 				'type': 'text',
+				// A name, not a person's: no contact autofill.
+				'autocomplete': 'off',
 				'placeholder': _('My service'),
 				'value': details ? (details.label === record.id ? serviceLabel(record.id) : details.label) : ''
 			});
-			var destinations = E('textarea', {
-				'class': 'cbi-input-textarea ikev2-domain-editor ikev2-domain-editor-small',
-				'spellcheck': 'false',
-				'placeholder': 'example.com\n203.0.113.0/24'
-			}, [ details ? (details.domains + details.cidrs).replace(/\n+$/, '') : '' ]);
-			destinations.value = details ? (details.domains + details.cidrs).replace(/\n+$/, '') : '';
+			// Two lists, each the height of the page's own list editors: a
+			// prepared service runs to dozens of lines.
+			function listField(text, placeholder) {
+				var area = E('textarea', {
+					'class': 'cbi-input-textarea ikev2-domain-editor',
+					'spellcheck': 'false',
+					'placeholder': placeholder
+				}, [ text ]);
+				area.value = text;
+				return area;
+			}
+			var domainsField = listField(details ? details.domains.replace(/\n+$/, '') : '',
+				'example.com\nstatic.example.com');
+			var cidrsField = listField(details ? details.cidrs.replace(/\n+$/, '') : '',
+				'203.0.113.0/24');
 			var here = record && serviceSelection[record.id] ? placeOf(record.id) : (record ? '' : activeZone);
 			var place = E('select', { 'class': 'cbi-input-select' },
 				(record ? [ E('option', { 'value': '', 'selected': here === '' ? '' : null }, [ _('Not in use') ]) ] : [])
@@ -1172,11 +1170,16 @@ return view.extend({
 				E('button', { 'class': 'cbi-button cbi-button-reset', 'type': 'button' }, [ _('Restore prepared service') ]) : null;
 			var remove = record && record.origin === 'custom' ?
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, [ _('Delete service') ]) : null;
-			var fields = [ name, destinations, place ];
+			var fields = [ name, domainsField, cidrsField, place ];
 			dialogControls = fields.concat([ save, cancel, reset, remove ]);
 
 			function form() {
-				return { name: (name.value || '').trim(), destinations: destinations.value, place: place.value };
+				return {
+					name: (name.value || '').trim(),
+					domains: domainsField.value,
+					cidrs: cidrsField.value,
+					place: place.value
+				};
 			}
 			function run(button, busyLabel, operation) {
 				return runPageAction({
@@ -1215,12 +1218,24 @@ return view.extend({
 				'aria-label': record ? _('Edit service') : _('New service')
 			}, [
 				E('h3', {}, [ record ? _('Edit service') : _('New service') ]),
-				E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
+				// Labels above their fields: the lists take the full width.
+				E('div', { 'class': 'ikev2-dialog-field' }, [
 					common.fieldLabel(_('Service name')),
-					name,
-					common.fieldLabel(_('Domains and addresses'),
-						_('One per line. A domain covers its subdomains; an IPv4 address or network is matched without DNS.')),
-					destinations,
+					name
+				]),
+				E('div', { 'class': 'ikev2-dialog-lists' }, [
+					E('div', { 'class': 'ikev2-dialog-field' }, [
+						common.fieldLabel(_('Domains'),
+							_('One domain per line. Subdomains are included automatically.')),
+						domainsField
+					]),
+					E('div', { 'class': 'ikev2-dialog-field' }, [
+						common.fieldLabel(_('IPv4 addresses and networks'),
+							_('Optional; one IPv4 address or CIDR per line.')),
+						cidrsField
+					])
+				]),
+				E('div', { 'class': 'ikev2-dialog-field' }, [
 					common.fieldLabel(_('Where it goes'),
 						several ? _('With backup it moves to another tunnel while its own is down; without, it is refused meanwhile.') : null),
 					place
@@ -1284,9 +1299,8 @@ return view.extend({
 				if (!label || label.length > 80 || /[|\r\n]/.test(label))
 					return Promise.reject(new Error(_('Enter a service name up to 80 characters.')));
 				try {
-					var parts = splitDestinations(form.destinations);
-					domains = normalizeDomains(parts.domains);
-					cidrs = normalizeAddresses(parts.cidrs);
+					domains = normalizeDomains(form.domains);
+					cidrs = normalizeAddresses(form.cidrs);
 				}
 				catch (error) {
 					return Promise.reject(error);

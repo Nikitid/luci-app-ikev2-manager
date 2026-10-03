@@ -1714,8 +1714,8 @@ var CSS = `
 				background: rgba(0, 0, 0, .55);
 			}
 			.ikev2-dialog {
-				width: min(38rem, 100%);
-				max-height: 90vh;
+				width: min(64rem, 100%);
+				max-height: 92vh;
 				overflow: auto;
 				padding: 1.1rem 1.25rem;
 				border: 1px solid var(--ikev2-border-strong);
@@ -1726,6 +1726,21 @@ var CSS = `
 				background: var(--ikev2-bg, Canvas);
 			}
 			.ikev2-dialog h3 { margin: 0 0 1rem; }
+			/* Labels sit above their fields here, so a list is as wide as the
+			   window allows; the two lists share a row until it gets narrow. */
+			.ikev2-dialog-field { display: grid; gap: .4rem; margin-bottom: 1rem; min-width: 0; }
+			.ikev2-dialog-field > input,
+			.ikev2-dialog-field > select,
+			.ikev2-dialog-field > textarea { width: 100%; max-width: none; }
+			.ikev2-dialog-lists {
+				display: grid;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+				gap: 0 1.25rem;
+				align-items: start;
+			}
+			@media (max-width: 720px) {
+				.ikev2-dialog-lists { grid-template-columns: 1fr; }
+			}
 			.ikev2-chip-mark { font-size: .7rem; opacity: .65; }
 			.ikev2-service-editor {
 				margin-top: 1rem;
@@ -1895,6 +1910,17 @@ var CSS = `
 				line-height: 1.5;
 			}
 			.ikev2-page .ikev2-domain-editor-small { min-height: 9rem; }
+			/* In the service window a list takes what the screen has to give:
+			   a prepared service runs to dozens of lines. After the rule it
+			   narrows, and as specific, or the page-wide floor wins. */
+			.ikev2-page .ikev2-dialog .ikev2-domain-editor {
+				min-height: 12rem;
+				height: min(30rem, 50vh);
+			}
+			/* Stacked, two tall lists would push the buttons far down. */
+			@media (max-width: 720px) {
+				.ikev2-page .ikev2-dialog .ikev2-domain-editor { height: 14rem; }
+			}
 			.ikev2-destination-editors {
 				display: grid;
 				grid-template-columns: repeat(2, minmax(0, 1fr));

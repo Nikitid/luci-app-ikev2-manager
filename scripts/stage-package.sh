@@ -102,7 +102,7 @@ mkdir -p "$stage/usr/lib/lua/luci/i18n"
 python3 "$root/scripts/po2lmo.py" "$root/po/ru/ikev2-manager.po" \
 	"$stage/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo"
 chmod 644 "$stage/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo"
-install_file 644 luci-ikev2-manager/shared.js /www/luci-static/resources/ikev2-manager/shared-v13.js
+install_file 644 luci-ikev2-manager/shared.js /www/luci-static/resources/ikev2-manager/shared-v14.js
 install_file 644 luci-ikev2-manager/status-widget.js \
 	/www/luci-static/resources/view/status/include/06_ikev2-manager.js
 # LuCI asks for a view resource with its own version in the query string, which
@@ -110,14 +110,14 @@ install_file 644 luci-ikev2-manager/status-widget.js \
 # changes is therefore served from the browser cache across an upgrade, which is
 # what the -vN suffixes are for.
 install_file 644 luci-ikev2-manager/settings.js \
-	/www/luci-static/resources/view/ikev2-manager/settings-v9.js
+	/www/luci-static/resources/view/ikev2-manager/settings-v10.js
 install_file 644 luci-ikev2-manager/client.js \
-	/www/luci-static/resources/view/ikev2-manager/client-v10.js
+	/www/luci-static/resources/view/ikev2-manager/client-v11.js
 install_file 644 luci-ikev2-manager/setup.js \
-	/www/luci-static/resources/view/ikev2-manager/setup-v11.js
+	/www/luci-static/resources/view/ikev2-manager/setup-v12.js
 install_file 644 luci-ikev2-manager/users.js \
-	/www/luci-static/resources/view/ikev2-manager/users-v14.js
-install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v11.js
+	/www/luci-static/resources/view/ikev2-manager/users-v15.js
+install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v12.js
 
 # The pages show which build is installed. Stamping it here keeps status cheap:
 # no package-manager query on every poll.
@@ -255,7 +255,13 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/users-v13.js \
 	/www/luci-static/resources/view/ikev2-manager/settings-v8.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v9.js \
-	/www/luci-static/resources/view/ikev2-domains/editor-v10.js
+	/www/luci-static/resources/view/ikev2-domains/editor-v10.js \
+	/www/luci-static/resources/ikev2-manager/shared-v13.js \
+	/www/luci-static/resources/view/ikev2-manager/setup-v11.js \
+	/www/luci-static/resources/view/ikev2-manager/users-v14.js \
+	/www/luci-static/resources/view/ikev2-manager/settings-v9.js \
+	/www/luci-static/resources/view/ikev2-manager/client-v10.js \
+	/www/luci-static/resources/view/ikev2-domains/editor-v11.js
 # Releases before 1.13 shipped the charon settings under strongswan.d/charon/,
 # which strongswan.conf includes inside charon.plugins, so none of them applied.
 rm -f /etc/strongswan.d/charon/20-ikev2-manager.conf

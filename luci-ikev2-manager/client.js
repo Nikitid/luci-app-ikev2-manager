@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v13 as common';
+'require ikev2-manager.shared-v14 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -1716,10 +1716,8 @@ return view.extend({
 			dnsBootstrap.node,
 			common.fieldLabel(_('Fallback DNS servers')),
 			dnsFallback.node,
-			common.fieldLabel(_('WAN provider resolvers'),
-				_('Adds the resolvers published by the WAN provider to the fallback group above. They are not a further tier: the group is used as a whole once the primary group fails, and the provider entries are selected on equal terms with the ones you configured.')),
 			common.toggleRow(dnsWanFallback, _('Use WAN-provided DNS'),
-				_('These queries are unencrypted and visible to the provider. They are never used for tunnel-routed destinations.'))
+				_('Adds the resolvers your WAN provider hands out to the fallback group above. They are not a further tier: they are used on equal terms with the ones you configured. These queries are unencrypted and visible to the provider, and are never used for tunnel-routed destinations.'))
 		]);
 		var dnsManagedRows = E('div', { 'class': 'ikev2-dns-managed' }, [ dnsRows ]);
 		var segmentStatus = common.pill('', 'neutral');

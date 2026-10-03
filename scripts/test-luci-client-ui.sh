@@ -448,6 +448,35 @@ if (source.indexOf('segmentSelect') >= 0)
 // each with the compatibility switch under it, grey while its path does not
 // pass through sing-box. Resolving every name through the tunnel takes that
 // path already, so the main switch is fixed while that is on.
+// A switch row spans its form grid, so a label in front of it would be left
+// alone on a line of its own with its help text squeezed into the label
+// column: the row carries its own title and description instead.
+function orphanLabels(scope) {
+	const found = [];
+	walk(scope, []).forEach(function(node) {
+		if (!hasClass(node, 'ikev2-form-grid'))
+			return;
+		(node.children || []).forEach(function(child, index) {
+			const next = node.children[index + 1];
+			if (child && next && hasClass(child, 'ikev2-field-label') && hasClass(next, 'ikev2-toggle-row'))
+				found.push(textOf(child).trim().slice(0, 40));
+		});
+	});
+	return found;
+}
+if (orphanLabels(page).length)
+	fail('a label is left alone above a switch row: ' + orphanLabels(page).join('; '));
+// The provider's resolvers join the fallback group. The page once promised
+// they were a last tier of their own, a priority the runtime never had, and
+// the switch says so where it is turned on.
+(function() {
+	const row = walk(page, []).find(function(node) {
+		return hasClass(node, 'ikev2-toggle-row') && textOf(node).indexOf('Use WAN-provided DNS') >= 0;
+	});
+	if (!row || textOf(row).indexOf('They are not a further tier') < 0 ||
+		textOf(row).indexOf('unencrypted and visible to the provider') < 0)
+		fail('the WAN DNS switch does not say what turning it on does');
+})();
 // The switch of every row titled LABEL: a switch is a framed row, its title
 // and description on the left and the control on the right.
 function switchesAfter(scope, label) {
@@ -596,6 +625,8 @@ try {
 }
 if (!setupPage || !setupPage.children || !setupPage.children.length)
 	fail('setup.js render() produced an empty page');
+if (orphanLabels(setupPage).length)
+	fail('the overview leaves a label alone above a switch row: ' + orphanLabels(setupPage).join('; '));
 
 // What the rendered overview shows, not what its source says.
 function nodesOf(node, out) {
@@ -975,7 +1006,7 @@ if (chipsIn(singlePage, '1') !== '@domains,@cidrs,openai,telegram')
 if (textOf(nodesOf(singlePage).find(function(node) { return node.attrs && node.attrs['data-lane'] === '1'; }))
 	.indexOf('Through the tunnel') < 0)
 	fail('the only tunnel is not simply the tunnel');
-// A new service: a window with its name, what it covers in one field, and
+// A new service: a window with its name, its domains, its addresses and
 // where it goes; the identifier comes from the name.
 const dialogOpener = nodesOf(singlePage).find(function(node) {
 	return node.tagName === 'BUTTON' && textOf(node).trim() === 'New service';
@@ -987,7 +1018,11 @@ if (!serviceDialog) fail('a new service has no window');
 const dialogFields = nodesOf(serviceDialog).filter(function(node) {
 	return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
 });
-if (dialogFields.length !== 3) fail('the service window does not have a name, a list and a place');
+if (dialogFields.length !== 4 || dialogFields[1].tagName !== 'TEXTAREA' || dialogFields[2].tagName !== 'TEXTAREA')
+	fail('the service window does not have a name, a list of domains, one of addresses and a place');
+// Each list as tall as the page's own list editors, not a few lines.
+if (hasClass(dialogFields[1], 'ikev2-domain-editor-small') || !hasClass(dialogFields[1], 'ikev2-domain-editor'))
+	fail('the lists of the service window are cut short');
 function saveServiceDialog() {
 	const dialogSave = nodesOf(serviceDialog).find(function(node) {
 		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save service';
@@ -998,7 +1033,8 @@ function saveServiceDialog() {
 	const writeBefore = fsStub.write;
 	fsStub.write = function(file, content) { written[file.replace(/^.*\./, '')] = content; return Promise.resolve(); };
 	dialogFields[0].value = 'Work Portal';
-	dialogFields[1].value = 'Portal.Example\n\n203.0.113.0/24\nstatic.portal.example';
+	dialogFields[1].value = 'Portal.Example\n\nstatic.portal.example';
+	dialogFields[2].value = '203.0.113.0/24';
 	nodesOf(serviceDialog).find(function(node) {
 		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save service';
 	}).listeners.click();
@@ -1007,7 +1043,7 @@ function saveServiceDialog() {
 		if (!/^operation=save\nid=work_portal\nlabel=Work Portal\nselected=keep\nmode=route\n$/.test(written.meta || ''))
 			fail('a new service is not stored under an identifier from its name: ' + JSON.stringify(written.meta));
 		if (written.domains !== 'portal.example\nstatic.portal.example\n' || written.cidrs !== '203.0.113.0/24\n')
-			fail('domains and addresses in one field are not told apart: ' + JSON.stringify(written));
+			fail('the domains and the addresses of a service are not stored apart: ' + JSON.stringify(written));
 	}).then(editServiceDialog);
 }
 // An existing service of one's own: Edit reads its definition, a changed form
@@ -1042,8 +1078,8 @@ function editServiceDialog() {
 		const fields = nodesOf(dialog).filter(function(node) {
 			return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
 		});
-		if (fields[1].value !== 'bank.example\n192.0.2.0/24')
-			fail('the window does not show what the service covers: ' + JSON.stringify(fields[1].value));
+		if (fields[1].value !== 'bank.example' || fields[2].value !== '192.0.2.0/24')
+			fail('the window does not show what the service covers: ' + JSON.stringify([ fields[1].value, fields[2].value ]));
 		fields[0].value = 'Banks and cards';
 		button(dialog, 'Cancel').listeners.click();
 		if (asked !== 1 || !nodesOf(page).some(function(node) { return hasClass(node, 'ikev2-dialog'); }))
@@ -1134,6 +1170,8 @@ try {
 }
 if (!settingsPage || !settingsPage.children || !settingsPage.children.length)
 	fail('settings.js render() produced an empty page');
+if (orphanLabels(settingsPage).length)
+	fail('the server page leaves a label alone above a switch row: ' + orphanLabels(settingsPage).join('; '));
 
 // Advanced options are reached from a control in the header of the section
 // they qualify, not from a disclosure block appended under its controls.
