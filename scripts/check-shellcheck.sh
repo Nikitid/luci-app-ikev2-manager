@@ -1,9 +1,11 @@
 #!/bin/sh
 
 # The CI security job runs shellcheck at error level over every shell script.
-# A shellcheck directive placed inside a command passed every local check and
-# failed only there; this runs the same check before a push. Without
-# shellcheck installed it says so and passes.
+# A directive placed inside a command passed every local check and failed
+# only there; this runs the same check before a push, and says it was skipped
+# where the tool is not installed. CI pins version 0.10.0, which reads any
+# comment line that begins with the tool's name as a directive; a newer
+# version can accept what that one refuses.
 
 set -eu
 
