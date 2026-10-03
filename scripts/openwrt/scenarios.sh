@@ -255,6 +255,10 @@ exit_dev 0x1000000 | grep -q 'dev ipsec-out ' || fail "the first exit does not u
 exit_dev 0x3000000 | grep -q 'dev ipsec-out2 ' || fail "the second exit does not use its tunnel: $(exit_dev 0x3000000)"
 ip -6 route get 2001:db8::5 from fd00::50 iif br-lan mark 0x3000000 2>&1 | grep -q 'unreachable' ||
 	fail 'IPv6 marked for the second exit was not refused'
+# Each tunnel also has an exit for what is bound to it without backup.
+ip -4 rule show | grep -q '^28010:.*fwmark 0xa000000/0xf000000 lookup 1610' || fail 'the second tunnel has no exit without backup'
+exit_dev 0x9000000 | grep -q 'dev ipsec-out ' || fail "the exit without backup of the first tunnel does not use it: $(exit_dev 0x9000000)"
+exit_dev 0xa000000 | grep -q 'dev ipsec-out2 ' || fail "the exit without backup of the second tunnel does not use it: $(exit_dev 0xa000000)"
 "$routing" check || fail 'two installed exits failed the check'
 # The watcher moved the first exit to the second tunnel.
 printf 'exit 1 2\nexit 2 2\n' >/var/run/ikev2-tunnels.state
@@ -266,6 +270,9 @@ sas "$sa1"
 "$routing" sync
 exit_dev 0x1000000 | grep -q 'dev ipsec-out ' || fail 'the first exit did not fall back to its own tunnel'
 exit_dev 0x3000000 | grep -q 'dev ipsec-out ' || fail 'the second exit did not fall back to the first tunnel'
+# What is bound to the second tunnel does not fall back with it.
+exit_dev 0xa000000 | grep -q 'unreachable' || fail "an exit without backup moved to another tunnel: $(exit_dev 0xa000000)"
+exit_dev 0x9000000 | grep -q 'dev ipsec-out ' || fail 'the exit without backup of the tunnel still up was closed'
 # None left: both refused, neither reaches the WAN.
 sas ''
 "$routing" sync
@@ -279,6 +286,7 @@ uci commit ikev2-manager
 "$routing" sync
 ip -4 rule show | grep -q '^28003:' && fail 'the rule of a removed tunnel was kept'
 [ -z "$(ip -4 route show table 1603)" ] || fail 'the table of a removed tunnel was kept'
+ip -4 rule show | grep -Eq '^280(09|10):' && fail 'an exit without backup outlived the second tunnel'
 exit_dev 0x1000000 | grep -q 'dev ipsec-out ' || fail 'removing a tunnel took the first exit with it'
 "$routing" check || fail 'one tunnel again failed the check'
 unset IKEV2_SA_JSON

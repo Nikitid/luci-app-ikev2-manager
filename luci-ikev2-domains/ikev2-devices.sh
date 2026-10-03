@@ -124,9 +124,12 @@ cmd_set_included() {
 cmd_set_exit() {
 	local addr="${1:-}" exit="${2:-}" backup
 	valid_addr "$addr" || { printf 'valid IPv4 address or subnet required\n' >&2; exit 1; }
-	case "$exit" in [1-8]) ;; *) printf 'tunnel must be 1 to 8\n' >&2; return 1 ;; esac
-	[ "$exit" = 1 ] || uci -q get "ikev2-manager.tunnel_$exit" >/dev/null 2>&1 ||
-		{ printf 'tunnel %s is not configured\n' "$exit" >&2; return 1; }
+	case "$exit" in
+		[1-7] | [1-7]s) ;;
+		*) printf 'tunnel must be 1 to 7, with "s" to stay on it alone\n' >&2; return 1 ;;
+	esac
+	[ "${exit%s}" = 1 ] || uci -q get "ikev2-manager.tunnel_${exit%s}" >/dev/null 2>&1 ||
+		{ printf 'tunnel %s is not configured\n' "${exit%s}" >&2; return 1; }
 	backup="$(backup_pbr)" || return 1
 	if ! device_migrate || ! device_set_exit "$addr" "$exit" || ! render_policies; then
 		restore_pbr "$backup" device

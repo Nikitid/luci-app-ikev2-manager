@@ -232,18 +232,51 @@ device_addresses() {
 	[ "$result" = 0 ]
 }
 
-# The exit of a device sent whole through a tunnel: its exit option when that
-# tunnel is configured, the first tunnel otherwise.
-device_exit() {
-	local address="$1" section exit
-	section="$(device_section "$address")"
-	exit="$(uci -q get "${device_config}.${section}.exit" 2>/dev/null || true)"
-	case "$exit" in [2-8]) ;; *) echo 1; return 0 ;; esac
-	if uci -q get "${device_config}.tunnel_$exit" >/dev/null 2>&1; then
-		echo "$exit"
-	else
+# The exits other than the first: each tunnel's, and with "s" the one that
+# never moves to another tunnel (tunnel.sh).
+device_other_exits='2s 2 3s 3 4s 4 5s 5 6s 6 7s 7 1s'
+
+# The number of the routing mark of exit $1, and the TProxy port of the
+# devices sent whole through it.
+device_exit_mark() {
+	case "$1" in
+		1) echo 1 ;;
+		*s) echo $((${1%s} + 8)) ;;
+		*) echo $(($1 + 1)) ;;
+	esac
+}
+
+device_exit_port() {
+	case "$1" in
+		*s) echo $((1620 + ${1%s})) ;;
+		*) echo $((1610 + $1)) ;;
+	esac
+}
+
+# A stored exit as it applies now: the first when it is not one or its tunnel
+# is not configured, and with one tunnel there is nothing to be bound against.
+device_exit_resolve() {
+	local exit="$1" index
+	case "$exit" in [1-7] | [1-7]s) ;; *) echo 1; return 0 ;; esac
+	index="${exit%s}"
+	if [ "$index" != 1 ] && ! uci -q get "${device_config}.tunnel_$index" >/dev/null 2>&1; then
 		echo 1
+		return 0
 	fi
+	case "$exit" in
+		*s)
+			uci -q show "$device_config" 2>/dev/null |
+				grep -q "^${device_config}\.tunnel_[2-7]=tunnel\$" || exit="$index"
+			;;
+	esac
+	echo "$exit"
+}
+
+# The exit of a device sent whole through a tunnel.
+device_exit() {
+	local address="$1" section
+	section="$(device_section "$address")"
+	device_exit_resolve "$(uci -q get "${device_config}.${section}.exit" 2>/dev/null || true)"
 }
 
 # Full-route devices as "address exit" lines.
@@ -260,7 +293,7 @@ device_fullroute_exits() {
 device_set_exit() {
 	local address="$1" exit="$2" section
 	device_valid_address "$address" || return 1
-	case "$exit" in [1-8]) ;; *) return 1 ;; esac
+	case "$exit" in [1-7] | [1-7]s) ;; *) return 1 ;; esac
 	section="$(device_section "$address")"
 	[ -n "$(uci -q get "${device_config}.${section}.route_mode" 2>/dev/null || true)" ] || return 1
 	if [ "$exit" = 1 ]; then

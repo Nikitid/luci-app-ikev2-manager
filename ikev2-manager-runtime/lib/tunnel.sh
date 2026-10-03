@@ -3,19 +3,32 @@
 # the data-path probe shared by the watcher and the domain router.
 #
 # The client section is tunnel 1, as it always was; tunnel sections tunnel_2 ..
-# tunnel_8 add more. Everything a tunnel owns is numbered from its index:
+# tunnel_7 add more. Everything a tunnel owns is numbered from its index:
 #
-#   tunnel  connection   child     link        if_id  mark  table     rule
-#   1       proxy-out    proxy4    ipsec-out   42     0x01  1601      28001
-#   N       proxy-out-N  proxy4-N  ipsec-outN  50+N   N+1   1600+N+1  28000+N+1
+#   tunnel  connection   child     link        if_id
+#   1       proxy-out    proxy4    ipsec-out   42
+#   N       proxy-out-N  proxy4-N  ipsec-outN  50+N
 #
-# Mark 0x02, table 1602 and rule 28002 are the WAN's, for exclusions.
+# An exit is where a class of traffic leaves, and each tunnel has two. Exit N
+# is tunnel N first, then every other enabled tunnel that backs the others up,
+# in index order. Exit Ns is tunnel N and nothing else, for what must not
+# leave from another place: while that tunnel is down it is unreachable.
+# Nothing falls back to the WAN. Each exit has a mark, a table and a rule:
 #
-# An exit is where a class of traffic leaves: exit N is tunnel N first, then
-# every other enabled tunnel that backs the others up, in index order. Nothing
-# falls back to the WAN; with none of them up the exit is unreachable.
+#   exit  mark  table      rule
+#   1     1     1601       28001
+#   N     N+1   1600+mark  28000+mark   N from 2 to 7
+#   Ns    N+8   1600+mark  28000+mark   N from 1 to 7
+#
+# Mark 2, table 1602 and rule 28002 are the WAN's, for exclusions. The marks
+# are the four bits of 0x0f000000, so fifteen values are all there are: seven
+# tunnels is the most that leaves each one both exits.
 
-tunnel_max=8
+tunnel_max=7
+# The exits other than the first, in the order they take precedence: a name
+# or a network two of them select belongs to the first. What is bound to one
+# tunnel comes before what may move, and the first tunnel's last.
+tunnel_exit_order='2s 2 3s 3 4s 4 5s 5 6s 6 7s 7 1s'
 # A tunnel that comes back takes its traffic back only after this long up, so
 # one that flaps does not break the connections on it each time.
 tunnel_return_hold="${IKEV2_TUNNEL_RETURN_HOLD:-${tunnel_return_hold:-120}}"
@@ -42,23 +55,45 @@ tunnel_names() {
 	fi
 	tunnel_table_id=$((1600 + tunnel_mark_value))
 	tunnel_rule=$((28000 + tunnel_mark_value))
-	# Marks run 1 to 9, one hex digit.
-	tunnel_fwmark="0x0${tunnel_mark_value}000000"
+	tunnel_fwmark="$(printf '0x%08x' $((tunnel_mark_value << 24)))"
+}
+
+# Whether $1 names an exit: a tunnel index, or one followed by "s".
+tunnel_exit_valid() {
+	case "$1" in [1-7] | [1-7]s) return 0 ;; esac
+	return 1
+}
+
+# Set the names of exit $1: those of its tunnel, with the mark, table and rule
+# of the exit itself, and tunnel_exit_strict.
+tunnel_exit_names() {
+	tunnel_names "${1%s}"
+	tunnel_exit_strict=0
+	case "$1" in
+		*s)
+			tunnel_exit_strict=1
+			tunnel_mark_value=$((${1%s} + 8))
+			tunnel_table_id=$((1600 + tunnel_mark_value))
+			tunnel_rule=$((28000 + tunnel_mark_value))
+			tunnel_fwmark="$(printf '0x%08x' $((tunnel_mark_value << 24)))"
+			;;
+	esac
 }
 
 # The index of a tunnel by its connection name, or nothing for another name.
 tunnel_index_of_conn() {
 	case "$1" in
 		proxy-out) echo 1 ;;
-		proxy-out-[2-8]) echo "${1#proxy-out-}" ;;
+		proxy-out-[2-7]) echo "${1#proxy-out-}" ;;
 		*) return 1 ;;
 	esac
 }
 
 # Read the tunnels from `uci show ikev2-manager` text on stdin into globals:
-# tunnel_list (configured, in order), tunnel_on (enabled) and tunnel_spare
-# (enabled and backing the others up). Parsed in the shell, without a process
-# per line.
+# tunnel_list (configured, in order), tunnel_on (enabled), tunnel_spare
+# (enabled and backing the others up) and tunnel_exits (every exit there is:
+# one per tunnel, and with more than one tunnel its "s" twin after it).
+# Parsed in the shell, without a process per line.
 tunnel_settings_parse() {
 	local line index have='' on='' off_backup=''
 	while IFS= read -r line; do
@@ -67,20 +102,20 @@ tunnel_settings_parse() {
 			# An option implies its section, whatever lists it.
 			"ikev2-manager.client.enabled='1'") have="$have 1"; on="$on 1" ;;
 			"ikev2-manager.client.backup='0'") off_backup="$off_backup 1" ;;
-			ikev2-manager.tunnel_[2-8]=tunnel)
+			ikev2-manager.tunnel_[2-7]=tunnel)
 				index="${line#ikev2-manager.tunnel_}"
 				have="$have ${index%%=*}" ;;
-			ikev2-manager.tunnel_[2-8].enabled=\'1\')
+			ikev2-manager.tunnel_[2-7].enabled=\'1\')
 				index="${line#ikev2-manager.tunnel_}"
 				have="$have ${index%%.*}"
 				on="$on ${index%%.*}" ;;
-			ikev2-manager.tunnel_[2-8].backup=\'0\')
+			ikev2-manager.tunnel_[2-7].backup=\'0\')
 				index="${line#ikev2-manager.tunnel_}"
 				off_backup="$off_backup ${index%%.*}" ;;
 		esac
 	done
-	tunnel_list='' tunnel_on='' tunnel_spare=''
-	for index in 1 2 3 4 5 6 7 8; do
+	tunnel_list='' tunnel_on='' tunnel_spare='' tunnel_exits=''
+	for index in 1 2 3 4 5 6 7; do
 		case " $have " in *" $index "*) ;; *) continue ;; esac
 		tunnel_list="$tunnel_list${tunnel_list:+ }$index"
 		case " $on " in *" $index "*) ;; *) continue ;; esac
@@ -88,6 +123,15 @@ tunnel_settings_parse() {
 		case " $off_backup " in *" $index "*) continue ;; esac
 		tunnel_spare="$tunnel_spare${tunnel_spare:+ }$index"
 	done
+	# One tunnel has nothing to fall back to, so its two exits would be one.
+	case "$tunnel_list" in
+		*' '*)
+			for index in $tunnel_list; do
+				tunnel_exits="$tunnel_exits${tunnel_exits:+ }$index ${index}s"
+			done
+			;;
+		*) tunnel_exits="$tunnel_list" ;;
+	esac
 }
 
 tunnel_settings_load() {
@@ -103,11 +147,13 @@ tunnel_several() {
 	return 1
 }
 
-# Set tunnel_chain to the tunnels exit $1 may use, most preferred first.
+# Set tunnel_chain to the tunnels exit $1 may use, most preferred first: for
+# an "s" exit its own tunnel alone.
 tunnel_exit_chain() {
-	local exit="$1" index
+	local exit="${1%s}" index
 	tunnel_chain=''
 	case " $tunnel_on " in *" $exit "*) tunnel_chain="$exit" ;; esac
+	[ "$exit" = "$1" ] || return 0
 	for index in $tunnel_spare; do
 		[ "$index" != "$exit" ] || continue
 		tunnel_chain="$tunnel_chain${tunnel_chain:+ }$index"
@@ -146,7 +192,7 @@ tunnel_select() {
 		new_state="${new_state}ready $index $since
 "
 	done
-	for exit in $tunnel_list; do
+	for exit in $tunnel_exits; do
 		tunnel_exit_chain "$exit"
 		current=0
 		for line in $old_list; do

@@ -27,8 +27,10 @@ manual_exclude_file="${IKEV2_MANUAL_EXCLUDE_FILE:-/etc/pbr-ikev2-domains.exclude
 manual_exclude_cidr_file="${IKEV2_MANUAL_EXCLUDE_CIDR_FILE:-/etc/pbr-ikev2-addresses.exclude.txt}"
 bypass_file="${IKEV2_BYPASS_FILE:-/etc/pbr-ikev2-domains.bypass.txt}"
 bypass_cidr_file="${IKEV2_BYPASS_CIDR_FILE:-/etc/pbr-ikev2-addresses.bypass.txt}"
-# Which outbound tunnel a selected service or a manual list leaves by, as
-# "target exit" lines: a service id, @domains or @cidrs. Absent means the
+# Where a selected service or a manual list goes, as "target exit" lines: a
+# service id, @domains or @cidrs, and a tunnel index (it may move to another
+# tunnel while its own is down), an index followed by "s" (its own tunnel or
+# nothing), or "wan" for a service kept out of the tunnel. Absent means the
 # first tunnel. The lists of the other exits sit beside the first one's.
 exits_file="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
 catalog_file="${IKEV2_CATALOG_FILE:-/usr/share/ikev2-domains/community-services}"
@@ -743,20 +745,45 @@ exit_file() {
 	fi
 }
 
-# Exits other than the first, in the order they take precedence.
-other_exits='2 3 4 5 6 7 8'
+# Exits other than the first, in the order they take precedence: what is
+# bound to one tunnel before what may move, the first tunnel's last. The same
+# order as tunnel_exit_order in the runtime's tunnel.sh.
+other_exits='2s 2 3s 3 4s 4 5s 5 6s 6 7s 7 1s'
 
-# The exit of a target: what the map says when that tunnel is configured,
-# otherwise the first. A removed tunnel's services leave by the first one.
+# Whether there is a tunnel after the first.
+several_tunnels() {
+	uci -q show ikev2-manager 2>/dev/null | grep -q '^ikev2-manager\.tunnel_[2-7]=tunnel$'
+}
+
+# Where a target goes: "wan" for a service kept out of the tunnel, otherwise
+# an exit. What the map says wins; a service an earlier release marked as
+# never through the tunnel keeps that until it is given a place. A tunnel
+# that is not configured sends its targets to the first, and with one tunnel
+# there is nothing to be bound to.
 exit_of() {
-	local target="$1" exit
+	local target="$1" exit index
 	exit="$(awk -v target="$target" '$1 == target { print $2; exit }' "${exit_map:-$exits_file}" 2>/dev/null)"
-	case "$exit" in [2-8]) ;; *) echo 1; return 0 ;; esac
-	if uci -q get "ikev2-manager.tunnel_$exit" >/dev/null 2>&1; then
-		echo "$exit"
-	else
+	case "$exit" in
+		wan)
+			case "$target" in @*) echo 1 ;; *) echo wan ;; esac
+			return 0
+			;;
+		[1-7] | [1-7]s) ;;
+		*)
+			case "$target" in
+				@*) echo 1 ;;
+				*) [ "$(service_mode "$target")" = exclude ] && echo wan || echo 1 ;;
+			esac
+			return 0
+			;;
+	esac
+	index="${exit%s}"
+	if [ "$index" != 1 ] && ! uci -q get "ikev2-manager.tunnel_$index" >/dev/null 2>&1; then
 		echo 1
+		return 0
 	fi
+	case "$exit" in *s) several_tunnels || exit="$index" ;; esac
+	echo "$exit"
 }
 
 normalize_exits() {
@@ -765,7 +792,7 @@ normalize_exits() {
 			gsub(/\r/, "")
 			if ($0 ~ /^[ \t]*$/)
 				next
-			if (NF != 2 || $1 !~ /^(@domains|@cidrs|[a-z0-9_]+)$/ || $2 !~ /^[1-8]$/) {
+			if (NF != 2 || $1 !~ /^(@domains|@cidrs|[a-z0-9_]+)$/ || $2 !~ /^([1-7]s?|wan)$/) {
 				printf "invalid exit line: %s\n", $0 > "/dev/stderr"
 				exit 1
 			}
@@ -887,13 +914,6 @@ apply_once() {
 		rm -rf "$work"
 		return 1
 	fi
-	{
-		cat "$work/exclude.manual"
-		while IFS= read -r service; do
-			[ -n "$service" ] && [ "$(service_mode "$service")" = exclude ] &&
-				cat "$work/$service.lst"
-		done <"$selected"
-	} | sort -u >"$work/bypass"
 	if [ -f "$exits_file" ]; then
 		if ! normalize_exits "$exits_file" >"$work/exits"; then
 			rm -rf "$work"
@@ -903,13 +923,24 @@ apply_once() {
 		: >"$work/exits"
 	fi
 	exit_map="$work/exits"
-	# Each routed name into the list of its exit.
+	# Where each selected service goes, once: every list below reads it.
+	: >"$work/places"
+	while IFS= read -r service; do
+		[ -n "$service" ] || continue
+		printf '%s %s\n' "$service" "$(exit_of "$service")" >>"$work/places"
+	done <"$selected"
+	cp "$work/exclude.manual" "$work/bypass.unsorted"
+	# Each routed name into the list of its exit, each excluded one out.
 	for exit in 1 $other_exits; do : >"$work/routed.$exit"; done
 	cat "$normalized_manual" >>"$work/routed.$(exit_of @domains)"
-	while IFS= read -r service; do
-		[ -n "$service" ] && [ "$(service_mode "$service")" = route ] || continue
-		cat "$work/$service.lst" >>"$work/routed.$(exit_of "$service")"
-	done <"$selected"
+	while read -r service exit; do
+		if [ "$exit" = wan ]; then
+			cat "$work/$service.lst" >>"$work/bypass.unsorted"
+		else
+			cat "$work/$service.lst" >>"$work/routed.$exit"
+		fi
+	done <"$work/places"
+	sort -u "$work/bypass.unsorted" >"$work/bypass"
 	# A routed domain inside an excluded one is dropped; a routed domain above
 	# an excluded one stays, and the routing keeps the excluded part out. Then
 	# a name the exits before have taken is dropped as well.
@@ -930,19 +961,18 @@ apply_once() {
 	fi
 	for exit in 1 $other_exits; do : >"$work/cidrs.unsorted.$exit"; done
 	cat "$work/manual.cidrs" >>"$work/cidrs.unsorted.$(exit_of @cidrs)"
-	while IFS= read -r service; do
-		[ -n "$service" ] || continue
+	while read -r service exit; do
 		if ! download_service_cidrs "$service" "$work/$service.cidrs"; then
 			rm -rf "$work"
 			return 1
 		fi
 		[ -s "$work/$service.cidrs" ] || continue
-		if [ "$(service_mode "$service")" = exclude ]; then
+		if [ "$exit" = wan ]; then
 			cat "$work/$service.cidrs" >>"$work/bypass.cidrs.unsorted"
 		else
-			cat "$work/$service.cidrs" >>"$work/cidrs.unsorted.$(exit_of "$service")"
+			cat "$work/$service.cidrs" >>"$work/cidrs.unsorted.$exit"
 		fi
-	done <"$selected"
+	done <"$work/places"
 	# A network an exit before has taken is not listed again; overlapping
 	# networks are settled by the order the routing matches the exits in.
 	: >"$work/cidrs.taken"
@@ -964,8 +994,9 @@ apply_once() {
 		rm -rf "$work"
 		return 1
 	fi
-	domain_count="$(cat "$work/final" "$work"/final.[2-8] | wc -l | tr -d ' ')"
-	final_bytes="$(cat "$work/final" "$work"/final.[2-8] | wc -c | tr -d ' ')"
+	for exit in $other_exits; do cat "$work/final.$exit"; done >"$work/final.others"
+	domain_count="$(cat "$work/final" "$work/final.others" | wc -l | tr -d ' ')"
+	final_bytes="$(cat "$work/final" "$work/final.others" | wc -c | tr -d ' ')"
 	if [ "$domain_count" -gt "$max_total_domains" ] ||
 	   [ "$final_bytes" -gt "$max_total_bytes" ]; then
 		echo "combined domain list exceeds resource limits: $domain_count entries, $final_bytes bytes" >&2

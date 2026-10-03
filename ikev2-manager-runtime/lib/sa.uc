@@ -74,7 +74,7 @@ if (command == 'tunnels') {
 		if (type(entry) != 'object')
 			continue;
 		for (let name, sa in entry) {
-			let m = match(name, /^proxy-out(-([2-8]))?$/);
+			let m = match(name, /^proxy-out(-([2-7]))?$/);
 			if (!m || type(sa) != 'object')
 				continue;
 			let index = m[2] || '1';

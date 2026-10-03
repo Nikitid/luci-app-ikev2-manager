@@ -21,6 +21,7 @@ case "$*" in
 	'-q get network.lan.device') echo br-lan ;;
 	'-q get ikev2-manager.server.enabled') echo 0 ;;
 	'-q get ikev2-manager.tunnel_2') [ -n "${TEST_TUNNEL_2:-}" ] && echo tunnel ;;
+	'-q show ikev2-manager') [ -n "${TEST_TUNNEL_2:-}" ] && echo 'ikev2-manager.tunnel_2=tunnel' ;;
 	'show ikev2-manager')
 		echo 'ikev2-manager.device_192_168_50_4=device_policy'
 		echo 'ikev2-manager.device_192_168_50_9=device_policy'
@@ -120,7 +121,18 @@ grep -Fq 'meta mark & 0xf0ffffff | 0x03000000' "$tmp/rules.nft" ||
 "$helper" sync
 grep -Fq 'meta mark & 0xf0ffffff | 0x01000000' "$tmp/rules.nft" ||
 	{ echo 'Discord voice kept the exit of a removed tunnel' >&2; exit 1; }
+# Bound to the second tunnel: the mark of its exit without backup.
+printf 'discord 2s\n' >"$tmp/exits"
+TEST_TUNNEL_2=1 "$helper" sync
+grep -Fq 'meta mark & 0xf0ffffff | 0x0a000000' "$tmp/rules.nft" ||
+	{ echo 'Discord voice did not follow its service to the exit without backup' >&2; exit 1; }
+# Kept out of the tunnel: its voice is not sent into one either.
+printf 'discord wan\n' >"$tmp/exits"
+"$helper" sync
+[ ! -e "$tmp/nft.state" ] || { echo 'Discord voice was routed while its service is kept out of the tunnel' >&2; exit 1; }
 rm -f "$tmp/exits"
+"$helper" sync
+[ -e "$tmp/nft.state" ] || { echo 'Discord voice did not come back with its service' >&2; exit 1; }
 
 : >"$tmp/selected"
 "$helper" sync

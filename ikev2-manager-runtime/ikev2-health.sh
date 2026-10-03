@@ -396,7 +396,9 @@ EOF
 	[ "$routing_due" = 0 ] || repair "$routing_helper" sync
 	if [ -n "$tunnel_changes" ] && tunnel_several; then
 		logger -t ikev2-health "exits now use: $tunnel_changes" 2>/dev/null || :
-		exits_pending=1
+		# Only an exit that may move has a selector to turn: one without
+		# backup, written "Ns:", keeps the single tunnel it has.
+		case " $tunnel_changes" in *' '[1-7]:*) exits_pending=1 ;; esac
 	fi
 	# sing-box follows through its controller, which a restarting resolver
 	# does not answer: the choice is offered again every pass until taken.

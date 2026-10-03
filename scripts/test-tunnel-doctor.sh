@@ -86,6 +86,17 @@ printf '1\t1\t10.0.0.2\n2\t1\t10.0.1.2\n3\t1\t10.0.2.2\n' >"$tmp/sa"
 sed -i.bak "/client.backup/d" "$tmp/uci/ikev2-manager"
 expect 'a working setup' 'tunnels=ok'
 
+# Bound to a tunnel that is switched off: with backup its traffic would move
+# to another tunnel, without backup it is refused, and that is said.
+sed -i.bak 's/^tunnel_2.enabled=1$/tunnel_2.enabled=0/' "$tmp/uci/ikev2-manager"
+printf 'openai 2\n@domains 3\n' >"$tmp/exits"
+expect 'a disabled tunnel that others stand in for' 'tunnels=ok'
+printf 'openai 2s\n@domains 3\n' >"$tmp/exits"
+expect 'bound to a disabled tunnel' 'tunnels=warn:exit-2s-no-tunnel'
+sed -i.bak 's/^tunnel_2.enabled=0$/tunnel_2.enabled=1/' "$tmp/uci/ikev2-manager"
+expect 'bound to a tunnel that is on' 'tunnels=ok'
+printf 'openai 2\n@domains 3\n' >"$tmp/exits"
+
 # An exit of a tunnel that is not configured leaves by the first one.
 printf '192.168.1.40 5\n' >"$tmp/devices"
 printf '%s\n' 'client.backup=0' 'tunnel_2.backup=0' >>"$tmp/uci/ikev2-manager"

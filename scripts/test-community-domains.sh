@@ -72,7 +72,8 @@ cat >"$tmp/bin/uci" <<'EOF'
 #!/bin/sh
 [ "$1" = -q ] && shift
 case "$1 $2" in
-	'get ikev2-manager.tunnel_'[2-8]) grep -qx "${2#ikev2-manager.tunnel_}" "$TEST_TUNNELS" 2>/dev/null && echo tunnel ;;
+	'get ikev2-manager.tunnel_'[2-7]) grep -qx "${2#ikev2-manager.tunnel_}" "$TEST_TUNNELS" 2>/dev/null && echo tunnel ;;
+	'show ikev2-manager') sed 's/^\(.*\)$/ikev2-manager.tunnel_\1=tunnel/' "$TEST_TUNNELS" 2>/dev/null ;;
 	*) exit 1 ;;
 esac
 EOF
@@ -321,6 +322,16 @@ grep -Fxq othbank.example "$tmp/bypass" && grep -Fxq 203.0.113.64/26 "$tmp/bypas
 	{ printf 'an exclusion service was routed through the tunnel\n' >&2; exit 1; }
 run_helper services | grep -Fxq 'banks|Banks|custom|1|1|exclude' ||
 	{ printf 'the catalogue does not say the service excludes\n' >&2; exit 1; }
+# A place given on the page wins over that mark: sent to the first tunnel,
+# the service is routed again, and without a place it is excluded as before.
+printf 'banks 1\n' >"$tmp/exits"
+run_helper apply || { cat "$tmp/log" >&2; exit 1; }
+grep -Fxq othbank.example "$tmp/domains" && ! grep -Fxq othbank.example "$tmp/bypass" ||
+	{ printf 'a service given a tunnel stayed excluded by its old mark\n' >&2; exit 1; }
+rm -f "$tmp/exits"
+run_helper apply || { cat "$tmp/log" >&2; exit 1; }
+grep -Fxq othbank.example "$tmp/bypass" && ! grep -Fxq othbank.example "$tmp/domains" ||
+	{ printf 'a service marked by an earlier release lost its exclusion\n' >&2; exit 1; }
 cat >"$tmp/service-input-excl0004.meta" <<'EOF'
 operation=delete
 id=banks
@@ -369,15 +380,38 @@ printf '%s\n' 203.0.113.10/32 8.8.8.0/24 | cmp -s - "$tmp/cidrs.exit-2.txt" ||
 [ ! -e "$tmp/domains.exit-5.txt" ] || { printf 'an unconfigured tunnel got an exit list\n' >&2; exit 1; }
 grep -q '^exit_2_domains=1$' "$tmp/status" || { printf 'the status does not count the second exit\n' >&2; exit 1; }
 grep -qx 'remote 2' "$tmp/exits" || { printf 'the exit map was not stored\n' >&2; exit 1; }
+# Bound to its tunnel, without backup: a list of that exit alone, taken ahead
+# of the exit with backup; and a prepared service kept out of the tunnel goes
+# to the exclusions like the operator's own lists.
+printf '%s\n' x.remote.example >"$tmp/input-exit0004.domains"
+printf '%s\n' 203.0.113.10 >"$tmp/input-exit0004.cidrs"
+printf "%s\n" direct local remote >"$tmp/input-exit0004.services"
+: >"$tmp/input-exit0004.xdomains"
+: >"$tmp/input-exit0004.xcidrs"
+printf 'remote 2\nlocal 2s\n@domains 2s\n@cidrs 1s\ndirect wan\n' >"$tmp/input-exit0004.exits"
+run_helper _apply-input 300-s exit0004 || { cat "$tmp/log" >&2; exit 1; }
+printf '%s\n' local.example x.remote.example | cmp -s - "$tmp/domains.exit-2s.txt" ||
+	{ printf 'the exit without backup does not list what is bound to it:\n' >&2; cat "$tmp/domains.exit-2s.txt" >&2; exit 1; }
+printf '%s\n' remote.example | cmp -s - "$tmp/domains.exit-2.txt" ||
+	{ printf 'the exit with backup lost its service to the one without\n' >&2; exit 1; }
+! grep -Fxq local.example "$tmp/domains" "$tmp/domains.exit-2.txt" ||
+	{ printf 'a service bound to one tunnel is also listed where it may move\n' >&2; exit 1; }
+printf '%s\n' 203.0.113.10/32 | cmp -s - "$tmp/cidrs.exit-1s.txt" ||
+	{ printf 'the first tunnel has no list for what is bound to it\n' >&2; exit 1; }
+grep -Fxq direct.example "$tmp/bypass" && ! grep -Fxq direct.example "$tmp/domains" ||
+	{ printf 'a prepared service kept out of the tunnel is still routed\n' >&2; exit 1; }
+grep -q '^exit_2s_domains=2$' "$tmp/status" || { printf 'the status does not count the exit without backup\n' >&2; exit 1; }
 # A malformed map is refused and changes nothing.
 cp "$tmp/domains" "$tmp/domains.kept"
-cp "$tmp/domains" "$tmp/input-exit0002.domains"
-printf '%s\n' 203.0.113.10 >"$tmp/input-exit0002.cidrs"
-printf "%s\n" direct local remote >"$tmp/input-exit0002.services"
-printf 'remote 9\n' >"$tmp/input-exit0002.exits"
-run_helper _apply-input 300-y exit0002 2>/dev/null && { printf 'a malformed exit map was accepted\n' >&2; exit 1; }
-grep -qx 'remote 2' "$tmp/exits" && [ -s "$tmp/domains.exit-2.txt" ] ||
-	{ printf 'a refused exit map changed the configuration\n' >&2; exit 1; }
+for bad in 'remote 9' 'remote 8' 'remote 8s' 'remote 2x' 'remote wan wan'; do
+	cp "$tmp/domains" "$tmp/input-exit0002.domains"
+	printf '%s\n' 203.0.113.10 >"$tmp/input-exit0002.cidrs"
+	printf "%s\n" direct local remote >"$tmp/input-exit0002.services"
+	printf '%s\n' "$bad" >"$tmp/input-exit0002.exits"
+	run_helper _apply-input 300-y exit0002 2>/dev/null && { printf 'a malformed exit map was accepted: %s\n' "$bad" >&2; exit 1; }
+	grep -qx 'remote 2' "$tmp/exits" && [ -s "$tmp/domains.exit-2.txt" ] ||
+		{ printf 'a refused exit map changed the configuration\n' >&2; exit 1; }
+done
 # The tunnel removed: its services come back to the first exit and its lists go.
 : >"$tmp/tunnels"
 run_helper apply || { cat "$tmp/log" >&2; exit 1; }
@@ -385,6 +419,14 @@ grep -Fxq remote.example "$tmp/domains" && grep -Fxq 8.8.8.0/24 "$tmp/cidrs" ||
 	{ printf 'a removed tunnel did not return its service to the first exit\n' >&2; exit 1; }
 [ ! -e "$tmp/domains.exit-2.txt" ] && [ ! -e "$tmp/cidrs.exit-2.txt" ] ||
 	{ printf 'a removed tunnel kept its exit lists\n' >&2; exit 1; }
+# One tunnel has nothing to be bound against: what was bound to the first
+# is simply its traffic again, and no list of an exit without backup stays.
+grep -Fxq 203.0.113.10/32 "$tmp/cidrs" && grep -Fxq local.example "$tmp/domains" ||
+	{ printf 'with one tunnel what was bound to a tunnel is not routed\n' >&2; exit 1; }
+ls "$tmp"/domains.exit-*.txt "$tmp"/cidrs.exit-*.txt >/dev/null 2>&1 &&
+	{ printf 'with one tunnel an exit list stayed behind\n' >&2; exit 1; }
+grep -Fxq direct.example "$tmp/bypass" ||
+	{ printf 'removing a tunnel put an excluded service back into it\n' >&2; exit 1; }
 # Back to no map at all.
 cp "$tmp/manual.saved" "$tmp/input-exit0003.domains"
 printf '%s\n' 203.0.113.10 198.51.100.0/24 >"$tmp/input-exit0003.cidrs"

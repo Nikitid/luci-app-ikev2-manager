@@ -24,7 +24,7 @@ fail() {
 	fail 'unable to restore managed router state; package removal stopped before changing files'
 
 swanctl --terminate --ike proxy-out --timeout 3 >/dev/null 2>&1 || true
-for index in 2 3 4 5 6 7 8; do
+for index in 2 3 4 5 6 7; do
 	swanctl --terminate --ike "proxy-out-$index" --timeout 3 >/dev/null 2>&1 || true
 done
 swanctl --terminate --ike ikev2-in --timeout 3 >/dev/null 2>&1 || true

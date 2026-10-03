@@ -211,6 +211,36 @@ render "$tmp/in" "$tmp/exits.json" || fail 'exit rule sets were refused'
 	fail 'the names of the second exit get no FakeIP addresses'
 [ "$(query "$tmp/exits.json" '[(i["tag"], i["listen_port"]) for i in c["inbounds"] if i["tag"].startswith("tproxy-exit")]')" = "[('tproxy-exit-2-in', 1612)]" ] ||
 	fail 'the devices of the second exit have no inbound'
+# An exit without backup: a selector that holds its own tunnel alone, so what
+# is bound to it never leaves by another; its names and its devices are
+# matched ahead of the exit with backup. While its tunnel is disabled there is
+# no selector, and what it would carry is refused.
+{
+	base
+	printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\n'
+	printf 'exit\t1\t1\t2\nexit\t1s\t1\nexit\t2\t2\t1\nexit\t2s\t2\n'
+	printf 'exit_rules\t2s\t/var/x2s.json\nexit_rules\t2\t/var/x2.json\nexit_port\t2s\t1622\nexit_port\t2\t1612\n'
+} >"$tmp/in"
+render "$tmp/in" "$tmp/strict.json" || fail 'an exit without backup was refused'
+[ "$(query "$tmp/strict.json" '[(o["tag"], o["outbounds"]) for o in c["outbounds"] if o["type"] == "selector" and o["tag"].endswith("s")]')" = \
+	"[('exit-1s', ['ikev2-out']), ('exit-2s', ['ikev2-out-2'])]" ] ||
+	fail 'an exit without backup may use another tunnel'
+[ "$(query "$tmp/strict.json" '[(r.get("rule_set"), r.get("outbound")) for r in c["route"]["rules"] if r.get("inbound") == ["tproxy-in"] and "rule_set" in r]')" = \
+	"[(['ikev2-domains-2s'], 'exit-2s'), (['ikev2-domains-2'], 'exit-2'), (['ikev2-domains'], 'exit-1')]" ] ||
+	fail 'the names bound to a tunnel are not matched first'
+[ "$(query "$tmp/strict.json" '[(i["tag"], i["listen_port"]) for i in c["inbounds"] if i["tag"].startswith("tproxy-exit")]')" = "[('tproxy-exit-2s-in', 1622), ('tproxy-exit-2-in', 1612)]" ] ||
+	fail 'the devices bound to a tunnel have no inbound'
+{
+	base
+	printf 'tunnel\t1\tipsec-out\ntunnel\t3\tipsec-out3\n'
+	printf 'exit\t1\t1\t3\nexit\t2\t1\t3\nexit_rules\t2s\t/var/x2s.json\nexit_port\t2s\t1622\n'
+} >"$tmp/in"
+render "$tmp/in" "$tmp/strict-off.json" || fail 'an exit without backup of a disabled tunnel was refused'
+[ "$(query "$tmp/strict-off.json" '[(r.get("inbound"), r.get("rule_set"), r["action"]) for r in c["route"]["rules"] if r["action"] == "reject"]')" = \
+	"[(['tproxy-exit-2s-in'], None, 'reject'), (['tproxy-router-in'], ['ikev2-domains-2s'], 'reject'), (['tproxy-in'], ['ikev2-domains-2s'], 'reject')]" ] ||
+	fail 'what is bound to a disabled tunnel was not refused'
+{ base; printf 'tunnel\t1\tipsec-out\ntunnel\t2\tipsec-out2\nexit\t8\t1\n'; } >"$tmp/in"
+render "$tmp/in" "$tmp/bad.json" 2>/dev/null && fail 'an eighth tunnel was rendered'
 { base; printf 'tunnel\t1\tipsec-out\nexit\t1\t1\nexit_rules\t3\t/var/x3.json\n'; } >"$tmp/in"
 render "$tmp/in" "$tmp/one-exit.json" || fail 'one tunnel with an exit list was refused'
 [ "$(query "$tmp/one-exit.json" '[(r.get("rule_set"), r.get("outbound", r["action"])) for r in c["route"]["rules"] if r.get("inbound") == ["tproxy-in"] and "rule_set" in r]')" = \

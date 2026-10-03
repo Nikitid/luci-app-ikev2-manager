@@ -308,6 +308,14 @@ grep -qx 'unreachable default metric 32767' "$S/route4-1603" || fail 'the second
 grep -qx '192.168.2.0/24 dev br-lan' "$S/route4-1603" || fail 'replies to the LAN would enter the second tunnel'
 grep -qx 'default dev ipsec-out2 metric 10' "$S/route4-1603" || fail 'the second exit does not route into its tunnel'
 grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'the first exit left its own tunnel'
+# With more than one tunnel each has an exit without backup too, with a rule
+# and a table of its own that routes into its own tunnel.
+grep -qx '28009:	from all fwmark 0x9000000/0xf000000 lookup 1609' "$S/rules4" || fail 'the first tunnel has no exit without backup'
+grep -qx '28010:	from all fwmark 0xa000000/0xf000000 lookup 1610' "$S/rules4" || fail 'the second tunnel has no exit without backup'
+grep -qx '28010:	from all fwmark 0xa000000/0xf000000 lookup 1610' "$S/rules6" || fail 'the exit without backup is not closed for IPv6'
+grep -qx 'default dev ipsec-out metric 10' "$S/route4-1609" || fail 'the exit without backup of the first tunnel does not use it'
+grep -qx 'default dev ipsec-out2 metric 10' "$S/route4-1610" || fail 'the exit without backup of the second tunnel does not use it'
+grep -qx 'unreachable default metric 32767' "$S/route4-1610" || fail 'the exit without backup has no unreachable default'
 "$helper" check || fail 'two installed exits failed the check'
 # Destinations of the second exit: its own sets and mark, matched before the
 # first exit's so that it keeps what both list, and dnsmasq fills its sets.
@@ -325,8 +333,22 @@ grep -q 'ip daddr @dst4_x2 counter meta mark set meta mark & 0xf0ffffff | 0x0300
 	fail 'the second exit learned addresses are not marked'
 grep -q 'iifname @src_ifaces ip daddr @service4 counter meta mark set meta mark & 0xf0ffffff | 0x01000000$' "$S/nft.rules" ||
 	fail 'the first exit lost its own mark to another exit'
-grep -q 'meta mark & 0x0f000000 { 0x01000000, 0x03000000 } ip saddr @respect4' "$S/nft.rules" ||
-	fail 'a full-route device of the second exit does not respect the exclusions'
+grep -q 'meta mark & 0x0f000000 { 0x01000000, 0x09000000, 0x03000000, 0x0a000000 } ip saddr @respect4' "$S/nft.rules" ||
+	fail 'a full-route device of another exit does not respect the exclusions'
+# What is bound to the second tunnel without backup: sets and a mark of its
+# own, matched ahead of the exit with backup.
+printf '192.0.2.128/25
+' >"$tmp/services.exit-2s.txt"
+"$helper" sync || fail 'the lists of an exit without backup did not install'
+grep -q 'add element inet ikev2_routing_test service4_x2s { 192.0.2.128/25 }' "$S/nft.rules" ||
+	fail 'the networks of an exit without backup were not loaded'
+strict="$(grep -n 'ip daddr @service4_x2s counter meta mark set meta mark & 0xf0ffffff | 0x0a000000 return' "$S/nft.rules" | head -n1 | cut -d: -f1)"
+second="$(grep -n 'ip daddr @service4_x2 counter' "$S/nft.rules" | head -n1 | cut -d: -f1)"
+[ -n "$strict" ] && [ -n "$second" ] && [ "$strict" -lt "$second" ] ||
+	fail 'the exit without backup is not marked, or not ahead of the one with backup'
+rm -f "$tmp/services.exit-2s.txt"
+"$helper" sync
+! grep -q service4_x2s "$S/nft.rules" || fail 'an exit without backup with nothing listed kept its set'
 grep -qx 'nftset=/second.example/4#inet#ikev2_routing_test#dst4_x2,6#inet#ikev2_routing_test#dst6_x2' \
 	"$S/dnsmasq.d/ikev2-routing" || fail 'dnsmasq does not fill the second exit sets'
 "$helper" check || fail 'the installed exit lists failed the check'
@@ -342,6 +364,12 @@ printf '2\t0\t10.30.0.7\n' >"$S/sa-extra"
 "$helper" sync
 grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'the first exit did not fall back when its chosen tunnel went down'
 grep -qx 'default dev ipsec-out metric 10' "$S/route4-1603" || fail 'the second exit did not fall back to the first tunnel'
+# Without backup there is no falling back: the second tunnel is down, so its
+# exit routes nowhere while the first tunnel carries everything else.
+grep -q '^default dev' "$S/route4-1610" && fail 'an exit without backup moved to another tunnel'
+grep -qx 'unreachable default metric 32767' "$S/route4-1610" || fail 'an exit without backup lost its unreachable default'
+"$helper" status | grep -qx 'exit_2s=none' || fail 'a blocked exit without backup was not reported'
+"$helper" check || fail 'a blocked exit without backup failed the check'
 : >"$S/tunnel-down"
 "$helper" sync
 grep -q '^default dev' "$S/route4-1601" "$S/route4-1603" && fail 'an exit kept a tunnel default with no tunnel up'
@@ -356,6 +384,9 @@ rm -f "$S/tunnels" "$S/sa-extra" "$S/tunnels.state"
 "$helper" sync
 grep -q '^28003:' "$S/rules4" "$S/rules6" && fail 'the rule of a removed tunnel was kept'
 [ ! -s "$S/route4-1603" ] || fail 'the table of a removed tunnel was kept'
+# One tunnel has nothing to fall back to: its exit without backup goes too.
+grep -q '^280\(09\|10\):' "$S/rules4" "$S/rules6" && fail 'an exit without backup outlived the second tunnel'
+[ ! -s "$S/route4-1609" ] && [ ! -s "$S/route4-1610" ] || fail 'the table of an exit without backup was kept'
 grep -qx 'default dev ipsec-out metric 10' "$S/route4-1601" || fail 'removing a tunnel took the first exit with it'
 "$helper" check || fail 'one tunnel again failed the check'
 

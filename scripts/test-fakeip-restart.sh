@@ -70,6 +70,8 @@ render_ruleset() {
 	fi
 }
 render_config() { render_ruleset; cp "$tmp/next-config" "$config_file"; }
+# The exits there can be, as the tunnel library orders them.
+tunnel_exit_order='2s 2 3s 3 4s 4 5s 5 6s 6 7s 7 1s'
 . "$tmp/functions.sh"
 
 # A validated configuration is started as it is.

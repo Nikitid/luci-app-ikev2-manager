@@ -15,11 +15,12 @@
 #
 #   mark 0x01000000/0x0f000000  table 1601  the tunnel, unreachable without it
 #   mark 0x02000000/0x0f000000  table 1602  the WAN, for exclusions
-#   mark 0x0N000000/0x0f000000  table 160N  the exit of another tunnel, N 3-9
+#   mark 0x0N000000/0x0f000000  table 160N  another exit, N 3-15 (tunnel.sh)
 #
 # Each tunnel table routes into the tunnel its exit uses now - its own, or
 # another standing in for it, as the watcher chose (tunnel.sh) - and is
-# unreachable when none of them is up.
+# unreachable when none of them is up. An exit without backup has its own
+# tunnel or nothing.
 #
 # IPv6 destinations of a selected name are marked too, into an IPv6 table
 # holding only an unreachable default: the tunnel is IPv4-only, so they fail
@@ -71,7 +72,7 @@ rule_main=28000
 rule_tunnel=28001
 rule_wan=28002
 # The exits of tunnels 2 to 8; see tunnel.sh.
-extra_rule_priorities='28003 28004 28005 28006 28007 28008 28009'
+extra_rule_priorities='28003 28004 28005 28006 28007 28008 28009 28010 28011 28012 28013 28014 28015'
 # The domain sets are filled by dnsmasq when matching by address, or copied
 # from PBR in overlay mode. With FakeIP sing-box routes by name and they stay
 # empty.
@@ -201,7 +202,7 @@ exit_link() {
 exits=1
 load_tunnels() {
 	tunnel_settings_load
-	exits="${tunnel_list:-1}"
+	exits="${tunnel_exits:-1}"
 }
 
 # The list of exit $2 beside the first exit's list $1, as the community
@@ -211,11 +212,11 @@ exit_list() {
 }
 
 # The exits after the first that have destinations of their own: a configured
-# tunnel with a list. Expects load_tunnels.
+# tunnel with a list, in the order they take precedence. Expects load_tunnels.
 active_exits() {
 	local exit
-	for exit in $exits; do
-		[ "$exit" != 1 ] || continue
+	for exit in $tunnel_exit_order; do
+		case " $exits " in *" $exit "*) ;; *) continue ;; esac
 		[ -e "$(exit_list "$domain_file" "$exit")" ] ||
 			[ -e "$(exit_list "$service_file" "$exit")" ] || continue
 		printf '%s\n' "$exit"
@@ -233,22 +234,22 @@ learned_sets() {
 
 # The mark of exit $1, as nft writes it.
 exit_mark() {
-	tunnel_names "$1"
+	tunnel_exit_names "$1"
 	printf '0x%08x\n' $((tunnel_mark_value << 24))
 }
 
 # The tunnel links a table routes into by default, one per line.
 default_links() {
-	printf '%s\n' "$1" | awk '$1 == "default" && $2 == "dev" && $3 ~ /^ipsec-out[2-8]?$/ { print $3 }'
+	printf '%s\n' "$1" | awk '$1 == "default" && $2 == "dev" && $3 ~ /^ipsec-out[2-7]?$/ { print $3 }'
 }
 
-# The exit tables after the first, as "rule mark table" lines for the tunnels
-# configured now.
+# The exit tables after the first, as "rule mark table" lines for the exits
+# there are now.
 extra_exits() {
-	local index
-	for index in $tunnel_list; do
-		[ "$index" != 1 ] || continue
-		tunnel_names "$index"
+	local exit
+	for exit in $exits; do
+		[ "$exit" != 1 ] || continue
+		tunnel_exit_names "$exit"
 		printf '%s %s %s\n' "$tunnel_rule" "$(printf '0x%x' $((tunnel_mark_value << 24)))" "$tunnel_table_id"
 	done
 }
@@ -318,7 +319,7 @@ sync_routes() {
 		inbound="$("$system_helper" gateway-network 2>/dev/null || true)"
 	fi
 	for exit in $exits; do
-		tunnel_names "$exit"
+		tunnel_exit_names "$exit"
 		sync_exit_routes "$tunnel_table_id" "$(exit_link "$exit")" "$inbound" || return 1
 	done
 	if wan="$(wan_default)"; then
@@ -403,7 +404,7 @@ write_ruleset() {
 	# that used them was flushed above.
 	existing="$("$nft_bin" list table inet "$table" 2>/dev/null | awk '$1 == "set" { print $2 }')"
 	for name in $existing; do
-		case "$name" in service4_x[2-8] | dst4_x[2-8] | dst6_x[2-8]) ;; *) continue ;; esac
+		case "$name" in service4_x[1-7]* | dst4_x[1-7]* | dst6_x[1-7]*) ;; *) continue ;; esac
 		grep -qx "${name##*_x}" "$work/exits" ||
 			printf 'delete set inet %s %s\n' "$table" "$name"
 	done
@@ -779,7 +780,7 @@ check_runtime() {
 	# Each tunnel default follows its exit. The watcher syncs when an SA comes
 	# or goes; this catches a change it did not see.
 	for exit in $exits; do
-		tunnel_names "$exit"
+		tunnel_exit_names "$exit"
 		routes="$("$ip_bin" -4 route show table "$tunnel_table_id" 2>/dev/null || true)"
 		printf '%s\n' "$routes" | grep -Eq '^unreachable default .*metric 32767' || return 1
 		[ "$(default_links "$routes")" = "$(exit_link "$exit")" ] || return 1

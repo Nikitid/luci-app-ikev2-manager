@@ -160,6 +160,7 @@ case "$*" in
 	'-q get ikev2-manager.device_192_168_60_5.dns_passthrough') echo 1 ;;
 	'-q get ikev2-manager.device_192_168_60_5.exit') [ -n "${TEST_DEVICE_EXIT:-}" ] && echo "$TEST_DEVICE_EXIT" ;;
 	'-q get ikev2-manager.tunnel_2') [ -n "${TEST_TUNNEL_2:-}" ] && echo tunnel ;;
+	'-q show ikev2-manager') [ -n "${TEST_TUNNEL_2:-}" ] && echo 'ikev2-manager.tunnel_2=tunnel' ;;
 	'-q get ikev2-manager.device_192_168_60_9.address') echo '192.168.60.9' ;;
 	'-q get ikev2-manager.device_192_168_60_9.route_mode') echo 'exclude' ;;
 	'-q get ikev2-manager.device_192_168_60_9.dns_passthrough') echo 1 ;;
@@ -390,6 +391,19 @@ for proto in tcp udp; do
 done
 ! grep -Fq 'comment "ikev2-device:fullroute:192.168.60.5"' "$tmp/rules.nft" ||
 	{ printf '%s\n' 'a device of the second exit kept the first exit mark' >&2; exit 1; }
+# Bound to the second tunnel, without backup: the mark and the inbound of that
+# exit, which never moves to another tunnel.
+TEST_DEVICE_EXIT=2s
+"$helper" check && { printf '%s\n' 'a device bound to its tunnel passed the check unchanged' >&2; exit 1; }
+"$helper" sync
+grep -Fq 'ip saddr 192.168.60.5 meta mark set meta mark & 0xf0ffffff | 0x0a000000 counter accept comment "ikev2-device:fullroute-x2s:192.168.60.5"' "$tmp/rules.nft" ||
+	{ printf '%s\n' 'a device bound to the second tunnel does not get the mark of that exit' >&2; exit 1; }
+for proto in tcp udp; do
+	grep -Fq "ip saddr @full_route_x2s_ipv4 ip daddr 198.18.0.0/15 meta l4proto $proto meta mark set 0x00400002 tproxy ip to 127.0.0.1:1622" "$tmp/rules.nft" ||
+		{ printf '%s\n' 'a device bound to the second tunnel does not reach its FakeIP inbound' >&2; exit 1; }
+done
+! grep -Fq 'fullroute-x2:' "$tmp/rules.nft" && ! grep -Fq 'full_route_x2_ipv4' "$tmp/rules.nft" ||
+	{ printf '%s\n' 'a device bound to its tunnel is also where it may move' >&2; exit 1; }
 unset TEST_TUNNEL_2
 "$helper" sync
 grep -Fq 'comment "ikev2-device:fullroute:192.168.60.5"' "$tmp/rules.nft" && ! grep -Fq full_route_x2 "$tmp/rules.nft" ||

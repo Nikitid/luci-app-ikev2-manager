@@ -21,8 +21,10 @@ die() {
 	return 1
 }
 
+# Selected, and not kept out of the tunnel: its voice then stays out too.
 discord_selected() {
-	[ -r "$selected_file" ] && grep -qx 'discord' "$selected_file"
+	[ -r "$selected_file" ] && grep -qx 'discord' "$selected_file" || return 1
+	[ "$(awk '$1 == "discord" { print $2; exit }' "$exits_file" 2>/dev/null)" != wan ]
 }
 
 stop_runtime() {
@@ -93,14 +95,9 @@ sync_runtime() {
 	mark="${rule%%/*}"
 	mask="${rule#*/}"
 	mark_value=$((mark))
-	exit="$(awk '$1 == "discord" { print $2; exit }' "$exits_file" 2>/dev/null)"
-	case "$exit" in
-		[2-8])
-			# The mark of another exit, when its tunnel is configured (tunnel.sh).
-			! uci -q get "$config.tunnel_$exit" >/dev/null 2>&1 ||
-				mark_value=$(((exit + 1) << 24))
-			;;
-	esac
+	# The mark of the exit the Discord service is sent through (tunnel.sh).
+	exit="$(device_exit_resolve "$(awk '$1 == "discord" { print $2; exit }' "$exits_file" 2>/dev/null)")"
+	[ "$exit" = 1 ] || mark_value=$(($(device_exit_mark "$exit") << 24))
 	mask_value=$((mask))
 	clear_value=$((0xffffffff ^ mask_value))
 	mark_hex="$(printf '0x%08x' "$mark_value")"

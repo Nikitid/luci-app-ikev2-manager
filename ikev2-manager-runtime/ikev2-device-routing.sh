@@ -43,7 +43,7 @@ collect_sources() {
 	# The first tunnel's full-route devices here, every other exit's beside.
 	device_fullroute_exits >"$full.exits" || return 1
 	awk '$2 == 1 { print $1 }' "$full.exits" >"$full"
-	for exit in 2 3 4 5 6 7 8; do
+	for exit in $device_other_exits; do
 		awk -v want="$exit" '$2 == want { print $1 }' "$full.exits" >"$full.$exit"
 		[ -s "$full.$exit" ] || rm -f "$full.$exit"
 	done
@@ -241,11 +241,11 @@ write_fakeip_rules() {
 	local kind mark port proto exit
 	printf '  chain fakeip_policy {\n'
 	# A device sent through another exit reaches that exit's inbound.
-	for exit in 2 3 4 5 6 7 8; do
+	for exit in $device_other_exits; do
 		[ -s "$full.$exit" ] || continue
 		for proto in tcp udp; do
 			printf '    iifname @source_ifaces ip saddr @full_route_x%s_ipv4 ip daddr 198.18.0.0/15 meta l4proto %s meta mark set 0x00400002 tproxy ip to 127.0.0.1:%s counter accept\n' \
-				"$exit" "$proto" $((1610 + exit))
+				"$exit" "$proto" "$(device_exit_port "$exit")"
 		done
 	done
 	for kind in exclude full_route; do
@@ -348,7 +348,7 @@ sync_runtime() {
 
 EOF
 		write_set full_route_ipv4 "$full"
-		for exit in 2 3 4 5 6 7 8; do
+		for exit in $device_other_exits; do
 			[ ! -s "$full.$exit" ] || write_set "full_route_x${exit}_ipv4" "$full.$exit"
 		done
 		write_set exclude_ipv4 "$excluded"
@@ -368,9 +368,9 @@ EOF
 		write_route_rules "$excluded" exclude "$wan_clear" "$wan_mark"
 		write_route_rules "$full" fullroute "$ike_clear" "$ike_mark"
 		# Another exit: the same clear, its own mark (see tunnel.sh).
-		for exit in 2 3 4 5 6 7 8; do
+		for exit in $device_other_exits; do
 			[ ! -s "$full.$exit" ] ||
-				write_route_rules "$full.$exit" "fullroute-x$exit" "$ike_clear" "$(printf '0x%08x' $(((exit + 1) << 24)))"
+				write_route_rules "$full.$exit" "fullroute-x$exit" "$ike_clear" "$(printf '0x%08x' $(($(device_exit_mark "$exit") << 24)))"
 		done
 		printf '  }\n\n'
 		if [ "$dns_enforce" = 1 ]; then

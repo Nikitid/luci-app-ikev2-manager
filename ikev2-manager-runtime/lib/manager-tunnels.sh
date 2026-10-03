@@ -14,7 +14,7 @@ tunnel_routing_helper="${IKEV2_ROUTING_HELPER:-/usr/libexec/ikev2-routing}"
 # The indexes of the configured tunnel sections after the first, in order.
 extra_tunnel_indexes() {
 	uci -q show "$uci_config" 2>/dev/null |
-		sed -n "s/^$uci_config\\.tunnel_\\([2-8]\\)=tunnel\$/\\1/p" | sort -n
+		sed -n "s/^$uci_config\\.tunnel_\\([2-7]\\)=tunnel\$/\\1/p" | sort -n
 }
 
 extra_tunnels_enabled() {
@@ -208,10 +208,18 @@ tunnels_get() {
 	done
 }
 
+# Whether a service, a manual list or a device is bound to tunnel $1 without
+# backup.
+tunnel_bound() {
+	awk -v want="${1}s" '$2 == want { found = 1 } END { exit !found }' \
+		"${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}" 2>/dev/null && return 0
+	uci -q show "$uci_config" 2>/dev/null | grep -q "^$uci_config\\.device_[^.]*\\.exit='${1}s'\$"
+}
+
 # The first tunnel index not configured, for a new tunnel.
 free_tunnel_index() {
 	local index
-	for index in 2 3 4 5 6 7 8; do
+	for index in 2 3 4 5 6 7; do
 		uci -q get "$uci_config.tunnel_$index" >/dev/null 2>&1 || {
 			echo "$index"
 			return 0
@@ -274,13 +282,18 @@ consume_tunnel_input() {
 	case "$index" in
 		new)
 			[ "$action" = save ] || die 'Invalid tunnel'
-			index="$(free_tunnel_index)" || die 'At most eight tunnels can be configured'
+			index="$(free_tunnel_index)" || die 'At most seven tunnels can be configured'
 			;;
-		[2-8])
+		[2-7])
 			uci -q get "$uci_config.tunnel_$index" >/dev/null 2>&1 || die 'Unknown tunnel'
 			;;
 		*) die 'Invalid tunnel' ;;
 	esac
+	# What is bound to a tunnel without backup must not leave from another
+	# place, so it does not quietly move to the first tunnel when its own goes.
+	if [ "$action" = delete ] && tunnel_bound "$index"; then
+		die 'Move the services and devices bound to this tunnel without backup first'
+	fi
 	if [ "$action" = save ]; then
 		valid_tunnel_name "$name" || die 'Tunnel name: letters, digits, spaces, dots, dashes, up to 32 characters'
 		[ "$enabled" = 0 ] || [ "$enabled" = 1 ] || die 'Invalid enabled value'
@@ -360,7 +373,7 @@ tunnels_apply_action() {
 	/etc/init.d/ikev2-xfrm start || return 1
 	"$system_helper" _sync-firewall || return 1
 	swanctl_quiet --load-all >/dev/null || return 1
-	for index in 2 3 4 5 6 7 8; do
+	for index in 2 3 4 5 6 7; do
 		[ "$(getv "tunnel_$index" enabled)" != 1 ] || continue
 		tunnel_names "$index"
 		if "$sa_helper" present "$tunnel_conn"; then
@@ -397,7 +410,7 @@ $sa
 EOF
 		tunnel_names "$index"
 		carries=''
-		for entry in $(printf '%s\n' "$routing" | sed -n 's/^exit_\([1-8]\)=\(.*\)$/\1:\2/p'); do
+		for entry in $(printf '%s\n' "$routing" | sed -n 's/^exit_\([1-7]s\{0,1\}\)=\(.*\)$/\1:\2/p'); do
 			[ "${entry#*:}" = "$tunnel_link" ] || continue
 			carries="$carries${carries:+,}${entry%%:*}"
 		done

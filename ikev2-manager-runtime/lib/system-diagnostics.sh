@@ -27,7 +27,7 @@ diagnostics_identities() {
 	done
 	# The other tunnels, numbered as they are in the report.
 	for section in $(uci -q show "$config" 2>/dev/null |
-		sed -n "s/^$config\.\(tunnel_[2-8]\)=tunnel$/\1/p"); do
+		sed -n "s/^$config\.\(tunnel_[2-7]\)=tunnel$/\1/p"); do
 		for pair in remote_address:server remote_id:server-id username:user; do
 			value="$(uci -q get "$config.$section.${pair%%:*}" 2>/dev/null || true)"
 			[ -z "$value" ] || printf '%s\t<tunnel-%s-%s>\n' "$value" "${section#tunnel_}" "${pair#*:}"
@@ -229,8 +229,8 @@ diagnostics_routes() {
 		printf -- '-- table %s\n' "$table"
 		ip -4 route show table "$table"
 	done
-	# The tables of the other tunnels, those that hold a route.
-	for table in 1603 1604 1605 1606 1607 1608 1609; do
+	# The tables of the other exits, those that hold a route.
+	for table in 1603 1604 1605 1606 1607 1608 1609 1610 1611 1612 1613 1614 1615; do
 		routes="$(ip -4 route show table "$table" 2>/dev/null || :)"
 		[ -n "$routes" ] || continue
 		printf -- '-- table %s\n%s\n' "$table" "$routes"

@@ -2,7 +2,8 @@
 # Two tunnels to two real strongSwan servers, end to end: both connect, each
 # exit's traffic leaves through its own tunnel, the first exit moves to the
 # second tunnel when its server goes and comes back two minutes after it
-# returns, and with no tunnel left nothing reaches the WAN.
+# returns, what is bound to the first tunnel without backup waits for it
+# instead of moving, and with no tunnel left nothing reaches the WAN.
 #
 # Runs inside a privileged OpenWrt rootfs container with the package and
 # strongSwan installed (install.sh failover). The servers live in network
@@ -51,8 +52,9 @@ mkdir -p /var/lock /var/run /tmp/run
 #                                                                    \-- srv2 10.99.0.12
 #
 # Both servers answer on 203.0.113.10 and 198.51.100.10, the destinations of
-# the first and the second exit, so which one carried a packet is told by
-# their counters, not by the address.
+# the first and the second exit, and on 192.0.2.10, which is bound to the
+# first tunnel without backup; which server carried a packet is told by their
+# counters, not by the address.
 
 bridge() {
 	ip link add "$1" type bridge
@@ -152,14 +154,17 @@ EOF
 	# The destinations, answered by the server itself.
 	ip -n "srv$n" addr add 203.0.113.10/32 dev lo
 	ip -n "srv$n" addr add 198.51.100.10/32 dev lo
+	ip -n "srv$n" addr add 192.0.2.10/32 dev lo
 	ip netns exec "srv$n" nft -f - <<'EOF'
 table inet count {
 	counter first { }
 	counter second { }
+	counter bound { }
 	chain input {
 		type filter hook input priority 0;
 		ip daddr 203.0.113.10 icmp type echo-request counter name first
 		ip daddr 198.51.100.10 icmp type echo-request counter name second
+		ip daddr 192.0.2.10 icmp type echo-request counter name bound
 	}
 }
 EOF
@@ -243,9 +248,11 @@ UCI
 uci set firewall.@zone[0].device='br-lan'
 uci commit firewall
 fw4 -q start 2>/dev/null || fail 'the firewall did not start'
-# The first exit's destination, and the second's.
+# The first exit's destination, the second's, and what is bound to the first
+# tunnel without backup.
 printf '203.0.113.10/32\n' >/etc/pbr-ikev2-service-cidrs.txt
 printf '198.51.100.10/32\n' >/etc/pbr-ikev2-service-cidrs.exit-2.txt
+printf '192.0.2.10/32\n' >/etc/pbr-ikev2-service-cidrs.exit-1s.txt
 /usr/lib/ipsec/charon >/tmp/charon-router.log 2>&1 &
 wait_until 15 swanctl --stats || fail 'the router charon did not start'
 /etc/init.d/ikev2-xfrm start || fail 'the tunnel links were not created'
@@ -275,7 +282,7 @@ table ip failover {
 	counter leaked { }
 	chain forward {
 		type filter hook forward priority 0;
-		ip daddr { 203.0.113.10, 198.51.100.10 } oifname != "ipsec-out*" counter name leaked
+		ip daddr { 203.0.113.10, 198.51.100.10, 192.0.2.10 } oifname != "ipsec-out*" counter name leaked
 	}
 }
 NFT
@@ -292,6 +299,7 @@ done
 step 'each exit leaves through its own tunnel'
 reaches 203.0.113.10 1 first
 reaches 198.51.100.10 2 second
+reaches 192.0.2.10 1 bound
 
 step 'the first exit moves to the second tunnel when its server goes'
 # A charon that stops deletes its SAs, so the router learns at once.
@@ -300,6 +308,13 @@ wait_until 40 exit_uses 1 2 || fail 'the first exit did not move to the second t
 reaches 203.0.113.10 2 first
 reaches 198.51.100.10 2 second
 
+step 'what is bound to the first tunnel waits for it instead of moving'
+exit_uses 1s 0 || fail "the exit without backup was given a tunnel: $(cat /var/run/ikev2-tunnels.state)"
+before="$(seen 2 bound)"
+ip netns exec lan ping -c 2 -W 2 192.0.2.10 >/dev/null 2>&1 &&
+	fail 'what is bound to the first tunnel was answered while that tunnel is down'
+[ "$(seen 2 bound)" = "$before" ] || fail 'what is bound to the first tunnel left through the second'
+
 step 'it comes back once its own tunnel has been up for two minutes'
 start 1
 wait_until 90 tunnel_up 1 || fail 'the first tunnel did not reconnect'
@@ -307,6 +322,8 @@ up_since="$(date +%s)"
 sleep 20
 exit_uses 1 2 || fail 'the first exit went back before its tunnel had stayed up'
 reaches 203.0.113.10 2 first
+# Its own tunnel is all it may use, so there is nothing to hold it back from.
+reaches 192.0.2.10 1 bound
 wait_until 150 exit_uses 1 1 || fail 'the first exit did not go back to its own tunnel'
 held=$(($(date +%s) - up_since))
 [ "$held" -ge 105 ] || fail "the first exit went back after ${held} s of its tunnel up"

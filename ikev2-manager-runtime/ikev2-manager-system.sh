@@ -593,7 +593,7 @@ sync_firewall() {
 	# Every outbound tunnel link is in the zone: the first always, the others
 	# while their tunnel is enabled.
 	uci add_list firewall.ikev2pbr_out.device='ipsec-out'
-	for index in 2 3 4 5 6 7 8; do
+	for index in 2 3 4 5 6 7; do
 		[ "$(getv "tunnel_$index" enabled)" = 1 ] || continue
 		uci add_list "firewall.ikev2pbr_out.device=ipsec-out$index"
 	done

@@ -726,7 +726,7 @@ watch_runtime() {
 				printf '%s\n' 'Inbound VICI monitor stopped' >&2
 				return 1
 				;;
-			'child-updown event {'*'proxy-out {'*|'child-updown event {'*'proxy-out-'[2-8]' {'*)
+			'child-updown event {'*'proxy-out {'*|'child-updown event {'*'proxy-out-'[2-7]' {'*)
 				# The outbound tunnels are the health watcher's: wake it, so the
 				# routes that follow a tunnel follow at once.
 				health_pid=''

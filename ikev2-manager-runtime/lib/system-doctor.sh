@@ -96,7 +96,8 @@ strongswan_running_version() {
 # and is up, and every exit something is sent through has a tunnel to use. A
 # router with one tunnel reports nothing here, as before there could be more.
 # Prints "tunnels=ok" or "tunnels=warn:" and a comma list of N-no-password,
-# N-no-link, N-down and exit-N-no-tunnel.
+# N-no-link, N-down and exit-N-no-tunnel, where the exit is Ns for what is
+# bound to tunnel N without backup while that tunnel is off.
 doctor_tunnels() {
 	local index exit problems='' sa='' sa_read=0 assigned=''
 	tunnel_settings_load
@@ -133,9 +134,9 @@ doctor_tunnels() {
 		{ [ ! -r "$exits" ] || awk '{ print $2 }' "$exits"
 		  device_fullroute_exits 2>/dev/null | awk '{ print $2 }'; } | sort -u
 	)"
-	for exit in 2 3 4 5 6 7 8; do
+	for exit in $tunnel_exit_order; do
 		case " $(printf '%s' "$assigned" | tr '\n' ' ') " in *" $exit "*) ;; *) continue ;; esac
-		case " $tunnel_list " in *" $exit "*) ;; *) continue ;; esac
+		case " $tunnel_exits " in *" $exit "*) ;; *) continue ;; esac
 		tunnel_exit_chain "$exit"
 		[ -n "$tunnel_chain" ] || problems="$problems,exit-$exit-no-tunnel"
 	done
@@ -327,8 +328,8 @@ doctor_checks() {
 		doctor_tunnels
 	fi
 
-	# Reserved XFRM if_id 42 (ipsec-out), 43 (ipsec-in) and 52-58 (ipsec-out2
-	# to ipsec-out8, see tunnel.sh). A foreign xfrm interface holding one
+	# Reserved XFRM if_id 42 (ipsec-out), 43 (ipsec-in) and 52-57 (ipsec-out2
+	# to ipsec-out7, see tunnel.sh). A foreign xfrm interface holding one
 	# collides with the ones this app creates.
 	xfrm_conflict="$(
 		ip -d link show type xfrm 2>/dev/null | awk '
@@ -339,8 +340,8 @@ doctor_checks() {
 				n = (id ~ /^0x/) ? sprintf("%d", strtonum_hex(id)) : id + 0
 				if (n == 42 && name == "ipsec-out") next
 				if (n == 43 && name == "ipsec-in") next
-				if (n >= 52 && n <= 58 && name == "ipsec-out" (n - 50)) next
-				if (n == 42 || n == 43 || (n >= 52 && n <= 58))
+				if (n >= 52 && n <= 57 && name == "ipsec-out" (n - 50)) next
+				if (n == 42 || n == 43 || (n >= 52 && n <= 57))
 					print name ":" id
 			}
 			function strtonum_hex(h,   i, c, v) {
@@ -365,7 +366,7 @@ doctor_checks() {
 	xfrm_name_conflicts=''
 	for name_id in 'ipsec-out:42:0x2a' 'ipsec-in:43:0x2b' 'ipsec-out2:52:0x34' \
 		'ipsec-out3:53:0x35' 'ipsec-out4:54:0x36' 'ipsec-out5:55:0x37' \
-		'ipsec-out6:56:0x38' 'ipsec-out7:57:0x39' 'ipsec-out8:58:0x3a'; do
+		'ipsec-out6:56:0x38' 'ipsec-out7:57:0x39'; do
 		name="${name_id%%:*}"
 		rest="${name_id#*:}"
 		expected_dec="${rest%%:*}"

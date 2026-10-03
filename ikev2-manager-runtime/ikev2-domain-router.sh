@@ -439,17 +439,21 @@ exit_ruleset() {
 	printf '%s.exit-%s.json\n' "${1%.json}" "$2"
 }
 
-# The TProxy port of the devices sent whole through exit $1 after the first.
+# The TProxy port of the devices sent whole through exit $1 after the first:
+# 1612 to 1617 for the tunnels, 1621 to 1627 for their exits without backup.
 exit_tproxy_port() {
-	printf '%s\n' $((1610 + $1))
+	case "$1" in
+		*s) printf '%s\n' $((1620 + ${1%s})) ;;
+		*) printf '%s\n' $((1610 + $1)) ;;
+	esac
 }
 
-# The exits after the first with names of their own: a configured tunnel
-# with a list. Expects tunnel_settings_load.
+# The exits after the first with names of their own: one with a list, in the
+# order they take precedence. Expects tunnel_settings_load.
 named_exits() {
 	local exit
-	for exit in $tunnel_list; do
-		[ "$exit" != 1 ] || continue
+	for exit in $tunnel_exit_order; do
+		case " $tunnel_exits " in *" $exit "*) ;; *) continue ;; esac
 		[ -e "$(exit_domain_file "$exit")" ] || continue
 		printf '%s\n' "$exit"
 	done
@@ -477,7 +481,7 @@ render_ruleset() {
 		rm -f "$bypass_ruleset_file"
 	fi
 	tunnel_settings_load
-	for exit in 2 3 4 5 6 7 8; do
+	for exit in $tunnel_exit_order; do
 		list="$(exit_domain_file "$exit")"
 		case " $(named_exits | tr '\n' ' ') " in
 			*" $exit "*) ;;
@@ -505,7 +509,7 @@ tunnel_inputs() {
 		tunnel_names "$index"
 		printf 'tunnel\t%s\t%s\n' "$index" "$tunnel_link"
 	done
-	for exit in $tunnel_list; do
+	for exit in $tunnel_exits; do
 		tunnel_exit_chain "$exit"
 		[ -n "$tunnel_chain" ] || continue
 		printf 'exit\t%s\t%s\n' "$exit" "$(printf '%s' "$tunnel_chain" | tr ' ' '\t')"
@@ -515,7 +519,7 @@ tunnel_inputs() {
 	done
 	# Every configured exit has its devices' inbound, so a device moved
 	# between exits changes nftables only.
-	for exit in $tunnel_list; do
+	for exit in $tunnel_exits; do
 		[ "$exit" != 1 ] || continue
 		printf 'exit_port\t%s\t%s\n' "$exit" "$(exit_tproxy_port "$exit")"
 	done
@@ -699,7 +703,7 @@ backup_generated() {
 	# The rule sets of the other exits, which the configuration names: one put
 	# back without its file would keep sing-box from starting.
 	local exit
-	for exit in 2 3 4 5 6 7 8; do
+	for exit in $tunnel_exit_order; do
 		[ ! -s "$(exit_ruleset "$ruleset_file" "$exit")" ] ||
 			cp "$(exit_ruleset "$ruleset_file" "$exit")" "$backup_dir/rules.exit-$exit.json"
 	done
@@ -720,7 +724,7 @@ restore_generated() {
 		mv "${bypass_ruleset_file}.restore" "$bypass_ruleset_file"
 	fi
 	local exit list
-	for exit in 2 3 4 5 6 7 8; do
+	for exit in $tunnel_exit_order; do
 		[ -s "$backup_dir/rules.exit-$exit.json" ] || continue
 		list="$(exit_ruleset "$ruleset_file" "$exit")"
 		cp "$backup_dir/rules.exit-$exit.json" "$list.restore"
@@ -833,7 +837,7 @@ listeners_ready() {
 	local sockets listener exit ports=''
 	sockets="$(netstat -ln 2>/dev/null)" || return 1
 	tunnel_settings_load
-	for exit in $tunnel_list; do
+	for exit in $tunnel_exits; do
 		[ "$exit" = 1 ] || ports="$ports $tproxy_address:$(exit_tproxy_port "$exit")"
 	done
 	for listener in "$dns_address:$dns_port" "$tproxy_address:$tproxy_port" \
@@ -1836,7 +1840,7 @@ refresh_rules() {
 	fi
 	# Every exit's rule set as it is now; one that is absent stays absent.
 	backup="$(mktemp -d /tmp/ikev2-domain-rules.XXXXXX)" || return 1
-	for exit in 1 2 3 4 5 6 7 8; do
+	for exit in 1 $tunnel_exit_order; do
 		file="$(exit_rules_file "$exit")"
 		[ ! -e "$file" ] || cp "$file" "$backup/$exit.json" || {
 			rm -rf "$backup"
@@ -1850,7 +1854,7 @@ refresh_rules() {
 		return 1
 	fi
 	changed=0 added=''
-	for exit in 1 2 3 4 5 6 7 8; do
+	for exit in 1 $tunnel_exit_order; do
 		file="$(exit_rules_file "$exit")"
 		if [ -e "$backup/$exit.json" ] && [ -e "$file" ] && cmp -s "$backup/$exit.json" "$file"; then
 			continue
@@ -1903,7 +1907,7 @@ refresh_rules() {
 		attempt=$((attempt + 1))
 		sleep 1
 	done
-	for exit in 1 2 3 4 5 6 7 8; do
+	for exit in 1 $tunnel_exit_order; do
 		file="$(exit_rules_file "$exit")"
 		if [ -e "$backup/$exit.json" ]; then
 			cp "$backup/$exit.json" "$file.restore" && mv "$file.restore" "$file"

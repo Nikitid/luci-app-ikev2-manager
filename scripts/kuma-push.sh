@@ -15,7 +15,7 @@
 #     T_services= T_tunnel= T_domains= T_dns= T_inbound= T_cert=
 #     T_security=   optional: doctor security findings
 #     T_traffic=    optional: throughput of all the tunnels together
-#     T_tunnel_2= ... T_tunnel_8=   optional: a monitor for each other tunnel
+#     T_tunnel_2= ... T_tunnel_7=   optional: a monitor for each other tunnel
 #
 # Each monitor also charts a number as its "ping", the one that moves before
 # its state does: the watcher's share of a CPU core, the tunnel's round trip,
@@ -145,10 +145,11 @@ report "$T_services" "FakeIP работает, маршрутизация не �
 # doctor's tunnels=warn:<list>, one problem per tunnel or exit, in words
 tunnel_problems() {
 	printf '%s\n' "${1#warn:}" | tr ',' '\n' | sed \
-		-e 's/^\([1-8]\)-down$/туннель \1 не подключён/' \
-		-e 's/^\([1-8]\)-no-link$/у туннеля \1 нет интерфейса/' \
-		-e 's/^\([1-8]\)-no-password$/у туннеля \1 нет пароля/' \
-		-e 's/^exit-\([1-8]\)-no-tunnel$/трафику туннеля \1 не осталось туннеля, он отклоняется/' |
+		-e 's/^\([1-7]\)-down$/туннель \1 не подключён/' \
+		-e 's/^\([1-7]\)-no-link$/у туннеля \1 нет интерфейса/' \
+		-e 's/^\([1-7]\)-no-password$/у туннеля \1 нет пароля/' \
+		-e 's/^exit-\([1-7]\)s-no-tunnel$/туннель \1 выключен, привязанный к нему трафик отклоняется/' \
+		-e 's/^exit-\([1-7]\)-no-tunnel$/трафику туннеля \1 не осталось туннеля, он отклоняется/' |
 		awk 'NF { printf "%s%s", sep, $0; sep = "; " } END { print "" }'
 }
 
@@ -169,7 +170,7 @@ report "$T_tunnel" "туннель поднят, выход $tun, задержк
 # 2b. each other tunnel with a token of its own: up, leaving from elsewhere
 # than WAN, and its round trip
 tunnels_status=$(/usr/libexec/ikev2-manager tunnels-status 2>/dev/null)
-for n in 2 3 4 5 6 7 8; do
+for n in 2 3 4 5 6 7; do
 	eval "token=\${T_tunnel_$n:-}"
 	[ -n "$token" ] || continue
 	if [ "$(uci -q get "ikev2-manager.tunnel_$n.enabled")" != 1 ]; then

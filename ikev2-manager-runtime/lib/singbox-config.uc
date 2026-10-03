@@ -82,13 +82,21 @@ function required(input, key) {
 }
 
 function tunnel_index(value) {
-	if (!match(value ?? '', /^[1-8]$/))
+	if (!match(value ?? '', /^[1-7]$/))
 		die(`invalid tunnel: ${value}`);
 	return value;
 }
 
+// An exit is a tunnel index, with "s" for the one that never moves to
+// another tunnel: its selector holds that tunnel alone.
+function exit_index(value) {
+	if (!match(value ?? '', /^[1-7]s?$/))
+		die(`invalid exit: ${value}`);
+	return value;
+}
+
 function link_name(value) {
-	if (!match(value ?? '', /^ipsec-out[2-8]?$/))
+	if (!match(value ?? '', /^ipsec-out[2-7]?$/))
 		die(`invalid tunnel link: ${value}`);
 	return value;
 }
@@ -185,7 +193,7 @@ function render(input) {
 	// with none, nowhere - the connection is refused, it never goes direct.
 	let chains = {};
 	for (let e in input.exit)
-		chains[tunnel_index(e.index)] = e.tunnels;
+		chains[exit_index(e.index)] = e.tunnels;
 	let exit_out = (exit) => {
 		if (several)
 			return length(filter(outbounds, (o) => o.tag == `exit-${exit}`)) ? `exit-${exit}` : null;
@@ -211,7 +219,7 @@ function render(input) {
 				continue;
 			push(outbounds, {
 				type: 'selector',
-				tag: `exit-${tunnel_index(e.index)}`,
+				tag: `exit-${exit_index(e.index)}`,
 				outbounds: members,
 				default: members[0],
 				interrupt_exist_connections: true
@@ -254,13 +262,13 @@ function render(input) {
 	let tunnel_out = exit_out('1');
 	// Every exit's names get FakeIP addresses; each exit's own rule set routes
 	// them, ahead of the first exit's.
-	let exit_rule_sets = map(input.exit_rules, (e) => ({ index: tunnel_index(e.index), path: e.path }));
+	let exit_rule_sets = map(input.exit_rules, (e) => ({ index: exit_index(e.index), path: e.path }));
 	for (let e in exit_rule_sets) {
 		if (e.index == '1' || type(e.path) != 'string' || e.path == '')
 			die(`invalid exit rule set: ${e.index}`);
 		push(domains, `ikev2-domains-${e.index}`);
 	}
-	let exit_inbounds = map(input.exit_port, (e) => ({ index: tunnel_index(e.index), port: port(e.port, 'exit tproxy port') }));
+	let exit_inbounds = map(input.exit_port, (e) => ({ index: exit_index(e.index), port: port(e.port, 'exit tproxy port') }));
 	for (let segment in input.segment)
 		push(servers, {
 			type: 'udp',

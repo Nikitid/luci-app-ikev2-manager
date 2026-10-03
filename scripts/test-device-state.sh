@@ -192,6 +192,16 @@ printf '%s\n' 'tunnel_2=tunnel' 'tunnel_2.enabled=1' >>"$tmp/uci/ikev2-manager"
 run_device set-exit 192.168.1.93 2
 run_device dump | grep -Fxq 'addr=192.168.1.93 mode=fullroute exit=2' ||
 	{ printf '%s\n' 'a device sent through the second tunnel does not show it' >&2; exit 1; }
+# Bound to that tunnel, without backup; an eighth tunnel is not one.
+run_device set-exit 192.168.1.93 2s
+run_device dump | grep -Fxq 'addr=192.168.1.93 mode=fullroute exit=2s' ||
+	{ printf '%s\n' 'a device bound to the second tunnel does not show it' >&2; exit 1; }
+for bad in 8 8s 2x s wan; do
+	if run_device set-exit 192.168.1.93 "$bad" >/dev/null 2>&1; then
+		printf 'a device was sent through "%s"\n' "$bad" >&2
+		exit 1
+	fi
+done
 run_device set-exit 192.168.1.93 1
 run_device dump | grep -Fxq 'addr=192.168.1.93 mode=fullroute' &&
 	! grep -q '^device_192_168_1_93.exit=' "$tmp/uci/ikev2-manager" ||
