@@ -103,7 +103,8 @@ manager() {
 }
 token="$(manager profile-link android user.name@example | sed -n 's/^token=//p')"
 printf '%s\n' "$token" | grep -Eq '^[0-9a-f]{32}$' || { printf 'no link token: %s\n' "$token" >&2; exit 1; }
-[ "$(stat -f %Lp "$tmp/links" 2>/dev/null || stat -c %a "$tmp/links")" = 700 ] ||
+# GNU stat first: its -f reads the file system and succeeds with other output.
+[ "$(stat -c %a "$tmp/links" 2>/dev/null || stat -f %Lp "$tmp/links")" = 700 ] ||
 	{ printf 'the link directory is readable by others\n' >&2; exit 1; }
 manager profile-link-serve "$token" 203.0.113.7 >"$tmp/served"
 grep -q '^Status: 403' "$tmp/served" || { printf 'a public address got the profile\n' >&2; exit 1; }
