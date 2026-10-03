@@ -94,6 +94,13 @@ check_pattern '(^|[;&|[:space:]])flock[[:space:]]+(-[A-Za-z]*[Eow]|--(timeout|cl
 check_pattern '(^|[;&|[:space:]])grep([[:space:]]+-[A-Za-z]*P)' \
 	'BusyBox grep does not support -P'
 
+# A pattern file: with an empty one BusyBox grep matches every line, where GNU
+# grep matches none, verified on the router. "grep -v -f" of a list that had
+# nothing in it yet printed nothing, which emptied the service networks and
+# took Telegram's addresses out of the tunnel.
+check_pattern '(^|[;&|[:space:]])grep([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*f([[:space:]]|$)' \
+	'BusyBox grep matches every line against an empty pattern file; filter with awk'
+
 # BusyBox find has no -printf.
 check_pattern '(^|[;&|[:space:]])find[^|;&]*[[:space:]]-printf([[:space:]]|$)' \
 	'BusyBox find does not support -printf'

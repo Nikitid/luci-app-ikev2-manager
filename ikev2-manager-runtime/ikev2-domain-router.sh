@@ -1331,7 +1331,12 @@ added_rule_domain() (
 		jsonfilter -i "$old" -e '@.rules[*].domain_suffix[*]' >"$work/old" 2>/dev/null || :
 	jsonfilter -i "$new" -e '@.rules[*].domain_suffix[*]' >"$work/new" 2>/dev/null ||
 		return 1
-	grep -vxF -f "$work/old" "$work/new" | head -n1
+	# Not "grep -vxFf": with OLD absent the pattern file is empty, which
+	# BusyBox grep takes to match every line, so nothing was ever new.
+	awk -v old="$work/old" '
+		BEGIN { while ((getline line <old) > 0) seen[line] = 1 }
+		!($0 in seen) { print; exit }
+	' "$work/new"
 )
 
 # The rule set file of exit $1: the first exit's, or one beside it.

@@ -262,6 +262,20 @@ by a zero-padded text prefix and cut it off afterwards.
 
 Guarded by `scripts/check-busybox-compat.sh`.
 
+## BusyBox grep matches every line against an empty pattern file
+
+`grep -f FILE` with an empty FILE matches nothing in GNU grep and every line
+in BusyBox grep, so `grep -v -f` of a list that holds nothing yet prints
+nothing at all. The networks of each exit were filtered that way against what
+the exits before it had taken; with one tunnel nothing had been taken, and
+every service network was dropped. The names of a service still went through
+the tunnel while the addresses its application connects to did not, which
+read as Telegram loading badly, not as a routing fault, and every test passed
+because they run GNU or BSD grep. Filter a list against a file with awk, and
+refuse a result that is empty where the input was not.
+
+Guarded by `scripts/check-busybox-compat.sh` and `scripts/openwrt/scenarios.sh`.
+
 ## `with_lock` takes a function, not a command line
 
 `with_lock` runs its first argument as a shell function. Writing

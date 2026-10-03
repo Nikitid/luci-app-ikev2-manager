@@ -631,6 +631,37 @@ sed -n '/^normalize_domains() {/,/^}/p; /^normalize_remote_domains() {/,/^}/p' \
 	done
 )
 
+step 'a list nothing was taken from keeps every line, with the BusyBox tools'
+# The networks of each exit are what no exit before it took. Filtered with
+# "grep -vxFf", an empty list of what was taken matched every line on BusyBox
+# and every service network was dropped: the names of a service still went
+# through the tunnel and its addresses did not.
+sed -n '/^drop_taken_lines() {/,/^}/p' /usr/libexec/ikev2-domains-community >/tmp/filter.sh
+grep -q '^drop_taken_lines()' /tmp/filter.sh || fail 'the network filter is not installed'
+(
+	. /tmp/filter.sh
+	: >/tmp/taken
+	[ "$(printf '91.108.4.0/22\n149.154.160.0/20\n' | drop_taken_lines /tmp/taken | tr '\n' ' ')" = '91.108.4.0/22 149.154.160.0/20 ' ] ||
+		fail 'with nothing taken yet the networks of a service were dropped'
+	printf '149.154.160.0/20\n' >/tmp/taken
+	[ "$(printf '91.108.4.0/22\n149.154.160.0/20\n' | drop_taken_lines /tmp/taken | tr '\n' ' ')" = '91.108.4.0/22 ' ] ||
+		fail 'a network an exit before had taken was listed again'
+)
+# The same for a rule set that is new: every name in it is new.
+sed -n '/^added_rule_domain() (/,/^)/p' /usr/libexec/ikev2-domain-router >/tmp/filter.sh
+grep -q '^added_rule_domain()' /tmp/filter.sh || fail 'the rule-set comparison is not installed'
+(
+	. /tmp/filter.sh
+	printf '{"version":3,"rules":[{"domain_suffix":["first.example","second.example"]}]}\n' >/tmp/new.json
+	[ "$(added_rule_domain /tmp/absent.json /tmp/new.json)" = first.example ] ||
+		fail 'a rule set that is new was read as adding no name'
+	printf '{"version":3,"rules":[{"domain_suffix":["first.example"]}]}\n' >/tmp/old.json
+	[ "$(added_rule_domain /tmp/old.json /tmp/new.json)" = second.example ] ||
+		fail 'the name a rule set adds was not found'
+	[ -z "$(added_rule_domain /tmp/new.json /tmp/new.json)" ] || fail 'an unchanged rule set was read as adding a name'
+)
+rm -f /tmp/filter.sh /tmp/taken /tmp/new.json /tmp/old.json
+
 # --- a pause refuses what reaches the tunnel ------------------------------
 
 step 'a pause closes the tunnel and resume opens it, with real nft'

@@ -836,6 +836,17 @@ publish_exit_lists() {
 	done
 }
 
+# Keep from stdin only the lines the file TAKEN does not hold. Not
+# "grep -vxFf": with an empty pattern file BusyBox grep matches every line,
+# so -v printed none, and with no exit before it having taken anything every
+# service network was dropped from the routing.
+drop_taken_lines() {
+	awk -v taken="$1" '
+		BEGIN { while ((getline line <taken) > 0) skip[line] = 1 }
+		!($0 in skip)
+	'
+}
+
 # Keep from stdin only the names no earlier exit already takes: a name, or a
 # domain under one, listed in TAKEN. Earlier exits win, so sing-box, which
 # reads the exits in order, and dnsmasq, which takes the most specific name,
@@ -977,10 +988,20 @@ apply_once() {
 	# networks are settled by the order the routing matches the exits in.
 	: >"$work/cidrs.taken"
 	for exit in $other_exits 1; do
-		sort -u "$work/cidrs.unsorted.$exit" | grep -vxFf "$work/cidrs.taken" >"$work/cidrs.$exit" || :
+		sort -u "$work/cidrs.unsorted.$exit" | drop_taken_lines "$work/cidrs.taken" >"$work/cidrs.$exit"
 		cat "$work/cidrs.$exit" >>"$work/cidrs.taken"
 	done
 	mv "$work/cidrs.1" "$work/cidrs"
+	# Sorting and dropping duplicates cannot leave nothing where there was
+	# something. When they did, a filter misbehaved on this system, and the
+	# addresses of every service were about to leave the tunnel without a word
+	# while their names kept working.
+	for exit in 1 $other_exits; do cat "$work/cidrs.unsorted.$exit"; done >"$work/cidrs.wanted"
+	if [ -s "$work/cidrs.wanted" ] && [ ! -s "$work/cidrs" ] && [ ! -s "$work/cidrs.taken" ]; then
+		echo 'refusing to install an empty network list: services have networks, but none survived' >&2
+		rm -rf "$work"
+		return 1
+	fi
 	sort -u "$work/bypass.cidrs.unsorted" 2>/dev/null >"$work/bypass.cidrs"
 	exits_used=''
 	for exit in $other_exits; do
