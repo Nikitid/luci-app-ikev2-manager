@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs the package built by scripts/build-ipk.sh into a fresh OpenWrt rootfs
-# container, the way a router gets it, then runs the scenarios. /src is the
+# container, the way a router gets it, then runs the scenarios - or, with the
+# argument "failover", strongSwan as well and the two-tunnel test. /src is the
 # repository, mounted read-only.
 
 set -eu
@@ -25,6 +26,23 @@ else
 	mkdir -p /tmp/ipk
 	tar -xzf "$ipk" -C /tmp/ipk
 	tar -xzf /tmp/ipk/data.tar.gz -C /
+fi
+
+if [ "${1:-}" = failover ]; then
+	# strongSwan and the tools the tunnels use, as the dependency installer
+	# lists them; kernel modules come from the host.
+	packages="$(awk '/^runtime_packages\(\)/ { list = 1; next }
+		list && /^EOF$/ { exit }
+		list && /^(strongswan|swanmon$|openssl-util$|conntrack$)/' \
+		/usr/libexec/ikev2-manager.d/system-deps.sh)"
+	[ -n "$packages" ] || { printf '%s\n' 'openwrt: no strongSwan packages listed' >&2; exit 1; }
+	# shellcheck disable=SC2086
+	if command -v opkg >/dev/null 2>&1; then
+		opkg install $packages >/dev/null
+	else
+		apk add $packages >/dev/null
+	fi
+	exec sh /src/scripts/openwrt/failover.sh
 fi
 
 # A command a scenario lacks prints "not found" and the shell carries on, so

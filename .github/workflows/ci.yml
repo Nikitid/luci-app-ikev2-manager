@@ -69,5 +69,16 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
+      - name: Load the kernel modules of the failover test
+        # The runner kernel keeps xfrm_interface in its extra modules package
+        # on some images.
+        run: |
+          if ! sudo modprobe -a xfrm_interface esp4; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q "linux-modules-extra-$(uname -r)"
+            sudo modprobe -a xfrm_interface esp4
+          fi
       - name: Run scenarios on OpenWrt 24.10 and 25.12
+        env:
+          IKEV2_REQUIRE_XFRM: "1"
         run: ./scripts/test-openwrt.sh
