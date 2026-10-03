@@ -80,7 +80,6 @@ for pair in \
 	'luci-ikev2-manager/client.js:trackChanges(rawSave,' \
 	'luci-ikev2-manager/client.js:trackChanges(save, [ name,' \
 	'luci-ikev2-domains/editor.js:trackChanges(saveBtn,' \
-	'luci-ikev2-domains/editor.js:trackChanges(serviceSave,' \
 	'luci-ikev2-manager/users.js:trackChanges(dialogSave,'; do
 	grep -Fq "${pair#*:}" "${pair%%:*}" || {
 		printf 'save button is not tied to its form changes: %s\n' "$pair" >&2
@@ -160,8 +159,6 @@ if grep -Fq "self.renderFlagExemptions(" 'luci-ikev2-manager/setup.js' ||
 	exit 1
 fi
 grep -Fq "E('option', { 'value': customValue }" 'luci-ikev2-manager/shared.js'
-grep -Fq "Date.now() + 120000" 'luci-ikev2-domains/editor.js'
-grep -Fq "common.showProgress(result, st.message);" 'luci-ikev2-domains/editor.js'
 for phase in \
 	'Preparing selected domain lists...' \
 	'Downloading selected service lists...' \
@@ -176,16 +173,6 @@ grep -Fq '"/usr/libexec/ikev2-domains-community services": [ "exec" ]' "$acl"
 grep -Fq '"/usr/libexec/ikev2-domains-community service-read *": [ "exec" ]' "$acl"
 grep -Fq '"/usr/libexec/ikev2-domains-community service-schedule *": [ "exec" ]' "$acl"
 grep -Fq '"/tmp/ikev2-service-input-*.meta": [ "write" ]' "$acl"
-grep -Fq "common.execChecked(communityHelper, [ 'service-read', record.id ]" \
-	'luci-ikev2-domains/editor.js'
-grep -Fq "runServiceOperation('save')" 'luci-ikev2-domains/editor.js'
-grep -Fq "runServiceOperation('reset')" 'luci-ikev2-domains/editor.js'
-grep -Fq "runServiceOperation('delete')" 'luci-ikev2-domains/editor.js'
-grep -Fq "_('Manage services')" 'luci-ikev2-domains/editor.js'
-grep -Fq "'selected=' + (operation === 'delete' ? '0' : 'keep')" \
-	'luci-ikev2-domains/editor.js'
-grep -Fq 'function runPageAction(options)' 'luci-ikev2-domains/editor.js'
-grep -Fq "_('Discard unsaved service changes?')" 'luci-ikev2-domains/editor.js'
 if grep -Fq "common.fieldLabel(_('Enabled in policy'))" \
 	'luci-ikev2-domains/editor.js'; then
 	printf '%s\n' 'service editor must not bypass the page-level policy save' >&2

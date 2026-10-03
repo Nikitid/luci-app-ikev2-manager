@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v12 as common';
+'require ikev2-manager.shared-v13 as common';
 
 var helper = '/usr/libexec/ikev2-manager-system';
 var devicesHelper = '/usr/libexec/ikev2-devices';
@@ -273,17 +273,19 @@ function checkRows(doctor, tunnelNames) {
 		}
 		else if (key === 'tunnels' && warn) {
 			shown = shown.split(',').map(function(item) {
-				var problem = /^(exit-)?([1-8])-(.+)$/.exec(item);
+				var problem = /^(exit-)?([1-7])(s)?-(.+)$/.exec(item);
 				if (!problem)
 					return item;
 				var name = (tunnelNames || {})[problem[2]] || _('Tunnel %s').format(problem[2]);
+				if (problem[1] && problem[3])
+					return _('%s is off: what is bound to it without backup is refused').format(name);
 				if (problem[1])
 					return _('%s: its traffic has no tunnel left and is refused').format(name);
-				if (problem[3] === 'no-password')
+				if (problem[4] === 'no-password')
 					return _('%s: no password').format(name);
-				if (problem[3] === 'no-link')
+				if (problem[4] === 'no-link')
 					return _('%s: no interface').format(name);
-				if (problem[3] === 'down')
+				if (problem[4] === 'down')
 					return _('%s: down').format(name);
 				return item;
 			}).join('; ');
@@ -517,17 +519,23 @@ return view.extend({
 		}
 
 		// The tunnel a full-route device leaves by. While it is down the
-		// device moves to the next tunnel up, never to WAN.
+		// device moves to the next tunnel up, or, bound to it without backup,
+		// waits for it; never to WAN.
 		function tunnelSelect(entry) {
 			var current = entry.exit || '1';
+			var places = [];
+			tunnels.forEach(function(choice) {
+				places.push({ value: choice.index, label: choice.name });
+				places.push({ value: choice.index + 's', label: _('%s, no backup').format(choice.name) });
+			});
 			var select = E('select', {
 				'class': 'cbi-input-select',
 				'aria-label': _('Tunnel')
-			}, tunnels.map(function(choice) {
+			}, places.map(function(place) {
 				return E('option', {
-					'value': choice.index,
-					'selected': choice.index === current ? '' : null
-				}, [ choice.name ]);
+					'value': place.value,
+					'selected': place.value === current ? '' : null
+				}, [ place.label ]);
 			}));
 			select.addEventListener('change', function() {
 				select.disabled = true;

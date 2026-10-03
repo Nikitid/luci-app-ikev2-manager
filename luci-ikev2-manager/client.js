@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v12 as common';
+'require ikev2-manager.shared-v13 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -1898,13 +1898,11 @@ return view.extend({
 				]),
 				E('div', { 'class': 'ikev2-form-grid' }, [
 					common.fieldLabel(_('Name')), name,
-					common.fieldLabel(_('Enabled')), common.switchLabel(enabled),
-					common.fieldLabel(_('Resolve through sing-box'),
+					common.toggleRow(enabled, _('Enabled')),
+					common.toggleRow(via, _('Resolve through sing-box'),
 						_('Off: dnsmasq sends this segment straight to its resolver group. On: its queries pass through sing-box, which can answer them for browser compatibility. Applies in Reliable mode.')),
-					common.switchLabel(via),
-					common.fieldLabel(_('Browser compatibility'),
+					common.toggleRow(httpsCompat, _('Browser compatibility'),
 						_('Return an empty successful HTTPS DNS response for this segment so browsers safely fall back to A and AAAA. Needs the sing-box path.')),
-					common.switchLabel(httpsCompat),
 					common.fieldLabel(_('Domain suffixes'), _('Space-separated, for example: ru su')), domains,
 					common.fieldLabel(_('Query strategy')), mode,
 					common.fieldLabel(_('Primary DNS servers')), upstream.node,
@@ -1914,9 +1912,8 @@ return view.extend({
 					// One cell: the note belongs under the list, not in the
 					// next row of the label column.
 					E('div', {}, [ fallback.node, fallbackEffective ]),
-					common.fieldLabel(_('Provider DNS as a last resort'),
-						_('Adds the DNS servers your internet provider hands out after the fallback servers. They answer in plain text and are asked only when every other server of this segment has failed.')),
-					common.switchLabel(wanFallback)
+					common.toggleRow(wanFallback, _('Provider DNS as a last resort'),
+						_('Adds the DNS servers your internet provider hands out after the fallback servers. They answer in plain text and are asked only when every other server of this segment has failed.'))
 				]),
 				E('div', { 'class': 'ikev2-actions bar' }, [ result.node, remove, save ])
 			]);
@@ -2174,6 +2171,20 @@ return view.extend({
 			].filter(Boolean).join(' · ');
 		}
 
+		// The main tunnel's own switch for what every other tunnel has in its
+		// block: applied at once, like the tunnels themselves.
+		var mainBackup = input('checkbox', value.backup === '0' ? '0' : '1');
+		var mainBackupResult = common.inlineResult();
+		mainBackup.addEventListener('change', function() {
+			var wanted = mainBackup.checked;
+			return runManagerJob(mainBackup, mainBackupResult,
+				[ 'client-backup', wanted ? '1' : '0' ],
+				_('Applying...'), _('Saved.'), _('Tunnel settings failed.'), 180000).then(function(st) {
+				if (!st || st.state === 'error')
+					mainBackup.checked = !wanted;
+			});
+		});
+
 		function tunnelBlock(item) {
 			var name = input('text', item ? item.name : '', { 'placeholder': _('Netherlands') });
 			var enabledTunnel = input('checkbox', '1');
@@ -2267,7 +2278,7 @@ return view.extend({
 				detail,
 				E('div', { 'class': 'ikev2-form-grid' }, [
 					common.fieldLabel(_('Name')), name,
-					common.fieldLabel(_('Enabled')), common.switchLabel(enabledTunnel),
+					common.toggleRow(enabledTunnel, _('Enabled')),
 					common.fieldLabel(_('Remote address'),
 						_('IPv4 address or hostname of the IKEv2 gateway.')),
 					remote,
@@ -2278,9 +2289,8 @@ return view.extend({
 					common.fieldLabel(_('New EAP password'),
 						_('Visible while editing; leave blank to preserve the saved secret.')),
 					secret,
-					common.fieldLabel(_('Stand in for other tunnels'),
+					common.toggleRow(backup, _('Stand in for other tunnels'),
 						_('When another tunnel drops, its traffic moves here until it is back. Off: only what is sent to this tunnel uses it.')),
-					common.switchLabel(backup),
 					common.fieldLabel(_('DPD interval'),
 						_('Dead peer detection in seconds.')),
 					tunnelDpd.node,
@@ -2378,8 +2388,7 @@ return view.extend({
 					_('Changing these values reloads the tunnel profile and reconnects it. Policy routing stays in place.'),
 					E('div', {}, [
 						E('div', { 'class': 'ikev2-form-grid' }, [
-							common.fieldLabel(_('Enable client')),
-							common.switchLabel(enabled),
+							common.toggleRow(enabled, _('Enable client')),
 							common.fieldLabel(_('Remote address'),
 								_('IPv4 address or hostname of the IKEv2 gateway.')),
 							address,
@@ -2397,8 +2406,13 @@ return view.extend({
 					]),
 					connectionAdvanced.toggle),
 				common.section(_('More tunnels'),
-					_('Every enabled tunnel stays connected. When one drops, its traffic moves at once to the next one up and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses is chosen on the Policy Routing and Overview pages.'),
-					tunnelRows),
+					_('Every enabled tunnel stays connected. When one drops, its traffic moves at once to the next one up and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses, and whether it may move, is chosen on the Policy Routing and Overview pages.'),
+					E('div', {}, [
+						common.toggleRow(mainBackup, _('The main tunnel stands in for the others'),
+							_('When another tunnel drops, its traffic moves to the main one until it is back. Off: only what is sent to the main tunnel uses it.'),
+							mainBackupResult.node),
+						tunnelRows
+					])),
 				common.section(_('Tunnel DNS'),
 					_('Resolves VPN-routed destinations through the outbound tunnel. Servers are tried in order; failover occurs only after two failed checks and a successful probe of the next server.'),
 					E('div', {}, [
@@ -2424,12 +2438,10 @@ return view.extend({
 							common.fieldLabel(_('DNS management'),
 								_('Existing settings are preserved until managed DNS is enabled.')),
 							dnsManaged,
-							common.fieldLabel(_('Resolve through sing-box'),
+							common.toggleRow(dnsVia, _('Resolve through sing-box'),
 								_('Off: dnsmasq sends names outside the selected domains and segments straight to the upstream and caches them, so they keep resolving when sing-box fails. On: they pass through sing-box like the selected domains. Applies in Reliable mode.')),
-							common.switchLabel(dnsVia),
-							common.fieldLabel(_('Browser compatibility'),
-								_('Return an empty successful HTTPS DNS response for these names so browsers safely fall back to A and AAAA. Needs the sing-box path.')),
-							common.switchLabel(dnsCompat)
+							common.toggleRow(dnsCompat, _('Browser compatibility'),
+								_('Return an empty successful HTTPS DNS response for these names so browsers safely fall back to A and AAAA. Needs the sing-box path.'))
 						]),
 						routerDnsBypassNote,
 						dnsManagedRows,

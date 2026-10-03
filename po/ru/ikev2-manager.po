@@ -4377,8 +4377,8 @@ msgstr "Имя туннеля: буквы, цифры, пробелы, точк�
 msgid "EAP password is required for a new tunnel"
 msgstr "Для нового туннеля нужен пароль EAP"
 
-msgid "At most eight tunnels can be configured"
-msgstr "Можно настроить не больше восьми туннелей"
+msgid "At most seven tunnels can be configured"
+msgstr "Можно настроить не больше семи туннелей"
 
 msgid "Tunnels"
 msgstr "Туннели"
@@ -4397,3 +4397,126 @@ msgstr "%s: нет интерфейса"
 
 msgid "%s: down"
 msgstr "%s: не подключён"
+
+msgid "Every enabled tunnel stays connected. When one drops, its traffic moves at once to the next one up and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses, and whether it may move, is chosen on the Policy Routing and Overview pages."
+msgstr "Все включённые туннели остаются подключёнными. Когда один падает, его трафик сразу переходит на следующий работающий и возвращается после двух минут стабильной работы туннеля; в WAN ничего не уходит. Какой туннель использует сервис, список или устройство и может ли он переходить на другой, выбирается на страницах «Маршрутизация» и «Обзор»."
+
+msgid "The main tunnel stands in for the others"
+msgstr "Основной туннель подменяет остальные"
+
+msgid "When another tunnel drops, its traffic moves to the main one until it is back. Off: only what is sent to the main tunnel uses it."
+msgstr "Когда другой туннель падает, его трафик идёт через основной, пока тот не вернётся. Выключено: через основной туннель идёт только то, что назначено ему."
+
+msgid "%s is off: what is bound to it without backup is refused"
+msgstr "%s выключен: привязанное к нему без резерва отклоняется"
+
+msgid "%s, no backup"
+msgstr "%s, без резерва"
+
+msgid "Find a service"
+msgstr "Найти сервис"
+
+msgid "Through the tunnel"
+msgstr "Через туннель"
+
+msgid "My domains"
+msgstr "Мои домены"
+
+msgid "My addresses"
+msgstr "Мои адреса"
+
+msgid "Your own lists that stay out of the tunnel are the two at the bottom of the page."
+msgstr "Ваши списки «никогда через туннель» — два поля внизу страницы."
+
+msgid "Drag it to another field, or click for its actions"
+msgstr "Перетащите в другое поле или нажмите, чтобы открыть действия"
+
+msgid "Click to add it to the highlighted field, or drag it into one"
+msgstr "Нажмите, чтобы добавить в выделенное поле, или перетащите в нужное"
+
+msgid "Edit this list at the bottom of the page"
+msgstr "Список редактируется внизу страницы"
+
+msgid "Not connected"
+msgstr "Не подключён"
+
+msgid "Click to make this the field new services go to"
+msgstr "Нажмите, чтобы новые сервисы добавлялись в это поле"
+
+msgid "Drop a service here"
+msgstr "Перетащите сервис сюда"
+
+msgid "Drag a service into a field, or click it to choose where it goes. A click in the catalogue adds a service to the highlighted field."
+msgstr "Перетащите сервис в поле или нажмите на него, чтобы выбрать, куда он идёт. Нажатие в каталоге добавляет сервис в выделенное поле."
+
+msgid "Where it goes"
+msgstr "Куда направить"
+
+msgid "Without backup the service waits for its own tunnel and is refused while it is down"
+msgstr "Без резерва сервис ждёт свой туннель и отклоняется, пока тот не работает"
+
+msgid "No backup"
+msgstr "Без резерва"
+
+msgid "Edit list"
+msgstr "Изменить список"
+
+msgid "Edit"
+msgstr "Изменить"
+
+msgid "No service matches."
+msgstr "Подходящих сервисов нет."
+
+msgid "Every service is in use. Drop one here to take it out."
+msgstr "Все сервисы используются. Перетащите сервис сюда, чтобы убрать его."
+
+msgid "With backup: moves to another tunnel while this one is down"
+msgstr "С резервом: при падении туннеля переходит на другой"
+
+msgid "No backup: refused while this tunnel is down"
+msgstr "Без резерва: при падении туннеля отклоняется"
+
+msgid "Excluded domains"
+msgstr "Исключённые домены"
+
+msgid "Excluded addresses"
+msgstr "Исключённые адреса"
+
+msgid "Not in use"
+msgstr "Не используется"
+
+msgid "Domains and addresses"
+msgstr "Домены и адреса"
+
+msgid "One per line. A domain covers its subdomains; an IPv4 address or network is matched without DNS."
+msgstr "По одному в строке. Домен включает поддомены; IPv4-адрес или сеть работает без DNS."
+
+msgid "With backup it moves to another tunnel while its own is down; without, it is refused meanwhile."
+msgstr "С резервом сервис переходит на другой туннель, пока свой не работает; без резерва он в это время отклоняется."
+
+msgid "A prepared service: saving keeps your own copy of its list on this router."
+msgstr "Готовый сервис: при сохранении на роутере останется ваша копия его списка."
+
+msgid "Press Save to apply where it goes."
+msgstr "Нажмите «Сохранить», чтобы применить назначение."
+
+msgid "Routes"
+msgstr "Маршруты"
+
+msgid "Each field is a tunnel, and what lies in it goes through that tunnel. With backup a service moves to another tunnel while its own is down; without, it waits for its own and is refused meanwhile. Nothing goes to the WAN in either case."
+msgstr "Каждое поле — туннель: то, что в нём лежит, идёт через этот туннель. С резервом сервис переходит на другой туннель, пока свой не работает; без резерва он ждёт свой и в это время отклоняется. В WAN ничего не уходит в обоих случаях."
+
+msgid "What lies in the first field goes through the tunnel; everything else continues through the normal WAN."
+msgstr "То, что лежит в первом поле, идёт через туннель; всё остальное — как обычно через WAN."
+
+msgid "Catalogue"
+msgstr "Каталог"
+
+msgid "Prepared services and your own. A click adds one to the highlighted field; dragging one back here takes it out."
+msgstr "Готовые сервисы и ваши собственные. Нажатие добавляет сервис в выделенное поле; чтобы убрать, перетащите его обратно сюда."
+
+msgid "Saves where each service and list goes, then rebuilds the routing list."
+msgstr "Сохраняет, куда идёт каждый сервис и список, и пересобирает список маршрутизации."
+
+msgid "Move the services and devices bound to this tunnel without backup first"
+msgstr "Сначала перенесите сервисы и устройства, привязанные к этому туннелю без резерва"

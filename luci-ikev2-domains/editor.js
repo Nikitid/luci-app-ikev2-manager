@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v12 as common';
+'require ikev2-manager.shared-v13 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -16,37 +16,117 @@ var exitsFile = '/etc/pbr-ikev2-exits.txt';
 var managerHelper = '/usr/libexec/ikev2-manager';
 var serviceSelection = {};
 var serviceRecords = [];
-// The tunnel each selected service or custom list leaves by, other than the
-// main one: target ("@domains", "@cidrs" or a service id) to tunnel index.
+// Where each selected service and the two custom lists go, as the page holds
+// it: target ("@domains", "@cidrs" or a service id) to a tunnel index (it may
+// move to another tunnel while its own is down), an index followed by "s"
+// (that tunnel or nothing), or "wan" (never through the tunnel). The first
+// tunnel is the default.
 var serviceExits = {};
-var onSelectionChange = null;
+// The tunnels the router has, by index.
+var tunnelIndexes = { '1': true };
 
 // The tunnels the router has, the main one first, from tunnels-get.
 function parseTunnelChoices(stdout) {
-	var choices = [ { index: '1', name: _('Main tunnel') } ], current = null;
+	var choices = [ { index: '1', name: _('Main tunnel'), enabled: '1' } ], current = null;
 	String(stdout || '').split('\n').forEach(function(line) {
 		var at = line.indexOf('=');
 		if (at < 1)
 			return;
 		var key = line.slice(0, at), value = line.slice(at + 1);
 		if (key === 'tunnel') {
-			current = { index: value, name: _('Tunnel %s').format(value) };
+			current = { index: value, name: _('Tunnel %s').format(value), enabled: '1' };
 			choices.push(current);
 		}
 		else if (current && key === 'name' && value)
 			current.name = value;
+		else if (current && key === 'enabled')
+			current.enabled = value;
 	});
 	return choices;
+}
+
+// Which tunnels are connected, from tunnels-status: index to "1" or "0".
+function parseTunnelStatus(stdout) {
+	var up = {};
+	String(stdout || '').split('\n').forEach(function(line) {
+		var index = /(?:^| )tunnel=([1-7])(?: |$)/.exec(line), state = /(?:^| )up=([01])(?: |$)/.exec(line);
+		if (index && state)
+			up[index[1]] = state[1];
+	});
+	return up;
 }
 
 function parseExits(text) {
 	var exits = {};
 	String(text || '').split('\n').forEach(function(line) {
 		var fields = line.trim().split(/\s+/);
-		if (fields.length === 2 && /^[2-8]$/.test(fields[1]))
+		if (fields.length === 2 && /^([1-7]s?|wan)$/.test(fields[1]))
 			exits[fields[0]] = fields[1];
 	});
 	return exits;
+}
+
+function recordOf(id) {
+	for (var i = 0; i < serviceRecords.length; i++)
+		if (serviceRecords[i].id === id)
+			return serviceRecords[i];
+	return null;
+}
+
+function severalTunnels() {
+	return Object.keys(tunnelIndexes).length > 1;
+}
+
+// Where a target goes now. A choice made on the page wins; a service an
+// earlier release marked as never through the tunnel stays there until it is
+// moved. A tunnel the router no longer has sends its targets to the first,
+// and with one tunnel there is nothing to be bound against.
+function placeOf(target) {
+	var own = target.charAt(0) === '@';
+	var record = own ? null : recordOf(target);
+	var token = serviceExits[target] || (record && record.mode === 'exclude' ? 'wan' : '1');
+	if (token === 'wan')
+		return own ? '1' : 'wan';
+	var index = token.charAt(0);
+	if (!tunnelIndexes[index])
+		return '1';
+	return token.length > 1 && !severalTunnels() ? index : token;
+}
+
+// The assignments as the helper stores them: only what differs from the
+// first tunnel, and that one too for a service whose old mark it overrides.
+function exitsText() {
+	return [ '@domains', '@cidrs' ].concat(Object.keys(serviceSelection)).sort().map(function(target) {
+		var token = placeOf(target), record = recordOf(target);
+		if (token === '1' && !(record && record.mode === 'exclude'))
+			return '';
+		return target + ' ' + token + '\n';
+	}).join('');
+}
+
+// One field takes domains and addresses together; an address is a line that
+// is an IPv4 address or network.
+function splitDestinations(value) {
+	var domains = [], cidrs = [];
+	String(value || '').replace(/\r/g, '').split('\n').forEach(function(line) {
+		var entry = line.trim();
+		if (!entry)
+			return;
+		(/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(entry) ? cidrs : domains).push(entry);
+	});
+	return { domains: domains.join('\n'), cidrs: cidrs.join('\n') };
+}
+
+// An identifier for a new service from its name: the helper wants lowercase
+// letters, digits and underscores, and a name in another script has none.
+function serviceIdFrom(name) {
+	var base = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+	if (base.length < 2)
+		base = 'service';
+	var id = base, n = 2;
+	while (recordOf(id))
+		id = base + '_' + (n++);
+	return id;
 }
 
 function normalizeDomains(value) {
@@ -153,95 +233,35 @@ var SERVICE_CATEGORIES = [
 ];
 
 var BROAD_SERVICES = /^(cloudflare|cloudfront|digitalocean|hetzner|ovh)$/;
-// Compact selectable chip (replaces the bulky per-service checkbox card).
-function serviceChip(record, selected) {
-	var name = record.id;
-	var broad = BROAD_SERVICES.test(name);
-	var ipNetworks = record.ip === '1';
-	var input = E('input', {
-		'type': 'checkbox',
-		'class': 'ikev2-community-service',
-		'value': name,
-		'checked': selected[name] ? '' : null
-	});
-	var chip = E('label', {
-		'class': 'ikev2-chip'
-	}, [
-		input,
-		E('span', {}, [ record.label && record.label !== name ? record.label : serviceLabel(name) ]),
-		broad ? E('span', {
-			'class': 'ikev2-chip-mark',
-			'title': _('Broad — may also route unrelated sites')
-		}, [ '⚠' ]) : '',
-		ipNetworks ? E('span', {
-			'class': 'ikev2-chip-mark',
-			'title': _('Includes direct service IP networks')
-		}, [ 'IP' ]) : '',
-		record.mode === 'exclude' ? E('span', {
-			'class': 'ikev2-chip-mark',
-			'title': _('Never through the tunnel')
-		}, [ '⊘' ]) : ''
-	]);
-	chip.className += (broad ? ' broad' : '') +
-		(selected[name] ? ' selected' : '');
-	input.addEventListener('change', function() {
-		chip.classList.toggle('selected', input.checked);
-		if (input.checked)
-			serviceSelection[name] = true;
-		else
-			delete serviceSelection[name];
-		if (onSelectionChange)
-			onSelectionChange();
-	});
-	return chip;
+function serviceTitle(record) {
+	return record.label && record.label !== record.id ? record.label : serviceLabel(record.id);
 }
 
-// Group a flat catalog list into ordered category blocks. Unmatched names
-// collect into a trailing "Other" group.
-function renderServiceGroups(services, selected) {
-	var available = {};
-	services.forEach(function(record) { available[record.id] = record; });
-
-	var used   = {};
-	var blocks = [];
-
-	function block(title, names) {
-		var items = names.filter(function(n) {
-			return available[n] && available[n].origin !== 'custom';
-		})
-			.map(function(n) {
-				used[n] = true;
-				return serviceChip(available[n], selected);
-			});
-		if (!items.length)
-			return;
-		blocks.push(E('div', { 'class': 'ikev2-chip-group' }, [
-			E('h4', {}, [ _(title) ]),
-			E('div', { 'class': 'ikev2-chips' }, items)
-		]));
+// The catalogue in its categories: [ { title, records } ], the user's own
+// services in a group of their own and whatever no category names in "Other".
+function catalogGroups(records) {
+	var byId = {}, used = {}, groups = [];
+	records.forEach(function(record) { byId[record.id] = record; });
+	function group(title, list) {
+		if (list.length)
+			groups.push({ title: title, records: list });
 	}
-
-	SERVICE_CATEGORIES.forEach(function(cat) { block(cat.title, cat.names); });
-
-	var others = services.filter(function(record) {
-		return record.origin !== 'custom' && !used[record.id];
-	}).map(function(record) { return record.id; }).sort();
-	block('Other', others);
-	var custom = services.filter(function(record) {
-		return record.origin === 'custom';
-	}).sort(function(a, b) {
-		return (a.label || a.id).localeCompare(b.label || b.id);
+	SERVICE_CATEGORIES.forEach(function(category) {
+		group(category.title, category.names.filter(function(name) {
+			return byId[name] && byId[name].origin !== 'custom';
+		}).map(function(name) {
+			used[name] = true;
+			return byId[name];
+		}));
 	});
-	if (custom.length) {
-		blocks.push(E('div', { 'class': 'ikev2-chip-group' }, [
-			E('h4', {}, [ _('Custom services') ]),
-			E('div', { 'class': 'ikev2-chips' }, custom.map(function(record) {
-				return serviceChip(record, selected);
-			}))
-		]));
-	}
-
-	return blocks;
+	function byTitle(a, b) { return serviceTitle(a).localeCompare(serviceTitle(b)); }
+	group('Other', records.filter(function(record) {
+		return record.origin !== 'custom' && !used[record.id];
+	}).sort(byTitle));
+	group('Custom services', records.filter(function(record) {
+		return record.origin === 'custom';
+	}).sort(byTitle));
+	return groups;
 }
 
 function parseServiceRecords(text) {
@@ -386,7 +406,8 @@ return view.extend({
 			L.resolveDefault(fs.read(excludeFile), ''),
 			L.resolveDefault(fs.read(excludeAddressFile), ''),
 			L.resolveDefault(fs.exec(managerHelper, [ 'tunnels-get' ]), { code: 1, stdout: '' }),
-			L.resolveDefault(fs.read(exitsFile), '')
+			L.resolveDefault(fs.read(exitsFile), ''),
+			L.resolveDefault(fs.exec(managerHelper, [ 'tunnels-status' ]), { code: 1, stdout: '' })
 		]);
 	},
 
@@ -422,13 +443,7 @@ return view.extend({
 		var selectedValue = selected.join('\n') + (selected.length ? '\n' : '');
 		var excludeValue = excluded.join('\n') + (excluded.length ? '\n' : '');
 		var excludeAddressValue = excludedAddresses.join('\n') + (excludedAddresses.length ? '\n' : '');
-		// Only what leaves by another tunnel is listed; the main one is the
-		// default. A service no longer selected keeps no assignment.
-		var exitsValue = Object.keys(serviceExits).sort().filter(function(target) {
-			return target.charAt(0) === '@' || serviceSelection[target];
-		}).map(function(target) {
-			return target + ' ' + serviceExits[target] + '\n';
-		}).join('');
+		var exitsValue = exitsText();
 
 			var token = common.inputToken();
 			var inputPrefix = '/tmp/ikev2-domains-input-' + token;
@@ -516,54 +531,13 @@ return view.extend({
 		var catalogResult = data[3] || {};
 		serviceRecords = parseServiceRecords(catalogResult.stdout || '');
 
-		/* ── Tunnel per service ─────────────────────────────────────────── */
-		// Shown only with more than one tunnel: each selected service that
-		// routes, and each custom list, leaves by the tunnel chosen here.
+		/* ── Tunnels ────────────────────────────────────────────────────── */
 		var tunnelChoices = parseTunnelChoices(((data[10] || {}).stdout) || '');
+		var tunnelUp = parseTunnelStatus(((data[12] || {}).stdout) || '');
+		var several = tunnelChoices.length > 1;
+		tunnelIndexes = {};
+		tunnelChoices.forEach(function(choice) { tunnelIndexes[choice.index] = true; });
 		serviceExits = parseExits(data[11] || '');
-		var exitRows = E('div', { 'class': 'ikev2-form-grid' });
-		function exitSelect(target) {
-			var select = E('select', { 'class': 'cbi-input-select' },
-				tunnelChoices.map(function(choice) {
-					return E('option', {
-						'value': choice.index,
-						'selected': (serviceExits[target] || '1') === choice.index ? '' : null
-					}, [ choice.name ]);
-				}));
-			select.addEventListener('change', function() {
-				if (select.value === '1')
-					delete serviceExits[target];
-				else
-					serviceExits[target] = select.value;
-			});
-			return select;
-		}
-		function renderExits() {
-			var targets = [
-				{ id: '@domains', label: _('Custom domains') },
-				{ id: '@cidrs', label: _('Custom IP addresses and networks') }
-			];
-			serviceRecords.filter(function(record) {
-				return serviceSelection[record.id] && record.mode !== 'exclude';
-			}).map(function(record) {
-				return { id: record.id, label: record.label && record.label !== record.id ?
-					record.label : serviceLabel(record.id) };
-			}).sort(function(a, b) {
-				return a.label.localeCompare(b.label);
-			}).forEach(function(target) { targets.push(target); });
-			exitRows.replaceChildren();
-			targets.forEach(function(target) {
-				exitRows.appendChild(common.fieldLabel(target.label));
-				exitRows.appendChild(exitSelect(target.id));
-			});
-		}
-		if (tunnelChoices.length > 1) {
-			onSelectionChange = renderExits;
-			renderExits();
-		}
-		var exitsSection = tunnelChoices.length > 1 ? common.section(_('Tunnels'),
-			_('Which tunnel each selected service and custom list leaves by. What is sent to another tunnel is matched ahead of the main one; while that tunnel is down it moves to the next one up, never to the WAN. Domains and addresses never through the tunnel win over all of them.'),
-			exitRows) : '';
 
 		for (var i = 0; i < selectedLines.length; i++)
 			selected[selectedLines[i]] = true;
@@ -713,110 +687,400 @@ return view.extend({
 		});
 
 		var serviceResult = common.inlineResult();
-		// Two columns: the catalogue is a tall stack of short chip rows, so half
-		// the width was empty and the custom services sat below the fold.
-		var serviceCatalog = E('div', { 'class': 'ikev2-service-catalog' });
-		var serviceEditor = E('div', {
-			'class': 'ikev2-service-editor',
-			'style': 'display:none;'
-		});
-		var serviceId = E('input', {
-			'class': 'cbi-input-text',
-			'type': 'text',
-			'placeholder': 'my_service'
-		});
-		var serviceName = E('input', {
-			'class': 'cbi-input-text',
-			'type': 'text',
-			'placeholder': _('My service')
-		});
-		var serviceDomains = E('textarea', {
-			'class': 'cbi-input-textarea ikev2-domain-editor ikev2-domain-editor-small',
-			'spellcheck': 'false',
-			'placeholder': 'example.com\nstatic.example.com'
-		});
-		var serviceCidrs = E('textarea', {
-			'class': 'cbi-input-textarea ikev2-domain-editor ikev2-domain-editor-small',
-			'spellcheck': 'false',
-			'placeholder': '203.0.113.0/24'
-		});
-		// A service of one's own may keep its destinations out of the tunnel
-		// instead of sending them into it; a prepared one always routes.
-		var serviceExclude = E('input', { 'type': 'checkbox', 'class': 'cbi-input-checkbox' });
-		var serviceExcludeLabel = common.fieldLabel(_('Never through the tunnel'),
-			_('Its domains and networks are kept out of the tunnel, like the lists at the bottom of the page.'));
-		var serviceExcludeControl = common.switchLabel(serviceExclude);
-		var serviceEditorTitle = E('h3');
-		var servicePicker = E('select', {
-			'class': 'cbi-input-select'
-		});
-		var servicePickerLabel = common.fieldLabel(_('Service to edit'),
-			_('Choose a service to inspect or edit, or start a new one.'));
-		var servicePickerControl = E('div', { 'class': 'ikev2-picker-row' });
-		var serviceSave = E('button', {
-			'class': 'cbi-button cbi-button-apply',
-			'type': 'button'
-		}, [ _('Save service') ]);
-		var serviceReset = E('button', {
-			'class': 'cbi-button cbi-button-reset',
-			'type': 'button'
-		}, [ _('Restore prepared service') ]);
-		var serviceDelete = E('button', {
-			'class': 'cbi-button cbi-button-negative',
-			'type': 'button'
-		}, [ _('Delete service') ]);
-		var serviceCancel = E('button', {
-			'class': 'cbi-button',
-			'type': 'button'
-		}, [ _('Cancel') ]);
-		var editingService = null;
-		var serviceLoadSequence = 0;
 		var serviceBusy = false;
-		var serviceDirty = false;
-		var manageServicesButton;
-		var addServiceButton;
 		var saveBtn;
 		var policyTracker = null;
-		var serviceTracker = null;
+		var dialogTracker = null;
+		var dialogControls = [];
+		var editingService = null;
+		var serviceLoadSequence = 0;
+		// The chip the action bar is about, and the field a click in the
+		// catalogue adds a service to.
+		var chosen = null;
+		var activeZone = '1';
 
-		var serviceFields = [ serviceId, serviceName, serviceExclude, serviceDomains, serviceCidrs ];
-		serviceFields.forEach(function(field) {
-			field.addEventListener('input', function() { serviceDirty = true; });
-			field.addEventListener('change', function() { serviceDirty = true; });
+		/* ── The four lists of one's own ────────────────────────────────── */
+		// Created here: the board shows how many entries the two routed ones
+		// hold, and a click on their chips leads to them.
+		var listText = {
+			'@domains': manual, '@cidrs': manualAddresses,
+			'@xdomains': excludedDomains, '@xcidrs': excludedAddresses
+		};
+		function listArea(key, id, value, placeholder) {
+			var area = E('textarea', {
+				'id': id,
+				'class': 'cbi-input-textarea ikev2-domain-editor',
+				'spellcheck': 'false',
+				'placeholder': placeholder || null
+			}, [ value ]);
+			area.addEventListener('input', function() {
+				listText[key] = area.value;
+				drawBoard();
+			});
+			return area;
+		}
+		var listAreas = {
+			'@domains': listArea('@domains', 'ikev2-domain-list', manual),
+			'@cidrs': listArea('@cidrs', 'ikev2-address-list', manualAddresses, '203.0.113.10\n198.51.100.0/24'),
+			'@xdomains': listArea('@xdomains', 'ikev2-exclude-domain-list', excludedDomains, 'bank.example'),
+			'@xcidrs': listArea('@xcidrs', 'ikev2-exclude-address-list', excludedAddresses, '198.51.100.0/24')
+		};
+		function listCount(key) {
+			return String(listText[key] || '').split('\n').filter(function(line) {
+				return line.trim() && line.trim().charAt(0) !== '#';
+			}).length;
+		}
+		function showList(key) {
+			var area = listAreas[key];
+			if (area.scrollIntoView)
+				area.scrollIntoView({ block: 'center' });
+			area.focus();
+		}
+
+		/* ── Routes: a field per tunnel ─────────────────────────────────── */
+		var routeBar = E('div', { 'class': 'ikev2-route-bar' });
+		var routeLanes = E('div', { 'class': 'ikev2-routes' });
+		var catalogBody = E('div', {});
+		var dialogHost = E('div', {});
+		var catalogSearch = E('input', {
+			'type': 'text',
+			'class': 'cbi-input-text',
+			'placeholder': _('Find a service'),
+			'aria-label': _('Find a service')
 		});
+		var newServiceButton = E('button', {
+			'class': 'cbi-button cbi-button-action',
+			'type': 'button'
+		}, [ _('New service') ]);
 
-		function serviceEditorVisible() {
-			return serviceEditor.style.display !== 'none';
+		function tunnelName(index) {
+			for (var i = 0; i < tunnelChoices.length; i++)
+				if (tunnelChoices[i].index === index)
+					return tunnelChoices[i].name;
+			return _('Tunnel %s').format(index);
+		}
+		// Every place a target can be put, in the order the page shows them.
+		function zoneTokens(target) {
+			var tokens = [];
+			tunnelChoices.forEach(function(choice) {
+				tokens.push(choice.index);
+				if (several)
+					tokens.push(choice.index + 's');
+			});
+			if (!target || target.charAt(0) !== '@')
+				tokens.push('wan');
+			return tokens;
+		}
+		function zoneName(token) {
+			if (token === 'wan')
+				return _('Never through the tunnel');
+			var name = several ? tunnelName(token.charAt(0)) : _('Through the tunnel');
+			return token.length > 1 ? _('%s, no backup').format(name) : name;
+		}
+		function targetTitle(target) {
+			if (target === '@domains')
+				return _('My domains');
+			if (target === '@cidrs')
+				return _('My addresses');
+			var record = recordOf(target);
+			return record ? serviceTitle(record) : serviceLabel(target);
+		}
+		function placedTargets(token) {
+			return [ '@domains', '@cidrs' ].concat(Object.keys(serviceSelection).sort(function(a, b) {
+				return targetTitle(a).localeCompare(targetTitle(b));
+			})).filter(function(target) {
+				return placeOf(target) === token;
+			});
 		}
 
-		function confirmDiscardServiceChanges() {
-			return !serviceEditorVisible() || !serviceDirty ||
-				window.confirm(_('Discard unsaved service changes?'));
+		function moveTarget(target, token) {
+			if (serviceBusy)
+				return;
+			if (target.charAt(0) === '@') {
+				if (token === 'wan') {
+					serviceResult.warn(_('Your own lists that stay out of the tunnel are the two at the bottom of the page.'));
+					return;
+				}
+			}
+			else {
+				if (!recordOf(target))
+					return;
+				serviceSelection[target] = true;
+			}
+			serviceExits[target] = token;
+			chosen = target;
+			serviceResult.clear();
+			drawBoard();
+		}
+		function removeTarget(target) {
+			if (serviceBusy || target.charAt(0) === '@')
+				return;
+			delete serviceSelection[target];
+			delete serviceExits[target];
+			if (chosen === target)
+				chosen = null;
+			serviceResult.clear();
+			drawBoard();
 		}
 
+		// A chip is dragged between fields; a click does the same through the
+		// action bar, for a touch screen and a keyboard. TOKEN is where it lies,
+		// null in the catalogue.
+		function chip(target, token) {
+			var record = target.charAt(0) === '@' ? null : recordOf(target);
+			var placed = token !== null;
+			var node = E('span', {
+				'class': 'ikev2-chip ikev2-route-chip' + (chosen === target ? ' selected' : '') +
+					(record && BROAD_SERVICES.test(target) ? ' broad' : ''),
+				'role': 'button',
+				'tabindex': '0',
+				'draggable': 'true',
+				'data-target': target,
+				'title': placed ? _('Drag it to another field, or click for its actions') :
+					_('Click to add it to the highlighted field, or drag it into one')
+			}, [
+				placed && token !== 'wan' && token.length > 1 ? common.icon('lock') : '',
+				E('span', {}, [ targetTitle(target) +
+					(record ? '' : ' · ' + listCount(target)) ]),
+				record && BROAD_SERVICES.test(target) ? E('span', {
+					'class': 'ikev2-chip-mark',
+					'title': _('Broad — may also route unrelated sites')
+				}, [ '⚠' ]) : '',
+				record && record.ip === '1' ? E('span', {
+					'class': 'ikev2-chip-mark',
+					'title': _('Includes direct service IP networks')
+				}, [ 'IP' ]) : ''
+			]);
+			function activate() {
+				if (serviceBusy)
+					return;
+				if (!placed) {
+					moveTarget(target, activeZone);
+					return;
+				}
+				chosen = chosen === target ? null : target;
+				drawBoard();
+			}
+			node.addEventListener('click', activate);
+			node.addEventListener('keydown', function(ev) {
+				if (ev && (ev.key === 'Enter' || ev.key === ' ')) {
+					if (ev.preventDefault)
+						ev.preventDefault();
+					activate();
+				}
+			});
+			node.addEventListener('dragstart', function(ev) {
+				if (ev && ev.dataTransfer) {
+					ev.dataTransfer.setData('text/plain', target);
+					ev.dataTransfer.effectAllowed = 'move';
+				}
+			});
+			return node;
+		}
+		// The two exclusion lists always stay out of the tunnel: shown where
+		// they belong, and a click leads to their text.
+		function listChip(key, label) {
+			var node = E('span', {
+				'class': 'ikev2-chip ikev2-route-chip fixed',
+				'role': 'button',
+				'tabindex': '0',
+				'title': _('Edit this list at the bottom of the page')
+			}, [ E('span', {}, [ label + ' · ' + listCount(key) ]) ]);
+			node.addEventListener('click', function() { showList(key); });
+			return node;
+		}
+		// A place chips are dropped into. TOKEN is where they go, null for
+		// the catalogue, which takes a service out of the policy.
+		function dropZone(token, chips, emptyText) {
+			var zone = E('div', {
+				'class': 'ikev2-route-zone',
+				'data-zone': token === null ? 'catalog' : token
+			}, chips.length ? chips : [
+				E('span', { 'class': 'ikev2-route-zone-empty' }, [ emptyText ])
+			]);
+			zone.addEventListener('dragover', function(ev) {
+				if (ev && ev.preventDefault)
+					ev.preventDefault();
+				zone.classList.add('over');
+			});
+			zone.addEventListener('dragleave', function() { zone.classList.remove('over'); });
+			zone.addEventListener('drop', function(ev) {
+				var target = ev && ev.dataTransfer ? ev.dataTransfer.getData('text/plain') : '';
+				if (ev && ev.preventDefault)
+					ev.preventDefault();
+				zone.classList.remove('over');
+				if (!target)
+					return;
+				if (token === null)
+					removeTarget(target);
+				else
+					moveTarget(target, token);
+			});
+			return zone;
+		}
+		function tunnelPill(choice) {
+			if (choice.enabled !== '1')
+				return common.pill(_('Off'), 'neutral');
+			if (tunnelUp[choice.index] === '1')
+				return common.pill(_('Connected'), 'good');
+			if (tunnelUp[choice.index] === '0')
+				return common.pill(_('Not connected'), 'warn');
+			return '';
+		}
+		function lane(token, title, pill, zones) {
+			var head = E('div', {
+				'class': 'ikev2-route-lane-head',
+				'title': _('Click to make this the field new services go to')
+			}, [ E('strong', {}, [ title ]), pill || '' ]);
+			head.addEventListener('click', function() {
+				activeZone = token;
+				drawBoard();
+			});
+			return E('div', {
+				'class': 'ikev2-route-lane' + (activeZone === token ? ' active' : ''),
+				'data-lane': token
+			}, [ head ].concat(zones));
+		}
+		function zoneWithLabel(token, label) {
+			return E('div', {}, [
+				label ? E('div', { 'class': 'ikev2-route-zone-label' }, [ label ]) : '',
+				dropZone(token, placedTargets(token).map(function(target) {
+					return chip(target, token);
+				}), _('Drop a service here'))
+			]);
+		}
+
+		function drawBar() {
+			var nodes;
+			if (!chosen) {
+				nodes = [ E('span', { 'class': 'ikev2-field-help' }, [
+					_('Drag a service into a field, or click it to choose where it goes. A click in the catalogue adds a service to the highlighted field.') ]) ];
+			}
+			else {
+				var target = chosen, current = placeOf(target), own = target.charAt(0) === '@';
+				var bound = current !== 'wan' && current.length > 1;
+				nodes = [ E('strong', {}, [ targetTitle(target) ]) ];
+				// One row whatever the number of tunnels: the tunnel, and whether
+				// the service is bound to it.
+				var where = E('select', {
+					'class': 'cbi-input-select',
+					'aria-label': _('Where it goes'),
+					'data-act': 'where'
+				}, tunnelChoices.map(function(choice) {
+					return E('option', {
+						'value': choice.index,
+						'selected': current !== 'wan' && current.charAt(0) === choice.index ? '' : null
+					}, [ several ? choice.name : _('Through the tunnel') ]);
+				}).concat(own ? [] : [
+					E('option', { 'value': 'wan', 'selected': current === 'wan' ? '' : null }, [
+						_('Never through the tunnel') ])
+				]));
+				where.addEventListener('change', function() {
+					moveTarget(target, where.value === 'wan' ? 'wan' : where.value + (bound ? 's' : ''));
+				});
+				nodes.push(where);
+				if (several) {
+					var bind = E('button', {
+						'class': 'cbi-button ikev2-icon-button' + (bound ? ' cbi-button-action' : ''),
+						'type': 'button',
+						'data-act': 'bind',
+						'aria-pressed': bound ? 'true' : 'false',
+						'disabled': current === 'wan' ? '' : null,
+						'title': _('Without backup the service waits for its own tunnel and is refused while it is down')
+					}, [ common.icon('lock'), E('span', {}, [ _('No backup') ]) ]);
+					bind.addEventListener('click', function() {
+						if (current !== 'wan')
+							moveTarget(target, current.charAt(0) + (bound ? '' : 's'));
+					});
+					nodes.push(bind);
+				}
+				var edit = E('button', { 'class': 'cbi-button', 'type': 'button', 'data-act': 'edit' }, [
+					target.charAt(0) === '@' ? _('Edit list') : _('Edit') ]);
+				edit.addEventListener('click', function() {
+					if (target.charAt(0) === '@')
+						showList(target);
+					else
+						requestService(recordOf(target), edit);
+				});
+				nodes.push(edit);
+				if (target.charAt(0) !== '@') {
+					var remove = E('button', { 'class': 'cbi-button', 'type': 'button', 'data-act': 'remove' }, [ _('Remove') ]);
+					remove.addEventListener('click', function() { removeTarget(target); });
+					nodes.push(remove);
+				}
+			}
+			routeBar.replaceChildren.apply(routeBar, nodes);
+		}
+		function drawCatalog() {
+			var query = String(catalogSearch.value || '').trim().toLowerCase();
+			var nodes = [];
+			catalogGroups(serviceRecords.filter(function(record) {
+				return !serviceSelection[record.id] &&
+					(!query || serviceTitle(record).toLowerCase().indexOf(query) >= 0 ||
+					 record.id.indexOf(query) >= 0);
+			})).forEach(function(group) {
+				nodes.push(E('div', { 'class': 'ikev2-chip-group' }, [
+					E('h4', {}, [ _(group.title) ]),
+					E('div', { 'class': 'ikev2-chips' }, group.records.map(function(record) {
+						return chip(record.id, null);
+					}))
+				]));
+			});
+			if (!serviceRecords.length)
+				nodes.push(E('p', { 'class': 'alert-message warning' }, [
+					_('The service catalog is unavailable. Saved selections and local services are preserved.') ]));
+			else if (!nodes.length)
+				nodes.push(E('span', { 'class': 'ikev2-route-zone-empty' }, [
+					query ? _('No service matches.') : _('Every service is in use. Drop one here to take it out.') ]));
+			var zone = dropZone(null, nodes, '');
+			zone.className += ' ikev2-route-catalog';
+			catalogBody.replaceChildren(zone);
+		}
+		function drawBoard() {
+			if (chosen && chosen.charAt(0) !== '@' && !serviceSelection[chosen])
+				chosen = null;
+			var lanes = tunnelChoices.map(function(choice) {
+				return lane(choice.index, several ? choice.name : _('Through the tunnel'),
+					several ? tunnelPill(choice) : '',
+					several ? [
+						zoneWithLabel(choice.index, _('With backup: moves to another tunnel while this one is down')),
+						zoneWithLabel(choice.index + 's', _('No backup: refused while this tunnel is down'))
+					] : [ zoneWithLabel(choice.index, '') ]);
+			});
+			lanes.push(lane('wan', _('Never through the tunnel'), '', [
+				E('div', {}, [
+					dropZone('wan', placedTargets('wan').map(function(target) {
+						return chip(target, 'wan');
+					}).concat([
+						listChip('@xdomains', _('Excluded domains')),
+						listChip('@xcidrs', _('Excluded addresses'))
+					]), '')
+				])
+			]));
+			routeLanes.replaceChildren.apply(routeLanes, lanes);
+			drawBar();
+			drawCatalog();
+			if (policyTracker)
+				policyTracker.update();
+		}
+		catalogSearch.addEventListener('input', drawCatalog);
+
+		/* ── Service definitions ────────────────────────────────────────── */
 		function setServiceControlsBusy(busy, activeButton) {
 			serviceBusy = busy;
-			serviceFields.forEach(function(field) {
-				field.disabled = busy || (field === serviceId && !!editingService);
-			});
-			[ serviceSave, serviceReset, serviceDelete, serviceCancel,
-			  manageServicesButton, addServiceButton, saveBtn, engineButton,
-			  resolverDiagnosticButton, routerTraffic, logLevel, refreshSourcesButton ].forEach(function(button) {
-				if (!button || button === activeButton)
+			[ newServiceButton, saveBtn, engineButton, resolverDiagnosticButton, routerTraffic,
+			  logLevel, refreshSourcesButton ].concat(dialogControls).forEach(function(control) {
+				if (!control || control === activeButton)
 					return;
-				button.disabled = busy ||
-					(button === resolverDiagnosticButton && !fakeipActive);
+				control.disabled = busy ||
+					(control === resolverDiagnosticButton && !fakeipActive);
 			});
-			servicePicker.disabled = busy;
-			var chips = serviceCatalog.querySelectorAll('input.ikev2-community-service');
-			for (var i = 0; i < chips.length; i++)
-				chips[i].disabled = busy;
 			// Releasing the page must not re-enable a Save that has nothing to save.
 			if (!busy) {
 				if (policyTracker)
 					policyTracker.update();
-				if (serviceTracker)
-					serviceTracker.update();
+				if (dialogTracker)
+					dialogTracker.update();
 			}
 		}
 
@@ -829,141 +1093,11 @@ return view.extend({
 			});
 		}
 
-		function runServiceAction(button, busyLabel, operation) {
-			return runPageAction({
-				button: button,
-				result: serviceResult,
-				busy: busyLabel,
-				failure: _('Service update failed'),
-				run: operation
-			});
-		}
-
-		function recordById(id) {
-			for (var i = 0; i < serviceRecords.length; i++)
-				if (serviceRecords[i].id === id)
-					return serviceRecords[i];
-			return null;
-		}
-
-		function renderCatalog() {
-			while (serviceCatalog.firstChild)
-				serviceCatalog.removeChild(serviceCatalog.firstChild);
-			var nodes = renderServiceGroups(serviceRecords, serviceSelection);
-			if (!nodes.length) {
-				nodes.push(E('p', { 'class': 'alert-message warning' }, [
-					_('The service catalog is unavailable. Saved selections and local services are preserved.')
-				]));
-			}
-			nodes.forEach(function(node) { serviceCatalog.appendChild(node); });
-			// A service created, renamed or deleted changes the tunnel rows too.
-			if (onSelectionChange)
-				onSelectionChange();
-		}
-
-		function refreshServicePicker() {
-			var current = servicePicker.value;
-			var records = serviceRecords.slice().sort(function(a, b) {
-				return (a.label || serviceLabel(a.id)).localeCompare(
-					b.label || serviceLabel(b.id));
-			});
-			while (servicePicker.firstChild)
-				servicePicker.removeChild(servicePicker.firstChild);
-			records.forEach(function(record) {
-				servicePicker.appendChild(E('option', {
-					'value': record.id
-				}, [ record.label && record.label !== record.id ?
-					record.label : serviceLabel(record.id) ]));
-			});
-			if (recordById(current))
-				servicePicker.value = current;
-			else if (editingService && recordById(editingService.id))
-				servicePicker.value = editingService.id;
-		}
-
 		function refreshServiceRecords() {
 			return common.execChecked(communityHelper, [ 'services' ],
 				_('Unable to refresh the service catalog')).then(function(response) {
 				serviceRecords = parseServiceRecords(response.stdout || '');
-				refreshServicePicker();
 			});
-		}
-
-		function showServiceEditor(record, details) {
-			editingService = record || null;
-			serviceEditorTitle.textContent = record ?
-				_('Edit service') : _('New service');
-			// A new service has nothing to pick yet; the label and the control
-			// are separate grid cells, so both have to go.
-			servicePickerLabel.style.display = record ? '' : 'none';
-			servicePickerControl.style.display = record ? '' : 'none';
-			if (record)
-				servicePicker.value = record.id;
-			serviceId.value = record ? record.id : '';
-			serviceId.disabled = !!record;
-			serviceName.value = details ?
-				(details.label === record.id ? serviceLabel(record.id) : details.label) : '';
-			serviceDomains.value = details ? details.domains.replace(/\n$/, '') : '';
-			serviceCidrs.value = details ? details.cidrs.replace(/\n$/, '') : '';
-			var ownService = !record || record.origin === 'custom';
-			serviceExclude.checked = !!details && details.mode === 'exclude';
-			serviceExcludeLabel.style.display = ownService ? '' : 'none';
-			serviceExcludeControl.style.display = ownService ? '' : 'none';
-			serviceReset.style.display = record && record.origin !== 'custom' &&
-				record.customized === '1' ? '' : 'none';
-			serviceDelete.style.display = record && record.origin === 'custom' ? '' : 'none';
-			serviceEditor.style.display = '';
-			serviceDirty = false;
-			if (serviceTracker)
-				serviceTracker.reset();
-			serviceResult.clear();
-			(record ? serviceName : serviceId).focus();
-		}
-
-		function openService(record, sourceButton) {
-			if (serviceBusy)
-				return Promise.resolve(null);
-			var sequence = ++serviceLoadSequence;
-			if (sourceButton)
-				common.setBusy(sourceButton, true, _('Loading service...'));
-			setServiceControlsBusy(true, sourceButton);
-			// A button already says it is loading; say it here only for a pick.
-			if (sourceButton)
-				serviceResult.clear();
-			else
-				serviceResult.busy(_('Loading service...'));
-			return common.execChecked(communityHelper, [ 'service-read', record.id ],
-				_('Unable to load service')).then(function(response) {
-				if (sequence !== serviceLoadSequence)
-					return;
-				showServiceEditor(record, parseServiceDetails(response.stdout || ''));
-			}, function(error) {
-				if (sequence !== serviceLoadSequence)
-					return;
-				serviceResult.err(error.message);
-			}).finally(function() {
-				setServiceControlsBusy(false, sourceButton);
-				if (sourceButton)
-					common.setBusy(sourceButton, false);
-			});
-		}
-
-		function requestService(record, sourceButton) {
-			if (!record || serviceBusy)
-				return Promise.resolve(null);
-			if (serviceEditorVisible() && editingService &&
-			    editingService.id === record.id) {
-				serviceEditor.scrollIntoView({ block: 'nearest' });
-				serviceName.focus();
-				return Promise.resolve(record);
-			}
-			if (!confirmDiscardServiceChanges()) {
-				if (editingService)
-					servicePicker.value = editingService.id;
-				return Promise.resolve(null);
-			}
-			serviceDirty = false;
-			return openService(record, sourceButton);
 		}
 
 		function serviceMeta(operation, id, label, mode) {
@@ -983,7 +1117,7 @@ return view.extend({
 			if (operation === 'reset') {
 				serviceRecords.push({
 					id: id, label: id, origin: 'builtin', customized: '0',
-					ip: previous && previous.ip === '1' ? '1' : '0'
+					ip: previous && previous.ip === '1' ? '1' : '0', mode: 'route'
 				});
 				return;
 			}
@@ -993,26 +1127,166 @@ return view.extend({
 				origin: previous && previous.origin === 'custom' ? 'custom' :
 					(previous ? 'override' : 'custom'),
 				customized: '1',
-				ip: hasCidrs ? '1' : '0'
+				ip: hasCidrs ? '1' : '0',
+				mode: previous ? previous.mode : 'route'
 			});
 		}
 
-		function runServiceOperation(operation) {
-			var id = (serviceId.value || '').trim().toLowerCase();
-			var label = (serviceName.value || '').trim();
+		function closeDialog() {
+			serviceLoadSequence++;
+			editingService = null;
+			dialogControls = [];
+			dialogTracker = null;
+			dialogHost.replaceChildren();
+		}
+
+		// One window for a new service and for an existing one: its name, what
+		// it covers and where it goes. The identifier comes from the name.
+		function showServiceDialog(record, details) {
+			editingService = record || null;
+			var name = E('input', {
+				'class': 'cbi-input-text',
+				'type': 'text',
+				'placeholder': _('My service'),
+				'value': details ? (details.label === record.id ? serviceLabel(record.id) : details.label) : ''
+			});
+			var destinations = E('textarea', {
+				'class': 'cbi-input-textarea ikev2-domain-editor ikev2-domain-editor-small',
+				'spellcheck': 'false',
+				'placeholder': 'example.com\n203.0.113.0/24'
+			}, [ details ? (details.domains + details.cidrs).replace(/\n+$/, '') : '' ]);
+			destinations.value = details ? (details.domains + details.cidrs).replace(/\n+$/, '') : '';
+			var here = record && serviceSelection[record.id] ? placeOf(record.id) : (record ? '' : activeZone);
+			var place = E('select', { 'class': 'cbi-input-select' },
+				(record ? [ E('option', { 'value': '', 'selected': here === '' ? '' : null }, [ _('Not in use') ]) ] : [])
+					.concat(zoneTokens(null).map(function(token) {
+						return E('option', {
+							'value': token,
+							'selected': token === here ? '' : null
+						}, [ zoneName(token) ]);
+					})));
+			var result = common.inlineResult();
+			var save = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, [ _('Save service') ]);
+			var cancel = E('button', { 'class': 'cbi-button', 'type': 'button' }, [ _('Cancel') ]);
+			var reset = record && record.origin !== 'custom' && record.customized === '1' ?
+				E('button', { 'class': 'cbi-button cbi-button-reset', 'type': 'button' }, [ _('Restore prepared service') ]) : null;
+			var remove = record && record.origin === 'custom' ?
+				E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, [ _('Delete service') ]) : null;
+			var fields = [ name, destinations, place ];
+			dialogControls = fields.concat([ save, cancel, reset, remove ]);
+
+			function form() {
+				return { name: (name.value || '').trim(), destinations: destinations.value, place: place.value };
+			}
+			function run(button, busyLabel, operation) {
+				return runPageAction({
+					button: button,
+					result: result,
+					busy: busyLabel,
+					failure: _('Service update failed'),
+					run: function() { return runServiceOperation(operation, form(), result); }
+				});
+			}
+			function dismiss() {
+				if (serviceBusy)
+					return;
+				if (dialogTracker && dialogTracker.dirty() &&
+				    !window.confirm(_('Discard unsaved service changes?')))
+					return;
+				closeDialog();
+			}
+			save.addEventListener('click', function() { return run(save, _('Saving service...'), 'save'); });
+			cancel.addEventListener('click', dismiss);
+			if (reset)
+				reset.addEventListener('click', function() {
+					if (window.confirm(_('Discard this local override and restore the prepared service?')))
+						return run(reset, _('Restoring service...'), 'reset');
+				});
+			if (remove)
+				remove.addEventListener('click', function() {
+					if (window.confirm(_('Delete this custom service?')))
+						return run(remove, _('Deleting service...'), 'delete');
+				});
+
+			var panel = E('div', {
+				'class': 'ikev2-dialog',
+				'role': 'dialog',
+				'aria-modal': 'true',
+				'aria-label': record ? _('Edit service') : _('New service')
+			}, [
+				E('h3', {}, [ record ? _('Edit service') : _('New service') ]),
+				E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
+					common.fieldLabel(_('Service name')),
+					name,
+					common.fieldLabel(_('Domains and addresses'),
+						_('One per line. A domain covers its subdomains; an IPv4 address or network is matched without DNS.')),
+					destinations,
+					common.fieldLabel(_('Where it goes'),
+						several ? _('With backup it moves to another tunnel while its own is down; without, it is refused meanwhile.') : null),
+					place
+				]),
+				record && record.origin !== 'custom' ? E('p', { 'class': 'ikev2-field-help' }, [
+					_('A prepared service: saving keeps your own copy of its list on this router.') ]) : '',
+				result.node,
+				E('div', { 'class': 'ikev2-actions end' }, [ cancel, reset || '', remove || '', save ])
+			]);
+			var backdrop = E('div', { 'class': 'ikev2-dialog-backdrop' }, [ panel ]);
+			backdrop.addEventListener('click', function(ev) {
+				if (ev && ev.target === backdrop)
+					dismiss();
+			});
+			backdrop.addEventListener('keydown', function(ev) {
+				if (ev && ev.key === 'Escape')
+					dismiss();
+			});
+			// The theme's own ground: the nearest ancestor that paints one.
+			var ground = '';
+			for (var node = dialogHost; node && !ground && window.getComputedStyle; node = node.parentNode) {
+				var paint = node.nodeType === 1 ? window.getComputedStyle(node).backgroundColor : '';
+				if (paint && paint !== 'transparent' && !/^rgba\(.*,\s*0\)$/.test(paint))
+					ground = paint;
+			}
+			if (ground)
+				panel.style.backgroundColor = ground;
+			dialogHost.replaceChildren(backdrop);
+			dialogTracker = common.trackChanges(save, fields);
+			name.focus();
+		}
+
+		function requestService(record, sourceButton) {
+			if (!record || serviceBusy)
+				return Promise.resolve(null);
+			var sequence = ++serviceLoadSequence;
+			if (sourceButton)
+				common.setBusy(sourceButton, true, _('Loading service...'));
+			setServiceControlsBusy(true, sourceButton);
+			return common.execChecked(communityHelper, [ 'service-read', record.id ],
+				_('Unable to load service')).then(function(response) {
+				if (sequence === serviceLoadSequence)
+					showServiceDialog(record, parseServiceDetails(response.stdout || ''));
+			}, function(error) {
+				if (sequence === serviceLoadSequence)
+					serviceResult.err(error.message);
+			}).finally(function() {
+				setServiceControlsBusy(false, sourceButton);
+				if (sourceButton)
+					common.setBusy(sourceButton, false);
+			});
+		}
+
+		function runServiceOperation(operation, form, result) {
 			var previous = editingService;
+			var id = previous ? previous.id : serviceIdFrom(form.name);
+			var label = form.name;
 			var domains = [];
 			var cidrs = [];
-			if (!/^[a-z0-9_]{2,48}$/.test(id))
-				return Promise.reject(new Error(_('Service identifier must contain 2–48 lowercase letters, digits or underscores.')));
-			if (!editingService && recordById(id))
-				return Promise.reject(new Error(_('A service with this identifier already exists.')));
 			if (operation === 'save') {
 				if (!label || label.length > 80 || /[|\r\n]/.test(label))
 					return Promise.reject(new Error(_('Enter a service name up to 80 characters.')));
 				try {
-					domains = normalizeDomains(serviceDomains.value);
-					cidrs = normalizeAddresses(serviceCidrs.value);
+					var parts = splitDestinations(form.destinations);
+					domains = normalizeDomains(parts.domains);
+					cidrs = normalizeAddresses(parts.cidrs);
 				}
 				catch (error) {
 					return Promise.reject(error);
@@ -1023,8 +1297,10 @@ return view.extend({
 			var token = common.inputToken();
 			var prefix = '/tmp/ikev2-service-input-' + token;
 			return Promise.all([
+				// The mark of an earlier release is kept as it is: where the
+				// service goes is the board's to say, and the board overrides it.
 				fs.write(prefix + '.meta', serviceMeta(operation, id, label,
-					serviceExclude.checked && (!previous || previous.origin === 'custom') ? 'exclude' : 'route'), 384),
+					previous && previous.mode === 'exclude' ? 'exclude' : 'route'), 384),
 				fs.write(prefix + '.domains', domains.join('\n') + (domains.length ? '\n' : ''), 384),
 				fs.write(prefix + '.cidrs', cidrs.join('\n') + (cidrs.length ? '\n' : ''), 384)
 			]).then(function() {
@@ -1035,32 +1311,38 @@ return view.extend({
 				if (!actionId)
 					throw new Error(_('Action did not start'));
 				return pollStatus(actionId, Date.now() + 120000, function(st) {
-					common.showProgress(serviceResult, st.message);
+					common.showProgress(result, st.message);
 				});
 			}).then(function(st) {
 				if (!st)
 					return 'timeout';
 				if (st.state !== 'ok')
 					throw new Error(st.message ? _(st.message) : _('Service update failed'));
-				if (operation === 'delete')
-					delete serviceSelection[id];
 				return refreshServiceRecords().then(function() { return true; },
 					function() { return false; });
 			}).then(function(refreshed) {
 				if (refreshed === 'timeout') {
-					serviceResult.warn(_('The operation is still running in the background.'));
+					result.warn(_('The operation is still running in the background.'));
 					return;
 				}
-				if (!refreshed) {
+				if (!refreshed)
 					reconcileServiceRecord(operation, previous, id, label, cidrs.length > 0);
-					refreshServicePicker();
+				if (operation === 'delete' || (operation === 'save' && form.place === '')) {
+					delete serviceSelection[id];
+					delete serviceExits[id];
 				}
-				serviceEditor.style.display = 'none';
-				serviceDirty = false;
-				renderCatalog();
+				else if (operation === 'save') {
+					serviceSelection[id] = true;
+					serviceExits[id] = form.place;
+					chosen = id;
+				}
+				closeDialog();
+				drawBoard();
 				var success = operation === 'delete' ? _('Custom service deleted and policy rebuilt.') :
 					(operation === 'reset' ? _('Prepared service restored and policy rebuilt.') :
 					 _('Service saved. Active policy was rebuilt when required.'));
+				if (policyTracker && policyTracker.dirty())
+					success += ' ' + _('Press Save to apply where it goes.');
 				if (refreshed)
 					serviceResult.ok(success);
 				else
@@ -1068,79 +1350,11 @@ return view.extend({
 			});
 		}
 
-		serviceSave.addEventListener('click', function() {
-			return runServiceAction(serviceSave, _('Saving service...'),
-				function() { return runServiceOperation('save'); });
+		newServiceButton.addEventListener('click', function() {
+			if (!serviceBusy)
+				showServiceDialog(null, null);
 		});
-		serviceReset.addEventListener('click', function() {
-			if (!window.confirm(_('Discard this local override and restore the prepared service?')))
-				return;
-			return runServiceAction(serviceReset, _('Restoring service...'),
-				function() { return runServiceOperation('reset'); });
-		});
-		serviceDelete.addEventListener('click', function() {
-			if (!window.confirm(_('Delete this custom service?')))
-				return;
-			return runServiceAction(serviceDelete, _('Deleting service...'),
-				function() { return runServiceOperation('delete'); });
-		});
-		serviceCancel.addEventListener('click', function() {
-			if (serviceBusy || !confirmDiscardServiceChanges())
-				return;
-			serviceLoadSequence++;
-			serviceEditor.style.display = 'none';
-			serviceDirty = false;
-			serviceResult.clear();
-		});
-		servicePicker.addEventListener('change', function() {
-			var record = recordById(servicePicker.value);
-			if (record)
-				requestService(record, null);
-		});
-
-		addServiceButton = E('button', {
-			'class': 'cbi-button cbi-button-action',
-			'type': 'button'
-		}, [ _('Add service') ]);
-		addServiceButton.addEventListener('click', function() {
-			if (serviceBusy || !confirmDiscardServiceChanges())
-				return;
-			serviceLoadSequence++;
-			showServiceEditor(null, null);
-		});
-		servicePickerControl.appendChild(servicePicker);
-		servicePickerControl.appendChild(addServiceButton);
-		serviceEditor.appendChild(E('div', { 'class': 'ikev2-service-editor-heading' }, [
-			serviceEditorTitle
-		]));
-		serviceEditor.appendChild(E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
-			servicePickerLabel, servicePickerControl,
-			common.fieldLabel(_('Identifier'), _('Stable internal name; it cannot be changed after creation.')),
-			serviceId,
-			common.fieldLabel(_('Service name')),
-			serviceName,
-			serviceExcludeLabel, serviceExcludeControl,
-			common.fieldLabel(_('Domain suffixes'), _('One domain suffix per line. Subdomains are included automatically.')),
-			serviceDomains,
-			common.fieldLabel(_('IPv4 addresses and networks'), _('Optional; one IPv4 address or CIDR per line.')),
-			serviceCidrs
-		]));
-		serviceEditor.appendChild(E('div', { 'class': 'ikev2-actions end' }, [
-			serviceCancel, serviceReset, serviceDelete, serviceSave
-		]));
-		manageServicesButton = E('button', {
-			'class': 'cbi-button cbi-button-action ikev2-icon-button',
-			'type': 'button'
-		}, [ common.icon('settings'), E('span', {}, [ _('Manage services') ]) ]);
-		manageServicesButton.addEventListener('click', function() {
-			var record = recordById(servicePicker.value) || serviceRecords[0];
-			if (record)
-				requestService(record, manageServicesButton);
-			else
-				showServiceEditor(null, null);
-		});
-		refreshServicePicker();
-		renderCatalog();
+		drawBoard();
 
 		var domainsContent = E('div', {}, [
 			common.section(_('Domain routing'),
@@ -1189,49 +1403,34 @@ return view.extend({
 						])
 					])
 				])),
-			common.section(_('Services'),
-				_('Prepared and user-created services stay in separate lists. Chips stage policy selection; the page Save button applies it. Service definitions are managed independently.'),
+			common.section(_('Routes'),
+				several ?
+					_('Each field is a tunnel, and what lies in it goes through that tunnel. With backup a service moves to another tunnel while its own is down; without, it waits for its own and is refused meanwhile. Nothing goes to the WAN in either case.') :
+					_('What lies in the first field goes through the tunnel; everything else continues through the normal WAN.'),
 				E('div', {}, [
-					serviceCatalog,
-					serviceEditor,
+					routeBar,
+					routeLanes,
 					serviceResult.node
-				]), E('div', { 'class': 'ikev2-actions' }, [
-					manageServicesButton
 				])),
-			exitsSection,
+			common.section(_('Catalogue'),
+				_('Prepared services and your own. A click adds one to the highlighted field; dragging one back here takes it out.'),
+				catalogBody,
+				E('div', { 'class': 'ikev2-actions' }, [ catalogSearch, newServiceButton ])),
+			dialogHost,
 			buildSourcesSection(data[7]),
 			E('div', { 'class': 'ikev2-destination-editors' }, [
 				common.section(_('Custom domains'),
 					_('One plain domain per line. Custom entries are never overwritten by service updates.'),
-					E('textarea', {
-						'id': 'ikev2-domain-list',
-						'class': 'cbi-input-textarea ikev2-domain-editor',
-						'spellcheck': 'false'
-					}, [ manual ])),
+					listAreas['@domains']),
 				common.section(_('Custom IP addresses and networks'),
 					_('One IPv4 address or CIDR network per line. A single address is stored as /32.'),
-					E('textarea', {
-						'id': 'ikev2-address-list',
-						'class': 'cbi-input-textarea ikev2-domain-editor',
-						'spellcheck': 'false',
-						'placeholder': '203.0.113.10\n198.51.100.0/24'
-					}, [ manualAddresses ])),
+					listAreas['@cidrs']),
 				common.section(_('Domains never through the tunnel'),
 					_('One domain per line; its subdomains are excluded too. It wins over every selected service and custom domain.'),
-					E('textarea', {
-						'id': 'ikev2-exclude-domain-list',
-						'class': 'cbi-input-textarea ikev2-domain-editor',
-						'spellcheck': 'false',
-						'placeholder': 'bank.example'
-					}, [ excludedDomains ])),
+					listAreas['@xdomains']),
 				common.section(_('Addresses never through the tunnel'),
 					_('One IPv4 address or CIDR network per line. Traffic to them never takes the tunnel, whatever selects it.'),
-					E('textarea', {
-						'id': 'ikev2-exclude-address-list',
-						'class': 'cbi-input-textarea ikev2-domain-editor',
-						'spellcheck': 'false',
-						'placeholder': '198.51.100.0/24'
-					}, [ excludedAddresses ]))
+					listAreas['@xcidrs'])
 			])
 		]);
 
@@ -1384,13 +1583,9 @@ return view.extend({
 				return JSON.stringify([ domains ? domains.value : '',
 					addresses ? addresses.value : '', excluded ? excluded.value : '',
 					excludedAddresses ? excludedAddresses.value : '',
-					Object.keys(serviceSelection).sort(),
-					Object.keys(serviceExits).sort().map(function(target) {
-						return target + '=' + serviceExits[target];
-					}) ]);
+					Object.keys(serviceSelection).sort(), exitsText() ]);
 			}
 		});
-		serviceTracker = common.trackChanges(serviceSave, serviceFields);
 
 		return E([
 			common.styles(),
@@ -1403,7 +1598,7 @@ return view.extend({
 				// LuCI footer rule.
 				E('div', { 'class': 'ikev2-actions end ikev2-save-bar' }, [
 					E('span', { 'class': 'ikev2-field-help' }, [
-						_('Saves the selected services and the custom lists, then rebuilds the routing list.') ]),
+						_('Saves where each service and list goes, then rebuilds the routing list.') ]),
 					saveResult.node,
 					saveBtn
 				])

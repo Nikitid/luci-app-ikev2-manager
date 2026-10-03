@@ -448,15 +448,18 @@ if (source.indexOf('segmentSelect') >= 0)
 // each with the compatibility switch under it, grey while its path does not
 // pass through sing-box. Resolving every name through the tunnel takes that
 // path already, so the main switch is fixed while that is on.
+// The switch of every row titled LABEL: a switch is a framed row, its title
+// and description on the left and the control on the right.
 function switchesAfter(scope, label) {
 	const found = [];
 	walk(scope, []).forEach(function(node) {
-		(node.children || []).forEach(function(child, index) {
-			if (child && hasClass(child, 'ikev2-field-label') && child.children[0] === label) {
-				const control = node.children[index + 1];
-				found.push(control.children[0]);
-			}
-		});
+		if (!hasClass(node, 'ikev2-toggle-row'))
+			return;
+		const title = walk(node, []).find(function(child) { return hasClass(child, 'ikev2-toggle-text'); });
+		if (!title || title.children[0] !== label)
+			return;
+		const control = walk(node, []).find(function(child) { return hasClass(child, 'ikev2-switch'); });
+		found.push(control.children[0]);
 	});
 	return found;
 }
@@ -609,7 +612,7 @@ function textOf(node) {
 	if (node.textContent) return node.textContent;
 	return (node.children || []).map(textOf).join(' ');
 }
-function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved ]); }
+function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved ]); }
 
 // A strongSwan upgraded on disk but not restarted is explained, not shown as
 // a code.
@@ -704,18 +707,22 @@ if (!exitSelect || exitSelect.tagName !== 'SELECT' || exitSelect.value !== '2')
 	fail('a device sent to the second tunnel does not show it');
 if (textOf(exitSelect).indexOf('NL') < 0 || textOf(exitSelect).indexOf('Main tunnel') < 0)
 	fail('the device tunnel choice does not name the tunnels');
+// Each tunnel is offered with backup and bound to it without.
+if (exitSelect.children.map(function(option) { return option.attrs.value; }).join(',') !== '1,1s,2,2s' ||
+	textOf(exitSelect.children[3]).trim() !== 'NL, no backup')
+	fail('a device cannot be bound to its tunnel without backup');
 const excludedCell = exitCell('192.168.1.41');
 if (!excludedCell || excludedCell.tagName === 'SELECT' || textOf(excludedCell).trim() !== '—')
 	fail('an excluded device was offered a tunnel');
 const exitStored = respectStored.then(function() {
 	const execBefore = fsStub.exec;
 	fsStub.exec = function(file, args) { exitCalls.push((args || []).join(' ')); return Promise.resolve({ code: 0, stdout: '' }); };
-	exitSelect.value = '1';
+	exitSelect.value = '1s';
 	exitSelect.listeners.change();
 	return new Promise(function(resolve) { setImmediate(resolve); }).then(function() {
 		fsStub.exec = execBefore;
-		if (exitCalls[0] !== 'device-async set-exit 192.168.1.40 1')
-			fail('choosing the main tunnel is not stored for the device: ' + JSON.stringify(exitCalls));
+		if (exitCalls[0] !== 'device-async set-exit 192.168.1.40 1s')
+			fail('binding the device to the main tunnel is not stored for it: ' + JSON.stringify(exitCalls));
 	});
 }).then(function() {
 	// An exclusion stores its three boxes together for the device's address.
@@ -845,58 +852,212 @@ if (editorSource.indexOf("fs.exec(communityHelper, [ 'sources' ])") < 0)
 	fail('the policy page does not read list sources');
 if (editorSource.indexOf("startArgs: [ 'refresh-schedule', 'force' ]") < 0)
 	fail('the policy page cannot start a list update');
-// Tunnels: with a second tunnel, each selected service that routes and each
-// custom list gets a tunnel choice showing what is stored; a service that
-// excludes gets none, and with one tunnel there is no such section at all.
-(function() {
-	const withTunnels = editor.render([
-		'example.com\n', 'banks openai', policyStatus,
-		{ code: 0, stdout: 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' },
-		'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
-		{ code: 0, stdout: 'now=1789300000' }, '', '',
-		{ code: 0, stdout: 'tunnel=2\nname=NL\nenabled=1\n' }, 'openai 2\n@cidrs 2\n'
-	]);
-	const nodes = [];
-	(function walk(node) {
-		if (!node || typeof node !== 'object') return;
-		nodes.push(node);
-		(node.children || []).forEach(walk);
-	})(withTunnels);
-	const text = function(node) {
-		return (node.children || []).map(function(child) {
-			return typeof child === 'string' ? child : (child && child.textContent) || text(child || {});
-		}).join(' ');
-	};
-	const grid = nodes.find(function(node) {
-		return (node.children || []).some(function(child) {
-			return child && child.tagName === 'SELECT';
-		}) && text(node).indexOf('Custom IP addresses and networks') >= 0;
+// The board. Every tunnel is a field with a zone for what may move to another
+// tunnel and one for what may not; what never goes through the tunnel has a
+// field too; the catalogue holds the rest. A chip is moved by a drop or by
+// the action bar, and the page saves where everything lies.
+const boardCatalog = 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' +
+	'telegram|telegram|builtin|0|1|route\nspotify|spotify|builtin|0|0|route\n';
+const boardPage = editor.render([
+	'example.com\n', 'banks openai telegram', policyStatus,
+	{ code: 0, stdout: boardCatalog },
+	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
+	{ code: 0, stdout: 'now=1789300000' }, '', '',
+	{ code: 0, stdout: 'tunnel=2\nname=NL\nenabled=1\n' }, 'openai 2\n@cidrs 2s\n',
+	{ code: 0, stdout: 'tunnel=1 up=1 address=10.0.0.2 carries=1\ntunnel=2 up=0 address= carries=\n' }
+]);
+function boardZone(page, token) {
+	return nodesOf(page).find(function(node) { return node.attrs && node.attrs['data-zone'] === token; });
+}
+function chipsIn(page, token) {
+	const zone = boardZone(page, token);
+	return zone ? nodesOf(zone).filter(function(node) {
+		return node.attrs && node.attrs['data-target'];
+	}).map(function(node) { return node.attrs['data-target']; }).join(',') : null;
+}
+function boardChip(page, target) {
+	return nodesOf(page).find(function(node) { return node.attrs && node.attrs['data-target'] === target; });
+}
+function boardState(page) {
+	return [ '1', '1s', '2', '2s', 'wan', 'catalog' ].map(function(token) {
+		return token + '=' + chipsIn(page, token);
+	}).join(' ');
+}
+function dropOn(page, token, target) {
+	boardZone(page, token).listeners.drop({
+		preventDefault() {}, dataTransfer: { getData() { return target; } }
 	});
-	if (!grid)
-		fail('a second tunnel gives the services and lists no tunnel choice');
-	const choices = {};
-	for (let i = 0; i + 1 < grid.children.length; i += 2)
-		choices[text(grid.children[i]).trim()] = grid.children[i + 1].value;
-	if (choices['openai'] !== '2' && choices['OpenAI'] !== '2')
-		fail('a service sent to the second tunnel does not show it: ' + JSON.stringify(choices));
-	if (choices['Custom IP addresses and networks'] !== '2' || choices['Custom domains'] !== '1')
-		fail('the custom lists do not show their tunnels: ' + JSON.stringify(choices));
-	if (Object.keys(choices).some(function(label) { return label === 'Banks'; }))
-		fail('a service that excludes was offered a tunnel');
-	const single = editor.render([
-		'example.com\n', 'openai', policyStatus, { code: 0, stdout: '' }, 'example.com\n',
-		{ code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
+}
+if (boardState(boardPage) !== '1=@domains,telegram 1s= 2=openai 2s=@cidrs wan=banks catalog=spotify')
+	fail('the board does not show where everything lies: ' + boardState(boardPage));
+if (!nodesOf(boardChip(boardPage, '@cidrs')).some(function(node) { return node.tagName === 'SVG'; }) ||
+	nodesOf(boardChip(boardPage, 'openai')).some(function(node) { return node.tagName === 'SVG'; }))
+	fail('a chip bound to its tunnel is not told apart from one that may move');
+(function() {
+	const lanes = nodesOf(boardPage).filter(function(node) { return node.attrs && node.attrs['data-lane']; });
+	if (lanes.map(function(node) { return node.attrs['data-lane']; }).join(',') !== '1,2,wan')
+		fail('the board does not have a field per tunnel and one for what stays out');
+	if (textOf(lanes[0]).indexOf('Connected') < 0 || textOf(lanes[1]).indexOf('Not connected') < 0 ||
+		textOf(lanes[1]).indexOf('NL') < 0)
+		fail('a field does not name its tunnel and its state');
+	if (textOf(lanes[2]).indexOf('Excluded domains') < 0)
+		fail('the lists that stay out of the tunnel are not shown where they belong');
+})();
+// A click in the catalogue adds the service to the highlighted field.
+boardChip(boardPage, 'spotify').listeners.click();
+if (chipsIn(boardPage, '1') !== '@domains,spotify,telegram' || chipsIn(boardPage, 'catalog') !== '')
+	fail('a click in the catalogue did not add the service: ' + boardState(boardPage));
+// A click on a chip opens its actions: the tunnel, and whether it is bound to
+// it without backup. One row whatever the number of tunnels.
+boardChip(boardPage, 'telegram').listeners.click();
+function barControl(page, act) {
+	return nodesOf(page).find(function(node) { return node.attrs && node.attrs['data-act'] === act; });
+}
+if (barControl(boardPage, 'where').children.map(function(option) { return option.attrs.value; }).join(',') !== '1,2,wan')
+	fail('the action bar does not offer every tunnel and staying out');
+barControl(boardPage, 'where').value = '2';
+barControl(boardPage, 'where').listeners.change();
+if (chipsIn(boardPage, '2') !== 'openai,telegram')
+	fail('the action bar did not move the service: ' + boardState(boardPage));
+if (barControl(boardPage, 'bind').attrs['aria-pressed'] !== 'false')
+	fail('a service that may move reads as bound to its tunnel');
+barControl(boardPage, 'bind').listeners.click();
+if (chipsIn(boardPage, '2s') !== '@cidrs,telegram' || barControl(boardPage, 'bind').attrs['aria-pressed'] !== 'true')
+	fail('the action bar did not bind the service to its tunnel: ' + boardState(boardPage));
+// One of the operator's own lists is not offered a place out of the tunnel.
+boardChip(boardPage, '@domains').listeners.click();
+if (barControl(boardPage, 'where').children.some(function(option) { return option.attrs.value === 'wan'; }))
+	fail('a list of the operator is offered the place its own exclusion lists have');
+// Dropped into a field, a chip lies there; one of the operator's own lists
+// has lists of its own for staying out, a service an earlier release marked
+// as excluded takes a tunnel, and the catalogue takes a service out.
+dropOn(boardPage, 'wan', 'openai');
+dropOn(boardPage, 'wan', '@domains');
+dropOn(boardPage, '1', 'banks');
+dropOn(boardPage, 'catalog', 'spotify');
+if (boardState(boardPage) !== '1=@domains,banks 1s= 2= 2s=@cidrs,telegram wan=openai catalog=spotify')
+	fail('drops did not move the chips as they should: ' + boardState(boardPage));
+// Saved at once: the page holds one policy, and the next render in this file
+// would replace it. The writes are made before the save first waits.
+(function() {
+	const boardWrites = {};
+	const ids = {};
+	collect(boardPage, function(node) { return node.attrs && node.attrs.id; }, []).forEach(function(node) {
+		ids[node.attrs.id] = node;
+		node.value = textOf(node);
+	});
+	const writeBefore = fsStub.write;
+	const queryBefore = documentStub.querySelector;
+	fsStub.write = function(file, content) { boardWrites[file.replace(/^.*\./, '')] = content; return Promise.resolve(); };
+	documentStub.querySelector = function(selector) { return ids[selector.replace(/^#/, '')] || null; };
+	editor.doSave({ ok() {}, err() {}, warn() {}, busy() {}, clear() {} });
+	documentStub.querySelector = queryBefore;
+	fsStub.write = writeBefore;
+	if (boardWrites.services !== 'banks\nopenai\ntelegram\n')
+		fail('the services on the board are not the ones saved: ' + JSON.stringify(boardWrites.services));
+	// The first tunnel is the default and is not written, except to take a
+	// service out of the exclusion an earlier release gave it.
+	if (boardWrites.exits !== '@cidrs 2s\nbanks 1\nopenai wan\ntelegram 2s\n')
+		fail('the places on the board are not the ones saved: ' + JSON.stringify(boardWrites.exits));
+})();
+// One tunnel: a field through the tunnel and one that stays out, nothing to
+// be bound against, and what was stored for a tunnel that is gone is the
+// first one's.
+const singlePage = editor.render([
+	'example.com\n', 'openai telegram', policyStatus, { code: 0, stdout: boardCatalog },
+	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
+	{ code: 0, stdout: '' }, 'openai 2s\ntelegram 1s\n'
+]);
+if (boardZone(singlePage, '1s') || boardZone(singlePage, '2'))
+	fail('one tunnel still offers a choice of tunnel or backup');
+if (chipsIn(singlePage, '1') !== '@domains,@cidrs,openai,telegram')
+	fail('with one tunnel a stored place is not the tunnel: ' + chipsIn(singlePage, '1'));
+if (textOf(nodesOf(singlePage).find(function(node) { return node.attrs && node.attrs['data-lane'] === '1'; }))
+	.indexOf('Through the tunnel') < 0)
+	fail('the only tunnel is not simply the tunnel');
+// A new service: a window with its name, what it covers in one field, and
+// where it goes; the identifier comes from the name.
+const dialogOpener = nodesOf(singlePage).find(function(node) {
+	return node.tagName === 'BUTTON' && textOf(node).trim() === 'New service';
+});
+if (!dialogOpener) fail('the catalogue has no button for a new service');
+dialogOpener.listeners.click();
+const serviceDialog = nodesOf(singlePage).find(function(node) { return hasClass(node, 'ikev2-dialog'); });
+if (!serviceDialog) fail('a new service has no window');
+const dialogFields = nodesOf(serviceDialog).filter(function(node) {
+	return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
+});
+if (dialogFields.length !== 3) fail('the service window does not have a name, a list and a place');
+function saveServiceDialog() {
+	const dialogSave = nodesOf(serviceDialog).find(function(node) {
+		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save service';
+	});
+	// Grey until something is entered, like every other Save.
+	if (!dialogSave.disabled) fail('the service window offers to save an empty form');
+	const written = {};
+	const writeBefore = fsStub.write;
+	fsStub.write = function(file, content) { written[file.replace(/^.*\./, '')] = content; return Promise.resolve(); };
+	dialogFields[0].value = 'Work Portal';
+	dialogFields[1].value = 'Portal.Example\n\n203.0.113.0/24\nstatic.portal.example';
+	nodesOf(serviceDialog).find(function(node) {
+		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save service';
+	}).listeners.click();
+	return new Promise(function(resolve) { setTimeout(resolve, 5); }).then(function() {
+		fsStub.write = writeBefore;
+		if (!/^operation=save\nid=work_portal\nlabel=Work Portal\nselected=keep\nmode=route\n$/.test(written.meta || ''))
+			fail('a new service is not stored under an identifier from its name: ' + JSON.stringify(written.meta));
+		if (written.domains !== 'portal.example\nstatic.portal.example\n' || written.cidrs !== '203.0.113.0/24\n')
+			fail('domains and addresses in one field are not told apart: ' + JSON.stringify(written));
+	}).then(editServiceDialog);
+}
+// An existing service of one's own: Edit reads its definition, a changed form
+// is not thrown away without asking, and Delete removes the service.
+function editServiceDialog() {
+	const page = editor.render([
+		'', 'banks', policyStatus, { code: 0, stdout: 'banks|Banks|custom|1|1|route\n' },
+		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 		{ code: 0, stdout: '' }, ''
 	]);
-	const singleNodes = [];
-	(function walk(node) {
-		if (!node || typeof node !== 'object') return;
-		singleNodes.push(node);
-		(node.children || []).forEach(walk);
-	})(single);
-	if (singleNodes.some(function(node) { return node.tagName === 'H3' && text(node).trim() === 'Tunnels'; }))
-		fail('one tunnel still shows a tunnel section');
-})();
+	const calls = [];
+	const written = {};
+	let asked = 0, answer = false;
+	const execBefore = fsStub.exec, writeBefore = fsStub.write;
+	fsStub.exec = function(file, args) {
+		calls.push((args || []).join(' '));
+		return Promise.resolve({ code: 0, stdout: 'label=Banks\n---domains---\nbank.example\n---cidrs---\n192.0.2.0/24\n' });
+	};
+	fsStub.write = function(file, content) { written[file.replace(/^.*\./, '')] = content; return Promise.resolve(); };
+	windowStub.confirm = function() { asked++; return answer; };
+	const tick = function() { return new Promise(function(resolve) { setTimeout(resolve, 5); }); };
+	function button(scope, label) {
+		return nodesOf(scope).find(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === label; });
+	}
+	boardChip(page, 'banks').listeners.click();
+	barControl(page, 'edit').listeners.click();
+	return tick().then(function() {
+		if (calls[0] !== 'service-read banks')
+			fail('editing a service does not read its definition: ' + JSON.stringify(calls));
+		const dialog = nodesOf(page).find(function(node) { return hasClass(node, 'ikev2-dialog'); });
+		if (!dialog) fail('an existing service has no window');
+		const fields = nodesOf(dialog).filter(function(node) {
+			return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
+		});
+		if (fields[1].value !== 'bank.example\n192.0.2.0/24')
+			fail('the window does not show what the service covers: ' + JSON.stringify(fields[1].value));
+		fields[0].value = 'Banks and cards';
+		button(dialog, 'Cancel').listeners.click();
+		if (asked !== 1 || !nodesOf(page).some(function(node) { return hasClass(node, 'ikev2-dialog'); }))
+			fail('a changed service was thrown away without asking');
+		answer = true;
+		button(dialog, 'Delete service').listeners.click();
+		return tick();
+	}).then(function() {
+		fsStub.exec = execBefore;
+		fsStub.write = writeBefore;
+		if (asked !== 2 || !/^operation=delete\nid=banks\n(.*\n)?selected=0\n/.test(written.meta || ''))
+			fail('deleting a service does not remove it: ' + JSON.stringify(written.meta));
+	});
+}
 
 // Never through the tunnel: two lists beside the two routed ones, saved with
 // them, and services of one's own that exclude are marked in the catalogue.
@@ -915,8 +1076,8 @@ collect(excludePage, function(node) { return node.attrs && node.attrs.id; }, [])
 if (textOf(byId['ikev2-exclude-domain-list']).trim() !== 'bank.example' ||
 	textOf(byId['ikev2-exclude-address-list']).trim() !== '192.0.2.7')
 	fail('the exclusion editors do not show the stored lists');
-if (!collect(excludePage, function(node) { return node.tagName === 'SPAN' && textOf(node) === '⊘'; }, []).length)
-	fail('an exclusion service is not marked in the catalogue');
+if (chipsIn(excludePage, 'wan') !== 'banks')
+	fail('a service that excludes is not shown where it stays out of the tunnel');
 Object.keys(byId).forEach(function(id) { byId[id].value = textOf(byId[id]); });
 byId['ikev2-exclude-domain-list'].value = 'Bank.Example\n\nother.example';
 const policyWrites = {};
@@ -933,6 +1094,9 @@ const policySaved = dnsSent.then(function() {
 			fail('the exclusion lists are not saved normalised beside the others: ' + JSON.stringify(policyWrites));
 	});
 });
+
+// After the policy save, which shares the write stub.
+const dialogSaved = policySaved.then(saveServiceDialog);
 
 try {
 	editor.render([ '', '', '', { code: 0, stdout: '' }, '', { code: 0, stdout: '' }, '',
@@ -1078,7 +1242,7 @@ const backupSaved = exitStored.then(function() {
 	});
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, respectStored, exitStored, backupSaved ]).then(function() {
+Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

@@ -59,6 +59,7 @@ manager() {
 	IKEV2_ACTION_LOCK_STATUS="$tmp/action.lock.status" \
 	IKEV2_SA_HELPER="$tmp/bin/sa" \
 	IKEV2_ROUTING_HELPER="$tmp/bin/routing" \
+	IKEV2_EXITS_FILE="$tmp/exits" \
 	PATH="$tmp/bin:$PATH" \
 		sh "$root/luci-ikev2-manager/ikev2-manager.sh" "$@"
 }
@@ -137,13 +138,31 @@ printf '%s\n' 'tunnel=1 up=1 address=10.20.20.10 carries=1,2' 'tunnel=2 up=0 add
 	'tunnel=3 up=0 address= carries=' | cmp -s - "$tmp/status" ||
 	fail "the tunnel status is wrong: $(cat "$tmp/status")"
 
-# Eight at most.
-for name in A B C D E; do
+# The first tunnel has the switch every other tunnel has in its block.
+manager client-get | grep -qx 'backup=1' || fail 'the first tunnel does not stand in for the others by default'
+manager client-backup 0 >/dev/null || fail 'the first tunnel could not be kept from standing in'
+grep -qx 'client.backup=0' "$tmp/root/etc/config/ikev2-manager" || fail 'the setting of the first tunnel was not stored'
+manager client-get | grep -qx 'backup=0' || fail 'the page is not told the setting of the first tunnel'
+manager client-backup 2 >/dev/null 2>&1 && fail 'a setting that is neither on nor off was accepted'
+manager client-backup 1 >/dev/null || fail 'the first tunnel could not stand in again'
+
+# Seven at most: each has two exits, and there are fifteen marks.
+for name in A B C D; do
 	input save new "$name" 0 x.example.test x.example.test u 30 1400 1 p
 	manager tunnel-input >/dev/null 2>&1 || fail "tunnel $name was refused below the limit"
 done
-input save new 'Ninth' 0 x.example.test x.example.test u 30 1400 1 p
-manager tunnel-input >/dev/null 2>&1 && fail 'a ninth tunnel was accepted'
+input save new 'Eighth' 0 x.example.test x.example.test u 30 1400 1 p
+manager tunnel-input >/dev/null 2>&1 && fail 'an eighth tunnel was accepted'
+grep -q '^tunnel_7=' "$tmp/root/etc/config/ikev2-manager" || fail 'the seventh tunnel was not stored'
+grep -q '^tunnel_8' "$tmp/root/etc/config/ikev2-manager" && fail 'an eighth tunnel was stored'
+
+# A tunnel something is bound to without backup is not deleted from under it:
+# what must not leave from another place would move to the first tunnel.
+printf 'openai 2s\n' >"$tmp/exits"
+input delete 2 '' '' '' '' '' '' '' '' ''
+manager tunnel-input >/dev/null 2>"$tmp/err" && fail 'a tunnel with a service bound to it was deleted'
+grep -q 'bound to this tunnel' "$tmp/err" || fail "the refusal does not say why: $(cat "$tmp/err")"
+printf 'openai 2\n' >"$tmp/exits"
 
 # Deleted: its section, secret and connection go; the first tunnel's secret
 # names only its user again once no other tunnel is enabled.

@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v12 as common';
+'require ikev2-manager.shared-v13 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -655,20 +655,16 @@ return view.extend({
 					common.fieldLabel(_('Advertised IPv4 destinations'),
 						_('Space-separated CIDRs. Use 0.0.0.0/0 for a full-tunnel client route.')),
 					localTs.node,
-					common.fieldLabel(_('Allow Internet'),
+					common.toggleRow(allowInternet, _('Allow Internet'),
 						_('Permit forwarding to home WAN and the outbound IKEv2 policy path.')),
-					common.switchLabel(allowInternet),
-					common.fieldLabel(_('Allow internal networks'),
+					common.toggleRow(allowLan, _('Allow internal networks'),
 						_('Permit forwarding to the LAN firewall zones listed below.')),
-					common.switchLabel(allowLan),
 					common.fieldLabel(_('Internal firewall zones')),
 					lanZones.node,
-					common.fieldLabel(_('Allow router itself'),
+					common.toggleRow(allowRouter, _('Allow router itself'),
 						_('Allows router services on its LAN, VPN and public addresses. This also enables same-router public-IP loopback.')),
-					common.switchLabel(allowRouter),
-					common.fieldLabel(_('Allow all router ports'),
+					common.toggleRow(allowAllRouterPorts, _('Allow all router ports'),
 						_('Permit every router service from authenticated inbound VPN clients. The restricted port list is disabled while this is on.')),
-					common.switchLabel(allowAllRouterPorts),
 					common.fieldLabel(_('Allowed router ports'),
 						_('Complete TCP/UDP allowlist used when all ports are off. Keep LuCI and SSH ports in this list or inbound VPN management access will stop.')),
 					routerPorts
@@ -723,12 +719,10 @@ return view.extend({
 			_('How an established session survives a client changing network. Timers, certificate paths and the raw strongSwan profile are in the advanced options.'),
 			E('div', {}, [
 				E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
-					common.fieldLabel(_('MOBIKE'),
+					common.toggleRow(mobike, _('MOBIKE'),
 						_('Keeps the VPN session when a phone moves between Wi-Fi and mobile data.')),
-					common.switchLabel(mobike),
-					common.fieldLabel(_('IKE fragmentation'),
+					common.toggleRow(fragmentation, _('IKE fragmentation'),
 						_('Avoids oversized IKE packets on constrained networks.')),
-					common.switchLabel(fragmentation),
 					common.fieldLabel(_('XFRM MTU')), mtu.node
 				]),
 				behaviorAdvanced.panel
@@ -758,9 +752,8 @@ return view.extend({
 				common.section(_('Service'),
 					_('Server identity and the address pool handed to inbound clients.'),
 					E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
-						common.fieldLabel(_('Enable server'),
+						common.toggleRow(enabled, _('Enable server'),
 							_('Listen on WAN UDP 500 and 4500.')),
-						common.switchLabel(enabled),
 						common.fieldLabel(_('Public identity'),
 							_('Choose a detected ACME name or enter another DNS name.')),
 						identity.node,

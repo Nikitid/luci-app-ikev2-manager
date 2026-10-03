@@ -73,6 +73,7 @@
 				"/usr/libexec/ikev2-manager user-secret-set *": [ "exec" ],
 				"/usr/libexec/ikev2-manager client-input *": [ "exec" ],
 				"/usr/libexec/ikev2-manager tunnel-input *": [ "exec" ],
+				"/usr/libexec/ikev2-manager client-backup *": [ "exec" ],
 				"/usr/libexec/ikev2-manager server-input *": [ "exec" ],
 				"/usr/libexec/ikev2-manager user-delete *": [ "exec" ],
 				"/usr/libexec/ikev2-manager disconnect *": [ "exec" ],

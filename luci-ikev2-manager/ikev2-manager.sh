@@ -2017,6 +2017,7 @@ case "${1:-}" in
 		for key in enabled remote_address remote_id username dpd mtu custom_config; do
 			printf '%s=%s\n' "$key" "$(getv client "$key")"
 		done
+		printf 'backup=%s\n' "$(getv_default client backup 1)"
 		printf 'reconnect_cooldown=%s\n' \
 			"$(getv_default client reconnect_cooldown 15)"
 		printf 'tunnel_dns_provider=%s\n' \
@@ -2045,6 +2046,15 @@ case "${1:-}" in
 	client-input)
 		[ -n "$client_input_file" ] || client_input_file="$(input_file_for client "${2:-}")"
 		consume_client_input
+		;;
+	client-backup)
+		# Whether the first tunnel stands in for the others, like the switch
+		# every other tunnel has; the tunnels are then put into effect.
+		case "${2:-}" in 0 | 1) ;; *) die 'Expected: client-backup 0|1' ;; esac
+		[ "$(getv globals configured)" = 1 ] || die 'Complete and enable Overview first'
+		uci set "$uci_config.client.backup=$2" && uci commit "$uci_config" ||
+			die 'Unable to save the setting'
+		start_action tunnels-apply
 		;;
 	tunnels-get)
 		tunnels_get

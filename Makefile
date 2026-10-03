@@ -217,20 +217,20 @@ define Package/luci-app-ikev2-manager/install
 	python3 ./scripts/po2lmo.py ./po/ru/ikev2-manager.po $(1)/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/ikev2-manager
-	$(INSTALL_DATA) ./luci-ikev2-manager/shared.js $(1)/www/luci-static/resources/ikev2-manager/shared-v12.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/shared.js $(1)/www/luci-static/resources/ikev2-manager/shared-v13.js
 	$(INSTALL_BIN) ./windows-profile-installer/bin/Nikitid-IKEv2-Setup.exe $(1)/www/luci-static/resources/ikev2-manager/Nikitid-IKEv2-Setup.exe
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/status/include
 	$(INSTALL_DATA) ./luci-ikev2-manager/status-widget.js $(1)/www/luci-static/resources/view/status/include/06_ikev2-manager.js
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-manager
-	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v10.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/view/ikev2-manager/users-v13.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/view/ikev2-manager/settings-v8.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/view/ikev2-manager/client-v9.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v11.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/view/ikev2-manager/users-v14.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/view/ikev2-manager/settings-v9.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/view/ikev2-manager/client-v10.js
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-domains
-	$(INSTALL_DATA) ./luci-ikev2-domains/editor.js $(1)/www/luci-static/resources/view/ikev2-domains/editor-v10.js
+	$(INSTALL_DATA) ./luci-ikev2-domains/editor.js $(1)/www/luci-static/resources/view/ikev2-domains/editor-v11.js
 endef
 
 define Package/luci-app-ikev2-manager/postinst
@@ -295,7 +295,13 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v8.js \
 	/www/luci-static/resources/view/ikev2-manager/users-v12.js \
 	/www/luci-static/resources/view/ikev2-manager/settings-v7.js \
-	/www/luci-static/resources/view/ikev2-manager/setup-v9.js
+	/www/luci-static/resources/view/ikev2-manager/setup-v9.js \
+	/www/luci-static/resources/ikev2-manager/shared-v12.js \
+	/www/luci-static/resources/view/ikev2-manager/setup-v10.js \
+	/www/luci-static/resources/view/ikev2-manager/users-v13.js \
+	/www/luci-static/resources/view/ikev2-manager/settings-v8.js \
+	/www/luci-static/resources/view/ikev2-manager/client-v9.js \
+	/www/luci-static/resources/view/ikev2-domains/editor-v10.js
 # Refresh rpcd's ACL registry without restarting the daemon or invalidating
 # active LuCI sessions. New file/exec permissions otherwise remain unavailable
 # until rpcd is reloaded manually or the router is rebooted.
@@ -445,7 +451,7 @@ fail() {
 /usr/libexec/ikev2-manager-system disable >/dev/null 2>&1 ||
 	fail "unable to restore managed router state; package removal stopped before changing files"
 swanctl --terminate --ike proxy-out --timeout 3 >/dev/null 2>&1 || true
-for index in 2 3 4 5 6 7 8; do
+for index in 2 3 4 5 6 7; do
 	swanctl --terminate --ike "proxy-out-$$index" --timeout 3 >/dev/null 2>&1 || true
 done
 swanctl --terminate --ike ikev2-in --timeout 3 >/dev/null 2>&1 || true

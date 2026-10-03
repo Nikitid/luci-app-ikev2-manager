@@ -741,10 +741,10 @@ var CSS = `
 				text-transform: uppercase;
 			}
 			/* With more than one tunnel a full-route device names its own. */
-			.ikev2-device-policy-table.ikev2-with-tunnel { min-width: 57rem; }
+			.ikev2-device-policy-table.ikev2-with-tunnel { min-width: 60rem; }
 			.ikev2-with-tunnel .ikev2-device-policy-row {
 				grid-template-columns: minmax(12rem, 1.5fr) minmax(7rem, .65fr)
-					repeat(3, 4rem) minmax(9rem, .8fr) minmax(9rem, .8fr) 2.6rem;
+					repeat(3, 4rem) minmax(12rem, 1fr) minmax(9rem, .8fr) 2.6rem;
 			}
 			.ikev2-page .ikev2-with-tunnel select { width: 100%; min-width: 0; }
 			.ikev2-device-policy-name { display: grid; gap: .18rem; min-width: 0; }
@@ -1357,6 +1357,11 @@ var CSS = `
 				border-radius: var(--ikev2-radius-sm);
 				background: var(--ikev2-surface-2);
 			}
+			/* A switch is a row of its own wherever it sits: in a form grid it
+			   spans the label and the control columns instead of being a
+			   bare switch beside a label. */
+			.ikev2-form-grid > .ikev2-toggle-row { grid-column: 1 / -1; margin-top: 0; }
+			.ikev2-toggle-row > :first-child { min-width: 0; }
 			.ikev2-toggle-row .ikev2-toggle-text { font-weight: 600; }
 			.ikev2-toggle-row .ikev2-toggle-sub {
 				display: block;
@@ -1627,6 +1632,100 @@ var CSS = `
 			}
 			.ikev2-chip.broad.selected { background: var(--ikev2-warn); }
 			.ikev2-chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+			.ikev2-chip .ikev2-icon { width: .85rem; height: .85rem; }
+
+			/* ── Routes: a field per tunnel, services as chips ───────── */
+			.ikev2-routes { display: grid; gap: .75rem; }
+			.ikev2-route-bar {
+				display: flex;
+				flex-wrap: wrap;
+				align-items: center;
+				gap: .5rem;
+				min-height: 2.6rem;
+				margin-bottom: .75rem;
+				padding: .55rem .75rem;
+				border-radius: var(--ikev2-radius-sm);
+				background: var(--ikev2-surface-2);
+			}
+			.ikev2-route-lane {
+				padding: .75rem .9rem .6rem;
+				border: 1px solid var(--ikev2-border);
+				border-radius: var(--ikev2-radius-sm);
+				background: var(--ikev2-surface-2);
+			}
+			/* The field a click in the catalogue adds a service to. */
+			.ikev2-route-lane.active { border-color: var(--ikev2-accent); }
+			.ikev2-route-lane-head {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: .75rem;
+				cursor: pointer;
+			}
+			.ikev2-route-zone-label {
+				margin-top: .6rem;
+				font-size: .78rem;
+				color: var(--ikev2-muted);
+			}
+			.ikev2-route-zone {
+				display: flex;
+				flex-wrap: wrap;
+				gap: .4rem;
+				min-height: 2.5rem;
+				margin-top: .3rem;
+				padding: .3rem;
+				border: 1px dashed transparent;
+				border-radius: var(--ikev2-radius-sm);
+			}
+			.ikev2-route-zone.over {
+				border-color: var(--ikev2-accent);
+				background: color-mix(in srgb, var(--ikev2-accent) 9%, transparent);
+			}
+			.ikev2-route-zone-empty {
+				align-self: center;
+				padding: 0 .3rem;
+				font-size: .82rem;
+				color: var(--ikev2-muted);
+			}
+			.ikev2-route-catalog { display: block; margin-top: 0; }
+			.ikev2-route-chip { cursor: grab; }
+			.ikev2-route-chip:focus-visible {
+				outline: none;
+				border-color: var(--ikev2-accent);
+				box-shadow: 0 0 0 2px color-mix(in srgb, var(--ikev2-accent) 22%, transparent);
+			}
+			/* A list that always stays out of the tunnel: shown, not moved. */
+			.ikev2-route-chip.fixed {
+				cursor: pointer;
+				border-style: dashed;
+				font-weight: 500;
+				color: var(--ikev2-muted);
+			}
+
+			/* ── Dialog (a service's definition) ─────────────────────── */
+			.ikev2-dialog-backdrop {
+				position: fixed;
+				inset: 0;
+				z-index: 2000;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				padding: 1rem;
+				background: rgba(0, 0, 0, .55);
+			}
+			.ikev2-dialog {
+				width: min(38rem, 100%);
+				max-height: 90vh;
+				overflow: auto;
+				padding: 1.1rem 1.25rem;
+				border: 1px solid var(--ikev2-border-strong);
+				border-radius: var(--ikev2-radius);
+				/* The page surfaces are tints over the theme's ground and would
+				   show the dimmed page through; the window takes the ground
+				   itself, which the page reads from the theme when it opens. */
+				background: var(--ikev2-bg, Canvas);
+			}
+			.ikev2-dialog h3 { margin: 0 0 1rem; }
 			.ikev2-chip-mark { font-size: .7rem; opacity: .65; }
 			.ikev2-service-editor {
 				margin-top: 1rem;
@@ -2295,7 +2394,10 @@ var CSS = `
 				.ikev2-form-grid { grid-template-columns: 1fr; gap: .4rem; }
 				.ikev2-form-grid-compact { grid-template-columns: 1fr; }
 				.ikev2-form-grid-compact > .ikev2-field-label { padding-top: 0; }
-				.ikev2-form-grid > :nth-child(even) { margin-bottom: .8rem; }
+				/* Controls, not labels, close a pair; a toggle row is a pair
+				   in one child, so the pairs are told by class, not by
+				   position. */
+				.ikev2-form-grid > :not(.ikev2-field-label) { margin-bottom: .8rem; }
 				.ikev2-two-col { grid-template-columns: 1fr; }
 				.ikev2-dns-endpoint,
 				.ikev2-dns-editor-choosable .ikev2-dns-endpoint {
@@ -2358,7 +2460,8 @@ function icon(name) {
 		download: 'M12 3v12m-4-4 4 4 4-4M5 21h14',
 		windows: 'M3 5h8v7H3V5Zm10 0h8v7h-8V5ZM3 14h8v7H3v-7Zm10 0h8v7h-8v-7Z',
 		phone: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 3h4m-3 12h2',
-		android: 'M7 9h10v8H7V9Zm2-3-2-2m8 2 2-2M9 12h.01M15 12h.01M5 10v6m14-6v6m-9 1v3m4-3v3'
+		android: 'M7 9h10v8H7V9Zm2-3-2-2m8 2 2-2M9 12h.01M15 12h.01M5 10v6m14-6v6m-9 1v3m4-3v3',
+		lock: 'M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6v-9Z'
 	};
 	return E('<svg class="ikev2-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
 		'<path d="' + (paths[name] || paths.key) + '"></path></svg>');
