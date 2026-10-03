@@ -2144,6 +2144,8 @@ return view.extend({
 		var tunnelRows = E('div', {}, [ tunnelList, tunnelAdd ]);
 		var tunnelStates = {};
 		var flashTunnel = null;
+		// The tunnel a save stored without managing to apply it, and why.
+		var failedTunnel = null;
 
 		function tunnelName(index) {
 			if (String(index) === '1')
@@ -2241,6 +2243,29 @@ return view.extend({
 							});
 					}, function(error) {
 						result.err(_('Could not save the tunnel: %s').format(error.message || error));
+					})
+					.then(function(value) {
+						// A save whose apply fails has still stored the settings, so
+						// the draft is a tunnel now. Left as a draft, Save tunnel
+						// stored it a second time and Discard only took it off the
+						// page while it stayed configured.
+						if (value !== null || item)
+							return value;
+						var known = tunnels.map(function(stored) { return stored.index; });
+						var failure = result.last ? result.last() : null;
+						return L.resolveDefault(fs.exec(helper, [ 'tunnels-get' ]), { stdout: '' })
+							.then(function(response) {
+								var added = parseTunnels((response && response.stdout) || '')
+									.filter(function(stored) { return known.indexOf(stored.index) < 0; })[0];
+								if (!added)
+									return value;
+								failedTunnel = {
+									index: added.index,
+									text: (failure && failure.text) || _('Tunnel settings failed.')
+								};
+								return refreshTunnels().then(function() { return value; },
+									function() { return value; });
+							});
 					});
 			}
 
@@ -2304,8 +2329,20 @@ return view.extend({
 			}
 			else
 				common.setPill(pill, _('Not saved'), 'neutral');
-			common.trackChanges(saveTunnel, [ name, enabledTunnel, remote, identity, user, secret,
-				backup, tunnelDpd.node, tunnelMtu.node ]);
+			var tunnelFields = [ name, enabledTunnel, remote, identity, user, secret,
+				backup, tunnelDpd.node, tunnelMtu.node ];
+			// What was stored without being applied can be sent again as it is:
+			// the form matches the router, yet the tunnel is not in effect.
+			var unapplied = false;
+			common.trackChanges(saveTunnel, tunnelFields, {
+				read: function() { return (unapplied ? 'unapplied ' : '') + common.formState(tunnelFields); }
+			});
+			if (item && failedTunnel && failedTunnel.index === item.index) {
+				unapplied = true;
+				saveTunnel.disabled = false;
+				result.err(failedTunnel.text);
+				common.flashButton(saveTunnel, 'err', _('Failed'), failedTunnel.text);
+			}
 			node.saveButton = saveTunnel;
 			return node;
 		}
@@ -2323,6 +2360,7 @@ return view.extend({
 			if (flashTunnel && tunnelList.lastChild && tunnelList.lastChild.saveButton)
 				common.flashButton(tunnelList.lastChild.saveButton, 'ok', _('Saved'), _('Tunnel saved.'));
 			flashTunnel = null;
+			failedTunnel = null;
 			tunnelAdd.disabled = tunnels.length >= 7;
 		}
 		tunnelAdd.addEventListener('click', function() {

@@ -1280,7 +1280,61 @@ const backupSaved = exitStored.then(function() {
 	});
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved ]).then(function() {
+// A new tunnel whose settings were stored and whose apply then failed is a
+// stored tunnel. The page kept showing it as a draft, where Save tunnel stored
+// it a second time and Discard only took it off the page.
+const tunnelAdopted = backupSaved.then(function() {
+	const blocks = function() {
+		return nodesOf(page).filter(function(node) { return hasClass(node, 'ikev2-tunnel-block'); });
+	};
+	const draft = blocks().find(function(node) { return textOf(node).indexOf('Discard tunnel') >= 0; });
+	if (!draft) fail('there is no draft tunnel to save');
+	const fields = nodesOf(draft).filter(function(node) {
+		return node.tagName === 'INPUT' && node.attrs.type !== 'checkbox';
+	});
+	[ 'DE', 'de.example.net', 'de.example.net', 'router', 'pass' ].forEach(function(value, at) {
+		fields[at].value = value;
+	});
+	const stored = function(index, name) {
+		return [ 'tunnel=' + index, 'name=' + name, 'enabled=1', 'remote_address=' + name.toLowerCase() + '.example.net',
+			'remote_id=' + name.toLowerCase() + '.example.net', 'username=router', 'dpd=30', 'mtu=1400', 'backup=1' ];
+	};
+	const resolveBefore = L.resolveDefault;
+	L.resolveDefault = function(promise, fallback) {
+		return Promise.resolve(promise).catch(function() { return fallback; });
+	};
+	fsStub.exec = function(file, args) {
+		const line = (args || []).join(' ');
+		if (/^tunnel-input /.test(line))
+			return Promise.resolve({ code: 0, stdout: 'tunnel=3\naction_id=77-1\n' });
+		if (line === 'action-status 77-1')
+			return Promise.resolve({ code: 0, stdout: 'action_id=77-1\nstate=error\nmessage=The apply failed.\n' });
+		if (line === 'tunnels-get')
+			return Promise.resolve({ code: 0, stdout: stored(2, 'NL').concat(stored(3, 'DE')).join('\n') + '\n' });
+		if (line === 'tunnels-status')
+			return Promise.resolve({ code: 0, stdout: 'tunnel=1 up=1 address=10.20.20.10 carries=1\ntunnel=2 up=0 address= carries=\ntunnel=3 up=0 address= carries=\n' });
+		return Promise.resolve({ code: 0, stdout: '' });
+	};
+	nodesOf(draft).find(function(node) {
+		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save tunnel';
+	}).listeners.click();
+	const settle = function() { return new Promise(function(resolve) { setTimeout(resolve, 5); }); };
+	return settle().then(settle).then(function() {
+		L.resolveDefault = resolveBefore;
+		if (blocks().some(function(node) { return textOf(node).indexOf('Discard tunnel') >= 0; }))
+			fail('a tunnel stored but not applied is still shown as a draft');
+		const kept = blocks().find(function(node) { return textOf(node).indexOf('DE') >= 0; });
+		if (!kept || textOf(kept).indexOf('Delete tunnel') < 0)
+			fail('a tunnel stored but not applied has no block of its own');
+		if (textOf(kept).indexOf('The apply failed.') < 0)
+			fail('the reason the tunnel was not applied is lost with the draft');
+		// The form matches what is stored, and the apply is still owed.
+		if (kept.saveButton.disabled)
+			fail('a tunnel stored but not applied cannot be saved again without editing it');
+	});
+});
+
+Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

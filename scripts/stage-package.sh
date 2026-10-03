@@ -112,7 +112,7 @@ install_file 644 luci-ikev2-manager/status-widget.js \
 install_file 644 luci-ikev2-manager/settings.js \
 	/www/luci-static/resources/view/ikev2-manager/settings-v10.js
 install_file 644 luci-ikev2-manager/client.js \
-	/www/luci-static/resources/view/ikev2-manager/client-v11.js
+	/www/luci-static/resources/view/ikev2-manager/client-v12.js
 install_file 644 luci-ikev2-manager/setup.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v12.js
 install_file 644 luci-ikev2-manager/users.js \
@@ -261,6 +261,7 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/users-v14.js \
 	/www/luci-static/resources/view/ikev2-manager/settings-v9.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v10.js \
+	/www/luci-static/resources/view/ikev2-manager/client-v11.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v11.js
 # Releases before 1.13 shipped the charon settings under strongswan.d/charon/,
 # which strongswan.conf includes inside charon.plugins, so none of them applied.
