@@ -1,0 +1,4 @@
+# Test fixtures that look like keys to the generic rule: a made-up one-time
+# link token, and a fake setting value the diagnostics test proves is removed.
+0f8490d7448ec7993a9a560abbc1b819a8ab78a2:scripts/test-luci-users-ui.js:generic-api-key:150
+8789eb13228f5dc54c971f4c66d9c13018af981e:scripts/test-diagnostics.sh:generic-api-key:45
