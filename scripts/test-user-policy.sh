@@ -86,6 +86,8 @@ EOF
 cat >"$tmp/bin/swanmon" <<EOF
 #!/bin/sh
 [ "\$*" = list-sas ] || exit 1
+# One line per snapshot read: a reconciliation reads one.
+printf 'read\\n' >>'$tmp/swanmon.reads'
 if [ -r '$tmp/sa.json' ]; then
 	cat '$tmp/sa.json'
 else
@@ -653,6 +655,7 @@ cat >"$tmp/sa.json" <<'EOF'
 EOF
 mkfifo "$tmp/event-input"
 exec 9<>"$tmp/event-input"
+: >"$tmp/swanmon.reads"
 PATH="$tmp/bin:$PATH" \
 IKEV2_UCI_BIN="$tmp/bin/uci" \
 IKEV2_UCI_CONFIG_DIR="$tmp/root/etc/config" \
@@ -682,18 +685,55 @@ done
 	printf '%s\n' 'inbound watcher did not authorize a new SA promptly' >&2
 	exit 1
 }
-# Let the documented post-registration reconciliation finish before testing
-# that a foreign event does not authorize a later snapshot.
-sleep 1
+# The watcher reconciles once more after it registers for events. That one
+# must have read its snapshot before the snapshot changes, or it, and not the
+# foreign event below, authorizes the new session; a fixed pause raced it.
+attempt=0
+while [ "$(wc -l <"$tmp/swanmon.reads")" -lt 2 ] && [ "$attempt" -lt 10 ]; do
+	attempt=$((attempt + 1))
+	sleep 1
+done
+[ "$attempt" -lt 10 ] || {
+	printf '%s\n' 'inbound watcher did not reconcile after registering' >&2
+	exit 1
+}
 cat >"$tmp/sa.json.new" <<'EOF'
 {"errors":[],"data":[{"ikev2-in":{"uniqueid":"21","state":"ESTABLISHED","remote-eap-id":"bob","remote-vips":["10.20.30.21"],"child-sas":{"net-1":{"name":"net","state":"INSTALLED"}}}}]}
 EOF
 mv "$tmp/sa.json.new" "$tmp/sa.json"
+# A foreign CHILD_SA event, then an outbound one that wakes the health
+# watcher. Events are handled in order, each reconciliation before the next
+# event is read, so once the health watcher is woken the foreign event is
+# done with: it must not have read the snapshot. Watching the rules for a
+# second instead passed a watcher that did reconcile, but too slowly.
+mkdir -p "$tmp/health.lock"
+sh -c 'trap "printf woken >>\"$1\"" USR1; : >"$1.ready"; while :; do sleep 1; done' wake "$tmp/health-woken" &
+health_pid=$!
+attempt=0
+while [ ! -e "$tmp/health-woken.ready" ] && [ "$attempt" -lt 30 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+printf '%s\n' "$health_pid" >"$tmp/health.lock/pid"
+reads="$(wc -l <"$tmp/swanmon.reads")"
 printf '%s\n' \
-	'child-updown event {up=yes site-link-in {uniqueid=22 child-sas {site-link-net-1 {state=INSTALLED}}}}' >&9
-sleep 1
-if grep -A5 'set internet_allowed' "$tmp/rules-watch.nft" 2>/dev/null |
-	grep -Fq '10.20.30.21'; then
+	'child-updown event {up=yes site-link-in {uniqueid=22 child-sas {site-link-net-1 {state=INSTALLED}}}}' \
+	'child-updown event {up=no proxy-out {uniqueid=30 child-sas {proxy4-1 {state=DELETED}}}}' >&9
+attempt=0
+while [ ! -s "$tmp/health-woken" ] && [ "$attempt" -lt 30 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+kill "$health_pid" 2>/dev/null || true
+wait "$health_pid" 2>/dev/null || true
+# An outbound SA that comes or goes wakes the health watcher, whose routes
+# follow the tunnel.
+[ -s "$tmp/health-woken" ] || {
+	printf '%s\n' 'an outbound SA change did not wake the health watcher' >&2
+	exit 1
+}
+if [ "$(wc -l <"$tmp/swanmon.reads")" != "$reads" ] ||
+	grep -A5 'set internet_allowed' "$tmp/rules-watch.nft" 2>/dev/null | grep -Fq '10.20.30.21'; then
 	printf '%s\n' 'a foreign CHILD_SA event triggered inbound authorization' >&2
 	exit 1
 fi
@@ -708,30 +748,6 @@ while [ "$attempt" -lt 5 ]; do
 done
 [ "$attempt" -lt 5 ] || {
 	printf '%s\n' 'inbound watcher did not replace a changed SA promptly' >&2
-	exit 1
-}
-# An outbound SA that comes or goes wakes the health watcher, whose routes
-# follow the tunnel.
-mkdir -p "$tmp/health.lock"
-sh -c 'trap "printf woken >>\"$1\"" USR1; : >"$1.ready"; while :; do sleep 1; done' wake "$tmp/health-woken" &
-health_pid=$!
-attempt=0
-while [ ! -e "$tmp/health-woken.ready" ] && [ "$attempt" -lt 30 ]; do
-	attempt=$((attempt + 1))
-	sleep 0.1
-done
-printf '%s\n' "$health_pid" >"$tmp/health.lock/pid"
-printf '%s\n' \
-	'child-updown event {up=no proxy-out {uniqueid=30 child-sas {proxy4-1 {state=DELETED}}}}' >&9
-attempt=0
-while [ ! -s "$tmp/health-woken" ] && [ "$attempt" -lt 30 ]; do
-	attempt=$((attempt + 1))
-	sleep 0.1
-done
-kill "$health_pid" 2>/dev/null || true
-wait "$health_pid" 2>/dev/null || true
-[ -s "$tmp/health-woken" ] || {
-	printf '%s\n' 'an outbound SA change did not wake the health watcher' >&2
 	exit 1
 }
 # Every outbound tunnel's, not only the first.
