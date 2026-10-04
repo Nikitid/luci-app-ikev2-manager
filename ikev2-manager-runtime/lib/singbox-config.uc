@@ -3,6 +3,7 @@
 //   singbox-config.uc render <INPUT       prints the configuration
 //   singbox-config.uc probe <INPUT        prints a tunnel DNS probe worker's
 //   singbox-config.uc equal FILE FILE     whether two configurations match
+//   singbox-config.uc stale FILE <SETS    prints the connections to close
 //
 // The shell side validates every value and passes them as "key<TAB>value"
 // lines; this builds the document. It used to be one heredoc with the values
@@ -570,6 +571,63 @@ function load(path) {
 	}
 }
 
+// The connections a change of the rule sets left on the wrong path. sing-box
+// reloads a rule set by itself and routes what is opened afterwards; what was
+// open keeps the outbound it was given, so a service moved to another tunnel
+// went on leaving through the old one until its connections closed.
+//
+// FILE is the controller's list of connections. Stdin names the rule sets as
+// they are now, "tag<TAB>path" in the order the route rules read them. A
+// connection is stale when the rule set that routed it is one of these and no
+// longer the first that holds its name. One routed by something else - a
+// device sent whole through a tunnel, an address - is not judged by name.
+function stale(path) {
+	let listed = load(path);
+	if (type(listed?.connections) != 'array')
+		die('the list of connections cannot be read');
+	let sets = [];
+	for (let line in split(stdin.read('all') ?? '', '\n')) {
+		let fields = split(line, '\t');
+		if (length(fields) != 2 || fields[0] == '')
+			continue;
+		let names = {};
+		for (let rule in (load(fields[1])?.rules ?? []))
+			for (let name in (rule?.domain_suffix ?? []))
+				if (type(name) == 'string')
+					names[lc(name)] = true;
+		push(sets, { tag: fields[0], names: names });
+	}
+	// A suffix holds the name itself and every name under it.
+	let holds = (names, host) => {
+		for (let name = host; name != ''; ) {
+			if (names[name])
+				return true;
+			let dot = index(name, '.');
+			if (dot < 0)
+				break;
+			name = substr(name, dot + 1);
+		}
+		return false;
+	};
+	let ids = [];
+	for (let connection in listed.connections) {
+		let routed = match(connection?.rule ?? '', /(^| )rule_set=([A-Za-z0-9-]+)( |$)/);
+		let host = lc(connection?.metadata?.host ?? '');
+		if (!routed || host == '' || !length(filter(sets, (set) => set.tag == routed[2])))
+			continue;
+		let owner = null;
+		for (let set in sets)
+			if (holds(set.names, host)) {
+				owner = set.tag;
+				break;
+			}
+		// The controller is not trusted with what is put on a command line.
+		if (owner != routed[2] && match(connection?.id ?? '', /^[0-9a-fA-F-]{36}$/))
+			push(ids, connection.id);
+	}
+	return ids;
+}
+
 let command = ARGV[0];
 if (command == 'render') {
 	printf('%.2J\n', render(read_input()));
@@ -583,5 +641,10 @@ else if (command == 'equal') {
 	let a = load(ARGV[1]), b = load(ARGV[2]);
 	exit(a != null && b != null && same(a, b) ? 0 : 1);
 }
-warn('usage: singbox-config.uc {render|probe|equal FILE FILE}\n');
+else if (command == 'stale') {
+	for (let id in stale(ARGV[1]))
+		print(id, '\n');
+	exit(0);
+}
+warn('usage: singbox-config.uc {render|probe|equal FILE FILE|stale FILE}\n');
 exit(2);

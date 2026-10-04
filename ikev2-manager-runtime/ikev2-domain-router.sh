@@ -459,6 +459,19 @@ named_exits() {
 	done
 }
 
+# The exits after the first there are, in the order they take precedence.
+# Each has a rule set in the configuration whether or not anything is sent
+# through it yet: a service moved to a tunnel that had none then changes rule
+# sets, which sing-box reloads by itself, and never the configuration, whose
+# change restarts sing-box and drops every routed connection. Expects
+# tunnel_settings_load.
+ruled_exits() {
+	local exit
+	for exit in $tunnel_exit_order; do
+		case " $tunnel_exits " in *" $exit "*) printf '%s\n' "$exit" ;; esac
+	done
+}
+
 render_ruleset() {
 	local exit list
 	[ -f "$domain_file" ] || die 'Active domain list is missing'
@@ -483,14 +496,18 @@ render_ruleset() {
 	tunnel_settings_load
 	for exit in $tunnel_exit_order; do
 		list="$(exit_domain_file "$exit")"
-		case " $(named_exits | tr '\n' ' ') " in
+		case " $(ruled_exits | tr '\n' ' ') " in
 			*" $exit "*) ;;
 			*) rm -f "$(exit_ruleset "$ruleset_file" "$exit")"; continue ;;
 		esac
-		validate_domain_file "$list" ||
-			die "The domain list of tunnel $exit is invalid or exceeds resource limits"
-		printf '{"version":3,"rules":[{"domain_suffix":%s}]}\n' "$(json_array_file "$list")" \
-			>"$(exit_ruleset "$ruleset_file" "$exit").new"
+		if [ -e "$list" ]; then
+			validate_domain_file "$list" ||
+				die "The domain list of tunnel $exit is invalid or exceeds resource limits"
+			printf '{"version":3,"rules":[{"domain_suffix":%s}]}\n' "$(json_array_file "$list")"
+		else
+			# Nothing is sent through this exit: a rule set that holds no name.
+			printf '{"version":3,"rules":[]}\n'
+		fi >"$(exit_ruleset "$ruleset_file" "$exit").new"
 		chmod 600 "$(exit_ruleset "$ruleset_file" "$exit").new"
 		mv "$(exit_ruleset "$ruleset_file" "$exit").new" "$(exit_ruleset "$ruleset_file" "$exit")"
 	done
@@ -514,7 +531,7 @@ tunnel_inputs() {
 		[ -n "$tunnel_chain" ] || continue
 		printf 'exit\t%s\t%s\n' "$exit" "$(printf '%s' "$tunnel_chain" | tr ' ' '\t')"
 	done
-	for exit in $(named_exits); do
+	for exit in $(ruled_exits); do
 		printf 'exit_rules\t%s\t%s\n' "$exit" "$(exit_ruleset "${ruleset_ref:-$ruleset_file}" "$exit")"
 	done
 	# Every configured exit has its devices' inbound, so a device moved
@@ -1823,6 +1840,42 @@ refresh() {
 # Whether the running configuration is what the current settings render.
 # The candidate is rendered into scratch files, pointing at the real rule-set
 # path, so nothing live is touched by asking.
+# Close the connections the rule sets as they are now would route elsewhere.
+# sing-box reloads a changed rule set by itself and routes what is opened
+# afterwards; what was open keeps its outbound, so a service moved to another
+# tunnel went on leaving through the old one, and conntrack cannot reach a
+# userspace proxy session. It takes the new rule set in a moment of its own,
+# and a connection reopened before then lands on the old path again: the list
+# is read three times, a second apart, and each time only what its own rule
+# shows to be on the wrong path is closed. Best effort: a resolver that does
+# not answer its controller is restarting, which closes everything anyway.
+close_rerouted_connections() (
+	local work pass=0 exit id
+	work="$(mktemp -d /tmp/ikev2-domain-rerouted.XXXXXX)" || exit 0
+	trap 'rm -rf "$work"' EXIT
+	trap 'exit 0' INT TERM
+	controller_curl_config "$work" || exit 0
+	tunnel_settings_load
+	{
+		! bypass_listed || printf 'ikev2-bypass\t%s\n' "$bypass_ruleset_file"
+		for exit in $(ruled_exits); do
+			printf 'ikev2-domains-%s\t%s\n' "$exit" "$(exit_ruleset "$ruleset_file" "$exit")"
+		done
+		printf 'ikev2-domains\t%s\n' "$ruleset_file"
+	} >"$work/sets"
+	while [ "$pass" -lt 3 ]; do
+		[ "$pass" = 0 ] || sleep 1
+		pass=$((pass + 1))
+		curl -4fsS --noproxy '*' --connect-timeout 2 --max-time 3 --config "$work/curl.conf" \
+			"http://$controller_address/connections" >"$work/connections" || exit 0
+		for id in $("$ucode_bin" "$runtime_lib_dir/singbox-config.uc" stale \
+			"$work/connections" <"$work/sets" 2>/dev/null); do
+			curl -4fsS --noproxy '*' --connect-timeout 2 --max-time 3 --config "$work/curl.conf" \
+				-X DELETE "http://$controller_address/connections/$id" >/dev/null || :
+		done
+	done
+)
+
 config_matches_rendered() (
 	local current="$config_file" work
 	[ -s "$current" ] || exit 1
@@ -1892,9 +1945,12 @@ refresh_rules() {
 				write_status error 'dnsmasq did not take the domains never to route'
 				return 1
 			}
+			close_rerouted_connections
 			write_status active 'Domains never to route reloaded without restarting DNS'
 			return 0
 		fi
+		[ "$bypass_before" = "$(cat "$bypass_ruleset_file" 2>/dev/null)" ] ||
+			close_rerouted_connections
 		write_status active 'FakeIP domain rules are unchanged'
 		return 0
 	fi
@@ -1916,6 +1972,7 @@ refresh_rules() {
 			     { [ -z "$added" ] ||
 			       is_fakeip "$(lookup_address "$added" 127.0.0.1)"; }; }; then
 				rm -rf "$backup"
+				close_rerouted_connections
 				write_status active 'FakeIP domain rules reloaded without restarting DNS'
 				return 0
 			fi

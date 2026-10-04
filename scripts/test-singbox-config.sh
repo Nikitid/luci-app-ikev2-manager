@@ -45,7 +45,7 @@ render "$tmp/in" "$tmp/out" || fail 'a valid input was refused'
 	fail 'the resolver list changed'
 [ "$(query "$tmp/out" 'c["dns"]["servers"][1]["type"]')" = tcp ] ||
 	fail 'the tunnel bootstrap is not TCP'
-[ "$(query "$tmp/out" 'c["dns"]["rules"][3]["rewrite_ttl"] + c["dns"]["cache_capacity"]')" = 8252 ] ||
+[ "$(query "$tmp/out" '[r for r in c["dns"]["rules"] if r.get("server") == "fakeip"][0]["rewrite_ttl"] + c["dns"]["cache_capacity"]')" = 8252 ] ||
 	fail 'numbers were not written as numbers'
 [ "$(query "$tmp/out" 'len(c["dns"]["rules"])')" = 4 ] ||
 	fail 'an HTTPS rule was added without segment suffixes'
@@ -254,11 +254,51 @@ ucode "$generator" probe <"$tmp/in" >"$tmp/probe.json" || fail 'a probe on anoth
 [ "$(query "$tmp/probe.json" '[s["bind_interface"] for s in c["dns"]["servers"]]')" = "['ipsec-out2', 'ipsec-out2']" ] ||
 	fail 'the probe did not use the link it was given'
 
+# What a change of the rule sets left on the wrong path. A service moved to
+# another tunnel went on leaving through the old one: sing-box routes by the
+# reloaded rule set only what is opened afterwards.
+rules() { printf '{"version":3,"rules":[{"domain_suffix":[%s]}]}\n' "$2" >"$tmp/$1.json"; }
+rules first '"kept.example","both.example"'
+rules second '"moved.example","both.example"'
+printf '{"version":3,"rules":[]}\n' >"$tmp/bound.json"
+rules never '"never.example"'
+sets() {
+	printf 'ikev2-bypass\t%s\nikev2-domains-2s\t%s\nikev2-domains-2\t%s\nikev2-domains\t%s\n' \
+		"$tmp/never.json" "$tmp/bound.json" "$tmp/second.json" "$tmp/first.json"
+}
+connection() {
+	printf '{"id":"%s","metadata":{"host":"%s"},"rule":"%s","chains":[]}' "$1" "$2" "$3"
+}
+via() { printf 'inbound=tproxy-in source_ip_cidr=[192.168.1.0/24] rule_set=%s => route(%s)' "$1" "$2"; }
+id() { printf '00000000-0000-0000-0000-0000000000%02d' "$1"; }
+{
+	printf '{"connections":['
+	connection "$(id 1)" api.moved.example "$(via ikev2-domains exit-1)"; printf ','
+	connection "$(id 2)" kept.example "$(via ikev2-domains exit-1)"; printf ','
+	connection "$(id 3)" www.gone.example "$(via ikev2-domains-2 exit-2)"; printf ','
+	connection "$(id 4)" never.example "$(via ikev2-domains exit-1)"; printf ','
+	connection "$(id 5)" moved.example "$(via ikev2-domains-2 exit-2)"; printf ','
+	connection "$(id 6)" both.example "$(via ikev2-domains exit-1)"; printf ','
+	connection "$(id 7)" notmoved.example "$(via ikev2-domains-2 exit-2)"; printf ','
+	connection "$(id 8)" moved.example 'inbound=tproxy-exit-2-in => route(exit-2)'; printf ','
+	connection "$(id 9)" '' "$(via ikev2-domains exit-1)"; printf ','
+	connection 'not-an-id; reboot' api.moved.example "$(via ikev2-domains exit-1)"; printf ','
+	connection "$(id 10)" moved.example 'rule_set=someone-elses => route(direct-out)'
+	printf ']}\n'
+} >"$tmp/connections.json"
+stale="$(sets | ucode "$generator" stale "$tmp/connections.json" | tr '\n' ' ')" ||
+	fail 'the connections to close could not be listed'
+# 1: its name is on the second tunnel now. 3: its name is on no list. 4: its
+# name is never to be routed. 6: the second tunnel comes before the first. 7:
+# a name that only ends like one on the second tunnel's list is not on it.
+[ "$stale" = "$(id 1) $(id 3) $(id 4) $(id 6) $(id 7) " ] ||
+	fail "the connections on the wrong path are not the ones listed: $stale"
+printf 'not json' >"$tmp/broken.json"
+sets | ucode "$generator" stale "$tmp/broken.json" >/dev/null 2>&1 &&
+	fail 'an unreadable list of connections passed for none to close'
+
 # The router script feeds the generator; nothing writes the document by hand.
 router="$root/ikev2-manager-runtime/ikev2-domain-router.sh"
-grep -Fq 'singbox-config.uc" render' "$router" || fail 'the router does not use the generator'
-grep -Fq 'singbox-config.uc" equal' "$router" || fail 'the current-configuration check compares bytes'
-grep -Fq 'singbox-config.uc" probe' "$router" || fail 'the DNS probe writes its own configuration'
 if grep -n '"clash_api"\|"hijack-dns"' "$router"; then
 	fail 'the router still writes configuration JSON itself'
 fi

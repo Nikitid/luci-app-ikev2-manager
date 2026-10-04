@@ -1008,15 +1008,25 @@ for tag in ikev2-out-2 exit-1 exit-1s exit-2 exit-2s; do
 		*) fail "two tunnels were checked without the outbound $tag" ;;
 	esac
 done
+# Every exit has a rule set, empty while nothing is sent through it, and
+# sing-box takes an empty one. Sending a service through another tunnel then
+# leaves the configuration as it was: a changed one restarts sing-box and
+# drops every connection it carries.
+for tag in ikev2-domains-1s ikev2-domains-2 ikev2-domains-2s; do
+	case " $(tags '@.route.rule_set[*].tag')" in
+		*" $tag "*) ;;
+		*) fail "an exit nothing is sent through has no rule set: $tag" ;;
+	esac
+done
+cp /etc/ikev2-manager/domain-router.json /tmp/config.before
 printf 'second.example\n' >/etc/pbr-ikev2-domains.exit-2.txt
 printf 'bound.example\n' >/etc/pbr-ikev2-domains.exit-2s.txt
 accepted 'of two tunnels with a list each'
-for tag in ikev2-domains-2 ikev2-domains-2s; do
-	case " $(tags '@.route.rule_set[*].tag')" in
-		*" $tag "*) ;;
-		*) fail "the lists of the second tunnel were checked without the rule set $tag" ;;
-	esac
-done
+cmp -s /tmp/config.before /etc/ikev2-manager/domain-router.json ||
+	fail 'sending a service through another tunnel changed the configuration'
+[ "$(jsonfilter -i /etc/ikev2-manager/domain-router-rules.exit-2s.json -e '@.rules[0].domain_suffix[0]')" = bound.example ] ||
+	fail 'the names sent through an exit are not in its rule set'
+rm -f /tmp/config.before
 rm -f /etc/pbr-ikev2-domains.exit-2.txt /etc/pbr-ikev2-domains.exit-2s.txt /tmp/singbox-check.log \
 	/etc/ikev2-manager/domain-router.json /etc/ikev2-manager/domain-router-rules*.json \
 	/etc/ikev2-manager/domain-router-bypass.json

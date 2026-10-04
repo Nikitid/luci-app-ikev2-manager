@@ -59,6 +59,7 @@ defaultv() { printf "%s\n" fakeip; }
 check_config() { printf 'render\n' >>"$tmp/calls"; printf 'rendered\n' >"$config_file"; }
 nft_start() { printf 'nft\n' >>"$tmp/calls"; }
 refresh() { printf 'refresh\n' >>"$tmp/calls"; }
+close_rerouted_connections() { printf 'close rerouted\n' >>"$tmp/calls"; }
 runtime_healthy() { :; }
 write_status() { printf '%s:%s\n' "$1" "${2:-}" >"$tmp/status"; }
 render_ruleset() {
@@ -102,6 +103,7 @@ printf 'rules\n' >"$tmp/next-rules"
 : >"$tmp/calls"
 refresh_rules || fail 'an unchanged rule refresh failed'
 grep -qx refresh "$tmp/calls" && fail 'an unchanged configuration was fully refreshed'
+! grep -qx 'close rerouted' "$tmp/calls" || fail 'connections were closed though no rule set changed'
 [ "$(cat "$ruleset_file")" = rules ] || fail 'the live rule-set was replaced while only asking'
 
 # One that changes the configuration - a device routed by domain is a covered
@@ -137,6 +139,10 @@ grep -qx 'servers after 3 lookups' "$tmp/calls" ||
 	fail "dnsmasq was told before the new name of the second exit had FakeIP: $(cat "$tmp/calls")"
 ! grep -qx refresh "$tmp/calls" || fail 'a change of the second exit names restarted the resolver'
 grep -q 'without restarting DNS' "$tmp/status" || fail 'the reload was not reported'
+# What was open under the old rule sets is looked at once the new ones are in
+# effect: a service moved to another tunnel must not go on using the old one.
+[ "$(tail -n 2 "$tmp/calls" | tr '\n' ' ')" = 'servers after 3 lookups close rerouted ' ] ||
+	fail "the connections on the old path were not closed after the reload: $(tr '\n' ' ' <"$tmp/calls")"
 # When the name never gets FakeIP the rule sets go back and the resolver is
 # restarted the transactional way.
 printf '{"version":3,"rules":[{"domain_suffix":["two.example","new.example","late.example"]}]}\n' >"$tmp/next-rules-2"
