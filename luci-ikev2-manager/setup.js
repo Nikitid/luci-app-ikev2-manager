@@ -287,6 +287,8 @@ function checkRows(doctor, tunnelNames) {
 					return _('%s: no interface').format(name);
 				if (problem[4] === 'down')
 					return _('%s: down').format(name);
+				if (problem[4] === 'silent')
+					return _('%s: connected, but nothing passes through it').format(name);
 				return item;
 			}).join('; ');
 		}

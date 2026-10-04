@@ -4398,8 +4398,11 @@ msgstr "%s: нет интерфейса"
 msgid "%s: down"
 msgstr "%s: не подключён"
 
-msgid "Every enabled tunnel stays connected. When one drops, its traffic moves at once to the next one up and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses, and whether it may move, is chosen on the Policy Routing and Overview pages."
-msgstr "Все включённые туннели остаются подключёнными. Когда один падает, его трафик сразу переходит на следующий работающий и возвращается после двух минут стабильной работы туннеля; в WAN ничего не уходит. Какой туннель использует сервис, список или устройство и может ли он переходить на другой, выбирается на страницах «Маршрутизация» и «Обзор»."
+msgid "%s: connected, but nothing passes through it"
+msgstr "%s: подключён, но трафик через него не проходит"
+
+msgid "Every enabled tunnel stays connected. When one drops, or stays connected while nothing passes through it, its traffic moves to the next one up within a minute and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses, and whether it may move, is chosen on the Policy Routing and Overview pages."
+msgstr "Все включённые туннели остаются подключёнными. Когда один падает или остаётся подключённым, но трафик через него не проходит, его трафик в течение минуты переходит на следующий работающий и возвращается после двух минут стабильной работы туннеля; в WAN ничего не уходит. Какой туннель использует сервис, список или устройство и может ли он переходить на другой, выбирается на страницах «Маршрутизация» и «Обзор»."
 
 msgid "The main tunnel stands in for the others"
 msgstr "Основной туннель подменяет остальные"

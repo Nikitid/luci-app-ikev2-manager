@@ -56,7 +56,11 @@ stub() {
 record='l=-; [ -d "$S/action.lock" ] && l=locked; printf "%s %s %s\n" "${0##*/}" "$*" "$l" >>"$S/../log"'
 stub uci "[ \"\$1 \$2 \$3\" = '-q show ikev2-manager' ] && cat \"\$S/uci.show\""
 stub nft "[ \"\$*\" = 'list table inet ikev2_pause' ] && [ -e \"\$S/pause-table\" ]"
-stub curl "echo ip=192.0.2.1"
+# HTTPS crosses a link unless the test says the tunnel behind it is silent.
+stub curl 'link=
+while [ "$#" -gt 0 ]; do [ "$1" != --interface ] || link="$2"; shift; done
+[ ! -e "$S/silent-$link" ] || exit 28
+echo ip=192.0.2.1'
 stub logger ':'
 stub routing "$record
 case \"\$1\" in check) [ ! -e \"\$S/routing-broken\" ] ;; sync) rm -f \"\$S/routing-broken\" ;; esac"
@@ -93,6 +97,7 @@ IKEV2_HEALTH_TICK=1 \
 IKEV2_HEALTH_PASS_INTERVAL="${1:-1}" \
 IKEV2_HEALTH_CHECK_INTERVAL=3 \
 IKEV2_HEALTH_QUALITY_INTERVAL=2 \
+IKEV2_HEALTH_TUNNEL_PROBE_INTERVAL=1 \
 IKEV2_UCI_BIN="$tmp/bin/uci" \
 IKEV2_NFT="$tmp/bin/nft" \
 IKEV2_NET_DIR="$tmp/net" \
@@ -239,6 +244,41 @@ applies="$(count '^domain-router exits-apply')"
 sleep 2
 [ "$(count '^domain-router exits-apply')" = "$applies" ] || fail 'a taken exit choice was offered again'
 : >"$S/sa-up"
+
+# A tunnel that stays connected while nothing crosses it: strongSwan takes
+# three minutes to call its server dead, and all that time its traffic went
+# nowhere. Probed through each tunnel, it loses its exits like one that went
+# down - but only against another tunnel that answers.
+until_state() {
+	local i=0
+	while ! grep -qx "$1" "$state" 2>/dev/null && [ "$i" -lt 150 ]; do sleep 0.1; i=$((i + 1)); done
+	grep -qx "$1" "$state" 2>/dev/null
+}
+until_state 'exit 1 1' || fail 'the first tunnel did not take its exit back before the probe scenario'
+i=0
+while ! grep -qx '2:1' "$tmp/run/ikev2-tunnel-probe.state" 2>/dev/null && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+grep -qx '2:1' "$tmp/run/ikev2-tunnel-probe.state" || fail 'the tunnels are not probed while two are up'
+sleep 2
+applies="$(count '^domain-router exits-apply')"
+: >"$S/silent-ipsec-out2"
+until_state 'exit 2 1' || fail 'a tunnel nothing crosses kept its exit'
+grep -qx 'silent 2 1' "$state" || fail 'the silent tunnel is not recorded'
+grep -qx 'exit 2s 0' "$state" || fail 'what is bound to the silent tunnel was given another'
+grep -qx 'exit 1 1' "$state" || fail 'the answering tunnel lost its own exit'
+wait_for '^domain-router exits-apply' $((applies + 1)) 'sing-box was not moved off the silent tunnel'
+# It answers again: back among the tunnels, and held like one that returned.
+rm -f "$S/silent-ipsec-out2"
+until_state 'exit 2s 2' || fail 'a tunnel that answers again did not get its bound exit back'
+until_state 'exit 2 2' || fail 'a tunnel that answers again never took its exit back'
+! grep -q '^silent ' "$state" || fail 'a tunnel that answers again is still recorded as silent'
+# No tunnel reaches the endpoints: they or the uplink failed, nothing moves.
+: >"$S/silent-ipsec-out"
+: >"$S/silent-ipsec-out2"
+sleep 5
+grep -qx 'exit 1 1' "$state" && grep -qx 'exit 2 2' "$state" ||
+	fail 'the exits moved while every tunnel failed the probe'
+! grep -q '^silent ' "$state" || fail 'a tunnel was called silent with no other answering'
+rm -f "$S/silent-ipsec-out" "$S/silent-ipsec-out2"
 kill -TERM "$watcher"
 wait "$watcher" 2>/dev/null || :
 watcher=''

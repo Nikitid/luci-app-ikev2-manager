@@ -2442,7 +2442,7 @@ return view.extend({
 					]),
 					connectionAdvanced.toggle),
 				common.section(_('More tunnels'),
-					_('Every enabled tunnel stays connected. When one drops, its traffic moves at once to the next one up and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses, and whether it may move, is chosen on the Policy Routing and Overview pages.'),
+					_('Every enabled tunnel stays connected. When one drops, or stays connected while nothing passes through it, its traffic moves to the next one up within a minute and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses, and whether it may move, is chosen on the Policy Routing and Overview pages.'),
 					E('div', {}, [
 						common.toggleRow(mainBackup, _('The main tunnel stands in for the others'),
 							_('When another tunnel drops, its traffic moves to the main one until it is back. Off: only what is sent to the main tunnel uses it.'),

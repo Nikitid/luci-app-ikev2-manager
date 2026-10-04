@@ -673,6 +673,15 @@ if (tunnelsDoctorText.indexOf('NL: down; Main tunnel: no interface; ' +
 	fail('the overview does not explain the tunnel problems');
 if (/exit-3|no-link|2-down/.test(tunnelsDoctorText))
 	fail('the overview shows a raw tunnel problem code');
+// Connected, yet the watcher found nothing passing: said in words as well.
+const silentDoctorText = textOf(setupView.render([
+	{ stdout: setupValue },
+	{ stdout: doctorOut + '\ntunnels=warn:2-silent' },
+	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' },
+	{ stdout: 'tunnel=2\nname=NL\nenabled=1\n' }
+]));
+if (silentDoctorText.indexOf('NL: connected, but nothing passes through it') < 0 || /2-silent/.test(silentDoctorText))
+	fail('the overview does not explain a tunnel that passes nothing');
 
 // A full-route device row offers to send what is never to go through the
 // tunnel to WAN; the box says what is stored and sends the device's address.

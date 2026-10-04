@@ -40,6 +40,11 @@ quality_sample_interval="${IKEV2_HEALTH_QUALITY_INTERVAL:-60}"
 # ends. The tests shorten both.
 pass_interval="${IKEV2_HEALTH_PASS_INTERVAL:-15}"
 tick="${IKEV2_HEALTH_TICK:-5}"
+# With more than one tunnel up, whether traffic crosses each is probed this
+# often, detached; the rounds are what tunnel_track counts.
+tunnel_probe_interval="${IKEV2_HEALTH_TUNNEL_PROBE_INTERVAL:-15}"
+tunnel_probe_dispatch="$run_dir/ikev2-tunnel-probe-dispatch.state"
+tunnel_probe_file="$run_dir/ikev2-tunnel-probe.state"
 task_dir="$run_dir/ikev2-health.tasks"
 
 sa_helper="${IKEV2_SA_HELPER:-/usr/libexec/ikev2-sa}"
@@ -103,6 +108,64 @@ periodic_task() {
 	periodic_due "$at" "$state" "$interval" || return 0
 	mark_periodic "$at" "$state"
 	spawn_task "$name" "$@"
+}
+
+# One probe round: whether HTTPS crosses each tunnel named, all of them at
+# once, so a silent one costs the round its timeout a single time. The round
+# is written whole, its time first, then "index:1" or "index:0" a tunnel.
+probe_tunnels() {
+	local index round="$tunnel_probe_file.$$"
+	for index in "$@"; do
+		tunnel_names "$index"
+		(
+			if tunnel_https_reachable 3 5 "$tunnel_link"; then
+				printf '%s:1\n' "$index"
+			else
+				printf '%s:0\n' "$index"
+			fi >"$round.$index"
+		) &
+	done
+	wait
+	{
+		date +%s
+		for index in "$@"; do cat "$round.$index"; done
+	} >"$round" 2>/dev/null && mv "$round" "$tunnel_probe_file"
+	for index in "$@"; do rm -f "$round.$index"; done
+}
+
+# Read the round the probe last wrote, once: sets probe_round to its results
+# and returns 1 when there is none that was not read before. No process is
+# started; the loop asks every few seconds.
+probe_round_read=''
+probe_round_take() {
+	local stamp line
+	probe_round=''
+	[ -r "$tunnel_probe_file" ] || return 1
+	{
+		read -r stamp || stamp=''
+		[ -n "$stamp" ] && [ "$stamp" != "$probe_round_read" ] || return 1
+		while read -r line; do
+			case "$line" in
+				[1-7]:[01]) probe_round="$probe_round${probe_round:+ }$line" ;;
+			esac
+		done
+	} <"$tunnel_probe_file"
+	probe_round_read="$stamp"
+}
+
+# Whether a round is waiting in which a tunnel failed: the pass that counts it
+# then runs now, not at its interval.
+probe_round_failed() {
+	local stamp line
+	[ -r "$tunnel_probe_file" ] || return 1
+	{
+		read -r stamp || return 1
+		[ "$stamp" != "$probe_round_read" ] || return 1
+		while read -r line; do
+			case "$line" in [1-7]:0) return 0 ;; esac
+		done
+	} <"$tunnel_probe_file"
+	return 1
 }
 
 # Checks that change nothing while a configuration transaction is running
@@ -297,6 +360,7 @@ trap 'last_pass=0' USR1
 trap 'health_cleanup' EXIT
 
 tunnel_was_up=0
+tunnel_silent=''
 sa_was_up=-
 exits_pending=0
 last_pass=0
@@ -337,7 +401,8 @@ while true; do
 		pause_loop "$tick"
 		continue
 	fi
-	if [ $((now - last_pass)) -lt "$pass_interval" ] && [ "$now" -ge "$last_pass" ]; then
+	if [ $((now - last_pass)) -lt "$pass_interval" ] && [ "$now" -ge "$last_pass" ] &&
+	   ! probe_round_failed; then
 		dispatch_checks
 		pause_loop "$tick"
 		continue
@@ -389,9 +454,27 @@ EOF
 		routing_due=1
 	fi
 	sa_was_up="$sa_up"
+	# An installed SA does not say traffic crosses the tunnel. With another
+	# tunnel to compare with, each is probed, detached, and one that falls
+	# silent is left out below as if it were down. A pause refuses what the
+	# probe would send, through every tunnel alike.
+	silent_before="$tunnel_silent"
+	probe_round_take || :
+	case "$tunnels_up" in
+		*' '*)
+			if [ "$paused" != 1 ]; then
+				# shellcheck disable=SC2086
+				periodic_task tunnel-probe "$tunnel_probe_dispatch" "$tunnel_probe_interval" \
+					probe_tunnels $tunnels_up
+			fi
+			;;
+	esac
+	tunnel_track "$tunnels_up" "$probe_round"
+	[ "$tunnel_silent" = "$silent_before" ] || [ -z "$tunnel_silent" ] ||
+		logger -t ikev2-health "connected, but nothing crosses: tunnel $tunnel_silent" 2>/dev/null || :
 	# Which tunnel each exit uses; a tunnel coming back takes its exit back
 	# only after it has stayed up, so this can change with no SA changing.
-	tunnel_select "$now" "$tunnels_up"
+	tunnel_select "$now" "$tunnel_carrying" "$tunnel_silent"
 	[ -z "$tunnel_changes" ] || routing_due=1
 	[ "$routing_due" = 0 ] || repair "$routing_helper" sync
 	if [ -n "$tunnel_changes" ] && tunnel_several; then

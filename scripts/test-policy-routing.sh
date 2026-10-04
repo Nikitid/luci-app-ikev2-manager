@@ -378,6 +378,16 @@ rm -f "$S/tunnel-down"
 printf '2\t1\t10.30.0.7\n' >"$S/sa-extra"
 "$helper" sync
 "$helper" status | grep -qx 'exit_1=ipsec-out2' || fail 'the status does not name the link of an exit'
+# A tunnel the watcher found silent - connected, nothing crossing it - is not
+# one to route into: its own exit moves, and what is bound to it has nothing.
+printf 'silent 2 1\nexit 1 1\nexit 2 1\nexit 2s 0\n' >"$S/tunnels.state"
+"$helper" sync
+grep -qx 'default dev ipsec-out metric 10' "$S/route4-1603" || fail 'the exit of a silent tunnel still routes into it'
+grep -q '^default dev' "$S/route4-1610" && fail 'what is bound to a silent tunnel still routes into it'
+"$helper" status | grep -qx 'exit_2s=none' || fail 'a silent tunnel is reported as carrying what is bound to it'
+"$helper" check || fail 'the routes around a silent tunnel failed the check'
+printf 'exit 1 2\nexit 2 2\n' >"$S/tunnels.state"
+"$helper" sync
 # A tunnel removed takes its rule and table along.
 rm -f "$S/tunnels" "$S/sa-extra" "$S/tunnels.state"
 "$helper" check && fail 'the rule of a removed tunnel passed the check'

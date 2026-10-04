@@ -160,6 +160,9 @@ tunnel_ready() {
 	local index="${1:-1}" file="$vip_file" line_index line_installed installed address
 	[ "$index" = 1 ] || file="$vip_file-$index"
 	[ -s "$file" ] || return 1
+	# Connected, yet the watcher's probe finds nothing crossing it while it
+	# crosses another tunnel: not one to route into, whatever its SA says.
+	! grep -qx "silent $index 1" "$tunnel_state_file" 2>/dev/null || return 1
 	tunnel_names "$index"
 	"$ip_bin" link show "$tunnel_link" 2>/dev/null | grep -q 'UP' || return 1
 	load_sa_tunnels

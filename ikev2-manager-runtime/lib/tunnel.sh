@@ -32,6 +32,11 @@ tunnel_exit_order='2s 2 3s 3 4s 4 5s 5 6s 6 7s 7 1s'
 # A tunnel that comes back takes its traffic back only after this long up, so
 # one that flaps does not break the connections on it each time.
 tunnel_return_hold="${IKEV2_TUNNEL_RETURN_HOLD:-${tunnel_return_hold:-120}}"
+# A tunnel whose SA is installed can still pass nothing: its server gone
+# silent, strongSwan takes three minutes of unanswered retransmissions to say
+# so. After this many probe rounds in a row that traffic did not cross it,
+# while it crossed another tunnel, its exits move as if it were down.
+tunnel_silent_after=2
 tunnel_state_file="${IKEV2_TUNNEL_STATE:-/var/run/ikev2-tunnels.state}"
 
 # Set the names of tunnel $1 in globals, without starting a process: the
@@ -160,11 +165,59 @@ tunnel_exit_chain() {
 	done
 }
 
-# Choose the tunnel of every exit. Arguments: the time now and the tunnels up
-# now, as one word list. Reads and rewrites the state file, which remembers
-# since when each tunnel has been up and what each exit uses; sets
-# tunnel_changes to an "exit:tunnel" word for each exit whose tunnel changed,
-# 0 for none. Nothing is printed, so the watcher calls it without a subshell.
+# Follow whether traffic crosses each tunnel that is up, the way an uplink is
+# tracked: by what a probe through it saw, never by its SA alone.
+# Arguments: the tunnels up now, and what a probe round saw as "index:1" for a
+# tunnel HTTPS crossed and "index:0" for one it did not - empty between rounds.
+# Keeps tunnel_marks, "index:failures:answered" for each tunnel up, between
+# calls; sets tunnel_silent to the tunnels to treat as down and
+# tunnel_carrying to the others. Nothing is printed.
+#
+# A tunnel is silent after tunnel_silent_after failed rounds in a row, and only
+# when both of these hold. It answered at least once since it came up: one
+# that never did may sit behind a server the probe cannot cross, and is left
+# to its SA. And another tunnel answered the same round: the endpoints are
+# third parties, and when every tunnel fails them it is they, or the uplink,
+# that are down, and moving traffic would help nothing. With one tunnel there
+# is no other, so nothing changes there.
+tunnel_track() {
+	local up="$1" results=" $2 " index mark failures answered marks='' healthy=''
+	tunnel_silent='' tunnel_carrying=''
+	for index in $up; do
+		failures=0 answered=0
+		for mark in ${tunnel_marks:-}; do
+			[ "${mark%%:*}" = "$index" ] || continue
+			mark="${mark#*:}"
+			failures="${mark%%:*}" answered="${mark#*:}"
+		done
+		case "$results" in
+			*" $index:1 "*) failures=0 answered=1 ;;
+			*" $index:0 "*) failures=$((failures + 1)) ;;
+		esac
+		marks="$marks${marks:+ }$index:$failures:$answered"
+		[ "$answered" != 1 ] || [ "$failures" != 0 ] || healthy="$healthy $index"
+	done
+	tunnel_marks="$marks"
+	for mark in $marks; do
+		index="${mark%%:*}"
+		mark="${mark#*:}"
+		failures="${mark%%:*}" answered="${mark#*:}"
+		if [ "$answered" = 1 ] && [ "$failures" -ge "$tunnel_silent_after" ] &&
+		   [ -n "$healthy" ]; then
+			tunnel_silent="$tunnel_silent${tunnel_silent:+ }$index"
+		else
+			tunnel_carrying="$tunnel_carrying${tunnel_carrying:+ }$index"
+		fi
+	done
+}
+
+# Choose the tunnel of every exit. Arguments: the time now, the tunnels to
+# choose from - up and carrying traffic - as one word list, and the tunnels
+# up but silent, which are only recorded. Reads and rewrites the state file,
+# which remembers since when each tunnel has been up and what each exit uses;
+# sets tunnel_changes to an "exit:tunnel" word for each exit whose tunnel
+# changed, 0 for none. Nothing is printed, so the watcher calls it without a
+# subshell.
 #
 # An exit keeps a tunnel that is still up. One that went down is replaced at
 # once by the first tunnel up in its chain. A tunnel ahead of the current one
@@ -190,6 +243,11 @@ tunnel_select() {
 			[ "${line%%:*}" = "$index" ] && since="${line#*:}"
 		done
 		new_state="${new_state}ready $index $since
+"
+	done
+	# For the doctor and the report: connected, yet nothing crosses it.
+	for index in ${3:-}; do
+		new_state="${new_state}silent $index 1
 "
 	done
 	for exit in $tunnel_exits; do

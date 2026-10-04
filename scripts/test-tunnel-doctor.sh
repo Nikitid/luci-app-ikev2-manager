@@ -33,7 +33,7 @@ chmod 755 "$tmp/bin/uci" "$tmp/bin/ip" "$tmp/bin/sa"
 report() {
 	UCI_STUB_DIR="$tmp/uci" TEST_LINKS="$tmp/links" TEST_SA="$tmp/sa" \
 	IKEV2_SA_HELPER="$tmp/bin/sa" IKEV2_TUNNELS_SECRET_DB="$tmp/tunnels.secret" \
-	IKEV2_EXITS_FILE="$tmp/exits" PATH="$tmp/bin:$PATH" sh -ec '
+	IKEV2_EXITS_FILE="$tmp/exits" IKEV2_TUNNEL_STATE="$tmp/state" PATH="$tmp/bin:$PATH" sh -ec '
 		. "$1/ikev2-manager-runtime/lib/package-manager.sh"
 		. "$1/ikev2-manager-runtime/lib/tunnel.sh"
 		. "$1/ikev2-manager-runtime/lib/system-doctor.sh"
@@ -85,6 +85,11 @@ printf '%s\n' ipsec-out3 >>"$tmp/links"
 printf '1\t1\t10.0.0.2\n2\t1\t10.0.1.2\n3\t1\t10.0.2.2\n' >"$tmp/sa"
 sed -i.bak "/client.backup/d" "$tmp/uci/ikev2-manager"
 expect 'a working setup' 'tunnels=ok'
+
+# Connected, and the watcher found nothing crossing it: its exits were moved.
+printf 'ready 1 100\nready 3 100\nsilent 2 1\nexit 1 1\n' >"$tmp/state"
+expect 'a tunnel that passes nothing' 'tunnels=warn:2-silent'
+rm -f "$tmp/state"
 
 # Bound to a tunnel that is switched off: with backup its traffic would move
 # to another tunnel, without backup it is refused, and that is said.

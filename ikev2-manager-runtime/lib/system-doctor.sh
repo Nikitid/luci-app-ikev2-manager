@@ -123,6 +123,10 @@ doctor_tunnels() {
 				END { exit !up }
 			'; then
 			problems="$problems,$index-down"
+		elif grep -qx "silent $index 1" "$tunnel_state_file" 2>/dev/null; then
+			# Connected, and the watcher's probe finds nothing crossing it
+			# while it crosses another tunnel: its exits were moved off it.
+			problems="$problems,$index-silent"
 		fi
 	done
 	# What a service, a list or a device is sent through; an exit whose tunnel

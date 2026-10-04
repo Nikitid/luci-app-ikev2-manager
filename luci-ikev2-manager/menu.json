@@ -14,7 +14,7 @@
 		"order": 5,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/setup-v12"
+			"path": "ikev2-manager/setup-v13"
 		}
 	},
 	"admin/services/ikev2-manager/users": {
@@ -38,7 +38,7 @@
 		"order": 20,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/client-v12"
+			"path": "ikev2-manager/client-v13"
 		}
 	},
 	"admin/services/ikev2-manager/routing": {
