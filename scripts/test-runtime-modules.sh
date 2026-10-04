@@ -522,10 +522,56 @@ fi
 
 grep -Fq '[ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || return 1' \
 	"$root/ikev2-manager-runtime/ikev2-xfrm.init"
-grep -Fq 'if base_config_matches; then' \
-	"$system_source"
-grep -Fq '"$routing_check_helper" --check' \
-	"$system_source"
+# An Apply of unchanged settings on a healthy runtime does nothing - except
+# when PBR still holds what an older release put there: releasing that is the
+# Apply's job, and skipped as "nothing to do" it stayed for good while the
+# readiness report promised "at the next Apply".
+(
+	sed -n '/^set_config() {/,/^}/p; /^base_config_matches() {/,/^}/p' "$system_source" >"$tmp/apply.sh"
+	. "$tmp/apply.sh"
+	die() { printf '%s\n' "$*" >&2; exit 1; }
+	defaultv() { printf '%s\n' "$3"; }
+	valid_name() { :; }
+	valid_name_list() { :; }
+	normalize_list() { printf '%s\n' "$1"; }
+	uci() { :; }
+	zone_for_network() { printf '%s' "$1"; }
+	zone_exists() { :; }
+	network_device() { echo eth0; }
+	getv() {
+		case "$2" in
+			configured | dns_enforce | block_dot | source_include_vpn) echo 1 ;;
+			wan_interface | wan_zone) echo wan ;;
+		esac
+	}
+	get_list() { echo lan; }
+	disabled_runtime_absent() { return 1; }
+	calls="$(mktemp)"
+	with_transaction() { printf '%s\n' "$1" >>"$calls"; }
+	held=0
+	pbr_holds_ours() { [ "$held" = 1 ]; }
+	# The runtime check passes or fails as the test says.
+	check="$(mktemp)"
+	printf '#!/bin/sh\nexit "$(cat "%s.rc")"\n' "$check" >"$check"
+	chmod 755 "$check"
+	routing_check_helper="$check"
+	printf '0\n' >"$check.rc"
+	held=0
+	set_config 1 wan lan 1 1 1
+	[ ! -s "$calls" ] || { echo 'unchanged settings on a healthy runtime were applied again' >&2; exit 1; }
+	held=1
+	set_config 1 wan lan 1 1 1
+	[ "$(cat "$calls")" = enable-managed ] || {
+		echo 'an Apply did not release what an older release left in PBR' >&2
+		exit 1
+	}
+	: >"$calls"
+	held=0
+	printf '1\n' >"$check.rc"
+	set_config 1 wan lan 1 1 1
+	[ "$(cat "$calls")" = enable-managed ] || { echo 'a runtime that fails its check was not applied again' >&2; exit 1; }
+	rm -f "$calls" "$check" "$check.rc"
+) || exit 1
 grep -Fq '"$restart_helper" --check' \
 	"$root/luci-ikev2-domains/community-domains.sh"
 stop_body="$(sed -n '/^stop() {/,/^}/p' \

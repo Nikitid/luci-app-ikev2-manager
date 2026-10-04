@@ -1434,9 +1434,12 @@ set_config() {
 	# Saving identical settings should not rebuild firewall and PBR for 10-20
 	# seconds. Skip the transaction only after proving that the corresponding
 	# runtime is already healthy (or fully absent for disabled mode). Any drift
-	# still falls through to the normal transactional apply/repair path.
+	# still falls through to the normal transactional apply/repair path. What
+	# a release that routed through PBR left there is such a drift: an Apply
+	# is what releases it, and skipped here it stayed for good while the
+	# readiness report went on promising "at the next Apply".
 	if base_config_matches; then
-		if [ "$enabled" = 1 ] && [ -x "$routing_check_helper" ] &&
+		if [ "$enabled" = 1 ] && ! pbr_holds_ours && [ -x "$routing_check_helper" ] &&
 		   "$routing_check_helper" --check; then
 			return 0
 		fi
