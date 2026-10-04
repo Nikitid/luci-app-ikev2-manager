@@ -115,8 +115,16 @@ WAN   2     1602       28002        exclusions
 The watcher checks every tunnel on each pass and chooses a tunnel for each
 exit (`tunnel.sh`):
 
-- an exit keeps its tunnel while that tunnel is up;
+- an exit keeps its tunnel while that tunnel is up and carries traffic;
 - when it goes down, the first tunnel up in the chain takes over at once;
+- a tunnel that stays connected while nothing crosses it is treated as down.
+  strongSwan takes about three minutes of unanswered retransmissions to call
+  a silent server dead, so with more than one tunnel up the watcher probes
+  HTTPS through each link every 15 seconds, detached. A tunnel is silent
+  after two failed rounds in a row, and only when it has answered since it
+  came up and another tunnel answered the same round: the endpoints are
+  third parties, and when every tunnel fails them nothing moves. Its SA is
+  left alone; the readiness report names it;
 - a tunnel earlier in the chain takes the exit back once it has been up for
   120 seconds;
 - with no tunnel of the chain up, the exit's traffic is refused - for a
@@ -129,6 +137,13 @@ gets a default through the chosen link at metric 10 over its unreachable
 default at metric 32767, and sing-box's `exit-N` selector switches to that
 tunnel's outbound, closing the connections it carried. A bound exit's
 selector holds its one tunnel and is never switched.
+
+Every exit has a rule set in the sing-box configuration, empty while nothing
+is sent through it. Sending a service through another tunnel therefore
+rewrites rule sets, which sing-box reloads by itself, and never the
+configuration, whose change restarts it. What was open under the old rule
+sets keeps its outbound, so after a reload the connections whose own rule no
+longer holds their name are closed through the controller, and only those.
 
 ```text
 Name of exit N, recognised by name
@@ -194,6 +209,14 @@ answer, so clients fall back to the routed IPv4 address instead of receiving a
 real IPv6 address or HTTPS address hint that could bypass the IPv4-only
 outbound tunnel. Every DNS record type for ordinary domains and non-address
 record types for selected domains continue to the normal upstream.
+
+Two vendors publish a name a network answers as missing to say its resolver
+has to be used, and Reliable mode answers both from dnsmasq, so they hold
+while sing-box is down: `use-application-dns.net` keeps Firefox on the router
+resolver instead of its own DoH, and `mask.icloud.com` with
+`mask-h2.icloud.com` turns iCloud Private Relay off on this network, which
+the device then reports. With the relay on, Safari resolves and connects
+through Apple's relays, past the resolver and every routing decision here.
 
 Managed DNS is optional. `dnsproxy` supports UDP, TCP, DoT, DoH, HTTP/3, DoQ
 and DNSCrypt. Multiple primary resolvers can use load balancing, parallel

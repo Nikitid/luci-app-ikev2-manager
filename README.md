@@ -103,14 +103,18 @@ without DNS. If the outbound tunnel is unavailable, selected traffic is
 blocked while unrelated traffic continues through WAN.
 
 With more than one tunnel, every enabled tunnel stays connected. When the
-tunnel of a service is down, its traffic moves to the next tunnel that is up
-and returns two minutes after its own tunnel is back. A service that must
-not leave from another country is bound to its tunnel instead: it is blocked
-while that tunnel is down. Nothing falls back to WAN: with no tunnel up it is
-blocked.
+tunnel of a service is down, or connected while nothing passes through it,
+its traffic moves to the next tunnel that is up within a minute and returns
+two minutes after its own tunnel is back. A service that must not leave from
+another country is bound to its tunnel instead: it is blocked while that
+tunnel is down. Nothing falls back to WAN: with no tunnel up it is blocked.
+Moving a service to another tunnel closes that service's open connections
+and leaves every other one alone.
 
-Clients must use router DNS for domain routing. Browser DoH, Android Private
-DNS and Apple Private Relay can bypass classification.
+Clients must use router DNS for domain routing. Browser DoH and Android
+Private DNS can bypass classification. In Reliable mode the router answers the
+names Firefox and Apple publish for this purpose as missing, so Firefox keeps
+the router resolver and iCloud Private Relay is turned off on this network.
 
 ## Domain lists
 
