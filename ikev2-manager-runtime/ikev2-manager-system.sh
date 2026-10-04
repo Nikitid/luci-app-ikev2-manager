@@ -161,7 +161,7 @@ sync_device_runtime() {
 # failure restores their previous configuration and process state. Install the
 # owned nftables table before retiring old generated UCI sections.
 reconcile_upgrade_runtime() {
-	local changed=0 section dns_reconciled=0 runtime_schema=4
+	local changed=0 section dns_reconciled=0 runtime_schema=5
 	[ "$(getv globals configured)" = 1 ] || return 0
 	# The automatic switch to the other mode and its retries are gone; a
 	# pending retry left by an older release means nothing now.

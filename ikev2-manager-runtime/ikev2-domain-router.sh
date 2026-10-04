@@ -1158,12 +1158,17 @@ wanted_value() {
 	printf '%s\n' "$1" | sed -n "s/^$2 //p"
 }
 
-# The selected domains, each answered by sing-box. Firefox's canary name is
-# answered here, so Firefox keeps the router resolver, and with it FakeIP,
-# instead of its own DoH even while sing-box is down.
+# The selected domains, each answered by sing-box. Two vendors publish a name
+# a network answers as missing to say its resolver has to be used, and both
+# are answered here, so they hold even while sing-box is down. Firefox then
+# keeps the router resolver, and with it FakeIP, instead of its own DoH.
+# Apple devices turn iCloud Private Relay off for this network and say so:
+# with it on, Safari resolves and connects through Apple's relays, past the
+# resolver and past every routing decision made here.
 render_dnsmasq_servers() {
 	local exit
 	printf 'server=/use-application-dns.net/\n'
+	printf 'server=/mask.icloud.com/\nserver=/mask-h2.icloud.com/\n'
 	# The names of every exit get their FakeIP addresses from sing-box.
 	tunnel_settings_load
 	for exit in 1 $(named_exits); do

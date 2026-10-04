@@ -79,7 +79,7 @@ run_reconcile() {
 write_firewall
 run_reconcile
 [ "$(wc -l <"$TEST_DOMAIN_ROUTER_LOG" | tr -d ' ')" = 1 ]
-grep -Fxq 'globals.runtime_schema=4' "$tmp/uci/ikev2-manager"
+grep -Fxq 'globals.runtime_schema=5' "$tmp/uci/ikev2-manager"
 # An upgrade starts the application's own routing before the device policy
 # takes its marks; PBR itself is left to the next Apply.
 [ "$(cat "$TEST_ROUTING_LOG")" = sync ] ||

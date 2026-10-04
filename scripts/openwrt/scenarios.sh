@@ -848,6 +848,12 @@ printf 'chatgpt.com\n' >/tmp/selected.txt
 	[ "$(answer yandex.ru)" = 77.88.55.1 ] || fail 'a segment name did not go straight to its worker'
 	nslookup use-application-dns.net 127.0.0.1 2>&1 | grep -q NXDOMAIN ||
 		fail "Firefox's canary is not answered as missing"
+	# Apple's, which turns iCloud Private Relay off on this network: with it
+	# on, Safari goes past the resolver and the routing through Apple's relays.
+	for name in mask.icloud.com mask-h2.icloud.com; do
+		nslookup "$name" 127.0.0.1 2>&1 | grep -q NXDOMAIN ||
+			fail "the iCloud Private Relay name $name is not answered as missing"
+	done
 	[ "$(dnsmasq_value cachesize)" = 1000 ] || fail 'dnsmasq lost its cache with ordinary names direct'
 
 	step '  a list change reaches dnsmasq without a restart, in the same file'

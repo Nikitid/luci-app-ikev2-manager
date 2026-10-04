@@ -47,8 +47,15 @@ render "$tmp/in" "$tmp/out" || fail 'a valid input was refused'
 	fail 'the tunnel bootstrap is not TCP'
 [ "$(query "$tmp/out" '[r for r in c["dns"]["rules"] if r.get("server") == "fakeip"][0]["rewrite_ttl"] + c["dns"]["cache_capacity"]')" = 8252 ] ||
 	fail 'numbers were not written as numbers'
-[ "$(query "$tmp/out" 'len(c["dns"]["rules"])')" = 4 ] ||
+[ "$(query "$tmp/out" 'len(c["dns"]["rules"])')" = 5 ] ||
 	fail 'an HTTPS rule was added without segment suffixes'
+# iCloud Private Relay is told off by answering Apple's two names as missing,
+# ahead of anything that would resolve them.
+[ "$(query "$tmp/out" '[(r["domain_suffix"], r["action"], r["rcode"]) for r in c["dns"]["rules"] if r.get("rcode") == "NXDOMAIN"]')" = \
+	"[(['mask.icloud.com', 'mask-h2.icloud.com'], 'predefined', 'NXDOMAIN')]" ] ||
+	fail 'the names that turn iCloud Private Relay off are not answered as missing'
+[ "$(query "$tmp/out" '[r.get("rcode") == "NXDOMAIN" or r.get("server") == "fakeip" for r in c["dns"]["rules"]].index(True) == [r.get("rcode") == "NXDOMAIN" for r in c["dns"]["rules"]].index(True)')" = True ] ||
+	fail 'a FakeIP answer comes before the iCloud Private Relay names are refused'
 
 # DNS segments: a resolver before FakeIP and a rule after the domain rules,
 # both in the given order; HTTPS-compatible suffixes get their own rule.

@@ -313,6 +313,14 @@ function render(input) {
 			domain: [ 'use-application-dns.net' ],
 			action: 'reject'
 		},
+		// iCloud Private Relay is off on a network that answers these names
+		// as missing, which is how Apple has a network say so. dnsmasq
+		// answers them first; this holds for a query that reaches here.
+		{
+			domain_suffix: [ 'mask.icloud.com', 'mask-h2.icloud.com' ],
+			action: 'predefined',
+			rcode: 'NXDOMAIN'
+		},
 		{
 			rule_set: domains,
 			query_type: [ 'AAAA' ],
