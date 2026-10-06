@@ -25,8 +25,15 @@ export function client_admin_catalog_ids(state, request) {
  fields(request, [ 'version', 'expected_generation', 'operation', 'payload' ]);
  if (request.version !== 1 || request.expected_generation !== state.generation) die('stale administrative request');
  if (request.operation == 'configure-service') {
-  fields(request.payload, [ 'id', 'client_access', 'transports' ]);
+  // Host names are optional: an older page does not send them.
+  fields(request.payload, 'hosts' in request.payload ? [ 'id', 'client_access', 'transports', 'hosts' ] : [ 'id', 'client_access', 'transports' ]);
   service_id(request.payload.id);
+  if ('hosts' in request.payload) {
+   if (type(request.payload.hosts) != 'array' || length(request.payload.hosts) > 256) die('invalid host names');
+   for (let name in request.payload.hosts)
+    if (type(name) != 'string' || length(name) > 253 ||
+     !match(name, /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/)) die('invalid host name');
+  }
   if (type(request.payload.client_access) != 'bool') die('invalid service availability');
   if (!request.payload.client_access) {
    if (!length(filter(state.publication.services, service => service.id == request.payload.id))) die('unknown service');

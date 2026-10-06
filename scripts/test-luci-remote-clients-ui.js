@@ -27,7 +27,7 @@ const L = { resolveDefault(promise, fallback) { return promise.catch(() => fallb
 let modal, hidden = 0, written = [], jobs = [], failWrite = false;
 const ui = { showModal(title, body) { modal = E('div', {}, body); }, hideModal() { hidden++; } };
 const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_endpoint: 'https://vpn.example.com:9443/client/v1/enroll', server: {address:"vpn.example.com"},
- services: [{ id: 'example_service', client_access: true, domain_count: 1, transports: [{ protocol: 'tcp', ports: [443] }] }],
+ services: [{ id: 'example_service', client_access: true, domain_count: 2, hosts: ['api.example.com'], transports: [{ protocol: 'tcp', ports: [443] }] }],
  devices: [{ id: 'alice', enabled: true, selected_services: ['example_service'], revision: 3 }] };
 const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, stdout: 'example_service|Example service|builtin|0|0|tunnel\nnew_service|New service|builtin|0|0|tunnel\n' }];
 const backend = {
@@ -55,7 +55,7 @@ async function main() {
  const form = nodes(modal).find(n=>n.listeners.change); form.listeners.change();
  assert(!save.disabled, 'changed service must save');
  await click(save);
- assert.deepStrictEqual(written[0].body, {version:1,expected_generation:17,operation:'configure-service',payload:{id:'example_service',client_access:false,transports:[{protocol:'tcp',ports:[443]}]}});
+ assert.deepStrictEqual(written[0].body, {version:1,expected_generation:17,operation:'configure-service',payload:{id:'example_service',client_access:false,transports:[{protocol:'tcp',ports:[443]}],hosts:['api.example.com']}});
  assert(written[0].file.startsWith('/var/run/ikev2-client-admin-')); assert.strictEqual(written[0].mode,384);
  assert.strictEqual(jobs[0].startArgs[0],'client-admin-update'); assert.deepStrictEqual(jobs[0].statusArgs,['client-admin-status']);
  await jobs[0].onSuccess(); assert.strictEqual(hidden,1);
@@ -65,6 +65,10 @@ async function main() {
  await click(serviceSave);
  assert.strictEqual(written.length,1, 'invalid ports cannot stage a request');
  assert(text(modal).includes('1 to 65535'));
+ nodes(modal).filter(n=>n.tagName==='INPUT' && n.type==='text')[0].value = '443';
+ nodes(modal).find(n=>n.tagName==='TEXTAREA').value = 'API.example.com\nnot a name!';
+ await click(serviceSave);
+ assert.strictEqual(written.length,1, 'a malformed host name cannot stage a request'); assert(text(modal).includes('is not a host name'));
  click(edits[2]);
  const deviceInputs = nodes(modal).filter(n=>n.tagName==='INPUT');
  deviceInputs[0].checked=false;

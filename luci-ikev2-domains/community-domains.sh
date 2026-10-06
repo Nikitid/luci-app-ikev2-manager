@@ -53,6 +53,7 @@ raw_base="${IKEV2_RAW_BASE:-https://raw.githubusercontent.com/itdoginfo/allow-do
 subnet_raw_base="${IKEV2_SUBNET_RAW_BASE:-https://raw.githubusercontent.com/itdoginfo/allow-domains/main/Subnets/IPv4}"
 local_services_dir="${IKEV2_LOCAL_SERVICES_DIR:-/usr/share/ikev2-domains/local-services}"
 user_services_dir="${IKEV2_USER_SERVICES_DIR:-/etc/ikev2-manager/services.d}"
+client_hosts_dir="${IKEV2_CLIENT_HOSTS_DIR:-/etc/ikev2-manager/client-hosts.d}"
 service_input_prefix="${IKEV2_SERVICE_INPUT_PREFIX:-/tmp/ikev2-service-input}"
 max_catalog_bytes="${IKEV2_MAX_CATALOG_BYTES:-1048576}"
 max_service_bytes="${IKEV2_MAX_SERVICE_BYTES:-1048576}"
@@ -1579,17 +1580,58 @@ case "${1:-}" in
 	services)
 		list_service_records
 		;;
- client-service-domains)
+ client-service-domains | client-service-hosts-get | client-service-hosts-set)
+  # A service's list names domains; a remote client reaches exact names only.
+  # Host names under those domains are kept beside the list and published to
+  # clients with it.
   service="${2:-}"
   valid_service_id "$service" && catalog_services | grep -Fxq "$service" || exit 2
+  client_hosts_file="$client_hosts_dir/$service.lst"
+  if [ "$1" = client-service-hosts-get ]; then
+   [ ! -f "$client_hosts_file" ] || cat "$client_hosts_file"
+   exit 0
+  fi
   client_work="$(mktemp -d)" || exit 1
-  if download_service "$service" "$client_work/domains" && [ -s "$client_work/domains" ]; then
-   cat "$client_work/domains"
-   rm -rf "$client_work"
-  else
+  if ! download_service "$service" "$client_work/domains" || [ ! -s "$client_work/domains" ]; then
    rm -rf "$client_work"
    exit 1
   fi
+  # Keeps of the candidate names only well-formed ones under a listed domain.
+  client_hosts_under() {
+   grep -E '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' |
+    awk 'NR == FNR { base[$0] = 1; next }
+     length($0) <= 253 && !($0 in base) && !seen[$0]++ {
+      name = $0
+      while ((dot = index(name, ".")) > 0) {
+       name = substr(name, dot + 1)
+       if (name in base) { print $0; break }
+      }
+     }' "$client_work/domains" -
+  }
+  if [ "$1" = client-service-hosts-set ]; then
+   head -c 16385 >"$client_work/input"
+   rc=0
+   [ "$(wc -c <"$client_work/input")" -le 16384 ] || rc=1
+   tr 'A-Z' 'a-z' <"$client_work/input" | sed 's/[[:space:]]*$//; s/^[[:space:]]*//; /^$/d' >"$client_work/wanted"
+   client_hosts_under <"$client_work/wanted" >"$client_work/accepted"
+   # Every submitted name must be acceptable: nothing is dropped silently.
+   [ "$(sort -u "$client_work/wanted" | wc -l)" = "$(wc -l <"$client_work/accepted")" ] || rc=1
+   [ "$(wc -l <"$client_work/accepted")" -le 256 ] || rc=1
+   if [ "$rc" = 0 ]; then
+    if [ -s "$client_work/accepted" ]; then
+     mkdir -p "$client_hosts_dir" && chmod 700 "$client_hosts_dir" &&
+      sort "$client_work/accepted" >"$client_hosts_file.new" && chmod 600 "$client_hosts_file.new" &&
+      mv "$client_hosts_file.new" "$client_hosts_file" || rc=1
+    else
+     rm -f "$client_hosts_file"
+    fi
+   fi
+   rm -rf "$client_work"
+   exit "$rc"
+  fi
+  cat "$client_work/domains"
+  [ ! -f "$client_hosts_file" ] || client_hosts_under <"$client_hosts_file"
+  rm -rf "$client_work"
   ;;
 	service-read)
 		read_service "${2:-}"
