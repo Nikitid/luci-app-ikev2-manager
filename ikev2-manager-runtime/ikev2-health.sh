@@ -331,6 +331,11 @@ check_runtimes() {
 	# already healthy, so this only acts when the server is actually broken.
 	if [ "$server_enabled" = 1 ] && ! "$sa_helper" conn-loaded ikev2-in; then
 		"$manager_helper" server-ensure >/dev/null 2>&1 || :
+	# The connection for managed desktop devices, once their access is set
+	# up; server-ensure knows when a custom configuration owns that instead.
+	elif [ "$server_enabled" = 1 ] && [ -f /etc/ikev2-manager/clients/initialized ] &&
+	   ! "$sa_helper" conn-loaded ikev2-in-managed; then
+		"$manager_helper" server-ensure >/dev/null 2>&1 || :
 	fi
 	[ "$client_enabled" != 1 ] || [ "$sa_installed" != 1 ] || "$sync_vips_helper" >/dev/null 2>&1 || :
 }

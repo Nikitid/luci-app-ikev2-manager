@@ -681,6 +681,18 @@ activation, the live firewall rule, the fixed subnet, exit change and disable.
 it was assigned and the other services published to clients, each as a name
 and a domain count. It grants nothing and carries no domains or addresses.
 
+## Client installers in a release
+
+The release workflow builds `IKEv2ManagerClientSetup.exe` on a Windows runner
+and `IKEv2ManagerClient-X.Y.Z.pkg` on a macOS runner after the router package
+is published, and attaches both to the release. Neither is signed with a
+publisher identity, so Windows shows its unknown-publisher warning and macOS
+needs "Open" from the context menu. These jobs have not run yet.
+
+A device registered from an invitation is known to the router but not let in
+until an administrator enables it under Device assignments; until then, and
+after revocation, the client reports `access_closed`.
+
 ## Marks and other software on the router
 
 Admission marks a packet `0x00800000`, and the path guard and the inbound user

@@ -102,3 +102,42 @@ jobs:
             --field event_type=member-release \
             --field "client_payload[repository]=${GITHUB_REPOSITORY}" \
             --field "client_payload[tag]=${GITHUB_REF_NAME}"
+
+  # The desktop clients are built after the router package is published, so a
+  # failure here never holds the package back.
+  windows-client:
+    needs: release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Test and build the Windows client
+        shell: powershell
+        run: |
+          $version = ($env:GITHUB_REF_NAME -replace '^v', '') -replace '_.*$', ''
+          ./desktop-clients/windows/test.ps1
+          ./desktop-clients/windows/build.ps1 -Output "$env:RUNNER_TEMP\client" -Version $version
+      - name: Attach the installer to the release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:GITHUB_REF_NAME" "$env:RUNNER_TEMP\client\IKEv2ManagerClientSetup.exe" --clobber
+
+  macos-client:
+    needs: release
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Test and build the macOS client
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          version="${version%%_*}"
+          swift test --package-path desktop-clients/macos
+          desktop-clients/macos/build.sh "$version" "$RUNNER_TEMP/client"
+      - name: Attach the installer to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP"/client/IKEv2ManagerClient-*.pkg --clobber

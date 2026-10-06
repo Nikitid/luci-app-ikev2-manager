@@ -38,7 +38,9 @@ apply_setup() {
   uci commit ikev2-manager || return 1
  pkg_run_bounded 120 /usr/libexec/ikev2-manager-system client-api-apply >/dev/null 2>&1 || return 1
  # The inbound server gains its connection for managed devices on first setup.
- pkg_run_bounded 120 /usr/libexec/ikev2-manager server-ensure >/dev/null 2>&1 || return 1
+ # Best effort here: a server that cannot be brought up now is retried by the
+ # health watcher, and the settings above are already in force.
+ pkg_run_bounded 120 /usr/libexec/ikev2-manager server-ensure >/dev/null 2>&1 || :
  /etc/init.d/ikev2-client-access enable >/dev/null 2>&1 || return 1
  pkg_run_bounded 60 /etc/init.d/ikev2-client-access reload >/dev/null 2>&1
 }
