@@ -109,6 +109,11 @@ $appExecutable = Join-Path $output 'IKEv2ManagerClient.exe'
     (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
     (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Client application failed to compile' }
+# Drives an installed product; compiled here, run only by the integration fixture.
+& $compiler /nologo /platform:x64 "/out:$(Join-Path $output 'ProductIntegrationTests.exe')" /r:System.Web.Extensions.dll /r:System.ServiceProcess.dll `
+    (Join-Path $PSScriptRoot 'ClientStatusReader.cs') (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProductIntegrationTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Installed product check failed to compile' }
 if ($Wfp) {
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {

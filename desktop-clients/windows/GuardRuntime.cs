@@ -59,6 +59,13 @@ namespace IkeV2Manager.Client
                 store.LoadPolicyHistory();
                 RestoreEnrollmentProtection();
                 connectionWanted = systemIntegration && registrationComplete && store.LoadConnectionIntent();
+                if (systemIntegration && guard != null && store.LoadVpnEntry() != Guid.Empty)
+                {
+                    // Nothing of a previous instance stays connected behind a
+                    // status that is about to say "blocked".
+                    var abandoned = ManagedVpnProfile.FromJournal(store.LoadPlan().Owner, store.LoadVpnEntry());
+                    RasTunnel.Release(abandoned.EntryId, abandoned.Phonebook);
+                }
                 Publish(guard == null ? (EnrollmentRegistration.Load(store) == null ? "enrollment_required" : "registration_pending") : "blocked");
                 // The router's readiness lasts five seconds; ask well inside that.
                 heartbeat = new Timer(Tick, null, 2000, 2000);
@@ -241,6 +248,7 @@ namespace IkeV2Manager.Client
                     ClosePermission(); guard.VerifyProtection();
                     var registration = EnrollmentRegistration.Load(store);
                     var profile = ManagedVpnProfile.FromJournal(store.LoadPlan().Owner, store.LoadVpnEntry());
+                    RasTunnel.Release(profile.EntryId, profile.Phonebook);
                     connection = OwnedRasConnection.Begin(profile, registration.Id, registration.Password);
                     routeDeadline = DateTime.MinValue;
                 }

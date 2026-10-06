@@ -28,6 +28,30 @@ namespace IkeV2Manager.Client
             return Enumerate().Any(c => c.EntryId == entryId && String.Equals(Path.GetFullPath(c.Phonebook), expected, StringComparison.OrdinalIgnoreCase));
         }
 
+        // Ends whatever is connected on the managed entry. A connection there
+        // that no running service holds is one a killed service left behind:
+        // only the service has this entry's credentials.
+        public static void Release(Guid entryId, string phonebook)
+        {
+            if (entryId == Guid.Empty || String.IsNullOrWhiteSpace(phonebook) || !Path.IsPathRooted(phonebook))
+                throw new ArgumentException("Managed entry identity and absolute phonebook path required");
+            string expected = Path.GetFullPath(phonebook);
+            var deadline = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                var left = Enumerate().Where(c => c.EntryId == entryId &&
+                    String.Equals(Path.GetFullPath(c.Phonebook), expected, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (left.Length == 0) return;
+                if (deadline.ElapsedMilliseconds > 10000) throw new InvalidOperationException("Abandoned IKEv2 connection could not close");
+                foreach (var connection in left)
+                {
+                    uint error = Native.RasHangUpW(connection.Handle);
+                    if (error != 0 && error != 6) throw new InvalidOperationException("Abandoned IKEv2 connection could not close");
+                }
+                System.Threading.Thread.Sleep(100);
+            }
+        }
+
         public static TunnelObservation Observe(Guid entryId, string phonebook)
         {
             if (entryId == Guid.Empty || String.IsNullOrWhiteSpace(phonebook) || !Path.IsPathRooted(phonebook))
@@ -153,6 +177,7 @@ namespace IkeV2Manager.Client
             internal struct Endpoint { internal uint Type, Address0, Address1, Address2, Address3; }
             [DllImport("rasapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
             internal static extern uint RasEnumConnectionsW(IntPtr connections, ref uint bytes, out uint count);
+            [DllImport("rasapi32.dll", ExactSpelling = true)] internal static extern uint RasHangUpW(IntPtr connection);
             [DllImport("rasapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
             internal static extern uint RasGetConnectStatusW(IntPtr connection, ref Status status);
             [DllImport("rasapi32.dll")]
