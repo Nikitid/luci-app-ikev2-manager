@@ -442,3 +442,17 @@ only after sing-box has loaded the new rules; told earlier, dnsmasq caches the
 real addresses sing-box still gives.
 
 Guarded by `scripts/openwrt/scenarios.sh`, with the real init script and dnsmasq.
+
+## A Windows VPN profile does not prove an active route
+
+The selected /32 routes can be present in the all-user VPN profile while a
+native RAS connection does not publish them in the active routing table. A
+connected SA and profile inspection both pass, but ordinary traffic still
+selects another interface. The desktop controller creates owned active-store
+routes only after identifying its RAS interface, keeps destination denials
+throughout, and checks the unconstrained best route before accepting connection
+readiness. Remove only unchanged rows belonging to that connection.
+
+Docker's published-port listing is also not evidence that an IKE listener is
+reachable: a host-side privileged UDP bind can fail after the container starts.
+Use packet evidence and host forwarding errors before changing authentication.

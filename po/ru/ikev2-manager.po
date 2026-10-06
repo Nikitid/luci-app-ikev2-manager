@@ -4529,3 +4529,144 @@ msgstr "Добавляет DNS-серверы, которые выдаёт пр�
 
 msgid "One domain per line. Subdomains are included automatically."
 msgstr "По одному домену в строке. Поддомены включаются автоматически."
+
+msgid "Remote clients"
+msgstr "Удалённые клиенты"
+
+msgid "Enter port numbers from 1 to 65535, separated by spaces or commas."
+msgstr "Введите номера портов от 1 до 65535 через пробел или запятую."
+
+msgid "Saving client configuration..."
+msgstr "Сохранение конфигурации клиентов..."
+
+msgid "Client configuration saved."
+msgstr "Конфигурация клиентов сохранена."
+
+msgid "Could not save client configuration."
+msgstr "Не удалось сохранить конфигурацию клиентов."
+
+msgid "Could not stage client configuration: %s"
+msgstr "Не удалось подготовить конфигурацию клиентов: %s"
+
+msgid "Available to remote clients"
+msgstr "Доступен удалённым клиентам"
+
+msgid "Disabling removes this service from all device assignments."
+msgstr "Отключение удаляет этот сервис из назначений всем устройствам."
+
+msgid "TCP ports"
+msgstr "Порты TCP"
+
+msgid "UDP ports"
+msgstr "Порты UDP"
+
+msgid "Specify at least one TCP or UDP port."
+msgstr "Укажите хотя бы один порт TCP или UDP."
+
+msgid "Device access enabled"
+msgstr "Доступ устройства включён"
+
+msgid "Client configuration is unavailable."
+msgstr "Конфигурация клиентов недоступна."
+
+msgid "Published"
+msgstr "Опубликован"
+
+msgid "Not published"
+msgstr "Не опубликован"
+
+msgid "Client availability"
+msgstr "Доступность для клиентов"
+
+msgid "No access"
+msgstr "Нет доступа"
+
+msgid "Selected services"
+msgstr "Выбранные сервисы"
+
+msgid "Revision"
+msgstr "Версия"
+
+msgid "No devices enrolled."
+msgstr "Нет зарегистрированных устройств."
+
+msgid "Updating service lists..."
+msgstr "Обновление списков сервисов..."
+
+msgid "Service lists updated."
+msgstr "Списки сервисов обновлены."
+
+msgid "Could not update service lists."
+msgstr "Не удалось обновить списки сервисов."
+
+msgid "Update service lists"
+msgstr "Обновить списки сервисов"
+
+msgid "Publish selected services and assign them to enrolled Windows and macOS devices."
+msgstr "Опубликуйте выбранные сервисы и назначьте их зарегистрированным устройствам Windows и macOS."
+
+msgid "Services for remote clients"
+msgstr "Сервисы для удалённых клиентов"
+
+msgid "Domain lists are shared with Policy Routing and update automatically."
+msgstr "Используются списки доменов из раздела маршрутизации. Они обновляются автоматически."
+
+msgid "Device assignments"
+msgstr "Назначения устройствам"
+
+msgid "Assign published services to each enrolled device."
+msgstr "Назначьте опубликованные сервисы каждому зарегистрированному устройству."
+
+msgid "Another client administration action is running."
+msgstr "Уже выполняется другая операция управления клиентами."
+
+msgid "Updating client configuration..."
+msgstr "Обновление конфигурации клиентов..."
+
+msgid "Client configuration could not be saved. Refresh the page and try again."
+msgstr "Не удалось сохранить конфигурацию клиентов. Обновите страницу и повторите попытку."
+
+msgid "Client administration request refused."
+msgstr "Запрос управления клиентами отклонён."
+
+msgid "Device identifier"
+msgstr "Идентификатор устройства"
+
+msgid "Registration HTTPS address"
+msgstr "HTTPS-адрес регистрации"
+
+msgid "Use the configured registration listener address. Creating an invitation does not verify its availability."
+msgstr "Укажите адрес настроенного сервера регистрации. Создание приглашения не проверяет его доступность."
+
+msgid "Invitation link"
+msgstr "Ссылка приглашения"
+
+msgid "This link expires in 10 minutes and is shown only once. Send it privately to the device owner."
+msgstr "Ссылка действует 10 минут и показывается один раз. Передайте её владельцу устройства приватно."
+
+msgid "Could not copy invitation link."
+msgstr "Не удалось скопировать ссылку приглашения."
+
+msgid "Enter a device identifier and select at least one service."
+msgstr "Введите идентификатор устройства и выберите хотя бы один сервис."
+
+msgid "Creating invitation..."
+msgstr "Создание приглашения..."
+
+msgid "Invitation created."
+msgstr "Приглашение создано."
+
+msgid "Could not create invitation."
+msgstr "Не удалось создать приглашение."
+
+msgid "Invitation is unavailable. Create a new invitation with a new device identifier."
+msgstr "Приглашение недоступно. Создайте новое с другим идентификатором устройства."
+
+msgid "Invalid invitation response."
+msgstr "Некорректный ответ с приглашением."
+
+msgid "Could not stage invitation."
+msgstr "Не удалось подготовить приглашение."
+
+msgid "Create invitation"
+msgstr "Создать приглашение"

@@ -32,6 +32,7 @@
 'use strict';
 
 import { stdin, readfile } from 'fs';
+import { compile_client_policy } from './client-access.uc';
 
 function die(message) {
 	warn(`singbox-config: ${message}\n`);
@@ -270,6 +271,30 @@ function render(input) {
 		push(domains, `ikev2-domains-${e.index}`);
 	}
 	let exit_inbounds = map(input.exit_port, (e) => ({ index: exit_index(e.index), port: port(e.port, 'exit tproxy port') }));
+	let access = null, access_port = null;
+	if (input.client_access_policy) {
+		let raw = readfile(input.client_access_policy);
+		if (raw == null || length(raw) > 1048576)
+			die('cannot read client access policy');
+		access = compile_client_policy(json(raw));
+		access_port = port(input.client_access_port, 'client access port');
+		let reserved_ports = [ +input.dns_port, +input.tproxy_port,
+			+input.direct_tproxy_port, +input.router_tproxy_port,
+			...map(exit_inbounds, e => e.port) ];
+		if (index(reserved_ports, access_port) >= 0)
+			die('client access port conflicts with an existing listener');
+		let outbound = !length(input.exit) && access.policy.exit != '1' && access.policy.exit != '1s'
+			? null : exit_out(access.policy.exit);
+		access.router_rules = map(access.router_rules, rule => {
+			if (rule.action != 'route')
+				return rule;
+			if (outbound) {
+				rule.outbound = outbound;
+				return rule;
+			}
+			return { inbound: rule.inbound, action: 'reject', method: 'drop' };
+		});
+	}
 	for (let segment in input.segment)
 		push(servers, {
 			type: 'udp',
@@ -399,11 +424,16 @@ function render(input) {
 				tag: `tproxy-exit-${e.index}-in`,
 				listen: tproxy,
 				listen_port: e.port
-			}))
+			})),
+			...(access ? [{
+				type: 'tproxy', tag: 'tproxy-client-access-in',
+				listen: tproxy, listen_port: access_port
+			}] : [])
 		],
 		outbounds: outbounds,
 		route: {
 			rules: [
+				...(access ? access.router_rules : []),
 				{
 					inbound: [ 'dns-in' ],
 					action: 'hijack-dns'

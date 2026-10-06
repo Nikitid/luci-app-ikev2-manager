@@ -31,6 +31,7 @@ outbound_conf="$root/etc/swanctl/conf.d/20-proxy-out.conf"
 outbound_secret="$root/etc/swanctl/conf.d/90-proxy-out-secret.conf"
 client_secret_db="$root/etc/ikev2-manager/client.secret"
 user_input_file="${IKEV2_USER_INPUT:-}"
+user_lock_held=0
 client_input_file="${IKEV2_CLIENT_INPUT:-}"
 server_input_file="${IKEV2_SERVER_INPUT:-}"
 inbound_custom="$root/etc/ikev2-manager/inbound.custom.conf"
@@ -93,12 +94,14 @@ filter_swanctl_noise() {
 }
 
 swanctl_quiet() {
+	local err code filtered
 	err="$(mktemp)"
 	if swanctl "$@" 2>"$err"; then
 		rm -f "$err"
 		return 0
+	else
+		code=$?
 	fi
-	code=$?
 	filtered="$(filter_swanctl_noise <"$err" | tail -n 8 | tr '\n' ' ')"
 	rm -f "$err"
 	[ -n "$filtered" ] && printf '%s\n' "$filtered" >&2
@@ -190,6 +193,40 @@ consume_user_input() {
 	fi
 	update_user "$user" "0s$encoded"
 	[ "$action" != password ] || terminate_user_sessions "$user"
+}
+
+consume_owned_user_input() {
+	local action user password encoded existing extra count matches
+	[ -f "$user_input_file" ] && [ ! -L "$user_input_file" ] || die 'Owned user input is missing or unsafe'
+	[ "$(wc -c <"$user_input_file" | tr -d ' ')" -le 256 ] || die 'Owned user input is too large'
+	action="$(sed -n '1p' "$user_input_file")"
+	user="$(sed -n '2p' "$user_input_file")"
+	password="$(sed -n '3p' "$user_input_file")"
+	extra="$(sed -n '4,$p' "$user_input_file" | sed '/^[[:space:]]*$/d')"
+	rm -f "$user_input_file"
+	[ -z "$extra" ] || die 'Owned user input contains unexpected fields'
+	case "$action" in provision | remove) ;; *) die 'Invalid owned user operation' ;; esac
+	valid_user "$user" || die 'Invalid owned username'
+	[ "${#password}" = 64 ] || die 'Invalid owned credential'
+	case "$password" in *[!a-f0-9]*) die 'Invalid owned credential' ;; esac
+	encoded="0s$(printf '%s' "$password" | openssl base64 -A)"
+	matches="$(awk -F '\t' -v user="$user" '$1 == user { count++ } END { print count + 0 }' "$users_db")"
+	[ "$matches" -le 1 ] || die 'Ambiguous owned user account'
+	existing="$(awk -F '\t' -v user="$user" '$1 == user { print $2 }' "$users_db")"
+	[ "$matches" = 0 ] || [ "$existing" = "$encoded" ] || die 'Owned user credential conflict'
+	# The caller's ownership check and the account mutation share the same
+	# kernel guard as ordinary add/password/policy/delete operations.
+	if [ "$action" = remove ]; then
+		[ -n "$existing" ] || return 0
+		delete_user_account "$user"
+	elif [ -n "$existing" ]; then
+		update_user_policy_transaction "$user" deny deny deny exclude '' '' || die 'Unable to apply owned user policy'
+		reload_credentials || die 'Unable to load owned user credential'
+	else
+		count="$(awk -F '\t' 'NF && $1 != "" { count++ } END { print count + 0 }' "$users_db")"
+		[ "$count" -lt 512 ] || die 'VPN user limit reached (512)'
+		add_user_with_policy_transaction "$user" "$encoded" deny deny deny exclude '' '' || die 'Unable to provision owned user'
+	fi
 }
 
 consume_client_input() {
@@ -1452,6 +1489,11 @@ show_users() {
 	return "$result"
 }
 
+case "${1:-}" in
+	user-secret-set | user-delete | user-owned-input)
+		lock_users || die 'VPN user operation is already running'
+		;;
+esac
 init_uci
 init_users
 init_client_secret
@@ -1947,6 +1989,10 @@ case "${1:-}" in
 	user-secret-set)
 		[ -n "$user_input_file" ] || user_input_file="$(input_file_for user "${2:-}")"
 		consume_user_input
+		;;
+	user-owned-input)
+		[ -n "$user_input_file" ] || user_input_file="$(input_file_for user "${2:-}")"
+		consume_owned_user_input
 		;;
 	user-delete)
 		user="${2:-}"

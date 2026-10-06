@@ -1579,6 +1579,18 @@ case "${1:-}" in
 	services)
 		list_service_records
 		;;
+ client-service-domains)
+  service="${2:-}"
+  valid_service_id "$service" && catalog_services | grep -Fxq "$service" || exit 2
+  client_work="$(mktemp -d)" || exit 1
+  if download_service "$service" "$client_work/domains" && [ -s "$client_work/domains" ]; then
+   cat "$client_work/domains"
+   rm -rf "$client_work"
+  else
+   rm -rf "$client_work"
+   exit 1
+  fi
+  ;;
 	service-read)
 		read_service "${2:-}"
 		;;

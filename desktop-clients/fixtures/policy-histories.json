@@ -1,0 +1,420 @@
+[
+  {
+    "name": "retired allocation retained",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "api.example.com",
+          "address": "172.31.254.1"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "duplicate address",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "api.example.com",
+          "address": "172.31.254.2"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "duplicate domain",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.1"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "outside pool",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "api.example.com",
+          "address": "172.31.253.1"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "bootstrap reserved",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "vpn.example.com",
+          "address": "172.31.254.1"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "missing current",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "api.example.com",
+          "address": "172.31.254.1"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown field",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "api.example.com",
+          "address": "172.31.254.1"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ],
+      "command": "ignored"
+    },
+    "valid": false
+  },
+  {
+    "name": "unsupported version",
+    "history": {
+      "version": 2,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "api.example.com",
+          "address": "172.31.254.1"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid version type",
+    "history": {
+      "version": true,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": [
+        {
+          "domain": "api.example.com",
+          "address": "172.31.254.1"
+        },
+        {
+          "domain": "chat.example.com",
+          "address": "172.31.254.2"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "empty history",
+    "history": {
+      "version": 1,
+      "current": {
+        "version": 1,
+        "id": "team",
+        "revision": 3,
+        "server": {
+          "address": "vpn.example.com",
+          "remote_id": "vpn.example.com"
+        },
+        "virtual_subnet": "172.31.254.0/24",
+        "exit": "1",
+        "resources": [
+          {
+            "id": "chat",
+            "domain": "chat.example.com",
+            "address": "172.31.254.2",
+            "transports": [
+              {
+                "protocol": "tcp",
+                "ports": [
+                  443
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "allocations": []
+    },
+    "valid": false
+  }
+]

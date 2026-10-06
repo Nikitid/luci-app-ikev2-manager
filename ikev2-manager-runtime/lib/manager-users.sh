@@ -3,7 +3,24 @@
 # policy sections and the transactions that change both together. Sourced by
 # ikev2-manager, whose configuration helpers and globals it uses.
 
+lock_users() {
+	local guard="${root:-}/var/run/ikev2-manager-users.guard"
+	[ "${user_lock_held:-0}" = 1 ] && return 0
+	mkdir -p "${guard%/*}" || return 1
+	[ ! -L "$guard" ] || return 1
+	[ ! -e "$guard" ] || [ -f "$guard" ] || return 1
+	# Keep a permanent inode and inherited descriptor, not a PID lease. The
+	# kernel keeps ownership through rollback traps and child processes, even
+	# if the original shell is killed. Nothing unlinks this guard.
+	exec 8>>"$guard" || return 1
+	flock -n 8 || { exec 8>&-; return 1; }
+	user_lock_held=1
+}
+
 init_users() {
+	[ -s "$users_db" ] && return 0
+	lock_users || die 'VPN user operation is already running'
+	# A different initializer may have completed before acquiring the guard.
 	[ -s "$users_db" ] && return 0
 
 	mkdir -p "${users_db%/*}"
@@ -38,6 +55,7 @@ init_users() {
 
 render_users() {
 	local tmp="${inbound_secrets}.new" index user secret
+	lock_users || die 'VPN user operation is already running'
 	{
 		echo 'secrets {'
 		index=0

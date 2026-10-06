@@ -1,0 +1,203 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Web.Script.Serialization;
+using System.Windows.Forms;
+using System.Threading.Tasks;
+using System.Security.Principal;
+
+namespace IkeV2Manager.Client
+{
+    internal sealed class ClientWindow : Form
+    {
+        private readonly Label heading = new Label { AutoSize = true, Font = new Font("Segoe UI", 18, FontStyle.Bold), Margin = new Padding(0, 0, 0, 12) };
+        private readonly Label description = new Label { AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(0, 0, 0, 24) };
+        private readonly Label guard = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 12) };
+        private readonly Label updated = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(0, 20, 0, 12) };
+        private readonly Timer timer = new Timer { Interval = 3000 };
+        private ClientView current = new ClientView("status_unavailable");
+        private bool commandBusy;
+
+        internal ClientWindow()
+        {
+            Text = "IKEv2 Manager";
+            ClientSize = new Size(620, 340);
+            MinimumSize = new Size(580, 350);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            Font = new Font("Segoe UI", 10);
+            StartPosition = FormStartPosition.CenterScreen;
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(28), ColumnCount = 1, RowCount = 6 };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.Controls.Add(heading);
+            layout.Controls.Add(description);
+            layout.Controls.Add(guard);
+            layout.Controls.Add(new Label { Text = "Подключение к рабочим сервисам: не подтверждено", AutoSize = true });
+            layout.Controls.Add(updated);
+            var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty };
+            var refresh = new Button { Text = "Обновить", AutoSize = true, Margin = new Padding(0, 0, 12, 0) };
+            var report = new Button { Text = "Отчёт…", AutoSize = true };
+            refresh.Click += (sender, args) => RefreshStatus();
+            report.Click += (sender, args) => PreviewReport();
+            buttons.Controls.Add(refresh);
+            buttons.Controls.Add(report);
+            var register = new Button { Text = "Регистрация…", AutoSize = true };
+            var resume = new Button { Text = "Продолжить регистрацию", AutoSize = true };
+            register.Click += (sender, args) => BeginRegistration();
+            resume.Click += (sender, args) => SubmitCommand("continue");
+            buttons.Controls.Add(register);
+            buttons.Controls.Add(resume);
+            var connect = new Button { Text = "Подключить", AutoSize = true };
+            var disconnect = new Button { Text = "Отключить", AutoSize = true };
+            connect.Click += (sender, args) => SubmitCommand("connect");
+            disconnect.Click += (sender, args) => SubmitCommand("disconnect");
+            buttons.Controls.Add(connect); buttons.Controls.Add(disconnect);
+            buttons.WrapContents = true;
+            layout.Controls.Add(buttons);
+            Controls.Add(layout);
+            timer.Tick += (sender, args) => RefreshStatus();
+            Shown += (sender, args) => { RefreshStatus(); timer.Start(); };
+            FormClosed += (sender, args) => timer.Dispose();
+        }
+
+        private void BeginRegistration()
+        {
+            if (commandBusy) return;
+            if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
+            {
+                MessageBox.Show(this, "Для начальной регистрации запустите приложение с правами администратора. Продолжение регистрации доступно без повышения прав.", "Регистрация");
+                return;
+            }
+            using (var dialog = new Form { Text = "Регистрация доступа", ClientSize = new Size(560, 170),
+                StartPosition = FormStartPosition.CenterParent, Font = Font, MinimizeBox = false, MaximizeBox = false })
+            {
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20), ColumnCount = 1 };
+                var input = new TextBox { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
+                var submit = new Button { Text = "Зарегистрировать", AutoSize = true, DialogResult = DialogResult.OK };
+                layout.Controls.Add(new Label { Text = "Вставьте ссылку приглашения, выданную администратором", AutoSize = true });
+                layout.Controls.Add(input); layout.Controls.Add(submit); dialog.Controls.Add(layout); dialog.AcceptButton = submit;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    string endpoint, token;
+                    ClientCommands.ParseInvitation(input.Text, out endpoint, out token);
+                    input.Clear();
+                    SubmitCommand("begin", endpoint, token);
+                }
+                catch (ArgumentException) { MessageBox.Show(this, "Приглашение имеет неверный формат.", "Регистрация"); }
+                catch (FormatException) { MessageBox.Show(this, "Приглашение имеет неверный формат.", "Регистрация"); }
+            }
+        }
+
+        private async void SubmitCommand(string operation, string endpoint = null, string invitation = null)
+        {
+            if (commandBusy) return;
+            commandBusy = true;
+            try
+            {
+                string result = await Task.Factory.StartNew(() => ClientCommands.Send(operation, endpoint, invitation));
+                if (IsDisposed) return;
+                if (result == "accepted" && operation == "begin")
+                    await Task.Factory.StartNew(() => ClientCommands.Send("continue"));
+                else if (result != "accepted" && result != "busy")
+                    MessageBox.Show(this, result == "administrator_required" ? "Требуются права администратора." : "Служба отклонила действие. Проверьте состояние клиента.", "Регистрация");
+            }
+            catch { if (!IsDisposed) MessageBox.Show(this, "Не удалось связаться с системной службой. Проверьте её состояние.", "Регистрация"); }
+            finally { commandBusy = false; if (!IsDisposed) RefreshStatus(); }
+        }
+
+        private void RefreshStatus()
+        {
+            current = ClientStatusReader.Read();
+            heading.ForeColor = current.State == "blocked" ? Color.FromArgb(155, 87, 0) : SystemColors.ControlText;
+            switch (current.State)
+            {
+                case "blocked":
+                    heading.Text = "Доступ закрыт";
+                    description.Text = "Нет подтверждённого подключения к офису. Выбранные адреса остаются заблокированы.";
+                    break;
+                case "enrollment_required":
+                    heading.Text = "Требуется настройка доступа";
+                    description.Text = "Клиент ещё не получил политику доступа организации.";
+                    break;
+                case "registration_pending":
+                    heading.Text = "Регистрация не завершена";
+                    description.Text = "Ожидается выдача настроек сервера. Подключение VPN и защита выбранных сервисов ещё не подтверждены.";
+                    break;
+                case "registration_error":
+                    heading.Text = "Ошибка регистрации";
+                    description.Text = "Не удалось получить или сохранить настройки. VPN не активирован. Подробности состояния доступны в отчёте.";
+                    break;
+                case "connecting":
+                    heading.Text = "Подключение к VPN";
+                    description.Text = "Служба устанавливает IKEv2-соединение. Доступ к закреплённым адресам остаётся заблокирован.";
+                    break;
+                case "tunnel_connected":
+                    heading.Text = "Туннель установлен";
+                    description.Text = "IKEv2 и маршруты выбранных адресов подтверждены. Проверка DNS и пути до сервисов ещё не завершена; доступ остаётся заблокирован.";
+                    break;
+                case "connection_error":
+                    heading.Text = "Не удалось подключить VPN";
+                    description.Text = "Служба не подтвердила нужный туннель или маршруты. Доступ к закреплённым адресам остаётся заблокирован; попытка повторится автоматически.";
+                    break;
+                case "error":
+                    heading.Text = "Ошибка системной службы";
+                    description.Text = "Служба не смогла подтвердить защиту или обновить настройки с сервера. Доступ не подтверждён; повторная синхронизация выполняется автоматически.";
+                    break;
+                case "service_missing":
+                    heading.Text = "Служба не установлена";
+                    description.Text = "Системный компонент клиента отсутствует. Защита ещё не настроена.";
+                    break;
+                case "service_stopped":
+                    heading.Text = "Служба остановлена";
+                    description.Text = "Блокировки могут оставаться включены. Их текущее состояние не подтверждено.";
+                    break;
+                default:
+                    heading.Text = "Состояние не подтверждено";
+                    description.Text = "Проверка службы или её статуса не прошла. Код состояния доступен в отчёте.";
+                    break;
+            }
+            guard.Text = "Блокирующие правила: " + (current.GuardInstalled ? "подтверждены" : "не подтверждены");
+            updated.Text = "Проверено: " + DateTime.Now.ToString("HH:mm:ss");
+        }
+
+        private void PreviewReport()
+        {
+            using (var preview = CreateReportPreview()) preview.ShowDialog(this);
+        }
+
+        internal Form CreateReportPreview()
+        {
+            var serializer = new JavaScriptSerializer();
+            var fields = serializer.Deserialize<Dictionary<string, object>>(current.Report());
+            string json = "{\r\n" + String.Join(",\r\n", fields.Select(pair => "  " + serializer.Serialize(pair.Key) + ": " + serializer.Serialize(pair.Value))) + "\r\n}";
+            var preview = new Form { Text = "Отчёт о состоянии", ClientSize = new Size(600, 320), StartPosition = FormStartPosition.CenterParent };
+            var content = new TextBox { Text = json, Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
+                ScrollBars = ScrollBars.Both, Font = new Font(FontFamily.GenericMonospace, 10), WordWrap = false };
+            var save = new Button { Text = "Сохранить…", Dock = DockStyle.Bottom, Height = 40 };
+            save.Click += (sender, args) =>
+            {
+                using (var dialog = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "ikev2-client-report.json", OverwritePrompt = true })
+                {
+                    if (dialog.ShowDialog(preview) != DialogResult.OK) return;
+                    try { File.WriteAllText(dialog.FileName, json, new UTF8Encoding(false)); }
+                    catch (IOException) { MessageBox.Show(preview, "Не удалось сохранить отчёт.", "Отчёт"); }
+                    catch (UnauthorizedAccessException) { MessageBox.Show(preview, "Нет доступа к выбранному файлу.", "Отчёт"); }
+                }
+            };
+            preview.Controls.Add(content);
+            preview.Controls.Add(save);
+            return preview;
+        }
+
+        [STAThread]
+        private static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new ClientWindow());
+        }
+    }
+}

@@ -70,3 +70,7 @@ config domains 'domains'
 	option log_level 'warn'
 	option route_router_traffic '0'
 	option paused '0'
+
+config client_access 'client_access'
+	option enabled '0'
+	option port '8443'

@@ -28,6 +28,7 @@ event_source="${IKEV2_USER_POLICY_EVENT_SOURCE:-}"
 uci_config_dir="${IKEV2_UCI_CONFIG_DIR:-/etc/config}"
 uci_binary="${IKEV2_UCI_BIN:-/sbin/uci}"
 runtime_lib_dir="${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}"
+client_state_dir="${IKEV2_CLIENT_STATE_DIR:-/etc/ikev2-manager/clients}"
 ucode_bin="${IKEV2_UCODE:-ucode}"
 . "$runtime_lib_dir/actions.sh"
 . "$runtime_lib_dir/validate.sh"
@@ -381,6 +382,17 @@ sync_runtime() (
 		}
 	fi
 
+	managed_input_rule=''
+	managed_wan_rule=''
+	if [ -f "$client_state_dir/initialized" ]; then
+		managed_subnet="$("$ucode_bin" "$runtime_lib_dir/client-access-runtime.uc" subnet "$client_state_dir" '' '' 2>/dev/null)" || managed_subnet=''
+		if [ -n "$managed_subnet" ] && valid_ipv4_target "$managed_subnet"; then
+			# Only SA/tuple admission sets this mark. The independent path guard
+			# rejects unmarked virtual traffic, including a missing admission table.
+			managed_input_rule="    iifname \"ipsec-in\" ip daddr $managed_subnet meta mark == 0x00800000 return"
+			managed_wan_rule="$managed_input_rule"
+		fi
+	fi
 	rules="$work/rules.nft"
 	{
 		runtime_exists && printf 'delete table inet %s\n' "$table"
@@ -418,6 +430,7 @@ EOF
 		cat <<EOF
   chain input {
     type filter hook input priority -1; policy accept;
+$managed_input_rule
     iifname "ipsec-in" ip saddr @inbound_pool meta l4proto { tcp, udp } th dport 53 return
     iifname "ipsec-in" ip saddr @inbound_pool meta mark & $tproxy_mask == $tproxy_mark ip saddr @internet_allowed return
     iifname "ipsec-in" ip saddr @inbound_pool meta mark & $tproxy_mask == $tproxy_mark counter drop
@@ -476,6 +489,7 @@ EOF
 
   chain direct_wan {
     type filter hook prerouting priority -149; policy accept;
+$managed_wan_rule
     iifname "ipsec-in" ip saddr @pbr_excluded meta mark & $tproxy_mask != $tproxy_mark meta mark set meta mark & $wan_clear | $wan_mark counter accept
   }
 EOF

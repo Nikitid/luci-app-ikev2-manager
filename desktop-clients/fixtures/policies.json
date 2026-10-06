@@ -1,0 +1,1214 @@
+[
+  {
+    "name": "basic",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "separate transports",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443,
+                80
+              ]
+            },
+            {
+              "protocol": "udp",
+              "ports": [
+                3478
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "revision invalid 0",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": true,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "revision invalid 1",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 0,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "revision invalid 2",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": -1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "revision invalid 3",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1.5,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "revision invalid 4",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": "1",
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "revision invalid 5",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 2147483648,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "domain invalid 0",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "*.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "domain invalid 1",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "vpn.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "domain invalid 2",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com\n",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "domain invalid 3",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "API.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "domain invalid 4",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api..com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "domain invalid 5",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "1.2.3.4",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "address invalid 0",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.0",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "address invalid 1",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.255",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "address invalid 2",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.253.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "address invalid 3",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.01",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "address invalid 4",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "::1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "address invalid 5",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "127.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "ports invalid 0",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": []
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "ports invalid 1",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "ports invalid 2",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                65536
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "ports invalid 3",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443,
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "ports invalid 4",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "ports invalid 5",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                "443"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "subnet invalid 0",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "8.8.0.0/16",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "subnet invalid 1",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.32.0.0/16",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "subnet invalid 2",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.1/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "subnet invalid 3",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/29",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "subnet invalid 4",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.0.0/15",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "exit invalid 0",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "8",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "exit invalid 1",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "0",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "exit invalid 2",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "direct",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "exit invalid 3",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": 1,
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "resources invalid 0",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": []
+    },
+    "valid": false
+  },
+  {
+    "name": "resources invalid 1",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": null
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown root field",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ],
+      "command": "ignored"
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown resource field",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ],
+          "command": "ignored"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown transport field",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ],
+              "command": "ignored"
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown server field",
+    "policy": {
+      "version": 1,
+      "id": "team",
+      "revision": 1,
+      "server": {
+        "address": "vpn.example.com",
+        "remote_id": "vpn.example.com",
+        "command": "ignored"
+      },
+      "virtual_subnet": "172.31.254.0/24",
+      "exit": "1",
+      "resources": [
+        {
+          "id": "api",
+          "domain": "api.example.com",
+          "address": "172.31.254.1",
+          "transports": [
+            {
+              "protocol": "tcp",
+              "ports": [
+                443
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "valid": false
+  }
+]

@@ -34,6 +34,22 @@ for release in $releases; do
 	# shellcheck disable=SC2086
 	docker run --rm $platform --cap-add NET_ADMIN -v "$root:/src:ro" "$image" \
 		/bin/sh /src/scripts/openwrt/install.sh
+	# Isolated encrypted clients exercise the production authorization compiler.
+	# shellcheck disable=SC2086
+	docker run --rm $platform --privileged -e "IKEV2_REQUIRE_XFRM=${IKEV2_REQUIRE_XFRM:-0}" -v "$root:/src:ro" "$image" \
+		/bin/sh /src/scripts/openwrt/install.sh client-access
+	# Real certificate/EAP login feeds the production VICI admission controller.
+	# shellcheck disable=SC2086
+	docker run --rm $platform --privileged -e "IKEV2_REQUIRE_XFRM=${IKEV2_REQUIRE_XFRM:-0}" -v "$root:/src:ro" "$image" \
+		/bin/sh /src/scripts/openwrt/install.sh client-ike
+	# Dedicated policy API has no administrative RPC surface.
+	# shellcheck disable=SC2086
+	docker run --rm $platform --cap-add NET_ADMIN -v "$root:/src:ro" "$image" \
+		/bin/sh /src/scripts/openwrt/install.sh client-api
+	# Actual strongSwan credential transactions do not require XFRM interfaces.
+	# shellcheck disable=SC2086
+	docker run --rm $platform --cap-add NET_ADMIN -v "$root:/src:ro" "$image" \
+		/bin/sh /src/scripts/openwrt/install.sh client-credentials
 done
 
 failover="${IKEV2_OPENWRT_FAILOVER-25.12.5}"

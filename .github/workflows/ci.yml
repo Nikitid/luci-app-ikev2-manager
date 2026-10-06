@@ -8,6 +8,21 @@ permissions:
   contents: read
 
 jobs:
+  desktop-core:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Test macOS client core
+        if: runner.os == 'macOS'
+        run: swift test --package-path desktop-clients/macos --scratch-path build/client-macos
+      - name: Test Windows client core
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./desktop-clients/windows/test.ps1 -Wfp
+
   security:
     runs-on: ubuntu-latest
     steps:
@@ -73,10 +88,10 @@ jobs:
         # The runner kernel keeps xfrm_interface in its extra modules package
         # on some images.
         run: |
-          if ! sudo modprobe -a xfrm_interface esp4; then
+          if ! sudo modprobe -a xfrm_interface esp4 nft_xfrm veth; then
             sudo apt-get update -q
             sudo apt-get install -y -q "linux-modules-extra-$(uname -r)"
-            sudo modprobe -a xfrm_interface esp4
+            sudo modprobe -a xfrm_interface esp4 nft_xfrm veth
           fi
       - name: Run scenarios on OpenWrt 24.10 and 25.12
         env:

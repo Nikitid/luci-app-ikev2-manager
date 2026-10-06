@@ -13,7 +13,7 @@ One OpenWrt package, `luci-app-ikev2-manager`, containing three things:
   scripts and by the LuCI pages through rpcd; structured data (strongSwan SA
   snapshots, the sing-box configuration, installed nftables tables) is read
   and written by ucode scripts in `ikev2-manager-runtime/lib/*.uc`
-- **LuCI pages** - five views plus a status-overview widget, all built on one
+- **LuCI pages** - six views plus a status-overview widget, all built on one
   shared design system rather than stock CBI
 - **checks** - 66 scripts under `scripts/`, run as one suite by
   `scripts/ci-check.sh`; `scripts/ensure-ucode.sh` builds the pinned ucode
@@ -39,6 +39,11 @@ rpcd `file exec` ACL in `luci-ikev2-manager/acl.json`.
 | `ikev2-manager` | `luci-ikev2-manager/ikev2-manager.sh` | inbound server, VPN users, ACME, client profile, the outbound tunnels and their passwords (`lib/manager-tunnels.sh`), raw swanctl config |
 | `ikev2-domain-router` | `ikev2-manager-runtime/ikev2-domain-router.sh` | sing-box FakeIP engine, tunnel DNS, nftables rules |
 | `ikev2-device-routing` | `ikev2-manager-runtime/ikev2-device-routing.sh` | per-device policy marks and their nft chains |
+| `ikev2-client-admin` | `ikev2-manager-runtime/ikev2-client-admin.sh` | redacted LuCI overview and queued catalog/assignment edits |
+| `ikev2-client-catalog` | `ikev2-manager-runtime/ikev2-client-catalog.sh` | periodic publication of client-selected service domain updates |
+| `ikev2-client-api` | `ikev2-manager-runtime/ikev2-client-api.sh` | dedicated TLS-only client API, protected certificate validation and process lifetime |
+| `ikev2-client-enrollment` | `ikev2-manager-runtime/ikev2-client-enrollment.sh` | bounded background credential provisioning and disabled publication |
+| `ikev2-client-access` | `ikev2-manager-runtime/ikev2-client-access.sh` | committed desktop assignments, bounded VICI reconciliation and leased SA-bound admission |
 | `ikev2-user-policy` | `ikev2-manager-runtime/ikev2-user-policy.sh` | inbound session admission, driven by VICI events |
 | `ikev2-health` | `ikev2-manager-runtime/ikev2-health.sh` | the watcher loop: the tunnel of each exit (`lib/tunnel.sh`, which also numbers the tunnels for every helper), FakeIP repair and data-plane canary, tunnel DNS failover |
 | `ikev2-tunnel-quality` | `ikev2-manager-runtime/ikev2-tunnel-quality.sh` | tunnel quality history, window summaries, tunnel-versus-WAN speed test |
@@ -50,7 +55,35 @@ rpcd `file exec` ACL in `luci-ikev2-manager/acl.json`.
 | `ikev2-discord-voice` | `ikev2-manager-runtime/ikev2-discord-voice.sh` | Discord voice range handling |
 
 Init scripts in `ikev2-manager-runtime/*.init`: `ikev2-domain-router`,
-`ikev2-dns-segments`, `ikev2-health`, `ikev2-user-policy`, `ikev2-xfrm`.
+`ikev2-dns-segments`, `ikev2-health`, `ikev2-user-policy`, `ikev2-client-access`,
+`ikev2-xfrm`.
+
+The managed desktop access modules `client-access*.uc` compile individual
+policies, retain publication history, serve a read-only device API and compile
+SA-bound authorization. `client-access-control.uc` is the local administrative
+publication entry point, including redacted inspection and catalog-backed administrative edits.
+`client-access-admin.uc` retains credentials and assignment history during those edits.
+Enrollment remains a separate gate;
+`client-access-enrollment.uc` prepares one-use invitation transitions and disabled
+device proposals; `client-access-enrollment-store.uc` journals them durably.
+`client-access-invitation.uc` issues random server-bound invitation links through
+a root-only command with private output. The
+dedicated HTTPS claim/poll endpoints now connect to a bounded background worker;
+`client-access-credentials.uc` stages protected EAP credentials and drives the
+existing user transaction. Only authenticated enrollment polling can read the
+initial credential bundle; administrative and ordinary policy APIs cannot.
+Permanent HTTPS deployment, activation and native enrollment remain verification gates. Manager
+user mutations use a shared kernel guard and an internal owned-user operation.
+see `docs/CLIENT_ACCESS.md`. `scripts/openwrt/client-ike.sh` verifies real
+certificate/EAP login, VICI admission and encrypted selected-service TCP/UDP in
+isolated namespaces. Its optional `client-path.sh` extension verifies a real
+IKE exit, compiled dedicated proxy, encrypted DNS and existing inbound user policy;
+it also exercises automatic proxy activation, recovery and route ownership.
+Native Windows HTTPS enrollment and automatic policy refresh have an integrated
+SCM/OpenWrt scenario. Windows build.ps1 creates a development distribution and
+install.ps1 installs its guard service; Windows ManagedVpnProfile owns the split IKEv2 entry and selected /32 profile
+routes after persistent guard staging. Actual dialing, hosts/DNS, end-to-end
+activation and macOS system integration remain verification gates.
 
 ## LuCI pages
 
@@ -64,6 +97,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v13.js` |
 | Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v12.js` |
 | Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v10.js` |
+| Remote clients | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v2.js` |
 | VPN Users | `luci-ikev2-manager/users.js` | `view/ikev2-manager/users-v15.js` |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
@@ -116,4 +150,5 @@ fail, restore. Wire it into `scripts/ci-check.sh`, or nothing runs it.
 | `docs/ARCHITECTURE.md` | traffic paths, fail-closed boundary, several tunnels, DNS, ownership |
 | `docs/OPERATIONS.md` | installing, diagnosing and recovering on a router |
 | `docs/OPENWRT25.md` | apk, the signed feed, release validation |
+| `docs/CLIENT_ACCESS.md` | managed desktop access implementation and verification gates |
 | `docs/private/` | site-specific runbooks, untracked on purpose |

@@ -1,0 +1,212 @@
+[
+  {
+    "name": "preserve-unrelated",
+    "original": "127.0.0.1 localhost\n# local notes\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": "127.0.0.1 localhost\n# local notes\n# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n",
+    "fails": false
+  },
+  {
+    "name": "empty-file",
+    "original": "",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": "# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n",
+    "fails": false
+  },
+  {
+    "name": "no-final-newline",
+    "original": "127.0.0.1 localhost",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": "127.0.0.1 localhost\n# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n",
+    "fails": false
+  },
+  {
+    "name": "windows-newlines",
+    "original": "127.0.0.1 localhost\r\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": "127.0.0.1 localhost\r\n# BEGIN IKEv2 Manager managed hosts\r\n172.31.254.1 api.example.com\r\n# END IKEv2 Manager managed hosts\r\n",
+    "fails": false
+  },
+  {
+    "name": "existing-owned",
+    "original": "# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": "# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n",
+    "fails": false
+  },
+  {
+    "name": "remove-only-owned",
+    "original": "127.0.0.1 localhost\n# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n# keep\n",
+    "entries": [],
+    "expected": "127.0.0.1 localhost\n# keep\n",
+    "fails": false
+  },
+  {
+    "name": "ipv4-conflict",
+    "original": "192.0.2.1 api.example.com\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "ipv6-alias-conflict",
+    "original": "::1 other API.EXAMPLE.COM.\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "comment-not-conflict",
+    "original": "# api.example.com\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": "# api.example.com\n# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n",
+    "fails": false
+  },
+  {
+    "name": "unclosed-marker",
+    "original": "# BEGIN IKEv2 Manager managed hosts\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "duplicate-block",
+    "original": "# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n# BEGIN IKEv2 Manager managed hosts\n172.31.254.1 api.example.com\n# END IKEv2 Manager managed hosts\n",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "end-without-start",
+    "original": "# END IKEv2 Manager managed hosts\n",
+    "entries": [],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "duplicate-entry",
+    "original": "",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      },
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "invalid-domain-'*.example.com'",
+    "original": "",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "*.example.com"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "invalid-domain-'api.example.com\\ninjected'",
+    "original": "",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com\ninjected"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "invalid-domain-'api.example.com\\n'",
+    "original": "",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "api.example.com\n"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "invalid-domain-'127.0.0.1'",
+    "original": "",
+    "entries": [
+      {
+        "address": "172.31.254.1",
+        "domain": "127.0.0.1"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  },
+  {
+    "name": "invalid-ip",
+    "original": "",
+    "entries": [
+      {
+        "address": "172.031.254.1",
+        "domain": "api.example.com"
+      }
+    ],
+    "expected": null,
+    "fails": true
+  }
+]

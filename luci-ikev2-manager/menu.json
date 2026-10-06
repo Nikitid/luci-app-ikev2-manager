@@ -48,5 +48,13 @@
 			"type": "view",
 			"path": "ikev2-domains/editor-v12"
 		}
+	},
+	"admin/services/ikev2-manager/remote-clients": {
+		"title": "Remote clients",
+		"order": 55,
+		"action": {
+			"type": "view",
+			"path": "ikev2-manager/remote-clients-v2"
+		}
 	}
 }

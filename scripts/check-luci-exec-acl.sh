@@ -28,17 +28,28 @@ const acl = JSON.parse(fs.readFileSync(
 	path.join(root, 'luci-ikev2-manager', 'acl.json'), 'utf8'));
 
 const execGrants = [];
+const readExecGrants = [];
 const writeGlobs = [];
 Object.keys(acl).forEach(function(group) {
 	[ 'read', 'write' ].forEach(function(section) {
 		const files = (acl[group][section] || {}).file || {};
 		Object.keys(files).forEach(function(key) {
 			const perms = files[key] || [];
-			if (perms.indexOf('exec') >= 0) execGrants.push(key);
+			if (perms.indexOf('exec') >= 0) { execGrants.push(key); if (section === 'read') readExecGrants.push(key); }
 			if (perms.indexOf('write') >= 0) writeGlobs.push(key);
 		});
 	});
 });
+
+// Invitation creation and consumption expose a one-use secret. Match actual
+// ACL glob semantics, including broader grants, rather than JSON formatting.
+for (const command of ['client-admin-invite', 'client-admin-take-invitation']) {
+ const target = '/usr/libexec/ikev2-client-admin ' + command + ' 123-456';
+ for (const grant of readExecGrants) {
+  const expression = '^' + grant.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$';
+  if (new RegExp(expression).test(target)) problems.push('read-only ACL exposes administrative invitation command: ' + command);
+ }
+}
 
 const sources = [];
 [ 'luci-ikev2-manager', 'luci-ikev2-domains' ].forEach(function(dir) {

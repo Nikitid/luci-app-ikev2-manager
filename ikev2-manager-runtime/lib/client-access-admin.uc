@@ -1,0 +1,98 @@
+// Administrative edits derive domains and retain credentials on the server.
+'use strict';
+import { validate_client_state, prepare_client_state } from './client-access-state.uc';
+
+function fields(value, names) {
+ if (type(value) != 'object' || length(keys(value)) != length(names)) die('invalid administrative fields');
+ for (let name in names) if (!(name in value)) die('missing administrative field');
+}
+function identifier(value) {
+ if (type(value) != 'string' || !match(value, /^[a-z][a-z0-9-]{0,47}$/)) die('invalid administrative identity');
+}
+function service_id(value) {
+ if (type(value) != 'string' || !match(value, /^[a-z0-9][a-z0-9_-]{0,47}$/)) die('invalid catalog identity');
+}
+function desired_state(state) {
+ let desired = json(sprintf('%J', state.publication));
+ delete desired.allocations;
+ desired.devices = filter(desired.devices, device => index(state.retired_ids, device.id) < 0);
+ for (let device in desired.devices) delete device.previous_policy;
+ return desired;
+}
+
+export function client_admin_catalog_ids(state, request) {
+ validate_client_state(state);
+ fields(request, [ 'version', 'expected_generation', 'operation', 'payload' ]);
+ if (request.version !== 1 || request.expected_generation !== state.generation) die('stale administrative request');
+ if (request.operation == 'configure-service') {
+  fields(request.payload, [ 'id', 'client_access', 'transports' ]);
+  service_id(request.payload.id);
+  if (type(request.payload.client_access) != 'bool') die('invalid service availability');
+  if (!request.payload.client_access) {
+   if (!length(filter(state.publication.services, service => service.id == request.payload.id))) die('unknown service');
+   return [];
+  }
+  return [ request.payload.id ];
+ }
+ if (request.operation == 'assign-device') {
+  fields(request.payload, [ 'id', 'enabled', 'selected_services' ]);
+  identifier(request.payload.id);
+  if (type(request.payload.enabled) != 'bool' || type(request.payload.selected_services) != 'array') die('invalid device assignment');
+  for (let id in request.payload.selected_services) service_id(id);
+  return [];
+ }
+ if (request.operation == 'refresh-catalog') {
+  fields(request.payload, []);
+  return map(filter(state.publication.services, service => service.client_access), service => service.id);
+ }
+ die('unknown administrative operation');
+};
+
+export function prepare_client_admin(state, request, catalog) {
+ let targets = client_admin_catalog_ids(state, request), domains = {};
+ if (type(catalog) != 'array' || length(catalog) != length(targets)) die('incomplete catalog snapshot');
+ for (let record in catalog) {
+  fields(record, [ 'id', 'domains' ]);
+  if (index(targets, record.id) < 0 || record.id in domains || type(record.domains) != 'array' || !length(record.domains))
+   die('invalid catalog snapshot');
+  domains[record.id] = record.domains;
+ }
+ let desired = desired_state(state), payload = request.payload;
+ if (request.operation == 'configure-service') {
+  let updated = { id: payload.id, client_access: payload.client_access,
+   domains: payload.client_access ? domains[payload.id] : filter(desired.services, service => service.id == payload.id)[0].domains, transports: payload.transports }, found = false;
+  for (let index, service in desired.services) {
+   if (service.id != payload.id) continue;
+   desired.services[index] = updated; found = true;
+  }
+  if (!found) push(desired.services, updated);
+  if (!payload.client_access)
+   for (let device in desired.devices)
+    device.selected_services = filter(device.selected_services, id => id != payload.id);
+ } else if (request.operation == 'assign-device') {
+  let found = false;
+  for (let device in desired.devices) {
+   if (device.id != payload.id) continue;
+   found = true; device.enabled = payload.enabled; device.selected_services = payload.selected_services;
+  }
+  if (!found) die('unknown or retired device');
+ } else {
+  for (let service in desired.services)
+   if (service.client_access) service.domains = domains[service.id];
+ }
+ // Validate the complete proposal, including permissions and retained history,
+ // before a filesystem writer can commit it.
+ prepare_client_state({ version: 1, expected_generation: state.generation, previous: state, desired: desired });
+ return { changed: sprintf('%J', desired) != sprintf('%J', desired_state(state)), desired: desired };
+};
+
+export function inspect_client_admin(state) {
+ validate_client_state(state);
+ return { version: 1, generation: state.generation, server: state.publication.server,
+  virtual_subnet: state.publication.virtual_subnet, exit: state.publication.exit,
+  services: map(state.publication.services, service => ({ id: service.id, client_access: service.client_access,
+   domain_count: length(service.domains), transports: service.transports })),
+  devices: map(filter(state.publication.devices, device => index(state.retired_ids, device.id) < 0),
+   device => ({ id: device.id, enabled: device.enabled, selected_services: device.selected_services,
+    revision: device.previous_policy.revision })), retired: length(state.retired_ids) };
+};

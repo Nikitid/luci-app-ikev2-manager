@@ -19,7 +19,7 @@ command -v shellcheck >/dev/null 2>&1 || {
 
 list="$(mktemp)"
 trap 'rm -f "$list"' EXIT
-git ls-files | while IFS= read -r file; do
+git ls-files --cached --others --exclude-standard | while IFS= read -r file; do
 	case "$file" in
 		*.sh) printf '%s\n' "$file" ;;
 		*)

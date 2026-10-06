@@ -25,6 +25,9 @@ define Package/luci-app-ikev2-manager
 	+jsonfilter \
 	+ucode \
 	+ucode-mod-fs \
+	+ucode-mod-digest \
+	+uhttpd \
+	+uhttpd-mod-ucode \
 	+socat
 endef
 
@@ -122,6 +125,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-xfrm.init $(1)/etc/init.d/ikev2-xfrm
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-health.init $(1)/etc/init.d/ikev2-health
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-user-policy.init $(1)/etc/init.d/ikev2-user-policy
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-client-access.init $(1)/etc/init.d/ikev2-client-access
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-domain-router.init $(1)/etc/init.d/ikev2-domain-router
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-dns-segments.init $(1)/etc/init.d/ikev2-dns-segments
 
@@ -161,6 +165,34 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/tunnel.sh $(1)/usr/libexec/ikev2-manager.d/tunnel.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/sa.uc $(1)/usr/libexec/ikev2-manager.d/sa.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/singbox-config.uc $(1)/usr/libexec/ikev2-manager.d/singbox-config.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-policy.uc $(1)/usr/libexec/ikev2-manager.d/client-access-policy.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access.uc $(1)/usr/libexec/ikev2-manager.d/client-access.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-authorization.uc $(1)/usr/libexec/ikev2-manager.d/client-access-authorization.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-http.uc $(1)/usr/libexec/ikev2-manager.d/client-access-http.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-api.uc $(1)/usr/libexec/ikev2-manager.d/client-access-api.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-publication.uc $(1)/usr/libexec/ikev2-manager.d/client-access-publication.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-state.uc $(1)/usr/libexec/ikev2-manager.d/client-access-state.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-store.uc $(1)/usr/libexec/ikev2-manager.d/client-access-store.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-control.uc $(1)/usr/libexec/ikev2-manager.d/client-access-control.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-api-settings.uc $(1)/usr/libexec/ikev2-manager.d/client-api-settings.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-admin.uc $(1)/usr/libexec/ikev2-manager.d/client-access-admin.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-enrollment.uc $(1)/usr/libexec/ikev2-manager.d/client-access-enrollment.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-invitation.uc $(1)/usr/libexec/ikev2-manager.d/client-access-invitation.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-invitation-control.uc $(1)/usr/libexec/ikev2-manager.d/client-access-invitation-control.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-enrollment-store.uc $(1)/usr/libexec/ikev2-manager.d/client-access-enrollment-store.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-credentials.uc $(1)/usr/libexec/ikev2-manager.d/client-access-credentials.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-enrollment-api.uc $(1)/usr/libexec/ikev2-manager.d/client-access-enrollment-api.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-enrollment-worker.uc $(1)/usr/libexec/ikev2-manager.d/client-access-enrollment-worker.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-input.uc $(1)/usr/libexec/ikev2-manager.d/client-access-input.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-runtime.uc $(1)/usr/libexec/ikev2-manager.d/client-access-runtime.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-sessions.uc $(1)/usr/libexec/ikev2-manager.d/client-access-sessions.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-path.uc $(1)/usr/libexec/ikev2-manager.d/client-access-path.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-ready.uc $(1)/usr/libexec/ikev2-manager.d/client-access-ready.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-path-evidence.uc $(1)/usr/libexec/ikev2-manager.d/client-access-path-evidence.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-device-evidence.uc $(1)/usr/libexec/ikev2-manager.d/client-access-device-evidence.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-device-stamp.uc $(1)/usr/libexec/ikev2-manager.d/client-access-device-stamp.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-path-control.uc $(1)/usr/libexec/ikev2-manager.d/client-access-path-control.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-path-runtime.sh $(1)/usr/libexec/ikev2-manager.d/client-path-runtime.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/nft-state.uc $(1)/usr/libexec/ikev2-manager.d/nft-state.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/validate.sh $(1)/usr/libexec/ikev2-manager.d/validate.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/nft-runtime.sh $(1)/usr/libexec/ikev2-manager.d/nft-runtime.sh
@@ -183,6 +215,11 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-tunnel-quality.sh $(1)/usr/libexec/ikev2-tunnel-quality
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-device-routing.sh $(1)/usr/libexec/ikev2-device-routing
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-user-policy.sh $(1)/usr/libexec/ikev2-user-policy
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-client-access.sh $(1)/usr/libexec/ikev2-client-access
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-client-catalog.sh $(1)/usr/libexec/ikev2-client-catalog
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-client-enrollment.sh $(1)/usr/libexec/ikev2-client-enrollment
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-client-api.sh $(1)/usr/libexec/ikev2-client-api
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-client-admin.sh $(1)/usr/libexec/ikev2-client-admin
 	$(INSTALL_BIN) ./luci-ikev2-domains/community-domains.sh $(1)/usr/libexec/ikev2-domains-community
 	$(INSTALL_BIN) ./luci-ikev2-domains/restart-pbr.sh $(1)/usr/libexec/ikev2-domains-restart
 	$(INSTALL_BIN) ./luci-ikev2-domains/ikev2-devices.sh $(1)/usr/libexec/ikev2-devices
@@ -226,6 +263,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-manager
 	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v13.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/view/ikev2-manager/users-v15.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v2.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/view/ikev2-manager/settings-v10.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/view/ikev2-manager/client-v13.js
 
@@ -310,6 +348,7 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v11.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v12.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v12.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v1.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v11.js
 # Refresh rpcd's ACL registry without restarting the daemon or invalidating
 # active LuCI sessions. New file/exec permissions otherwise remain unavailable

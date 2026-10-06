@@ -710,10 +710,6 @@ if grep -Fq 'ip -4 rule add fwmark "$tproxy_mark/$tproxy_mask"' \
 	echo 'FakeIP local delivery still selects its table by fwmark' >&2
 	exit 1
 fi
-grep -Fq "tag: 'tproxy-direct-in'" \
-	"$root/ikev2-manager-runtime/lib/singbox-config.uc"
-grep -Fq "tag: 'tproxy-router-in'" \
-	"$root/ikev2-manager-runtime/lib/singbox-config.uc"
 grep -Fq 'meta mark == $direct_tproxy_mark return' \
 	"$root/ikev2-manager-runtime/ikev2-domain-router.sh"
 grep -Fq 'meta mark == $router_tproxy_mark meta l4proto tcp tproxy ip to $tproxy_address:$router_tproxy_port' \

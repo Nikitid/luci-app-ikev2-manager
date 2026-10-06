@@ -43,10 +43,16 @@
 				"/usr/libexec/ikev2-manager-system action-status *": [ "exec" ],
 				"/usr/libexec/ikev2-tunnel-quality summary *": [ "exec" ],
 				"/usr/libexec/ikev2-tunnel-quality action-status *": [ "exec" ],
-				"/usr/sbin/swanmon list-sas": [ "exec" ]
+				"/usr/sbin/swanmon list-sas": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-show": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-status *": [ "exec" ]
 			},
 			"ubus": {
-				"file": [ "exec", "read", "stat" ]
+				"file": [
+					"exec",
+					"read",
+					"stat"
+				]
 			}
 		},
 		"write": {
@@ -118,10 +124,19 @@
 				"/usr/libexec/ikev2-domain-router router-traffic *": [ "exec" ],
 				"/usr/libexec/ikev2-domain-router tunnel-resolve *": [ "exec" ],
 				"/usr/libexec/ikev2-domain-router log-level *": [ "exec" ],
-				"/usr/libexec/ikev2-domain-router diagnostic-start *": [ "exec" ]
+				"/usr/libexec/ikev2-domain-router diagnostic-start *": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-update *": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-refresh": [ "exec" ],
+				"/var/run/ikev2-client-admin-*.in": [ "write" ],
+				"/tmp/run/ikev2-client-admin-*.in": [ "write" ],
+				"/usr/libexec/ikev2-client-admin client-admin-invite *": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-take-invitation *": [ "exec" ]
 			},
 			"ubus": {
-				"file": [ "exec", "write" ]
+				"file": [
+					"exec",
+					"write"
+				]
 			}
 		}
 	}

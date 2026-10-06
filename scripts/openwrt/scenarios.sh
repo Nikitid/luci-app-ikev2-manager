@@ -98,11 +98,22 @@ step 'the ucode scripts load'
 for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	# Run without input: a usage error is fine, a compile error is 255.
 	rc=0
-	printf '' | ucode "$script" >/dev/null 2>&1 || rc=$?
+	case "$script" in
+		*/client-access-admin.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
+			ucode -e "import * as module from '$script';" >/dev/null 2>&1 || rc=$? ;;
+		*/client-access-http.uc)
+			ucode -T "$script" >/dev/null 2>&1 || rc=$? ;;
+		*) printf '' | ucode "$script" >/dev/null 2>&1 || rc=$? ;;
+	esac
 	[ "$rc" -ne 255 ] || fail "$script does not compile"
 done
 
 # --- a router to route on -------------------------------------------------
+step 'device readiness binds admitted sessions and current policy'
+device_ready_fixture="$(mktemp -d)"
+ucode /src/scripts/openwrt/client-api-state.uc "$device_ready_fixture" seed || fail 'device readiness fixture failed'
+ucode /src/scripts/openwrt/client-device-evidence.uc "$device_ready_fixture" || fail 'device readiness contract failed'
+rm -rf "$device_ready_fixture"
 
 # netifd does not run in the container; the helpers fall back to UCI for the
 # LAN device, and the device is created by hand.
@@ -1216,6 +1227,28 @@ kill -0 "$watch" 2>/dev/null &&
 ! grep -E 'syntax error|not found|bad number|unexpected' /tmp/watch.err ||
 	fail "the watcher hit a shell error: $(head -n 3 /tmp/watch.err)"
 rm -rf /tmp/watch-run /tmp/watch.err
+
+# The installed client controller drops caller overrides, just like other
+# root helpers exposed through fixed command paths. Missing enrollment state
+# must fail without executing caller-provided commands or writing their paths.
+step 'client admission ignores caller command and state overrides'
+cat >/tmp/client-access-injected <<'INJECT'
+#!/bin/sh
+printf 'injected\n' >/tmp/client-access-injected-ran
+exit 0
+INJECT
+chmod 700 /tmp/client-access-injected
+if IKEV2_NFT=/tmp/client-access-injected IKEV2_SWANMON=/tmp/client-access-injected \
+ IKEV2_CLIENT_STATE_DIR=/tmp/client-access-absent \
+ IKEV2_CLIENT_RUNTIME_DIR=/tmp/client-access-injected-output \
+ /usr/libexec/ikev2-client-access sync >/dev/null 2>&1; then
+ fail 'missing publication was accepted by the installed client controller'
+fi
+[ ! -e /tmp/client-access-injected-ran ] || fail 'caller-provided command was executed'
+[ ! -e /tmp/client-access-injected-output ] || fail 'caller-provided state path was used'
+[ ! -e /tmp/client-access-absent ] || fail 'missing publication was silently initialized'
+nft list table inet ikev2_client_access >/dev/null 2>&1 && fail 'missing publication created a guard with unknown range'
+rm -f /tmp/client-access-injected
 
 # --- teardown ---------------------------------------------------------------
 

@@ -28,6 +28,7 @@ install_file 600 openwrt/files/etc/config/ikev2-manager /etc/config/ikev2-manage
 install_file 755 ikev2-manager-runtime/ikev2-xfrm.init /etc/init.d/ikev2-xfrm
 install_file 755 ikev2-manager-runtime/ikev2-health.init /etc/init.d/ikev2-health
 install_file 755 ikev2-manager-runtime/ikev2-user-policy.init /etc/init.d/ikev2-user-policy
+install_file 755 ikev2-manager-runtime/ikev2-client-access.init /etc/init.d/ikev2-client-access
 install_file 755 ikev2-manager-runtime/ikev2-domain-router.init /etc/init.d/ikev2-domain-router
 install_file 755 ikev2-manager-runtime/ikev2-dns-segments.init /etc/init.d/ikev2-dns-segments
 install_file 755 ikev2-manager-runtime/90-ikev2-wan /etc/hotplug.d/iface/90-ikev2-manager
@@ -52,6 +53,34 @@ install_file 644 ikev2-manager-runtime/lib/controller.sh /usr/libexec/ikev2-mana
 install_file 644 ikev2-manager-runtime/lib/tunnel.sh /usr/libexec/ikev2-manager.d/tunnel.sh
 install_file 644 ikev2-manager-runtime/lib/sa.uc /usr/libexec/ikev2-manager.d/sa.uc
 install_file 644 ikev2-manager-runtime/lib/singbox-config.uc /usr/libexec/ikev2-manager.d/singbox-config.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-policy.uc /usr/libexec/ikev2-manager.d/client-access-policy.uc
+install_file 644 ikev2-manager-runtime/lib/client-access.uc /usr/libexec/ikev2-manager.d/client-access.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-authorization.uc /usr/libexec/ikev2-manager.d/client-access-authorization.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-http.uc /usr/libexec/ikev2-manager.d/client-access-http.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-api.uc /usr/libexec/ikev2-manager.d/client-access-api.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-publication.uc /usr/libexec/ikev2-manager.d/client-access-publication.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-state.uc /usr/libexec/ikev2-manager.d/client-access-state.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-store.uc /usr/libexec/ikev2-manager.d/client-access-store.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-control.uc /usr/libexec/ikev2-manager.d/client-access-control.uc
+install_file 644 ikev2-manager-runtime/lib/client-api-settings.uc /usr/libexec/ikev2-manager.d/client-api-settings.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-admin.uc /usr/libexec/ikev2-manager.d/client-access-admin.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-enrollment.uc /usr/libexec/ikev2-manager.d/client-access-enrollment.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-invitation.uc /usr/libexec/ikev2-manager.d/client-access-invitation.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-invitation-control.uc /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-enrollment-store.uc /usr/libexec/ikev2-manager.d/client-access-enrollment-store.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-credentials.uc /usr/libexec/ikev2-manager.d/client-access-credentials.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-enrollment-api.uc /usr/libexec/ikev2-manager.d/client-access-enrollment-api.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-enrollment-worker.uc /usr/libexec/ikev2-manager.d/client-access-enrollment-worker.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-input.uc /usr/libexec/ikev2-manager.d/client-access-input.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-runtime.uc /usr/libexec/ikev2-manager.d/client-access-runtime.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-sessions.uc /usr/libexec/ikev2-manager.d/client-access-sessions.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-path.uc /usr/libexec/ikev2-manager.d/client-access-path.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-ready.uc /usr/libexec/ikev2-manager.d/client-access-ready.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-path-evidence.uc /usr/libexec/ikev2-manager.d/client-access-path-evidence.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-device-evidence.uc /usr/libexec/ikev2-manager.d/client-access-device-evidence.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-device-stamp.uc /usr/libexec/ikev2-manager.d/client-access-device-stamp.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-path-control.uc /usr/libexec/ikev2-manager.d/client-access-path-control.uc
+install_file 644 ikev2-manager-runtime/lib/client-path-runtime.sh /usr/libexec/ikev2-manager.d/client-path-runtime.sh
 install_file 644 ikev2-manager-runtime/lib/nft-state.uc /usr/libexec/ikev2-manager.d/nft-state.uc
 install_file 644 ikev2-manager-runtime/lib/validate.sh /usr/libexec/ikev2-manager.d/validate.sh
 install_file 644 ikev2-manager-runtime/lib/nft-runtime.sh /usr/libexec/ikev2-manager.d/nft-runtime.sh
@@ -74,6 +103,11 @@ install_file 755 ikev2-manager-runtime/ikev2-discord-voice.sh /usr/libexec/ikev2
 install_file 755 ikev2-manager-runtime/ikev2-tunnel-quality.sh /usr/libexec/ikev2-tunnel-quality
 install_file 755 ikev2-manager-runtime/ikev2-device-routing.sh /usr/libexec/ikev2-device-routing
 install_file 755 ikev2-manager-runtime/ikev2-user-policy.sh /usr/libexec/ikev2-user-policy
+install_file 755 ikev2-manager-runtime/ikev2-client-access.sh /usr/libexec/ikev2-client-access
+install_file 755 ikev2-manager-runtime/ikev2-client-catalog.sh /usr/libexec/ikev2-client-catalog
+install_file 755 ikev2-manager-runtime/ikev2-client-enrollment.sh /usr/libexec/ikev2-client-enrollment
+install_file 755 ikev2-manager-runtime/ikev2-client-api.sh /usr/libexec/ikev2-client-api
+install_file 755 ikev2-manager-runtime/ikev2-client-admin.sh /usr/libexec/ikev2-client-admin
 install_file 755 luci-ikev2-domains/community-domains.sh /usr/libexec/ikev2-domains-community
 install_file 755 luci-ikev2-domains/restart-pbr.sh /usr/libexec/ikev2-domains-restart
 install_file 755 luci-ikev2-domains/ikev2-devices.sh /usr/libexec/ikev2-devices
@@ -117,6 +151,8 @@ install_file 644 luci-ikev2-manager/setup.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v13.js
 install_file 644 luci-ikev2-manager/users.js \
 	/www/luci-static/resources/view/ikev2-manager/users-v15.js
+install_file 644 luci-ikev2-manager/remote-clients.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v2.js
 install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v12.js
 
 # The pages show which build is installed. Stamping it here keeps status cheap:
@@ -156,7 +192,7 @@ PY
 		printf 'Version: %s\n' "$PKG_VERSION"
 	fi
 	cat <<'EOF'
-Depends: luci-base, rpcd-mod-file, jsonfilter, socat, ucode, ucode-mod-fs
+Depends: luci-base, rpcd-mod-file, jsonfilter, socat, ucode, ucode-mod-fs, ucode-mod-digest
 Section: luci
 Architecture: all
 Maintainer: nikitid
@@ -264,6 +300,7 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v11.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v12.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v12.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v1.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v11.js
 # Releases before 1.13 shipped the charon settings under strongswan.d/charon/,
 # which strongswan.conf includes inside charon.plugins, so none of them applied.

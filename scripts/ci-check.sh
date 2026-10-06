@@ -29,6 +29,7 @@ find luci-ikev2-domains luci-ikev2-manager \
 ./scripts/check-luci-ui-contract.sh
 ./scripts/check-luci-exec-acl.sh
 ./scripts/test-luci-client-ui.sh
+node ./scripts/test-luci-remote-clients-ui.js
 ./scripts/test-luci-translations.sh
 node ./scripts/test-luci-users-ui.js
 node ./scripts/test-luci-shared.js
@@ -67,6 +68,15 @@ python3 ./scripts/test-audit-regressions.py
 ./scripts/test-diagnostics.sh
 ./scripts/test-sa-reader.sh
 ./scripts/test-singbox-config.sh
+python3 ./scripts/test-client-access-policy.py
+python3 ./scripts/test-client-publication.py
+python3 ./scripts/test-client-state.py
+python3 ./scripts/test-client-sessions.py
+python3 ./scripts/test-client-reconciliation.py
+python3 ./scripts/test-client-path.py
+python3 ./scripts/test-client-admin.py
+python3 ./scripts/test-client-enrollment.py
+./scripts/test-desktop-client-core.sh
 ./scripts/test-nft-state.sh
 ./scripts/test-policy-routing.sh
 ./scripts/test-domain-validation.sh

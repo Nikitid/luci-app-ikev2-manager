@@ -39,6 +39,12 @@ query() {
 
 base >"$tmp/in"
 render "$tmp/in" "$tmp/out" || fail 'a valid input was refused'
+[ "$(query "$tmp/out" '[i["tag"] for i in c["inbounds"]]')" = \
+	"['dns-in', 'tproxy-in', 'tproxy-direct-in', 'tproxy-router-in']" ] ||
+	fail 'a required ingress listener is missing or changed'
+[ "$(query "$tmp/out" '[(r["type"], r["format"], r["path"]) for r in c["route"]["rule_set"]]')" = \
+	"[('local', 'source', '/var/run/rules.json')]" ] ||
+	fail 'domain rules no longer load the local source file'
 [ "$(query "$tmp/out" 'c["route"]["rules"][4]["source_ip_cidr"]')" = "['192.168.1.0/24', '10.20.30.0/24']" ] ||
 	fail 'covered networks did not reach the tunnel route rule'
 [ "$(query "$tmp/out" '[s["tag"] for s in c["dns"]["servers"]]')" = "['upstream', 'ikev2-bootstrap', 'ikev2-upstream', 'fakeip']" ] ||

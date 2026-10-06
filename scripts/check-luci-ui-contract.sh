@@ -104,7 +104,6 @@ if grep -R -n --include='*.js' 'advanced-start.*encodeBase64' $files; then
 	printf '%s\n' 'custom strongSwan profiles must use one-shot input files, not argv' >&2
 	exit 1
 fi
-grep -Fq '"/var/run/ikev2-manager-profile-*.in": [ "write" ]' "$acl"
 if grep -Fq 'Blocked — strongSwan upgrade required' \
 	'luci-ikev2-manager/settings.js'; then
 	printf '%s\n' 'inbound strongSwan advisory must not be rendered as a runtime block' >&2
@@ -141,11 +140,6 @@ grep -Fq "Allow all router ports" 'luci-ikev2-manager/settings.js'
 grep -Fq "routerPorts.disabled = !allowRouter.checked || allowAllRouterPorts.checked" \
 	'luci-ikev2-manager/settings.js'
 grep -Fq "Keep LuCI and SSH ports in this list" 'luci-ikev2-manager/settings.js'
-grep -Fq '"/usr/libexec/ikev2-devices zones": [ "exec" ]' "$acl"
-grep -Fq '"/usr/libexec/ikev2-devices clients": [ "exec" ]' "$acl"
-grep -Fq '"/usr/libexec/ikev2-manager-system device-async set-exclusions *": [ "exec" ]' "$acl"
-grep -Fq '"/usr/libexec/ikev2-manager-system device-async set-included *": [ "exec" ]' "$acl"
-grep -Fq '"/usr/libexec/ikev2-manager-system device-async clear-policy *": [ "exec" ]' "$acl"
 grep -Fq 'clear-policy)     cmd_clear_policy' \
 	'luci-ikev2-domains/ikev2-devices.sh'
 grep -Fq "common.multiChoiceWithCustom(access.lan_zones" \
@@ -169,10 +163,6 @@ done
 
 # Prepared and custom services use narrow ACL entries and independent files;
 # they must not fall back to the common free-form domain list.
-grep -Fq '"/usr/libexec/ikev2-domains-community services": [ "exec" ]' "$acl"
-grep -Fq '"/usr/libexec/ikev2-domains-community service-read *": [ "exec" ]' "$acl"
-grep -Fq '"/usr/libexec/ikev2-domains-community service-schedule *": [ "exec" ]' "$acl"
-grep -Fq '"/tmp/ikev2-service-input-*.meta": [ "write" ]' "$acl"
 if grep -Fq "common.fieldLabel(_('Enabled in policy'))" \
 	'luci-ikev2-domains/editor.js'; then
 	printf '%s\n' 'service editor must not bypass the page-level policy save' >&2
