@@ -88,7 +88,10 @@ endpoint confirms the path. `scripts/openwrt/client-desktop.sh` is the
 disposable router for the complete desktop scenario and
 `scripts/openwrt/client-setup.sh` the first-activation scenario; activation
 itself is `lib/client-access-setup.uc` behind `ikev2-client-admin`. The macOS
-application does not exist yet.
+client is the Swift package in `desktop-clients/macos`: `ClientCore` (runtime
+behind `SystemActions`), the root daemon, the window and `build.sh` for the
+installer package; the inbound server answers managed devices on
+`ikev2-in-managed` (`lib/manager-server.sh`, `scripts/openwrt/client-managed.sh`).
 
 ## LuCI pages
 

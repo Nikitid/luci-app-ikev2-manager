@@ -26,7 +26,7 @@ remote gateway.
   no dependency on the pbr package;
 - inbound IKEv2/EAP server with global and per-user access to the router,
   selected public router ports, Internet and selected local IPv4 destinations;
-- managed access for Windows computers: an administrator publishes catalog
+- managed access for Windows and macOS computers: an administrator publishes catalog
   services and invites a device, and its client sends only those services
   through the inbound server and the chosen tunnel, blocked everywhere else;
 - Status Overview widget for the outbound tunnel, policy routing and active

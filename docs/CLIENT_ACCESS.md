@@ -14,9 +14,10 @@ disposable router with real IKEv2/ESP on both sides of it
   managed names and routes, the owned IKEv2 connection, permission only while
   the router confirms its path, central policy updates and revocation.
 
-Not implemented: the macOS application (only the shared policy core exists, see
-"macOS" below), code signing of the Windows binaries, and suffix domains on the
-client (see "Updates and enrollment"). Sections below describe each part; where
+The macOS client is written and tested up to the privileged boundary (see
+"macOS"); its installed form has not been run. Also open: code signing of the
+Windows and macOS binaries, IPv6 answers for managed names, and suffix domains
+on the client (see "Updates and enrollment"). Sections below describe each part; where
 an older paragraph says a step "remains incomplete", this list is the current
 state.
 
@@ -716,11 +717,51 @@ site-specific and not part of the repository.
 
 ## macOS
 
-`desktop-clients/macos` holds the policy, hosts and policy-transport core with
-the shared fixtures. A complete client needs a root daemon for packet-filter
-denials and names, an IKEv2 configuration and an installer. The built-in
-IKEv2 client takes its routes from the server's traffic selectors, and the
-inbound server offers `0.0.0.0/0`, so a managed Mac would send everything into
-the tunnel; the server has to offer managed devices the virtual subnet only
-before a macOS client can be split-tunnel. That change and the client are not
-done.
+`desktop-clients/macos` is a Swift package with three products.
+
+`ClientCore` holds the shared policy and hosts logic, the device requests
+(registration, policy, readiness, service names), the private store and the
+state machine `ClientRuntime`. Everything the runtime does to the machine goes
+through `SystemActions`, and the text it hands over is built by `SystemPlan`,
+so each decision is tested without privileges: denial before names, permission
+only with router readiness for the same device, address and revision, the
+ten-second lease, refusal of a tunnel that carries the default route,
+revocation, removal.
+
+`ikev2-manager-clientd` is the root daemon. Its `RealSystem` keeps the managed
+block in `/etc/hosts`, loads the packet-filter anchor
+`com.apple/250.IKEv2ManagerClient` (the virtual subnet is dropped on every
+path; a confirmed tunnel interface is passed for the selected addresses ahead
+of that) and drives the system's IKEv2 service with `scutil --nc`. It answers
+the window over a Unix socket: status and connect or disconnect for any local
+user, registration and the VPN profile for administrators.
+
+The IKEv2 service itself comes from a configuration profile that the daemon
+generates after registration and the owner approves once in System Settings;
+macOS offers no way to install it silently. The profile names the device
+`<id>@managed.ikev2-manager`. The inbound server answers that name on its
+`ikev2-in-managed` connection, which offers the virtual subnet alone, so the
+system routes nothing else into the tunnel
+(`scripts/openwrt/client-managed.sh`). If a tunnel nevertheless carries the
+default route, the daemon stops it and reports `tunnel_takes_everything`. A
+router with a custom inbound configuration has to define that connection
+itself.
+
+`IKEv2ManagerClient` is the window, with the same states and wording as on
+Windows plus "a VPN profile is needed".
+
+`desktop-clients/macos/build.sh X.Y.Z` builds an installer package for Apple
+silicon: the application, the daemon under `/Library/PrivilegedHelperTools`,
+its launchd job and `io.github.nikitid.ikev2-manager-client.uninstall`, which
+removes the rules, the names, the VPN profile, the stored device and the
+files. Binaries carry an ad-hoc signature only.
+
+Verified: the unit tests; the daemon running unprivileged with `--dry-system`
+against the disposable router - registration over verified TLS, private
+storage, planned denial and names, service names, the generated profile, the
+router refusing readiness for a tunnel it did not authenticate, revocation and
+removal; the package's contents. Not yet run on a Mac with privileges: the
+installed daemon, the packet-filter anchor, the profile approval and a real
+IKEv2 session. Between boot and the daemon's start the denial is not loaded;
+managed names still point at virtual addresses, so nothing reaches the real
+service in that window.
