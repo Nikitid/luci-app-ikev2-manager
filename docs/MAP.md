@@ -80,10 +80,15 @@ isolated namespaces. Its optional `client-path.sh` extension verifies a real
 IKE exit, compiled dedicated proxy, encrypted DNS and existing inbound user policy;
 it also exercises automatic proxy activation, recovery and route ownership.
 Native Windows HTTPS enrollment and automatic policy refresh have an integrated
-SCM/OpenWrt scenario. Windows build.ps1 creates a development distribution and
-install.ps1 installs its guard service; Windows ManagedVpnProfile owns the split IKEv2 entry and selected /32 profile
-routes after persistent guard staging. Actual dialing, hosts/DNS, end-to-end
-activation and macOS system integration remain verification gates.
+SCM/OpenWrt scenario. Windows build.ps1 builds the service, the window and the single-file
+Setup that installs, updates and removes them; ManagedVpnProfile owns the split
+IKEv2 entry and selected /32 routes after persistent guard staging, and
+GuardRuntime opens the tunnel interface only while the router's readiness
+endpoint confirms the path. `scripts/openwrt/client-desktop.sh` is the
+disposable router for the complete desktop scenario and
+`scripts/openwrt/client-setup.sh` the first-activation scenario; activation
+itself is `lib/client-access-setup.uc` behind `ikev2-client-admin`. The macOS
+application does not exist yet.
 
 ## LuCI pages
 

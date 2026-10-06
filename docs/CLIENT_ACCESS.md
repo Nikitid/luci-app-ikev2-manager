@@ -1,11 +1,24 @@
 # Managed desktop access
 
-Work in progress. Policy compilation, client validation, hosts transformations
-and a Windows guard service and status window are implemented. Router path
-activation is tested in isolated namespaces. HTTPS registration and initial
-credential delivery are tested in disposable systems; complete desktop
-applications are not yet available. Passing compiler tests does not demonstrate
-leak prevention.
+## State
+
+Implemented and exercised end to end with a real Windows client against a
+disposable router with real IKEv2/ESP on both sides of it
+(`scripts/openwrt/client-desktop.sh`):
+
+- activation from the Remote clients page, publication of catalog services,
+  device invitations, HTTPS registration and per-device credentials;
+- SA-bound admission, the dedicated proxy path through the required exit and
+  its readiness evidence, per device and tunnel address;
+- the Windows service, window and single-file installer: persistent denials,
+  managed names and routes, the owned IKEv2 connection, permission only while
+  the router confirms its path, central policy updates and revocation.
+
+Not implemented: the macOS application (only the shared policy core exists, see
+"macOS" below), code signing of the Windows binaries, and suffix domains on the
+client (see "Updates and enrollment"). Sections below describe each part; where
+an older paragraph says a step "remains incomplete", this list is the current
+state.
 
 ## Product boundary
 
@@ -356,13 +369,43 @@ out-of-pool and bootstrap allocations.
 
 ## Windows enforcement implementation
 
-`desktop-clients/windows/build.ps1` builds the service and status application
-without running tests. Its output includes an administrator-run `install.ps1`
-which installs an automatic SYSTEM service under protected Program Files,
-configures service recovery and creates a Start menu shortcut. Updates preserve
-the enrollment journal and persistent filters. This development distribution is
-unsigned and does not yet establish a usable IKEv2 connection; it must not be
-distributed as a finished access client.
+`desktop-clients/windows/build.ps1 -Version X.Y.Z` builds the service, the
+window and `IKEv2ManagerClientSetup.exe`, which carries both. Setup requires
+elevation, installs an automatic SYSTEM service under a protected Program Files
+folder with service recovery, a Start menu shortcut and an uninstall entry, and
+opens the window. Running it again updates the binaries and keeps the
+registration and the persistent filters. `/uninstall` stops the service, has
+the service binary remove what it installed (filters, managed names, the VPN
+profile, an abandoned connection and the state directory) and then removes the
+files; `/quiet` suppresses dialogs. The binaries are unsigned, so Windows shows
+its unknown-publisher warning.
+
+### Permission, status and recovery
+
+`GuardRuntime` asks the router every two seconds whether its path is in effect
+for this device at the tunnel's address (`GET /client/v1/readiness`, device
+token, `X-Client-Address`). Only an answer for the same device, address and
+policy revision permits the tunnel interface in the dynamic WFP session and
+publishes `protected`. An unanswered request keeps permission for at most ten
+seconds since the last confirmation, less than the router's own fifteen-second
+admission lease; revocation, a different policy or an invalid answer closes it
+at once. Without confirmation the state stays `tunnel_connected` with a reason
+the window explains. Selected addresses are virtual and denied outside the
+tunnel at all times, so this gate decides what the user is told and when the
+tunnel may carry traffic, not whether traffic can leave another way.
+
+The user's last connect or disconnect is journaled; a restart, a reboot or a
+killed service returns to it. A connection left on the managed entry by a
+killed service is ended before dialing, at startup and on removal. A policy
+poll that got no answer keeps the committed policy and the connection; a
+refused one closes them.
+
+The status is version 3: state, guard, protection, connection intent, error
+code, assigned and available service names, domain count and policy revision.
+The window shows them as blocking outside the tunnel, tunnel and routes, router
+path and services, offers only the actions that apply, and connects by itself
+after a registration started in it. The report preview contains the same
+fields and no addresses, names of hosts or credentials.
 
 `WfpGuard.cs` installs persistent IPv4 destination denials at connection
 authorization and inbound/outbound packet layers, plus boot-time packet filters.
@@ -618,3 +661,47 @@ server-owned snapshot fixtures in this scenario. The separate `client-ike.sh`
 scenario covers real IKE/EAP login and VICI reads; the optional path extension
 covers outbound proxy traffic. Enrollment of desktop clients and automatic runtime activation still require end-to-end validation. Removing failure
 closure is detected by encrypted traffic continuing after the query fails.
+
+## Activation and service names
+
+`client-access-setup.uc` backs the "Access for remote clients" section of the
+Remote clients page through `ikev2-client-admin client-admin-settings` and the
+queued `client-admin-setup`. The first save creates the committed state from
+the inbound server's DNS identity, the chosen exit and a private virtual subnet
+that no interface, route or inbound pool of the router uses; later saves may
+change the exit, the port and the switch, never the subnet. The bridge then
+stores `client_access.enabled` and `port`, has `ikev2-manager-system
+client-api-apply` set the `ikev2pbr_client_api` WAN rule (accepting the port
+only while the inbound server and client access are both on) and reloads the
+supervised service. `scripts/openwrt/client-setup.sh` covers refusals, first
+activation, the live firewall rule, the fixed subnet, exit change and disable.
+
+`GET /client/v1/services` returns, for the authenticated device, the services
+it was assigned and the other services published to clients, each as a name
+and a domain count. It grants nothing and carries no domains or addresses.
+
+## Complete desktop scenario
+
+`scripts/openwrt/install.sh client-desktop` turns a privileged OpenWrt
+container on a host kernel with XFRM interfaces into a router with the
+registration listener, an inbound server for a native client, the installed
+controller in automatic mode and a namespace that terminates the required exit
+with a service and a resolver behind it. A direct route to that service exists
+on purpose and is counted, so a leak would be seen. The Windows side is
+`EnrollmentIntegrationTests.exe` with `probe_host` set (test service) and
+`ProductIntegrationTests.exe` (the installed product): registration,
+`protected` only with router readiness, the service answering only through the
+exit SA, a closed port, exit loss and recovery, disconnect, restart, a killed
+service, update and complete uninstallation. The driver that connects the two
+machines is site-specific and not part of the repository.
+
+## macOS
+
+`desktop-clients/macos` holds the policy, hosts and policy-transport core with
+the shared fixtures. A complete client needs a root daemon for packet-filter
+denials and names, an IKEv2 configuration and an installer. The built-in
+IKEv2 client takes its routes from the server's traffic selectors, and the
+inbound server offers `0.0.0.0/0`, so a managed Mac would send everything into
+the tunnel; the server has to offer managed devices the virtual subnet only
+before a macOS client can be split-tunnel. That change and the client are not
+done.
