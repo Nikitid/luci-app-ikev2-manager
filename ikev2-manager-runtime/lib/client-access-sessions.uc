@@ -18,7 +18,9 @@ export function authenticated_client_sessions(snapshot) {
 	let sessions = [];
 	for (let entry in snapshot.data) {
 		if (type(entry) != 'object') die('invalid local SA entry');
-		let sa = entry['ikev2-in'];
+		// Both inbound connections authenticate the same accounts; the managed
+		// one differs only in the networks it offers.
+		let sa = entry['ikev2-in'] ?? entry['ikev2-in-managed'];
 		if (sa == null) continue;
 		if (type(sa) != 'object') die('invalid inbound SA entry');
 		// VICI omits remote-eap-id when the authenticated EAP identity equals

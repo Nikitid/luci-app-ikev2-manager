@@ -53,7 +53,7 @@ if [ "${1:-}" = client-access ]; then
 fi
 
 
-if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-credentials ] || [ "${1:-}" = client-native ] || [ "${1:-}" = client-desktop ]; then
+if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-credentials ] || [ "${1:-}" = client-native ] || [ "${1:-}" = client-desktop ] || [ "${1:-}" = client-managed ]; then
 	# strongSwan and the tools the tunnels use, as the dependency installer
 	# lists them; kernel modules come from the host.
 	packages="$(awk '/^runtime_packages\(\)/ { list = 1; next }
@@ -63,6 +63,7 @@ if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-c
 	[ "${1:-}" != client-ike ] || packages="$packages strongswan-mod-des dnsmasq"
 	[ "${1:-}" != client-native ] || packages="$packages strongswan-mod-des"
 	[ "${1:-}" != client-desktop ] || packages="$packages strongswan-mod-des dnsmasq"
+	[ "${1:-}" != client-managed ] || packages="$packages strongswan-mod-des"
 	[ -n "$packages" ] || { printf '%s\n' 'openwrt: no strongSwan packages listed' >&2; exit 1; }
 	# shellcheck disable=SC2086
 	if command -v opkg >/dev/null 2>&1; then
@@ -79,6 +80,15 @@ if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-c
 		[ "$1" != client-native ] || exec sh /src/scripts/openwrt/client-native.sh
 		[ "$1" != client-desktop ] || exec sh /src/scripts/openwrt/client-desktop.sh
 		exec sh /src/scripts/openwrt/client-credentials.sh
+	fi
+	if [ "$1" = client-managed ]; then
+		if ! ip link add managed-probe type xfrm dev lo if_id 99 2>/dev/null; then
+			[ "${IKEV2_REQUIRE_XFRM:-0}" != 1 ] || exit 1
+			printf '%s\n' 'client-managed: skipped, this kernel has no XFRM interfaces'
+			exit 0
+		fi
+		ip link del managed-probe
+		exec sh /src/scripts/openwrt/client-managed.sh
 	fi
 	if [ "$1" = client-ike ]; then
 		if ! ip link add auth-probe type xfrm dev lo if_id 99 2>/dev/null; then

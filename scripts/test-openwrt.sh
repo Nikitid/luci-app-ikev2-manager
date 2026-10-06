@@ -42,6 +42,10 @@ for release in $releases; do
 	# shellcheck disable=SC2086
 	docker run --rm $platform --privileged -e "IKEV2_REQUIRE_XFRM=${IKEV2_REQUIRE_XFRM:-0}" -v "$root:/src:ro" "$image" \
 		/bin/sh /src/scripts/openwrt/install.sh client-ike
+	# The rendered inbound server narrows managed peers to the virtual subnet.
+	# shellcheck disable=SC2086
+	docker run --rm $platform --privileged -e "IKEV2_REQUIRE_XFRM=${IKEV2_REQUIRE_XFRM:-0}" -v "$root:/src:ro" "$image" \
+		/bin/sh /src/scripts/openwrt/install.sh client-managed
 	# Dedicated policy API has no administrative RPC surface.
 	# shellcheck disable=SC2086
 	docker run --rm $platform --cap-add NET_ADMIN -v "$root:/src:ro" "$image" \

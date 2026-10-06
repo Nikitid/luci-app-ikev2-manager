@@ -228,7 +228,8 @@ delete_user_policy() {
 # the device kept the tunnel up.
 terminate_user_sessions() {
 	local user="$1" id
-	for id in $("$sa_helper" session-ids ikev2-in "$user" 2>/dev/null); do
+	for id in $("$sa_helper" session-ids ikev2-in "$user" 2>/dev/null) \
+		$("$sa_helper" session-ids ikev2-in-managed "$user" 2>/dev/null); do
 		case "$id" in '' | *[!0-9]*) continue ;; esac
 		swanctl_quiet --terminate --ike-id "$id" --timeout 5 >/dev/null 2>&1 || :
 	done

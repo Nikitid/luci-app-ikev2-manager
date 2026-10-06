@@ -3,6 +3,51 @@
 # connection, the server certificate and the settings transaction. Sourced by
 # ikev2-manager, whose configuration helpers and globals it uses.
 
+# One inbound connection: its name, the peer identities it answers to and the
+# networks it offers. Both connections share the pool, the certificate and the
+# EAP accounts.
+server_connection() {
+	cat <<EOF
+	$1 {
+		version = 2
+		send_cert = always
+		proposals = aes256gcm16-prfsha384-ecp384,aes256-sha256-modp2048
+		# Managed users are device-specific. Replace a stale SA for the same EAP
+		# identity before its virtual address can conflict with a reconnect.
+		unique = replace
+		dpd_delay = ${dpd}s
+		rekey_time = ${ike_rekey}s
+		mobike = $([ "$mobike" = 1 ] && echo yes || echo no)
+		fragmentation = $([ "$fragmentation" = 1 ] && echo yes || echo no)
+		pools = router_pool4
+
+		local {
+			auth = pubkey
+			certs = ikev2.pem
+			id = $identity
+		}
+
+		remote {
+			auth = eap-mschapv2
+			eap_id = %any
+			id = $2
+		}
+
+		children {
+			net {
+				esp_proposals = aes256gcm16-ecp384,aes256gcm16-ecp256,aes256gcm16-modp2048,aes256gcm16,aes256-sha256-modp2048,aes256-sha256
+				local_ts = $3
+				if_id_in = 43
+				if_id_out = 43
+				rekey_time = ${child_rekey}s
+				dpd_action = clear
+				start_action = none
+			}
+			}
+		}
+EOF
+}
+
 render_server() {
 	enabled="$(getv server enabled)"
 	tmp="${inbound_conf}.new"
@@ -29,46 +74,20 @@ render_server() {
 	mobike="$(getv server mobike)"
 	fragmentation="$(getv server fragmentation)"
 	local_ts="$(normalize_list "$(getv_default server local_ts 0.0.0.0/0)" | sed 's/ /, /g')"
-	cat >"$tmp" <<EOF
-connections {
-	ikev2-in {
-		version = 2
-		send_cert = always
-		proposals = aes256gcm16-prfsha384-ecp384,aes256-sha256-modp2048
-		# Managed users are device-specific. Replace a stale SA for the same EAP
-		# identity before its virtual address can conflict with a reconnect.
-		unique = replace
-		dpd_delay = ${dpd}s
-		rekey_time = ${ike_rekey}s
-		mobike = $([ "$mobike" = 1 ] && echo yes || echo no)
-		fragmentation = $([ "$fragmentation" = 1 ] && echo yes || echo no)
-		pools = router_pool4
-
-		local {
-			auth = pubkey
-			certs = ikev2.pem
-			id = $identity
-		}
-
-		remote {
-			auth = eap-mschapv2
-			eap_id = %any
-			id = %any
-		}
-
-		children {
-			net {
-				esp_proposals = aes256gcm16-ecp384,aes256gcm16-ecp256,aes256gcm16-modp2048,aes256gcm16,aes256-sha256-modp2048,aes256-sha256
-				local_ts = $local_ts
-				if_id_in = 43
-				if_id_out = 43
-				rekey_time = ${child_rekey}s
-				dpd_action = clear
-				start_action = none
-			}
-			}
-		}
-	}
+	managed_subnet=''
+	if [ -f "$root/etc/ikev2-manager/clients/initialized" ]; then
+		managed_subnet="$(ucode "${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}/client-access-runtime.uc" subnet "$root/etc/ikev2-manager/clients" '' '' 2>/dev/null)" || managed_subnet=''
+		valid_ipv4_cidr_list "$managed_subnet" || managed_subnet=''
+	fi
+	{
+		printf 'connections {\n'
+		server_connection ikev2-in %any "$local_ts"
+		# Managed desktop devices name themselves in this domain and are offered
+		# the virtual subnet alone: a client that takes its routes from the
+		# traffic selectors then sends nothing else into the tunnel.
+		[ -z "$managed_subnet" ] || server_connection ikev2-in-managed '*@managed.ikev2-manager' "$managed_subnet"
+		printf '}\n'
+		cat <<EOF
 pools {
 	router_pool4 {
 		addrs = $pool4
@@ -76,6 +95,7 @@ pools {
 	}
 }
 EOF
+	} >"$tmp"
 	atomic_install "$tmp" "$inbound_conf" 600
 }
 
