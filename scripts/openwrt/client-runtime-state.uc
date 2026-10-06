@@ -12,6 +12,10 @@ if (mode == 'seed') {
 		devices: [ { id: 'alice', token_sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			enabled: true, selected_services: [ 'api' ] } ] };
 	publish_client_state(directory, desired, 0, true);
+} else if (mode == 'seed-empty') {
+	// A router just activated: published state, no service and no device yet.
+	publish_client_state(directory, { version: 1, server: { address: 'vpn.example.com', remote_id: 'vpn.example.com' },
+		virtual_subnet: '172.31.254.0/24', exit: '1', services: [], devices: [] }, 0, true);
 } else if (mode == 'revoke' || mode == 'enable' || mode == 'add-domain') {
 	let state = read_client_state(directory), desired = state.publication;
 	delete desired.allocations;

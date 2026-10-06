@@ -92,12 +92,16 @@ sync_access() {
 		failed
 		return 1
 	fi
-	if [ "$require_path" = 1 ]; then
-		"$ucode_bin" "$runtime_lib_dir/client-access-device-stamp.uc" "$runtime_dir" "$state_dir" "$work/plan.json" "$path_fingerprint" >/dev/null 2>&1 || { failed; return 1; }
-	fi
 	generation="$(jsonfilter -i "$work/plan.json" -e '@.generation')"
 	grants="$(jsonfilter -i "$work/plan.json" -e '@.grants')"
 	mode="$(jsonfilter -i "$work/plan.json" -e '@.mode')"
+	# With no device yet there is nobody to answer for: the path stands ready
+	# and closed, which is a healthy state and not a failure.
+	if [ "$require_path" = 1 ] && [ "$mode" = ready ]; then
+		"$ucode_bin" "$runtime_lib_dir/client-access-device-stamp.uc" "$runtime_dir" "$state_dir" "$work/plan.json" "$path_fingerprint" >/dev/null 2>&1 || { failed; return 1; }
+	else
+		rm -f "$runtime_dir/device-ready.json"
+	fi
 	status_write "$mode" "$generation" "$grants"
 }
 

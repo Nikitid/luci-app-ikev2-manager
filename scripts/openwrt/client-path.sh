@@ -282,6 +282,20 @@ if controller sync; then fail 'overlapping destination route was accepted'; fi
 [ -z "$(probe || :)" ] || fail 'overlap conflict retained access'
 ip -n "$server" route del blackhole 172.31.254.128/25
 controller sync || fail 'overlap conflict recovery failed'
+# A router activated before its first device: the path is brought up, nothing
+# is admitted, and the controller reports that as closed rather than failed.
+mkdir -m 700 "$work/empty"
+ucode "$fixture" "$work/empty" seed-empty
+mv "$work/state" "$work/state.devices"
+mv "$work/empty" "$work/state"
+controller sync || fail 'a router without devices failed its sync'
+grep -q '^state=closed$' "$work/runtime/status" || fail 'a router without devices did not report closed'
+[ ! -e "$work/runtime/device-ready.json" ] || fail 'a router without devices kept device evidence'
+[ -z "$(probe || :)" ] || fail 'a router without devices admitted a session'
+mv "$work/state" "$work/empty"
+mv "$work/state.devices" "$work/state"
+controller sync || fail 'returning the devices failed'
+[ "$(probe)" = authenticated-path ] || fail 'returning the devices did not restore access'
 controller close || fail 'automatic path close failed' 
 if role "$server" ucode "$lib/client-access-path-control.uc" owner "$work/runtime" >/dev/null 2>&1; then fail 'close retained owned proxy'; fi
 [ -z "$(probe || :)" ] || fail 'closed automatic path retained access'
