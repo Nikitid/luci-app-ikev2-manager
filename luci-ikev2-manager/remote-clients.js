@@ -9,8 +9,9 @@ var catalogHelper = '/usr/libexec/ikev2-domains-community';
 
 function readState() {
  return Promise.all([
-  fs.exec(helper, [ 'client-admin-show' ]),
-  L.resolveDefault(fs.exec(catalogHelper, [ 'services' ]), { code: 1, stdout: '' })
+  L.resolveDefault(fs.exec(helper, [ 'client-admin-show' ]), { code: 1, stdout: '' }),
+  L.resolveDefault(fs.exec(catalogHelper, [ 'services' ]), { code: 1, stdout: '' }),
+  L.resolveDefault(fs.exec(helper, [ 'client-admin-settings' ]), { code: 1, stdout: '' })
  ]);
 }
 
@@ -41,6 +42,56 @@ function saveRequest(button, result, request, onSuccess) {
    onSuccess: onSuccess
   });
  }, function(error) { result.err(_('Could not stage client configuration: %s').format(error.message || error)); });
+}
+
+// Activation and the registration listener. Before the first save nothing else
+// on the page exists yet, so this section is the only one offered.
+function setupSection(settings, reload) {
+ var result = common.inlineResult(), save;
+ var enabled = E('input', { 'type': 'checkbox', 'checked': settings.enabled ? '' : null, 'aria-label': _('Accept remote clients') });
+ var port = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Registration port'), 'value': String(settings.port) });
+ var subnet = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Virtual subnet'),
+  'value': settings.virtual_subnet || '172.31.254.0/24', 'disabled': settings.initialized ? '' : null });
+ var exits = [];
+ settings.tunnels.forEach(function(index) {
+  exits.push([ index, settings.tunnels.length > 1 ? _('Tunnel %s, another tunnel when it fails').format(index) : _('Tunnel %s').format(index) ]);
+  if (settings.tunnels.length > 1) exits.push([ index + 's', _('Tunnel %s only').format(index) ]);
+ });
+ var exit = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Exit for remote clients') }, exits.map(function(item) {
+  return E('option', { 'value': item[0], 'selected': item[0] === (settings.exit || '1') ? '' : null }, [ item[1] ]);
+ }));
+ var notes = [];
+ if (!settings.server_enabled || !settings.server_identity)
+  notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('Enable the inbound server with a DNS name first: remote clients register and connect through it.') ]));
+ if (!settings.tunnels.length)
+  notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('Enable an outbound tunnel first: selected services leave through it.') ]));
+ save = E('button', { 'class': 'cbi-button cbi-button-positive', 'type': 'button',
+  'disabled': !settings.server_identity || !settings.tunnels.length ? '' : null, 'click': function() {
+  var number = Number(port.value.trim());
+  if (!/^[0-9]{4,5}$/.test(port.value.trim()) || number < 1024 || number > 65535) { result.err(_('Enter a port from 1024 to 65535.')); return; }
+  if (!/^[0-9]{1,3}(\.[0-9]{1,3}){3}\/(1[6-9]|2[0-8])$/.test(subnet.value.trim())) { result.err(_('Enter a private IPv4 subnet from /16 to /28, for example 172.31.254.0/24.')); return; }
+  var token = common.inputToken();
+  var request = { version: 1, enabled: enabled.checked, port: number, virtual_subnet: subnet.value.trim(), exit: exit.value };
+  return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
+   return common.runJob({ button: save, result: result, busy: _('Applying remote client settings...'),
+    success: _('Remote client settings applied.'), failure: _('Could not apply remote client settings.'),
+    startPath: helper, startArgs: [ 'client-admin-setup', token ], statusPath: helper, statusArgs: [ 'client-admin-status' ],
+    timeout: 330000, onSuccess: reload });
+  }, function() { result.err(_('Could not stage remote client settings.')); });
+ } }, [ settings.initialized ? _('Save') : _('Set up remote clients') ]);
+ return common.section(_('Access for remote clients'),
+  _('Devices register over HTTPS on this port and reach their services through the inbound server. The port is opened on WAN while this is on.'),
+  E('div', {}, notes.concat([
+   common.toggleRow(enabled, _('Accept remote clients'), settings.server_identity ?
+    _('Registration address: %s').format('https://' + settings.server_identity + ':' + settings.port) : null),
+   E('div', { 'class': 'ikev2-grid' }, [
+    E('div', {}, [ common.fieldLabel(_('Registration port')), port ]),
+    E('div', {}, [ common.fieldLabel(_('Exit for remote clients')), exit ]),
+    E('div', {}, [ common.fieldLabel(_('Virtual subnet'), settings.initialized ?
+     _('Enrolled devices keep this subnet; it cannot change.') : _('Addresses that stand for the selected services. It must not be used anywhere in your networks.')), subnet ])
+   ]),
+   E('div', { 'class': 'ikev2-actions end' }, [ result.node, save ])
+  ])));
 }
 
 function editDialog(title, form, buildRequest, reload, pageResult) {
@@ -163,10 +214,18 @@ return view.extend({
  load: readState,
  render: function(data) {
   var state, records = [], labels = {}, services = E('div', {}), devices = E('div', {});
-  var result = common.inlineResult(), availability = E('div', {}), refresh, invite;
+  var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), managed = E('div', {}), refresh, invite;
   function reload() { return readState().then(setData); }
   function setData(next) {
    state = null;
+   var settings = null;
+   try {
+    settings = JSON.parse(next[2].stdout);
+    if (next[2].code !== 0 || settings.version !== 1 || !Array.isArray(settings.tunnels)) settings = null;
+   } catch (error) { settings = null; }
+   setup.replaceChildren(settings ? setupSection(settings, reload) : E('div', {}));
+   managed.style.display = settings && !settings.initialized ? 'none' : '';
+   if (settings && !settings.initialized) { availability.replaceChildren(); return; }
    try {
     if (next[0].code !== 0) throw new Error('unavailable');
     var parsed = JSON.parse(next[0].stdout);
@@ -222,11 +281,13 @@ return view.extend({
   setData(data);
   return E([ common.styles(), E('div', { 'class': 'ikev2-page' }, [
    common.header(_('Remote clients'), _('Publish selected services and assign them to enrolled Windows and macOS devices.')),
-   availability,
-   common.section(_('Services for remote clients'), _('Domain lists are shared with Policy Routing and update automatically.'), E('div', {}, [
-    services, E('div', { 'class': 'ikev2-actions end' }, [ result.node, refresh ])
-   ])),
-   common.section(_('Device assignments'), _('Assign published services to each enrolled device.'), E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ invite ]) ]))
+   availability, setup,
+   (managed.replaceChildren(
+    common.section(_('Services for remote clients'), _('Domain lists are shared with Policy Routing and update automatically.'), E('div', {}, [
+     services, E('div', { 'class': 'ikev2-actions end' }, [ result.node, refresh ])
+    ])),
+    common.section(_('Device assignments'), _('Assign published services to each enrolled device.'), E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ invite ]) ]))
+   ), managed)
   ]) ]);
  },
  handleSaveApply: null, handleSave: null, handleReset: null

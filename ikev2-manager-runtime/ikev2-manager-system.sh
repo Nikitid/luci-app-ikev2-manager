@@ -643,8 +643,27 @@ sync_firewall() {
 	uci set firewall.ikev2pbr_in_dns.target='ACCEPT'
 	uci set "firewall.ikev2pbr_in_dns.enabled=$server_enabled"
 
+	sync_client_api_rule
 	uci commit firewall
 	sync_inbound_access
+}
+
+# The registration listener for managed desktop clients: reachable from WAN
+# only while both the inbound server and client access are enabled.
+sync_client_api_rule() {
+	local port enabled=0
+	port="$(defaultv client_access port 8443)"
+	case "$port" in *[!0-9]* | '') port=8443 ;; esac
+	[ "$(getv server enabled)" = 1 ] && [ "$(getv client_access enabled)" = 1 ] && enabled=1
+	wan_zone="$(getv globals wan_zone)"
+	[ -n "$wan_zone" ] || wan_zone='wan'
+	uci set firewall.ikev2pbr_client_api=rule
+	uci set firewall.ikev2pbr_client_api.name='IKEv2 PBR client registration'
+	uci set "firewall.ikev2pbr_client_api.src=$wan_zone"
+	uci set firewall.ikev2pbr_client_api.proto='tcp'
+	uci set "firewall.ikev2pbr_client_api.dest_port=$port"
+	uci set firewall.ikev2pbr_client_api.target='ACCEPT'
+	uci set "firewall.ikev2pbr_client_api.enabled=$enabled"
 }
 
 sync_inbound_access() {
@@ -1932,6 +1951,13 @@ case "${1:-}" in
 		;;
 	_upnp-check)
 		upnp_ikev2_check
+		;;
+	client-api-apply)
+		[ "$#" -eq 1 ] || die 'Expected: client-api-apply'
+		sync_client_api_rule
+		uci commit firewall
+		firewall_check_strict
+		fw4 -q reload
 		;;
 	access-apply)
 		zone="$(defaultv server firewall_zone ikev2in)"

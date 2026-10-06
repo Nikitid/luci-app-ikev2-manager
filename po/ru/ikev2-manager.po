@@ -4670,3 +4670,66 @@ msgstr "Не удалось подготовить приглашение."
 
 msgid "Create invitation"
 msgstr "Создать приглашение"
+
+msgid "Accept remote clients"
+msgstr "Принимать удалённых клиентов"
+
+msgid "Registration port"
+msgstr "Порт регистрации"
+
+msgid "Virtual subnet"
+msgstr "Виртуальная подсеть"
+
+msgid "Tunnel %s, another tunnel when it fails"
+msgstr "Туннель %s, при сбое - другой туннель"
+
+msgid "Tunnel %s only"
+msgstr "Только туннель %s"
+
+msgid "Exit for remote clients"
+msgstr "Выход для удалённых клиентов"
+
+msgid "Enable the inbound server with a DNS name first: remote clients register and connect through it."
+msgstr "Сначала включите входящий сервер с DNS-именем: удалённые клиенты регистрируются и подключаются через него."
+
+msgid "Enable an outbound tunnel first: selected services leave through it."
+msgstr "Сначала включите исходящий туннель: выбранные сервисы выходят через него."
+
+msgid "Enter a port from 1024 to 65535."
+msgstr "Укажите порт от 1024 до 65535."
+
+msgid "Enter a private IPv4 subnet from /16 to /28, for example 172.31.254.0/24."
+msgstr "Укажите частную IPv4-подсеть от /16 до /28, например 172.31.254.0/24."
+
+msgid "Applying remote client settings..."
+msgstr "Применяются настройки удалённых клиентов..."
+
+msgid "Remote client settings applied."
+msgstr "Настройки удалённых клиентов применены."
+
+msgid "Could not apply remote client settings."
+msgstr "Не удалось применить настройки удалённых клиентов."
+
+msgid "Could not stage remote client settings."
+msgstr "Не удалось передать настройки удалённых клиентов."
+
+msgid "Remote client settings could not be applied. Check the inbound server, the exit tunnel and the subnet."
+msgstr "Настройки удалённых клиентов не применены. Проверьте входящий сервер, туннель выхода и подсеть."
+
+msgid "Set up remote clients"
+msgstr "Настроить удалённых клиентов"
+
+msgid "Access for remote clients"
+msgstr "Доступ удалённых клиентов"
+
+msgid "Devices register over HTTPS on this port and reach their services through the inbound server. The port is opened on WAN while this is on."
+msgstr "Устройства регистрируются по HTTPS на этом порту и получают свои сервисы через входящий сервер. Пока опция включена, порт открыт на WAN."
+
+msgid "Registration address: %s"
+msgstr "Адрес регистрации: %s"
+
+msgid "Enrolled devices keep this subnet; it cannot change."
+msgstr "Зарегистрированные устройства используют эту подсеть; изменить её нельзя."
+
+msgid "Addresses that stand for the selected services. It must not be used anywhere in your networks."
+msgstr "Адреса, которые обозначают выбранные сервисы. Подсеть не должна использоваться в ваших сетях."

@@ -102,6 +102,27 @@ async function main() {
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
  const unavailable = page.render([{code:1,stdout:''},data()[1]]);
  assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT'));
- console.log('remote clients UI: render, forms, validation, queued requests, generations and unavailable state OK');
+ // First activation: only the setup section is offered, and it stages one request.
+ const fresh = { version: 1, initialized: false, enabled: false, port: 8443, server_enabled: true, server_identity: 'vpn.example.com', tunnels: ['1', '2'] };
+ const first = page.render([{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(fresh)}]);
+ assert(nodes(first).some(n => n.style.display === 'none' && text(n).includes('Device assignments')), 'management hidden before setup');
+ assert(!text(first).includes('Client configuration is unavailable'));
+ const setupInputs = nodes(first).filter(n => n.tagName === 'INPUT');
+ const portInput = setupInputs.find(n => n.attrs['aria-label'] === 'Registration port');
+ assert.strictEqual(nodes(first).find(n => n.tagName === 'SELECT').children.length, 4, 'each tunnel offers a failover and a bound exit');
+ portInput.value = '80'; const before = written.length;
+ await click(button(first,'Set up remote clients'));
+ assert.strictEqual(written.length, before, 'a privileged port cannot be staged'); assert(text(first).includes('1024 to 65535'));
+ portInput.value = '9443'; setupInputs.find(n => n.type === 'checkbox').checked = true;
+ nodes(first).find(n => n.tagName === 'SELECT').value = '2s';
+ await click(button(first,'Set up remote clients'));
+ assert.deepStrictEqual(written[written.length-1].body, {version:1,enabled:true,port:9443,virtual_subnet:'172.31.254.0/24',exit:'2s'});
+ assert.deepStrictEqual(jobs[jobs.length-1].startArgs.slice(0,1), ['client-admin-setup']);
+ const blocked = page.render([{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {server_identity:null, tunnels:[]}))}]);
+ assert(button(blocked,'Set up remote clients').attrs.disabled != null, 'setup needs the inbound server and a tunnel');
+ const running = page.render([data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}]);
+ assert(nodes(running).find(n => n.attrs['aria-label'] === 'Virtual subnet').attrs.disabled != null, 'the subnet of enrolled devices is fixed');
+ assert(text(running).includes('alice') && text(running).includes('https://vpn.example.com:8443'));
+ console.log('remote clients UI: render, forms, validation, queued requests, generations, setup and unavailable state OK');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
