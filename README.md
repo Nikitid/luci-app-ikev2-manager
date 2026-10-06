@@ -26,6 +26,9 @@ remote gateway.
   no dependency on the pbr package;
 - inbound IKEv2/EAP server with global and per-user access to the router,
   selected public router ports, Internet and selected local IPv4 destinations;
+- managed access for Windows computers: an administrator publishes catalog
+  services and invites a device, and its client sends only those services
+  through the inbound server and the chosen tunnel, blocked everywhere else;
 - Status Overview widget for the outbound tunnel, policy routing and active
   inbound VPN clients;
 - DNS upstream over UDP, TCP, DoT, DoH, HTTP/3, DoQ or DNSCrypt, including
@@ -139,6 +142,7 @@ The signed feed and release validation: [docs/OPENWRT25.md](docs/OPENWRT25.md).
 - [Traps](docs/TRAPS.md) - failures that already cost hours
 - [Architecture](docs/ARCHITECTURE.md)
 - [Operations](docs/OPERATIONS.md)
+- [Managed desktop access](docs/CLIENT_ACCESS.md)
 - [OpenWrt 25.12 and apk](docs/OPENWRT25.md)
 - [Shared APK feed](https://github.com/Nikitid/openwrt-feed/blob/main/docs/MEMBER_INTEGRATION.md)
 

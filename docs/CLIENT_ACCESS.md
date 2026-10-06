@@ -680,6 +680,22 @@ activation, the live firewall rule, the fixed subnet, exit change and disable.
 it was assigned and the other services published to clients, each as a name
 and a domain count. It grants nothing and carries no domains or addresses.
 
+## Marks and other software on the router
+
+Admission marks a packet `0x00800000`, and the path guard and the inbound user
+policy ask for that mark. A mark is evidence only inside one hook: other
+software rewrites marks between hooks. A connection-mark restore in the mangle
+prerouting chain (Tailscale installs one) replaces the whole mark of every
+established flow, after this path's interception and before delivery, so the
+first packet of a connection passed and the rest were dropped at input. The
+admission table therefore decides again at the input hook, from the SA and the
+grants, ahead of every input rule that reads the mark. `client-path.sh` installs
+such a foreign rule and requires admitted flows to survive it and unselected
+ports to stay closed.
+
+A router that was activated but has no device yet reports `closed`, with the
+path up and nothing admitted; that is not a failure.
+
 ## Complete desktop scenario
 
 `scripts/openwrt/install.sh client-desktop` turns a privileged OpenWrt
@@ -692,8 +708,11 @@ on purpose and is counted, so a leak would be seen. The Windows side is
 `ProductIntegrationTests.exe` (the installed product): registration,
 `protected` only with router readiness, the service answering only through the
 exit SA, a closed port, exit loss and recovery, disconnect, restart, a killed
-service, update and complete uninstallation. The driver that connects the two
-machines is site-specific and not part of the repository.
+service, update and complete uninstallation. The same installed-product check
+has also run against a production router with a public certificate and a real
+exit: a catalog service published to the device answered with the exit's
+address, not the direct one. The drivers that connect the machines are
+site-specific and not part of the repository.
 
 ## macOS
 

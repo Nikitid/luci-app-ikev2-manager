@@ -456,3 +456,23 @@ readiness. Remove only unchanged rows belonging to that connection.
 Docker's published-port listing is also not evidence that an IKE listener is
 reachable: a host-side privileged UDP bind can fail after the container starts.
 Use packet evidence and host forwarding errors before changing authentication.
+
+## A packet mark does not survive from prerouting to input
+
+Managed desktop access marked an admitted packet in prerouting and required the
+mark again at input. On a container router every check passed. On a router
+with Tailscale the first packet of each connection got through and everything
+after it was dropped: Tailscale's mangle prerouting chain restores the
+connection mark over the **whole** packet mark for established flows
+(`ct state established,related meta mark set ct mark & 0x0000ff00`), between
+the two hooks.
+
+What made this expensive: a TCP connect succeeded and the client showed
+"protected", so it looked like a TLS or proxy fault. Only the path table's
+input counter showed the drops.
+
+The rule: a mark set in one hook is not evidence in the next. Decide again in
+each hook where the mark is read. `client-access-authorization.uc` has an
+input chain for this, and `scripts/openwrt/client-path.sh` installs a foreign
+mark rewrite to keep it honest. A stand without other packages' rules cannot
+find this class of fault; one run on a real router did.
