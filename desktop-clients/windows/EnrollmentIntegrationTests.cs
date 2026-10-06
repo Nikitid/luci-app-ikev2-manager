@@ -29,6 +29,39 @@ internal static class EnrollmentIntegrationTests
             service.Stop(); service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(40));
         }
     }
+    private static string Diagnosis(string name)
+    {
+        var view = ClientStatusReader.Read(name);
+        return view.State + "/" + view.ConnectionError;
+    }
+    private static bool Await(string name, bool open, int milliseconds)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (ClientStatusReader.Read(name).Protected != open && elapsed.ElapsedMilliseconds < milliseconds) Thread.Sleep(250);
+        return ClientStatusReader.Read(name).Protected == open;
+    }
+    // One line out and the same line back, or nothing.
+    private static bool Echo(string host, int port)
+    {
+        try
+        {
+            using (var client = new System.Net.Sockets.TcpClient())
+            {
+                var pending = client.BeginConnect(host, port, null, null);
+                if (!pending.AsyncWaitHandle.WaitOne(4000)) return false;
+                client.EndConnect(pending);
+                client.ReceiveTimeout = client.SendTimeout = 4000;
+                byte[] line = System.Text.Encoding.ASCII.GetBytes("desktop-path\n"), answer = new byte[line.Length];
+                var stream = client.GetStream();
+                stream.Write(line, 0, line.Length);
+                int total = 0, read;
+                while (total < answer.Length && (read = stream.Read(answer, total, answer.Length - total)) > 0) total += read;
+                return total == line.Length && System.Linq.Enumerable.SequenceEqual(line, answer);
+            }
+        }
+        catch (System.Net.Sockets.SocketException) { return false; }
+        catch (IOException) { return false; }
+    }
     private static int Main(string[] args)
     {
         string name = "IKEv2Manager-Test-" + Guid.NewGuid().ToString("N");
@@ -112,13 +145,43 @@ internal static class EnrollmentIntegrationTests
                     step = "native IKEv2 connection";
                     Require(ClientCommands.Send("connect", service: name) == "accepted", "Connect refused");
                     elapsed.Restart();
-                    while (ClientStatusReader.Read(name).State != "tunnel_connected" && elapsed.ElapsedMilliseconds < 45000) Thread.Sleep(250);
-                    if (ClientStatusReader.Read(name).State != "tunnel_connected") {
+                    while (ClientStatusReader.Read(name).State != "tunnel_connected" && ClientStatusReader.Read(name).State != "protected" && elapsed.ElapsedMilliseconds < 45000) Thread.Sleep(250);
+                    if (ClientStatusReader.Read(name).State != "tunnel_connected" && ClientStatusReader.Read(name).State != "protected") {
                         var diagnosis = ClientStatusReader.Read(name);
                         Console.WriteLine("Native connection diagnosis: " + diagnosis.State + "/" + diagnosis.ConnectionError);
                     }
-                    Require(ClientStatusReader.Read(name).State == "tunnel_connected", "Native tunnel and routes were not confirmed");
-                    Require(!ClientStatusReader.Read(name).Protected, "Tunnel was confused with complete protection");
+                    if (config.ContainsKey("probe_host"))
+                    {
+                        // A router with the whole path: permission must follow
+                        // its readiness, and the service must answer only then.
+                        string target = (string)config["probe_host"]; int port = (int)config["probe_port"];
+                        step = "router readiness";
+                        Require(Await(name, true, 45000), "Router readiness did not open access: " + Diagnosis(name));
+                        Require(Echo(target, port), "Selected service did not answer through the confirmed path");
+                        Require(!Echo(target, (int)config["closed_port"]), "A port outside the assignment answered");
+                        Console.WriteLine("Native protected status and selected service traffic verified");
+                        Console.WriteLine("READY_NATIVE_PATHDOWN");
+                        step = "path loss";
+                        Require(Await(name, false, 30000), "Lost router path left the protected status");
+                        Require(ClientStatusReader.Read(name).State == "tunnel_connected", "Path loss changed the tunnel state: " + Diagnosis(name));
+                        Require(!Echo(target, port), "Selected service answered without the router path");
+                        Console.WriteLine("READY_NATIVE_PATHUP");
+                        step = "path recovery";
+                        Require(Await(name, true, 45000), "Restored router path did not reopen access: " + Diagnosis(name));
+                        Require(Echo(target, port), "Selected service did not recover");
+                        Console.WriteLine("Native path loss closed and recovery reopened access");
+                        Require(ClientCommands.Send("disconnect", service: name) == "accepted", "Disconnect refused");
+                        elapsed.Restart();
+                        while (ClientStatusReader.Read(name).State != "blocked" && elapsed.ElapsedMilliseconds < 10000) Thread.Sleep(100);
+                        Require(ClientStatusReader.Read(name).State == "blocked" && !Echo(target, port), "Disconnect left the selected service reachable");
+                        Require(ClientCommands.Send("connect", service: name) == "accepted", "Reconnect refused");
+                        Require(Await(name, true, 60000), "Reconnect did not reopen access: " + Diagnosis(name));
+                    }
+                    else
+                    {
+                        Require(ClientStatusReader.Read(name).State == "tunnel_connected", "Native tunnel and routes were not confirmed");
+                        Require(!ClientStatusReader.Read(name).Protected, "Tunnel was confused with complete protection");
+                    }
                     Console.WriteLine("Native enrolled IKEv2 connection and selected routes verified");
                     Require(ClientCommands.Send("disconnect", service: name) == "accepted", "Disconnect refused");
                     elapsed.Restart();

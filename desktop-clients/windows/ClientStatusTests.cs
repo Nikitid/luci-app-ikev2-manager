@@ -36,6 +36,22 @@ internal static class ClientStatusTests
                     (string)new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(view.Report())["ConnectionError"] != code)
                     throw new Exception("Safe connection diagnosis was lost");
             }
+            // Protection is one consistent statement or it is not accepted.
+            data["ConnectionError"] = "none"; data["State"] = "protected"; data["Protected"] = true;
+            var open = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
+            if (open.State != "protected" || !open.Protected || !(bool)new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(open.Report())["Protected"])
+                throw new Exception("Confirmed protection was not reported");
+            data["Protected"] = false; Check(data, 123, now, "status_invalid");
+            data["Protected"] = true; data["ConnectionError"] = "path_unavailable"; Check(data, 123, now, "status_invalid");
+            data["ConnectionError"] = "none"; data["GuardInstalled"] = false; Check(data, 123, now, "status_invalid");
+            data["GuardInstalled"] = true; data["State"] = "tunnel_connected"; Check(data, 123, now, "status_invalid");
+            data["Protected"] = false;
+            foreach (string code in new[] {"path_unavailable", "path_connection_failed", "path_response_invalid", "path_different_policy", "device_access_revoked"}) {
+                data["ConnectionError"] = code;
+                var waiting = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
+                if (waiting.State != "tunnel_connected" || waiting.Protected || waiting.ConnectionError != code) throw new Exception("Path refusal was lost: " + code);
+            }
+            data["State"] = "connection_error";
             data["ConnectionError"] = "credential=secret";
             Check(data, 123, now, "status_invalid");
             data["ConnectionError"] = "none";

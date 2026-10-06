@@ -15,7 +15,9 @@ namespace IkeV2Manager.Client
     {
         public string State { get; private set; }
         public bool GuardInstalled { get; private set; }
-        public bool Protected { get { return false; } }
+        // Derived, never stored: the one state the service publishes only
+        // while the router's readiness for this tunnel is fresh.
+        public bool Protected { get { return State == "protected"; } }
         public string ConnectionError { get; private set; }
         internal ClientView(string state, bool installed = false, string connectionError = "none") { State = state; GuardInstalled = installed; ConnectionError = connectionError; }
 
@@ -83,7 +85,7 @@ namespace IkeV2Manager.Client
                 if (version == 2)
                 {
                     if (!data.ContainsKey("ConnectionError") || !(data["ConnectionError"] is string) ||
-                        !Regex.IsMatch((string)data["ConnectionError"], @"\A(?:none|route_or_identity|interface_missing|route_mismatch|route_loopback|route_interface|route_source|route_prefix|route_fields_[0-9]{1,3}|projection_missing|native_[0-9]{1,5})\z")) return new ClientView("status_invalid");
+                        !Regex.IsMatch((string)data["ConnectionError"], @"\A(?:none|route_or_identity|interface_missing|route_mismatch|route_loopback|route_interface|route_source|route_prefix|route_fields_[0-9]{1,3}|projection_missing|native_[0-9]{1,5}|path_unavailable|path_connection_failed|path_response_invalid|path_different_policy|device_access_revoked)\z")) return new ClientView("status_invalid");
                     connectionError = (string)data["ConnectionError"];
                 }
                 if (servicePid == 0 || (int)data["ProcessId"] <= 0 || (int)data["ProcessId"] != servicePid)
@@ -96,10 +98,13 @@ namespace IkeV2Manager.Client
                     return new ClientView("status_stale");
                 string state = (string)data["State"];
                 bool guard = (bool)data["GuardInstalled"];
-                if ((bool)data["Protected"] || (state != "blocked" && state != "enrollment_required" && state != "error" &&
+                // "Protected" and the state must say the same thing, and a
+                // protected status carries no error: anything else is not ours.
+                if ((bool)data["Protected"] != (state == "protected") || (state == "protected" && connectionError != "none") ||
+                    (state != "blocked" && state != "enrollment_required" && state != "error" &&
                     state != "registration_pending" && state != "registration_error" && state != "connecting" &&
-                    state != "tunnel_connected" && state != "connection_error") ||
-                    ((state == "blocked" || state == "connecting" || state == "tunnel_connected" || state == "connection_error") && !guard) || (state == "enrollment_required" && guard))
+                    state != "tunnel_connected" && state != "connection_error" && state != "protected") ||
+                    ((state == "blocked" || state == "connecting" || state == "tunnel_connected" || state == "connection_error" || state == "protected") && !guard) || (state == "enrollment_required" && guard))
                     return new ClientView("status_invalid");
                 return new ClientView(state, guard, connectionError);
             }

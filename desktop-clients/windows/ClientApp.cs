@@ -111,7 +111,8 @@ namespace IkeV2Manager.Client
         private void RefreshStatus()
         {
             current = ClientStatusReader.Read();
-            heading.ForeColor = current.State == "blocked" ? Color.FromArgb(155, 87, 0) : SystemColors.ControlText;
+            heading.ForeColor = current.State == "blocked" ? Color.FromArgb(155, 87, 0) :
+                current.Protected ? Color.FromArgb(0, 110, 60) : SystemColors.ControlText;
             switch (current.State)
             {
                 case "blocked":
@@ -134,9 +135,13 @@ namespace IkeV2Manager.Client
                     heading.Text = "Подключение к VPN";
                     description.Text = "Служба устанавливает IKEv2-соединение. Доступ к закреплённым адресам остаётся заблокирован.";
                     break;
+                case "protected":
+                    heading.Text = "Доступ открыт";
+                    description.Text = "Выбранные сервисы идут через офис: туннель, маршруты и путь на роутере подтверждены. Остальной трафик идёт как обычно.";
+                    break;
                 case "tunnel_connected":
                     heading.Text = "Туннель установлен";
-                    description.Text = "IKEv2 и маршруты выбранных адресов подтверждены. Проверка DNS и пути до сервисов ещё не завершена; доступ остаётся заблокирован.";
+                    description.Text = PathText(current.ConnectionError);
                     break;
                 case "connection_error":
                     heading.Text = "Не удалось подключить VPN";
@@ -161,6 +166,19 @@ namespace IkeV2Manager.Client
             }
             guard.Text = "Блокирующие правила: " + (current.GuardInstalled ? "подтверждены" : "не подтверждены");
             updated.Text = "Проверено: " + DateTime.Now.ToString("HH:mm:ss");
+        }
+
+        private static string PathText(string code)
+        {
+            switch (code)
+            {
+                case "path_unavailable": return "Роутер пока не подтвердил путь для выбранных сервисов. Доступ к ним остаётся заблокирован; проверка повторяется автоматически.";
+                case "path_connection_failed": return "Нет связи со службой доступа на роутере. Доступ к выбранным сервисам остаётся заблокирован; проверка повторяется автоматически.";
+                case "path_different_policy": return "Роутер и клиент применяют разные версии настроек. Доступ остаётся заблокирован, пока настройки не совпадут.";
+                case "device_access_revoked": return "Доступ этого устройства отозван администратором. Выбранные сервисы остаются заблокированы.";
+                case "path_response_invalid": return "Роутер прислал ответ, который клиент не принял. Доступ к выбранным сервисам остаётся заблокирован.";
+                default: return "IKEv2 и маршруты выбранных адресов подтверждены. Ожидается подтверждение пути от роутера; доступ пока заблокирован.";
+            }
         }
 
         private void PreviewReport()

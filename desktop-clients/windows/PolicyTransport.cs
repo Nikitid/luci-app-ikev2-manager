@@ -13,6 +13,35 @@ namespace IkeV2Manager.Client
         internal PolicyFetchException(string code) : base(code) { Code = code; }
     }
 
+    // What the router attests for one device at one tunnel address.
+    public sealed class DeviceReadiness
+    {
+        public readonly string Id, Address;
+        public readonly int Revision;
+
+        private DeviceReadiness(string id, string address, int revision) { Id = id; Address = address; Revision = revision; }
+
+        internal static DeviceReadiness Parse(string json)
+        {
+            try
+            {
+                var data = ClientPolicy.Object(new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 4096, RecursionLimit = 3 }.DeserializeObject(json));
+                ClientPolicy.Fields(data, "version", "state", "id", "revision", "policy_sha256", "address", "generation", "expires_at");
+                if (ClientPolicy.Integer(data["version"], 1, 1) != 1 || ClientPolicy.Text(data["state"]) != "ready" ||
+                    !Regex.IsMatch(ClientPolicy.Text(data["id"]), @"\A[a-z][a-z0-9-]{0,47}\z") ||
+                    !Regex.IsMatch(ClientPolicy.Text(data["policy_sha256"]), @"\A[a-f0-9]{64}\z"))
+                    throw new ArgumentException();
+                ClientPolicy.Integer(data["generation"], 1, Int32.MaxValue);
+                if (!(data["expires_at"] is int) && !(data["expires_at"] is long)) throw new ArgumentException();
+                string address = ClientPolicy.Text(data["address"]);
+                ClientPolicy.Address(address);
+                return new DeviceReadiness((string)data["id"], address, ClientPolicy.Integer(data["revision"], 1, Int32.MaxValue));
+            }
+            catch (ArgumentException) { throw new PolicyFetchException("path_response_invalid"); }
+            catch (InvalidOperationException) { throw new PolicyFetchException("path_response_invalid"); }
+        }
+    }
+
     public static class PolicyTransportClient
     {
         private const int Limit = 1048576;
@@ -61,6 +90,71 @@ namespace IkeV2Manager.Client
                 throw new PolicyFetchException("policy_connection_failed");
             }
             catch (IOException) { throw new PolicyFetchException("policy_connection_failed"); }
+        }
+
+        // The router's answer to "is my required path in effect for this
+        // tunnel address now". It is produced only from an admission the router
+        // installed for this device's authenticated SA, lives a few seconds and
+        // is asked for again before it lapses. A failure of any kind is "no".
+        public static DeviceReadiness FetchReadiness(Uri policyEndpoint, string token, IPAddress tunnelAddress)
+        {
+            ValidateEndpoint(policyEndpoint, token);
+            if (tunnelAddress == null || tunnelAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+                throw new ArgumentException("IPv4 tunnel address required");
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = (HttpWebRequest)WebRequest.Create(new UriBuilder(policyEndpoint) { Path = "/client/v1/readiness" }.Uri);
+            request.Method = "GET";
+            request.AllowAutoRedirect = false;
+            request.Proxy = null;
+            request.UseDefaultCredentials = false;
+            request.KeepAlive = false;
+            request.Timeout = request.ReadWriteTimeout = 3000;
+            request.MaximumResponseHeadersLength = 16;
+            request.Accept = "application/json";
+            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            request.Headers["X-Client-Address"] = tunnelAddress.ToString();
+            using (var deadline = new Timer(ignored => request.Abort(), null, 3000, Timeout.Infinite))
+            try
+            {
+                using (var response = (HttpWebResponse)request.GetResponse())
+                {
+                    if (response.StatusCode != HttpStatusCode.OK) throw new PolicyFetchException("path_unavailable");
+                    using (var stream = response.GetResponseStream())
+                        return DeviceReadiness.Parse(ReadBody(stream, response.ContentType, response.ContentLength, 4096, "path_response_invalid"));
+                }
+            }
+            catch (WebException error)
+            {
+                using (var response = error.Response as HttpWebResponse)
+                {
+                    if (response != null && response.StatusCode == HttpStatusCode.Unauthorized)
+                        throw new PolicyFetchException("device_access_revoked");
+                    if (response != null) throw new PolicyFetchException("path_unavailable");
+                }
+                throw new PolicyFetchException("path_connection_failed");
+            }
+            catch (IOException) { throw new PolicyFetchException("path_connection_failed"); }
+        }
+
+        internal static string ReadBody(Stream stream, string contentType, long contentLength, int limit, string invalid)
+        {
+            if (stream == null || contentType == null ||
+                !String.Equals(contentType.Split(';')[0].Trim(), "application/json", StringComparison.OrdinalIgnoreCase) ||
+                contentLength > limit || contentLength == 0)
+                throw new PolicyFetchException(invalid);
+            using (var data = new MemoryStream())
+            {
+                var buffer = new byte[4096];
+                int read;
+                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (data.Length + read > limit) throw new PolicyFetchException(invalid);
+                    data.Write(buffer, 0, read);
+                }
+                if (data.Length == 0 || (contentLength >= 0 && data.Length != contentLength)) throw new PolicyFetchException(invalid);
+                try { return new UTF8Encoding(false, true).GetString(data.ToArray()); }
+                catch (ArgumentException) { throw new PolicyFetchException(invalid); }
+            }
         }
 
         internal static void ValidateEndpoint(Uri endpoint, string token)

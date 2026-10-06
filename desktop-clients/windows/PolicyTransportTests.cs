@@ -34,7 +34,22 @@ internal static class PolicyTransportTests
             Reject(() => PolicyTransportClient.Decode(new MemoryStream(new byte[1048577]), "application/json", -1), "policy_response_too_large");
             Reject(() => PolicyTransportClient.Decode(new MemoryStream(new byte[] { 255 }), "application/json", 1));
             Reject(() => PolicyTransportClient.Decode(new MemoryStream(Encoding.UTF8.GetBytes("{\"secret\":\"do-not-print\"}")), "application/json", -1));
-            Console.WriteLine("Policy transport checks passed: endpoint restrictions, bounded body, UTF-8, schema and safe errors");
+            string ready = "{\"version\":1,\"state\":\"ready\",\"id\":\"office-pc\",\"revision\":4,\"policy_sha256\":\"" + new string('a', 64) +
+                "\",\"address\":\"10.77.0.2\",\"generation\":3,\"expires_at\":1790000000}";
+            var readiness = DeviceReadiness.Parse(ready);
+            if (readiness.Id != "office-pc" || readiness.Address != "10.77.0.2" || readiness.Revision != 4) throw new Exception("Readiness was not read");
+            foreach (string broken in new[] {
+                ready.Replace("\"ready\"", "\"pending\""), ready.Replace("\"version\":1", "\"version\":2"),
+                ready.Replace("\"revision\":4", "\"revision\":0"), ready.Replace("10.77.0.2", "10.77.0.256"),
+                ready.Replace("\"generation\":3", "\"generation\":\"3\""), ready.Replace(",\"expires_at\":1790000000", ""),
+                ready.Replace("}", ",\"extra\":1}"), ready.Replace(new string('a', 64), new string('a', 63)), "[]", "{" })
+                Reject(() => DeviceReadiness.Parse(broken), "path_response_invalid");
+            byte[] body = Encoding.UTF8.GetBytes(ready);
+            if (PolicyTransportClient.ReadBody(new MemoryStream(body), "application/json", body.Length, 4096, "path_response_invalid") != ready)
+                throw new Exception("Readiness body was not read");
+            Reject(() => PolicyTransportClient.ReadBody(new MemoryStream(new byte[4097]), "application/json", -1, 4096, "path_response_invalid"), "path_response_invalid");
+            Reject(() => PolicyTransportClient.ReadBody(new MemoryStream(body), "text/plain", body.Length, 4096, "path_response_invalid"), "path_response_invalid");
+            Console.WriteLine("Policy transport checks passed: endpoint restrictions, bounded body, UTF-8, schema, readiness and safe errors");
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }

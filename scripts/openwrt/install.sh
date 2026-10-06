@@ -53,7 +53,7 @@ if [ "${1:-}" = client-access ]; then
 fi
 
 
-if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-credentials ] || [ "${1:-}" = client-native ]; then
+if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-credentials ] || [ "${1:-}" = client-native ] || [ "${1:-}" = client-desktop ]; then
 	# strongSwan and the tools the tunnels use, as the dependency installer
 	# lists them; kernel modules come from the host.
 	packages="$(awk '/^runtime_packages\(\)/ { list = 1; next }
@@ -62,6 +62,7 @@ if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-c
 		/usr/libexec/ikev2-manager.d/system-deps.sh)"
 	[ "${1:-}" != client-ike ] || packages="$packages strongswan-mod-des dnsmasq"
 	[ "${1:-}" != client-native ] || packages="$packages strongswan-mod-des"
+	[ "${1:-}" != client-desktop ] || packages="$packages strongswan-mod-des dnsmasq"
 	[ -n "$packages" ] || { printf '%s\n' 'openwrt: no strongSwan packages listed' >&2; exit 1; }
 	# shellcheck disable=SC2086
 	if command -v opkg >/dev/null 2>&1; then
@@ -69,13 +70,14 @@ if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-c
 	else
 		apk add $packages >/dev/null
 	fi
-	if [ "$1" = client-credentials ] || [ "$1" = client-native ]; then
+	if [ "$1" = client-credentials ] || [ "$1" = client-native ] || [ "$1" = client-desktop ]; then
 		if command -v opkg >/dev/null 2>&1; then
 			opkg install uhttpd uhttpd-mod-ucode curl >/dev/null
 		else
 			apk add uhttpd uhttpd-mod-ucode curl >/dev/null
 		fi
 		[ "$1" != client-native ] || exec sh /src/scripts/openwrt/client-native.sh
+		[ "$1" != client-desktop ] || exec sh /src/scripts/openwrt/client-desktop.sh
 		exec sh /src/scripts/openwrt/client-credentials.sh
 	fi
 	if [ "$1" = client-ike ]; then

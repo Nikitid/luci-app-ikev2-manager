@@ -11,8 +11,10 @@ namespace IkeV2Manager.Client
         public int Version { get { return 2; } }
         public string State { get; internal set; }
         public bool GuardInstalled { get; internal set; }
-        // No protected status until enrollment, routing and data-plane gates exist.
-        public bool Protected { get { return false; } }
+        // True only while every gate holds at once: persistent denials, the
+        // owned tunnel, the selected routes through it, and the router's fresh
+        // word that its required path is in effect for this tunnel address.
+        public bool Protected { get; internal set; }
         public string UpdatedAtUtc { get; internal set; }
         public int ProcessId { get; internal set; }
         public string ConnectionError { get; internal set; }
@@ -36,6 +38,8 @@ namespace IkeV2Manager.Client
         private DateTime routeDeadline;
         private string connectionState = "blocked";
         private string connectionError = "none";
+        private ulong permittedInterface;
+        private DateTime readyUntil;
 
         public GuardRuntime(string storeName, bool enableSystemIntegration = false)
         {
@@ -48,7 +52,8 @@ namespace IkeV2Manager.Client
                 store.LoadPolicyHistory();
                 RestoreEnrollmentProtection();
                 Publish(guard == null ? (EnrollmentRegistration.Load(store) == null ? "enrollment_required" : "registration_pending") : "blocked");
-                heartbeat = new Timer(Tick, null, 5000, 5000);
+                // The router's readiness lasts five seconds; ask well inside that.
+                heartbeat = new Timer(Tick, null, 2000, 2000);
             }
             catch
             {
@@ -111,7 +116,7 @@ namespace IkeV2Manager.Client
                 catch
                 {
                     synchronizationFailed = true;
-                    try { if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after synchronization failure"); }
                     try { Publish("error"); } catch { }
                     CloseConnection();
@@ -134,7 +139,7 @@ namespace IkeV2Manager.Client
                 }
                 catch
                 {
-                    try { if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after enrollment failure"); }
                     try { Publish("registration_error"); } catch { }
                     throw;
@@ -162,7 +167,7 @@ namespace IkeV2Manager.Client
         {
             if (!systemIntegration) return;
             if (guard == null) throw new InvalidOperationException("Guard required before VPN provisioning");
-            guard.Block(); guard.VerifyProtection();
+            ClosePermission(); guard.VerifyProtection();
             SystemHosts.Apply(store, store.LoadPolicyHistory());
             var profile = ManagedVpnProfile.Ensure(policy, store.LoadPlan().Owner, store.LoadVpnEntry());
             store.SaveVpnEntry(profile.EntryId);
@@ -175,8 +180,17 @@ namespace IkeV2Manager.Client
             Interlocked.Increment(ref connectionRequest);
         }
 
+        // Every path that withdraws permission goes through here, so the status
+        // can never say "protected" over a guard that is closed.
+        private void ClosePermission()
+        {
+            permittedInterface = 0;
+            if (guard != null) guard.Block();
+        }
+
         private void CloseConnection()
         {
+            permittedInterface = 0;
             if (routes != null) { routes.Dispose(); routes = null; }
             if (connection != null) { connection.Dispose(); connection = null; }
         }
@@ -191,7 +205,7 @@ namespace IkeV2Manager.Client
             }
             if (!connectionWanted || synchronizationFailed)
             {
-                if (guard != null) guard.Block();
+                ClosePermission();
                 CloseConnection(); connectionState = "blocked"; connectionError = "none"; return;
             }
             try
@@ -200,16 +214,16 @@ namespace IkeV2Manager.Client
                 if (connection == null)
                 {
                     if (DateTime.UtcNow < retryConnectionAt) return;
-                    guard.Block(); guard.VerifyProtection();
+                    ClosePermission(); guard.VerifyProtection();
                     var registration = EnrollmentRegistration.Load(store);
                     var profile = ManagedVpnProfile.FromJournal(store.LoadPlan().Owner, store.LoadVpnEntry());
                     connection = OwnedRasConnection.Begin(profile, registration.Id, registration.Password);
                     routeDeadline = DateTime.MinValue;
                 }
                 var observed = connection.Observe();
-                if (observed == null) { connectionState = "connecting"; return; }
+                if (observed == null) { ClosePermission(); connectionState = "connecting"; return; }
                 var selectedAddresses = store.LoadPolicyHistory().Current.Resources.Select(r => IPAddress.Parse(r.Address)).ToArray();
-                if (routes != null && !routes.Matches(observed, selectedAddresses)) { guard.Block(); routes.Dispose(); routes = null; }
+                if (routes != null && !routes.Matches(observed, selectedAddresses)) { ClosePermission(); routes.Dispose(); routes = null; }
                 if (routes == null) routes = new OwnedTunnelRoutes(observed, selectedAddresses);
                 routes.Verify(observed);
                 if (routeDeadline == DateTime.MinValue) routeDeadline = DateTime.UtcNow.AddSeconds(10);
@@ -223,13 +237,50 @@ namespace IkeV2Manager.Client
                             !route.Source.Equals(observed.LocalAddress) ? "route_source" : "route_prefix";
                         // RAS completion can precede route publication. Keep
                         // persistent denials while Windows finishes configuring.
-                        if (DateTime.UtcNow < routeDeadline) { connectionState = "connecting"; return; }
+                        if (DateTime.UtcNow < routeDeadline) { ClosePermission(); connectionState = "connecting"; return; }
                         throw new InvalidOperationException("Selected route does not use the owned tunnel");
                     }
                 }
-                // DNS and router readiness have not granted permission yet.
-                connectionError = "none";
+                // The tunnel and its routes are ours. Permission still waits for
+                // the router: it answers only for an SA it authenticated and
+                // admitted, with its required exit and proxy in effect.
                 connectionState = "tunnel_connected";
+                var current = store.LoadPolicyHistory().Current;
+                var enrolled = EnrollmentRegistration.Load(store);
+                DeviceReadiness ready;
+                try
+                {
+                    ready = PolicyTransportClient.FetchReadiness(
+                        new UriBuilder(enrolled.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri, enrolled.DeviceToken, observed.LocalAddress);
+                    if (ready.Id != enrolled.Id || ready.Address != observed.LocalAddress.ToString() || ready.Revision != current.Revision)
+                        throw new PolicyFetchException("path_different_policy");
+                }
+                catch (PolicyFetchException refusal)
+                {
+                    // One unanswered question is not a lost path: the router
+                    // renews its word every two seconds and keeps its own
+                    // admission for fifteen, so permission outlives a missed
+                    // answer by less than that. A refusal that names this
+                    // device or its policy ends it at once.
+                    bool transient = refusal.Code == "path_unavailable" || refusal.Code == "path_connection_failed";
+                    if (transient && permittedInterface == observed.InterfaceLuid && DateTime.UtcNow < readyUntil)
+                    {
+                        connectionState = "protected";
+                        return;
+                    }
+                    // The tunnel stays; only permission goes. The next tick asks again.
+                    ClosePermission();
+                    connectionError = refusal.Code;
+                    return;
+                }
+                if (permittedInterface != observed.InterfaceLuid)
+                {
+                    guard.AllowInterface(observed.InterfaceLuid);
+                    permittedInterface = observed.InterfaceLuid;
+                }
+                readyUntil = DateTime.UtcNow.AddSeconds(10);
+                connectionError = "none";
+                connectionState = "protected";
             }
             catch (Exception error)
             {
@@ -242,7 +293,7 @@ namespace IkeV2Manager.Client
                     error.Message == "IKEv2 interface cannot be identified uniquely" ? "interface_missing" :
                     error.Message == "Selected route does not use the owned tunnel" ? connectionError :
                     error.Message == "Native IKEv2 connection lost" ? "projection_missing" : "route_or_identity";
-                if (guard != null) guard.Block();
+                ClosePermission();
                 CloseConnection();
                 connectionState = "connection_error";
                 retryConnectionAt = DateTime.UtcNow.AddSeconds(30);
@@ -268,7 +319,7 @@ namespace IkeV2Manager.Client
                 healthy = false;
                 try
                 {
-                    if (guard != null) guard.Block();
+                    ClosePermission();
                     if (initial) store.SavePlan(plan); else store.ExtendPlan(plan);
                     if (guard != null) { guard.Dispose(); guard = null; }
                     guard = WfpGuard.Resume(plan);
@@ -279,7 +330,7 @@ namespace IkeV2Manager.Client
                 }
                 catch
                 {
-                    try { if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after a failed policy update"); }
                     try { Publish("error"); } catch { }
                     throw;
@@ -306,7 +357,7 @@ namespace IkeV2Manager.Client
                     healthy = false;
                     // A future permission owner must also close before publishing
                     // an error; failure to close cannot leave a live process.
-                    try { if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close its permission session"); }
                     try { Publish("error"); } catch { }
                 }
@@ -316,6 +367,7 @@ namespace IkeV2Manager.Client
         private void Publish(string state)
         {
             store.PublishStatus(new ClientStatus { State = state, GuardInstalled = healthy,
+                Protected = healthy && state == "protected" && permittedInterface != 0,
                 ConnectionError = connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
                 ProcessId = Process.GetCurrentProcess().Id });
@@ -330,7 +382,7 @@ namespace IkeV2Manager.Client
                 if (heartbeat != null) heartbeat.Dispose();
                 try
                 {
-                    if (guard != null) guard.Block();
+                    ClosePermission();
                     CloseConnection();
                     if (guard != null) guard.Dispose();
                     if (store != null) Publish("stopped");
