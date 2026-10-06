@@ -127,6 +127,11 @@ backup_open() {
 	openssl enc -d -aes-256-cbc -pbkdf2 -iter "$backup_iterations" -md sha256 \
 		-in "$dir/backup.enc" -out "$dir/archive.tgz" -pass "file:$pass" 2>/dev/null ||
 		die 'The passphrase does not open this backup'
+	# The cipher carries no authentication: about one wrong passphrase in 256
+	# leaves valid padding and "decrypts" to noise. An export always starts as
+	# gzip, so anything else is that case and is named as what it is.
+	[ "$(head -c 2 "$dir/archive.tgz" | hexdump -v -e '/1 "%02x"')" = 1f8b ] ||
+		die 'The passphrase does not open this backup'
 	tar -tzf "$dir/archive.tgz" >"$dir/list" 2>/dev/null || die 'The backup is damaged'
 	# Plain files and directories only: a link could point anywhere.
 	tar -tvzf "$dir/archive.tgz" 2>/dev/null | grep -q '^[^-d]' &&

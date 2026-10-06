@@ -99,7 +99,7 @@ for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	# Run without input: a usage error is fine, a compile error is 255.
 	rc=0
 	case "$script" in
-		*/client-access-admin.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
+		*/client-access-admin.uc | */client-access-device-evidence.uc | */client-access-path-evidence.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
 			ucode -e "import * as module from '$script';" >/dev/null 2>&1 || rc=$? ;;
 		*/client-access-http.uc)
 			ucode -T "$script" >/dev/null 2>&1 || rc=$? ;;
@@ -1130,6 +1130,18 @@ EOF2
 	printf 'wrong passphrase' >/tmp/ikev2-manager-backup-t2.pass
 	( backup_import t2 ) 2>/tmp/import.err && fail 'a wrong passphrase opened the backup'
 	grep -q 'passphrase does not open' /tmp/import.err || fail "a wrong passphrase was not named: $(cat /tmp/import.err)"
+	grep -q '^bob' /etc/ikev2-manager/users.db || fail 'a refused import changed the router'
+
+	# The cipher has no authentication, so one wrong passphrase in about 256
+	# decrypts to noise with valid padding. Made on purpose here: noise under a
+	# passphrase that does open it must still be called a wrong passphrase.
+	printf 'accepted padding' >/tmp/ikev2-manager-backup-t4.pass
+	printf 'not an archive at all' >/tmp/backup.noise
+	{ printf '%s\n' "$backup_magic"
+	  openssl enc -aes-256-cbc -pbkdf2 -iter "$backup_iterations" -md sha256 -salt \
+		-in /tmp/backup.noise -pass file:/tmp/ikev2-manager-backup-t4.pass; } | openssl base64 -A >/tmp/ikev2-manager-backup-t4.in
+	( backup_import t4 ) 2>/tmp/import.err && fail 'noise was imported as a backup'
+	grep -q 'passphrase does not open' /tmp/import.err || fail "noise behind valid padding was not named a wrong passphrase: $(cat /tmp/import.err)"
 	grep -q '^bob' /etc/ikev2-manager/users.db || fail 'a refused import changed the router'
 
 	cp /tmp/backup.b64 /tmp/ikev2-manager-backup-t3.in
