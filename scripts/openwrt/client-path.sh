@@ -155,6 +155,21 @@ seen_path() {
 	ip netns exec "$path_exit" nft list counter inet path_evidence "$1" | sed -n 's/.*packets \([0-9]*\).*/\1/p'
 }
 [ "$(probe)" = authenticated-path ] || fail 'inbound IKE to proxy to required exit TCP failed'
+# What other software on a router does to marks: restore a connection mark over
+# the whole packet mark of an established flow, between this path's
+# interception and delivery. The flow must survive it, and still be closed
+# without admission.
+ip netns exec "$server" nft -f - <<'NFT'
+table ip foreign_marks {
+ chain prerouting {
+  type filter hook prerouting priority mangle; policy accept;
+  ct state established,related meta mark set ct mark & 0x0000ff00
+ }
+}
+NFT
+[ "$(probe)" = authenticated-path ] || fail 'a foreign mark rewrite broke an admitted flow'
+[ "$(udp_probe)" = authenticated-udp ] || fail 'a foreign mark rewrite broke admitted UDP'
+[ -z "$(probe 4446 || :)" ] || fail 'a foreign mark rewrite admitted an unselected port'
 [ "$(udp_probe)" = authenticated-udp ] || fail 'inbound IKE to proxy to required exit UDP failed'
 [ -z "$(probe 4446 || :)" ] || fail 'existing policy admitted unselected port' 
 [ "$(seen_path encrypted_service)" -gt 0 ] || fail 'service did not cross required encrypted exit'

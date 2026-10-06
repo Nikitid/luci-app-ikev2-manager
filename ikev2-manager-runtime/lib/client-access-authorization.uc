@@ -133,6 +133,13 @@ export function compile_client_authorization(input) {
 	// address types also survive nft's reconstruction of expiring set elements.
 	nft += '  chain prerouting {\n    type filter hook prerouting priority -165; policy accept;\n';
 	nft += `    ip daddr ${subnet} jump authorize\n  }\n`;
+	// The mark is evidence only within one hook. Other software on a router
+	// rewrites packet marks between hooks (a connection-mark restore replaces
+	// the whole mark of an established flow), so admission is decided again
+	// from the SA and the grants when the packet is delivered, ahead of every
+	// input rule that asks for the mark.
+	nft += '  chain input {\n    type filter hook input priority -170; policy accept;\n';
+	nft += `    ip daddr ${subnet} jump authorize\n  }\n`;
 	nft += '  chain authorize {\n    iifname != "ipsec-in" counter drop\n';
 	for (let key in sort(keys(admitted))) {
 		let session = admitted[key];
@@ -175,9 +182,9 @@ export function compile_client_denial(subnet) {
 	let nft = 'table inet ikev2_client_access {\n  chain ikev2_manager_owned { }\n';
 	for (let protocol in [ 'tcp', 'udp' ])
 		nft += `  set allow_${protocol} { type ipv4_addr . ipv4_addr . inet_service; flags timeout; timeout 15s; }\n`;
-	for (let hook in [ 'prerouting', 'output', 'postrouting' ]) {
-		let direction = hook == 'prerouting' ? 'daddr' : 'saddr';
-		let priority = hook == 'postrouting' ? 0 : -165;
+	for (let hook in [ 'prerouting', 'input', 'output', 'postrouting' ]) {
+		let direction = hook == 'prerouting' || hook == 'input' ? 'daddr' : 'saddr';
+		let priority = hook == 'postrouting' ? 0 : hook == 'input' ? -170 : -165;
 		nft += `  chain ${hook} { type filter hook ${hook} priority ${priority}; policy accept; ip ${direction} ${subnet} counter drop; }\n`;
 	}
 	nft += '}\n';
