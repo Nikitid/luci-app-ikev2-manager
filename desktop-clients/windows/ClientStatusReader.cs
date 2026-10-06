@@ -7,6 +7,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Linq;
 using System.Web.Script.Serialization;
 
 namespace IkeV2Manager.Client
@@ -19,12 +20,25 @@ namespace IkeV2Manager.Client
         // while the router's readiness for this tunnel is fresh.
         public bool Protected { get { return State == "protected"; } }
         public string ConnectionError { get; private set; }
-        internal ClientView(string state, bool installed = false, string connectionError = "none") { State = state; GuardInstalled = installed; ConnectionError = connectionError; }
+        public string[] Services { get; private set; }
+        public int Domains { get; private set; }
+        public int Revision { get; private set; }
+        public bool Wanted { get; private set; }
+        // The tunnel and the selected routes through it are confirmed in both.
+        public bool Routed { get { return State == "tunnel_connected" || State == "protected"; } }
+        internal ClientView(string state, bool installed = false, string connectionError = "none",
+            string[] services = null, int domains = 0, int revision = 0, bool wanted = false, string[] available = null)
+        {
+            State = state; GuardInstalled = installed; ConnectionError = connectionError;
+            Services = services ?? new string[0]; Available = available ?? new string[0]; Domains = domains; Revision = revision; Wanted = wanted;
+        }
+        public string[] Available { get; private set; }
 
         public string Report()
         {
-            return new JavaScriptSerializer().Serialize(new { Version = 2, State = State,
-                GuardInstalled = GuardInstalled, Protected = Protected, ConnectionError = ConnectionError, CreatedAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) });
+            return new JavaScriptSerializer().Serialize(new { Version = 3, State = State,
+                GuardInstalled = GuardInstalled, Protected = Protected, Routed = Routed, ConnectionWanted = Wanted,
+                ConnectionError = ConnectionError, Services = Services, AvailableServices = Available, Domains = Domains, PolicyRevision = Revision, CreatedAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) });
         }
     }
 
@@ -75,14 +89,14 @@ namespace IkeV2Manager.Client
                 var data = serializer.DeserializeObject(json) as Dictionary<string, object>;
                 if (data == null || !data.ContainsKey("Version") || !(data["Version"] is int)) return new ClientView("status_invalid");
                 int version = (int)data["Version"];
-                if ((version != 1 && version != 2) || data.Count != (version == 1 ? 6 : 7) || !data.ContainsKey("State") ||
+                if (version < 1 || version > 3 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : 12) || !data.ContainsKey("State") ||
                     !data.ContainsKey("GuardInstalled") || !data.ContainsKey("Protected") ||
                     !data.ContainsKey("UpdatedAtUtc") || !data.ContainsKey("ProcessId") ||
                     !(data["ProcessId"] is int) ||
                     !(data["State"] is string) || !(data["GuardInstalled"] is bool) || !(data["Protected"] is bool) ||
                     !(data["UpdatedAtUtc"] is string)) return new ClientView("status_invalid");
                 string connectionError = "none";
-                if (version == 2)
+                if (version >= 2)
                 {
                     if (!data.ContainsKey("ConnectionError") || !(data["ConnectionError"] is string) ||
                         !Regex.IsMatch((string)data["ConnectionError"], @"\A(?:none|route_or_identity|interface_missing|route_mismatch|route_loopback|route_interface|route_source|route_prefix|route_fields_[0-9]{1,3}|projection_missing|native_[0-9]{1,5}|path_unavailable|path_connection_failed|path_response_invalid|path_different_policy|device_access_revoked)\z")) return new ClientView("status_invalid");
@@ -106,7 +120,18 @@ namespace IkeV2Manager.Client
                     state != "tunnel_connected" && state != "connection_error" && state != "protected") ||
                     ((state == "blocked" || state == "connecting" || state == "tunnel_connected" || state == "connection_error" || state == "protected") && !guard) || (state == "enrollment_required" && guard))
                     return new ClientView("status_invalid");
-                return new ClientView(state, guard, connectionError);
+                // Older statuses never carried protection; they cannot claim it.
+                if (version < 3) return new ClientView(state == "protected" ? "status_invalid" : state, guard, connectionError);
+                object[] listed = data.ContainsKey("Services") ? data["Services"] as object[] : null;
+                object[] offered = data.ContainsKey("Available") ? data["Available"] as object[] : null;
+                if (listed == null || listed.Length > 64 || offered == null || offered.Length > 64 ||
+                    offered.Any(item => !(item is string) || !Regex.IsMatch((string)item, @"\A[a-z0-9][a-z0-9_-]{0,47}\z")) || !(data.ContainsKey("Domains") && data["Domains"] is int) ||
+                    !(data.ContainsKey("Revision") && data["Revision"] is int) || !(data.ContainsKey("Wanted") && data["Wanted"] is bool) ||
+                    (int)data["Domains"] < 0 || (int)data["Revision"] < 0 ||
+                    listed.Any(item => !(item is string) || !Regex.IsMatch((string)item, @"\A[a-z0-9][a-z0-9_-]{0,47}\z")) ||
+                    ((state == "protected" || state == "tunnel_connected") && !(bool)data["Wanted"]))
+                    return new ClientView("status_invalid");
+                return new ClientView(state, guard, connectionError, listed.Cast<string>().ToArray(), (int)data["Domains"], (int)data["Revision"], (bool)data["Wanted"], offered.Cast<string>().ToArray());
             }
             catch (ArgumentException) { return new ClientView("status_invalid"); }
             catch (InvalidOperationException) { return new ClientView("status_invalid"); }

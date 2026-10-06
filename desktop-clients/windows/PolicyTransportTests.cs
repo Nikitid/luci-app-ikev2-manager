@@ -49,6 +49,13 @@ internal static class PolicyTransportTests
                 throw new Exception("Readiness body was not read");
             Reject(() => PolicyTransportClient.ReadBody(new MemoryStream(new byte[4097]), "application/json", -1, 4096, "path_response_invalid"), "path_response_invalid");
             Reject(() => PolicyTransportClient.ReadBody(new MemoryStream(body), "text/plain", body.Length, 4096, "path_response_invalid"), "path_response_invalid");
+            string offered = "{\"version\":1,\"id\":\"office-pc\",\"revision\":4,\"selected\":[{\"id\":\"api\",\"domains\":3},{\"id\":\"mail\",\"domains\":2}],\"available\":[{\"id\":\"wiki\",\"domains\":9}]}";
+            var names = DeviceServices.Parse(offered, "office-pc");
+            if (names.Selected.Length != 2 || names.Available.Length != 1 || names.Available[0] != "wiki" || names.Domains != 5) throw new Exception("Service names were not read");
+            Reject(() => DeviceServices.Parse(offered, "other-pc"), "services_response_invalid");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"mail\"", "\"api\""), "office-pc"), "services_response_invalid");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"wiki\"", "\"../wiki\""), "office-pc"), "services_response_invalid");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"domains\":9", "\"domains\":9,\"address\":\"10.0.0.1\""), "office-pc"), "services_response_invalid");
             Console.WriteLine("Policy transport checks passed: endpoint restrictions, bounded body, UTF-8, schema, readiness and safe errors");
             return 0;
         }

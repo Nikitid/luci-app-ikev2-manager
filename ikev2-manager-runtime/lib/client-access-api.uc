@@ -22,11 +22,30 @@ function valid_fields(value, expected) {
 		length(filter(expected, key => value[key] == null)) == 0;
 }
 
+// What the device shows its user: the services it was assigned and the other
+// services published to clients, by name and size. Domain lists stay in the
+// policy, which carries only what this device may reach.
+function device_services(publication, device) {
+	let assigned = filter(publication.devices, item => item.id == device.id);
+	if (length(assigned) != 1 || type(assigned[0].selected_services) != 'array' || type(publication.services) != 'array')
+		die('inconsistent device assignment');
+	let selected = [], available = [];
+	for (let service in publication.services) {
+		if (!service.client_access)
+			continue;
+		push(index(assigned[0].selected_services, service.id) >= 0 ? selected : available,
+			{ id: service.id, domains: length(service.domains) });
+	}
+	let by_id = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+	return { version: 1, id: device.id, revision: device.policy.revision,
+		selected: sort(selected, by_id), available: sort(available, by_id) };
+}
+
 export function client_policy_response(env, directory) {
 	if (env.HTTPS != 'on')
 		return reply(403, 'tls_required');
-	let readiness = env.REQUEST_URI == '/client/v1/readiness';
-	if (!readiness && env.REQUEST_URI != '/client/v1/policy')
+	let readiness = env.REQUEST_URI == '/client/v1/readiness', services = env.REQUEST_URI == '/client/v1/services';
+	if (!readiness && !services && env.REQUEST_URI != '/client/v1/policy')
 		return reply(404, 'not_found');
 	if (env.REQUEST_METHOD != 'GET')
 		return reply(405, 'method_not_allowed');
@@ -65,12 +84,14 @@ export function client_policy_response(env, directory) {
 			return { status: 200, body: read_client_device_evidence('/var/run/ikev2-client-access', committed,
 				selected.id, headers['x-client-address'], time()) };
 		}
+		if (services)
+			return { status: 200, body: device_services(committed.publication, selected) };
 		// Validation rejects unknown fields before returning any policy content.
 		let compiled = compile_client_policy(selected.policy);
 		if (length(sprintf('%J', compiled.policy)) > 1048576)
 			return reply(503, 'policy_unavailable');
 		return { status: 200, body: compiled.policy };
 	} catch (error) {
-		return reply(503, readiness ? 'path_unavailable' : 'policy_unavailable');
+		return reply(503, readiness ? 'path_unavailable' : services ? 'services_unavailable' : 'policy_unavailable');
 	};
 };

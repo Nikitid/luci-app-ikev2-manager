@@ -42,6 +42,47 @@ namespace IkeV2Manager.Client
         }
     }
 
+    // The names a device shows its user. Informational: permission never
+    // depends on it, so it carries no addresses and grants nothing.
+    public sealed class DeviceServices
+    {
+        public readonly string[] Selected, Available;
+        public readonly int Domains;
+
+        private DeviceServices(string[] selected, string[] available, int domains) { Selected = selected; Available = available; Domains = domains; }
+
+        internal static DeviceServices Parse(string json, string id)
+        {
+            try
+            {
+                var data = ClientPolicy.Object(new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 65536, RecursionLimit = 5 }.DeserializeObject(json));
+                ClientPolicy.Fields(data, "version", "id", "revision", "selected", "available");
+                if (ClientPolicy.Integer(data["version"], 1, 1) != 1 || ClientPolicy.Text(data["id"]) != id) throw new ArgumentException();
+                ClientPolicy.Integer(data["revision"], 1, Int32.MaxValue);
+                int domains = 0;
+                var lists = new System.Collections.Generic.List<string[]>();
+                foreach (string key in new[] { "selected", "available" })
+                {
+                    var names = new System.Collections.Generic.List<string>();
+                    foreach (object item in ClientPolicy.ArrayValue(data[key], 0, 512))
+                    {
+                        var service = ClientPolicy.Object(item);
+                        ClientPolicy.Fields(service, "id", "domains");
+                        string name = ClientPolicy.Text(service["id"]);
+                        if (!Regex.IsMatch(name, @"\A[a-z0-9][a-z0-9_-]{0,47}\z") || names.Contains(name)) throw new ArgumentException();
+                        int count = ClientPolicy.Integer(service["domains"], 0, 65536);
+                        if (key == "selected") domains += count;
+                        names.Add(name);
+                    }
+                    lists.Add(names.ToArray());
+                }
+                return new DeviceServices(lists[0], lists[1], domains);
+            }
+            catch (ArgumentException) { throw new PolicyFetchException("services_response_invalid"); }
+            catch (InvalidOperationException) { throw new PolicyFetchException("services_response_invalid"); }
+        }
+    }
+
     public static class PolicyTransportClient
     {
         private const int Limit = 1048576;
@@ -134,6 +175,34 @@ namespace IkeV2Manager.Client
                 throw new PolicyFetchException("path_connection_failed");
             }
             catch (IOException) { throw new PolicyFetchException("path_connection_failed"); }
+        }
+
+        public static DeviceServices FetchServices(Uri policyEndpoint, string token, string id)
+        {
+            ValidateEndpoint(policyEndpoint, token);
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = (HttpWebRequest)WebRequest.Create(new UriBuilder(policyEndpoint) { Path = "/client/v1/services" }.Uri);
+            request.Method = "GET";
+            request.AllowAutoRedirect = false;
+            request.Proxy = null;
+            request.UseDefaultCredentials = false;
+            request.KeepAlive = false;
+            request.Timeout = request.ReadWriteTimeout = 5000;
+            request.MaximumResponseHeadersLength = 16;
+            request.Accept = "application/json";
+            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            using (var deadline = new Timer(ignored => request.Abort(), null, 5000, Timeout.Infinite))
+            try
+            {
+                using (var response = (HttpWebResponse)request.GetResponse())
+                {
+                    if (response.StatusCode != HttpStatusCode.OK) throw new PolicyFetchException("services_unavailable");
+                    using (var stream = response.GetResponseStream())
+                        return DeviceServices.Parse(ReadBody(stream, response.ContentType, response.ContentLength, 65536, "services_response_invalid"), id);
+                }
+            }
+            catch (WebException) { throw new PolicyFetchException("services_unavailable"); }
+            catch (IOException) { throw new PolicyFetchException("services_unavailable"); }
         }
 
         internal static string ReadBody(Stream stream, string contentType, long contentLength, int limit, string invalid)

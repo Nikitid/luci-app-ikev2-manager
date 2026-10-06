@@ -8,7 +8,7 @@ namespace IkeV2Manager.Client
 {
     public sealed class ClientStatus
     {
-        public int Version { get { return 2; } }
+        public int Version { get { return 3; } }
         public string State { get; internal set; }
         public bool GuardInstalled { get; internal set; }
         // True only while every gate holds at once: persistent denials, the
@@ -18,6 +18,12 @@ namespace IkeV2Manager.Client
         public string UpdatedAtUtc { get; internal set; }
         public int ProcessId { get; internal set; }
         public string ConnectionError { get; internal set; }
+        // What the device was assigned: service names and counts, no addresses.
+        public string[] Services { get; internal set; }
+        public int Domains { get; internal set; }
+        public int Revision { get; internal set; }
+        public bool Wanted { get; internal set; }
+        public string[] Available { get; internal set; }
     }
 
     public sealed class GuardRuntime : IDisposable
@@ -40,6 +46,7 @@ namespace IkeV2Manager.Client
         private string connectionError = "none";
         private ulong permittedInterface;
         private DateTime readyUntil;
+        private DeviceServices assigned;
 
         public GuardRuntime(string storeName, bool enableSystemIntegration = false)
         {
@@ -51,6 +58,7 @@ namespace IkeV2Manager.Client
                 if (plan != null) { guard = WfpGuard.Resume(plan); healthy = true; }
                 store.LoadPolicyHistory();
                 RestoreEnrollmentProtection();
+                connectionWanted = systemIntegration && registrationComplete && store.LoadConnectionIntent();
                 Publish(guard == null ? (EnrollmentRegistration.Load(store) == null ? "enrollment_required" : "registration_pending") : "blocked");
                 // The router's readiness lasts five seconds; ask well inside that.
                 heartbeat = new Timer(Tick, null, 2000, 2000);
@@ -106,7 +114,18 @@ namespace IkeV2Manager.Client
                         throw new InvalidOperationException("Completed registration required");
                     var previous = store.LoadPolicyHistory();
                     var endpoint = new UriBuilder(registration.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri;
-                    var next = PolicyTransportClient.Fetch(endpoint, registration.DeviceToken, previous);
+                    ClientPolicy next;
+                    try { next = PolicyTransportClient.Fetch(endpoint, registration.DeviceToken, previous); }
+                    catch (PolicyFetchException unanswered)
+                    {
+                        // A poll that got no answer changes nothing: the
+                        // committed policy stays in force, and the router's
+                        // readiness remains the live gate on permission.
+                        if (unanswered.Code != "policy_connection_failed") throw;
+                        return;
+                    }
+                    try { assigned = PolicyTransportClient.FetchServices(endpoint, registration.DeviceToken, registration.Id); }
+                    catch (PolicyFetchException) { }
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
                     else EnsureProfile(next);
                     synchronizationFailed = false;
@@ -176,6 +195,11 @@ namespace IkeV2Manager.Client
         public void RequestConnection(bool wanted)
         {
             if (!systemIntegration || (wanted && !registrationComplete)) throw new InvalidOperationException("Registered system integration required");
+            lock (gate)
+            {
+                if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                store.SaveConnectionIntent(wanted);
+            }
             connectionWanted = wanted;
             Interlocked.Increment(ref connectionRequest);
         }
@@ -366,7 +390,21 @@ namespace IkeV2Manager.Client
 
         private void Publish(string state)
         {
+            int domains = 0, revision = 0;
+            try
+            {
+                var history = guard == null ? null : store.LoadPolicyHistory();
+                if (history != null)
+                {
+                    domains = history.Current.Resources.Select(r => r.Domain).Distinct().Count();
+                    revision = history.Current.Revision;
+                }
+            }
+            catch (InvalidOperationException) { }
             store.PublishStatus(new ClientStatus { State = state, GuardInstalled = healthy,
+                Services = assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray(),
+                Available = assigned == null ? new string[0] : assigned.Available.Take(64).ToArray(),
+                Domains = domains, Revision = revision, Wanted = connectionWanted,
                 Protected = healthy && state == "protected" && permittedInterface != 0,
                 ConnectionError = connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),

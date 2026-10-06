@@ -157,6 +157,8 @@ internal static class EnrollmentIntegrationTests
                         string target = (string)config["probe_host"]; int port = (int)config["probe_port"];
                         step = "router readiness";
                         Require(Await(name, true, 45000), "Router readiness did not open access: " + Diagnosis(name));
+                        var named = ClientStatusReader.Read(name);
+                        Require(named.Services.Length == 1 && named.Services[0] == "api" && named.Available.Length == 0, "Status did not name the assigned service");
                         Require(Echo(target, port), "Selected service did not answer through the confirmed path");
                         Require(!Echo(target, (int)config["closed_port"]), "A port outside the assignment answered");
                         Console.WriteLine("Native protected status and selected service traffic verified");
@@ -176,6 +178,18 @@ internal static class EnrollmentIntegrationTests
                         Require(ClientStatusReader.Read(name).State == "blocked" && !Echo(target, port), "Disconnect left the selected service reachable");
                         Require(ClientCommands.Send("connect", service: name) == "accepted", "Reconnect refused");
                         Require(Await(name, true, 60000), "Reconnect did not reopen access: " + Diagnosis(name));
+                        // The user's choice outlives the service: a restart
+                        // returns to the connection without being asked.
+                        step = "connection after restart";
+                        Stop(service);
+                        Require(!Echo(target, port), "Selected service answered while the service was stopped");
+                        service.Start(); service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
+                        Require(Await(name, true, 60000), "Restart did not return to the wanted connection: " + Diagnosis(name));
+                        var shown = ClientStatusReader.Read(name);
+                        Require(shown.Domains == 1 && shown.Revision >= 1 && shown.Wanted,
+                            "Status did not show the assigned service");
+                        Require(Echo(target, port), "Selected service did not answer after restart");
+                        Console.WriteLine("Native restart returned to the protected connection");
                     }
                     else
                     {

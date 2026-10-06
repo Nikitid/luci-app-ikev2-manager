@@ -15,7 +15,17 @@ namespace IkeV2Manager.Client
     {
         private readonly Label heading = new Label { AutoSize = true, Font = new Font("Segoe UI", 18, FontStyle.Bold), Margin = new Padding(0, 0, 0, 12) };
         private readonly Label description = new Label { AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(0, 0, 0, 24) };
-        private readonly Label guard = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 12) };
+        private readonly Label guard = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 6) };
+        private readonly Label tunnel = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 6) };
+        private readonly Label path = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 12) };
+        private readonly Label services = new Label { AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(0, 0, 0, 6) };
+        private readonly Button register = new Button { Text = "Регистрация…", AutoSize = true };
+        private readonly Button resume = new Button { Text = "Продолжить регистрацию", AutoSize = true };
+        private readonly Button connect = new Button { Text = "Подключить", AutoSize = true };
+        private readonly Button disconnect = new Button { Text = "Отключить", AutoSize = true };
+        // Set by a registration started in this window: the first thing a newly
+        // registered device wants is its connection.
+        private bool connectAfterRegistration;
         private readonly Label updated = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(0, 20, 0, 12) };
         private readonly Timer timer = new Timer { Interval = 3000 };
         private ClientView current = new ClientView("status_unavailable");
@@ -24,17 +34,19 @@ namespace IkeV2Manager.Client
         internal ClientWindow()
         {
             Text = "IKEv2 Manager";
-            ClientSize = new Size(620, 340);
-            MinimumSize = new Size(580, 350);
+            ClientSize = new Size(620, 430);
+            MinimumSize = new Size(580, 440);
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 10);
             StartPosition = FormStartPosition.CenterScreen;
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(28), ColumnCount = 1, RowCount = 6 };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(28), ColumnCount = 1, RowCount = 8 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             layout.Controls.Add(heading);
             layout.Controls.Add(description);
             layout.Controls.Add(guard);
-            layout.Controls.Add(new Label { Text = "Подключение к рабочим сервисам: не подтверждено", AutoSize = true });
+            layout.Controls.Add(tunnel);
+            layout.Controls.Add(path);
+            layout.Controls.Add(services);
             layout.Controls.Add(updated);
             var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty };
             var refresh = new Button { Text = "Обновить", AutoSize = true, Margin = new Padding(0, 0, 12, 0) };
@@ -43,14 +55,10 @@ namespace IkeV2Manager.Client
             report.Click += (sender, args) => PreviewReport();
             buttons.Controls.Add(refresh);
             buttons.Controls.Add(report);
-            var register = new Button { Text = "Регистрация…", AutoSize = true };
-            var resume = new Button { Text = "Продолжить регистрацию", AutoSize = true };
             register.Click += (sender, args) => BeginRegistration();
             resume.Click += (sender, args) => SubmitCommand("continue");
             buttons.Controls.Add(register);
             buttons.Controls.Add(resume);
-            var connect = new Button { Text = "Подключить", AutoSize = true };
-            var disconnect = new Button { Text = "Отключить", AutoSize = true };
             connect.Click += (sender, args) => SubmitCommand("connect");
             disconnect.Click += (sender, args) => SubmitCommand("disconnect");
             buttons.Controls.Add(connect); buttons.Controls.Add(disconnect);
@@ -84,6 +92,7 @@ namespace IkeV2Manager.Client
                     string endpoint, token;
                     ClientCommands.ParseInvitation(input.Text, out endpoint, out token);
                     input.Clear();
+                    connectAfterRegistration = true;
                     SubmitCommand("begin", endpoint, token);
                 }
                 catch (ArgumentException) { MessageBox.Show(this, "Приглашение имеет неверный формат.", "Регистрация"); }
@@ -164,7 +173,22 @@ namespace IkeV2Manager.Client
                     description.Text = "Проверка службы или её статуса не прошла. Код состояния доступен в отчёте.";
                     break;
             }
-            guard.Text = "Блокирующие правила: " + (current.GuardInstalled ? "подтверждены" : "не подтверждены");
+            guard.Text = "Блокировка вне туннеля: " + (current.GuardInstalled ? "включена и проверена" : "не подтверждена");
+            tunnel.Text = "Туннель и маршруты выбранных сервисов: " + (current.Routed ? "подтверждены" : current.State == "connecting" ? "устанавливаются" : "нет");
+            path.Text = "Путь на роутере: " + (current.Protected ? "подтверждён" : "не подтверждён");
+            services.Text = (current.Services.Length == 0 ? (current.Domains == 0 ? "Назначенные сервисы: нет" : "Назначенные сервисы: доменов " + current.Domains + ", названия уточняются") :
+                "Назначенные сервисы (доменов: " + current.Domains + ", версия настроек " + current.Revision + "): " + String.Join(", ", current.Services)) +
+                (current.Available.Length == 0 ? "" : "\r\nДоступны по запросу у администратора: " + String.Join(", ", current.Available));
+            bool registered = current.GuardInstalled && current.State != "registration_pending" && current.State != "registration_error";
+            register.Visible = current.State == "enrollment_required" || current.State == "registration_error";
+            resume.Visible = current.State == "registration_pending" || current.State == "registration_error";
+            connect.Visible = registered && !current.Wanted;
+            disconnect.Visible = registered && current.Wanted;
+            if (connectAfterRegistration && registered && current.State == "blocked" && !current.Wanted && !commandBusy)
+            {
+                connectAfterRegistration = false;
+                SubmitCommand("connect");
+            }
             updated.Text = "Проверено: " + DateTime.Now.ToString("HH:mm:ss");
         }
 

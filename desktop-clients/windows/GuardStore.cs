@@ -96,6 +96,35 @@ namespace IkeV2Manager.Client
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
+        // Whether the user last asked for the tunnel. It outlives the service
+        // so a restart or reboot returns to the state the user left.
+        public bool LoadConnectionIntent()
+        {
+            CheckOpen(); VerifyDirectory();
+            string path = Path.Combine(directory, "connection.json");
+            if (!File.Exists(path)) return false;
+            VerifyFile(path);
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                if (stream.Length < 1 || stream.Length > 64) throw new InvalidOperationException("Invalid connection journal");
+                using (var reader = new StreamReader(stream, new UTF8Encoding(false, true), false))
+                {
+                    var fields = ClientPolicy.Object(new JavaScriptSerializer().DeserializeObject(reader.ReadToEnd()));
+                    ClientPolicy.Fields(fields, "version", "wanted");
+                    ClientPolicy.Integer(fields["version"], 1, 1);
+                    if (!(fields["wanted"] is bool)) throw new InvalidOperationException("Invalid connection journal");
+                    return (bool)fields["wanted"];
+                }
+            }
+        }
+
+        public void SaveConnectionIntent(bool wanted)
+        {
+            CheckOpen(); VerifyDirectory();
+            WriteProtectedJson("connection.json", wanted ? "{\"version\":1,\"wanted\":true}" : "{\"version\":1,\"wanted\":false}",
+                64, File.Exists(Path.Combine(directory, "connection.json")));
+        }
+
         public GuardReceipt LoadPlan()
         {
             CheckOpen();
