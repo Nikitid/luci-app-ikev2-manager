@@ -62,6 +62,7 @@ public actor ClientRuntime {
     private var nextEnrollmentStep = Date.distantPast
     private var retryConnectionAt = Date.distantPast
     private var synchronizationFailed = false
+    private var accessClosed = false
     private var names: DeviceServices?
     private var connectionError = "none"
 
@@ -199,6 +200,7 @@ public actor ClientRuntime {
                 try store.save(next)
             }
             synchronizationFailed = false
+            accessClosed = false
             if let id = registration.id {
                 names = (try? await transport.services(endpoint: registration.endpoint, deviceToken: registration.deviceToken, id: id)) ?? names
             }
@@ -207,7 +209,9 @@ public actor ClientRuntime {
             // An unanswered poll changes nothing; readiness stays the live gate.
             return history
         } catch {
+            // Known to the router and not let in: not enabled yet, or revoked.
             synchronizationFailed = true
+            accessClosed = (error as? DeviceError) == .accessRejected
             return history
         }
     }
@@ -293,7 +297,7 @@ public actor ClientRuntime {
             if synchronizationFailed {
                 closePermission(current)
                 if system.vpnConnected() { try? system.stopVPN() }
-                connectionError = "synchronization"; publish("error", now: now); return
+                connectionError = "synchronization"; publish(accessClosed ? "access_closed" : "error", now: now); return
             }
             try await advanceConnection(registration, history: current, now: now)
         } catch {

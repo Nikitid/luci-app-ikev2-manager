@@ -35,6 +35,9 @@ namespace IkeV2Manager.Client
         private bool disposed;
         private bool healthy;
         private bool synchronizationFailed;
+        // The router knows the device and does not let it in: not enabled yet
+        // by the administrator, or revoked. Told apart from a fault.
+        private bool accessClosed;
         private readonly bool systemIntegration;
         private volatile bool registrationComplete, connectionWanted;
         private int connectionRequest, appliedConnectionRequest;
@@ -135,16 +138,18 @@ namespace IkeV2Manager.Client
                     catch (PolicyFetchException) { }
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
                     else EnsureProfile(next);
-                    synchronizationFailed = false;
+                    synchronizationFailed = false; accessClosed = false;
                     AdvanceConnection();
                     Publish(connectionState);
                 }
-                catch
+                catch (Exception refusal)
                 {
                     synchronizationFailed = true;
+                    var named = refusal as PolicyFetchException;
+                    accessClosed = named != null && named.Code == "device_access_revoked";
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after synchronization failure"); }
-                    try { Publish("error"); } catch { }
+                    try { Publish(accessClosed ? "access_closed" : "error"); } catch { }
                     CloseConnection();
                     throw;
                 }
@@ -382,7 +387,7 @@ namespace IkeV2Manager.Client
                     var registration = EnrollmentRegistration.Load(store);
                     healthy = guard != null;
                     AdvanceConnection();
-                    Publish(synchronizationFailed ? "error" : guard == null ? (registration == null ? "enrollment_required" : "registration_pending") : connectionState);
+                    Publish(synchronizationFailed ? (accessClosed ? "access_closed" : "error") : guard == null ? (registration == null ? "enrollment_required" : "registration_pending") : connectionState);
                 }
                 catch
                 {

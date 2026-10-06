@@ -215,10 +215,10 @@ internal static class EnrollmentIntegrationTests
                 step = "revocation";
                 service.Start(); service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
                 elapsed.Restart();
-                while (ClientStatusReader.Read(name).State != "error" && elapsed.ElapsedMilliseconds < 35000) Thread.Sleep(250);
-                Require(ClientStatusReader.Read(name).State == "error", "Revocation did not become visible");
+                while (ClientStatusReader.Read(name).State != "access_closed" && elapsed.ElapsedMilliseconds < 35000) Thread.Sleep(250);
+                Require(ClientStatusReader.Read(name).State == "access_closed", "Revocation did not become visible");
                 Thread.Sleep(6000);
-                Require(ClientStatusReader.Read(name).State == "error", "Heartbeat cleared a synchronization error");
+                Require(ClientStatusReader.Read(name).State == "access_closed", "Heartbeat cleared a synchronization error");
                 Stop(service);
             }
             Console.WriteLine("Native service HTTPS enrollment, restart, central update and revocation passed");

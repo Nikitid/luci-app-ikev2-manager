@@ -103,6 +103,7 @@ final class ClientModel: ObservableObject {
         case "tunnel_connected": return "Туннель установлен"
         case "connection_error": return "Не удалось подключить VPN"
         case "starting": return "Служба запускается"
+        case "access_closed": return "Доступ не включён"
         default: return "Ошибка системной службы"
         }
     }
@@ -129,6 +130,7 @@ final class ClientModel: ObservableObject {
             return status.error == "tunnel_takes_everything"
                 ? "Сервер предложил отправлять в туннель весь трафик. Клиент отказался: через офис должны идти только выбранные сервисы."
                 : "Система не подтвердила туннель. Попытка повторится автоматически."
+        case "access_closed": return "Роутер знает это устройство, но доступ для него не включён администратором или отозван. Выбранные сервисы остаются заблокированы; проверка повторяется."
         default: return "Служба не смогла подтвердить защиту или обновить настройки. Доступ не подтверждён."
         }
     }

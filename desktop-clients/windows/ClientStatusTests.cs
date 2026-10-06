@@ -59,6 +59,8 @@ internal static class ClientStatusTests
                 var waiting = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
                 if (waiting.State != "tunnel_connected" || waiting.Protected || waiting.ConnectionError != code) throw new Exception("Path refusal was lost: " + code);
             }
+            data["ConnectionError"] = "none"; data["State"] = "access_closed"; data["Wanted"] = false;
+            if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).State != "access_closed") throw new Exception("Closed access was not reported");
             data["State"] = "connection_error";
             data["ConnectionError"] = "credential=secret";
             Check(data, 123, now, "status_invalid");

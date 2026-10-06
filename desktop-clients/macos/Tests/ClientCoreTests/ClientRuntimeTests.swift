@@ -172,7 +172,7 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     router.sync { router.policyFailure = .accessRejected }
     now += 31
     await runtime.tick(now: now); now += 2
-    #expect(await runtime.status().state == "error" && machine.stopped == 1 && !machine.rules.contains("pass"))
+    #expect(await runtime.status().state == "access_closed" && machine.stopped == 1 && !machine.rules.contains("pass"))
     #expect(machine.rules.contains("block drop"), "revocation keeps the denial")
     #expect(machine.hosts.contains("api.example.com"), "revocation keeps the names on their virtual addresses")
     try await runtime.remove()

@@ -115,7 +115,7 @@ namespace IkeV2Manager.Client
                 // "Protected" and the state must say the same thing, and a
                 // protected status carries no error: anything else is not ours.
                 if ((bool)data["Protected"] != (state == "protected") || (state == "protected" && connectionError != "none") ||
-                    (state != "blocked" && state != "enrollment_required" && state != "error" &&
+                    (state != "blocked" && state != "enrollment_required" && state != "error" && state != "access_closed" &&
                     state != "registration_pending" && state != "registration_error" && state != "connecting" &&
                     state != "tunnel_connected" && state != "connection_error" && state != "protected") ||
                     ((state == "blocked" || state == "connecting" || state == "tunnel_connected" || state == "connection_error" || state == "protected") && !guard) || (state == "enrollment_required" && guard))
