@@ -206,8 +206,21 @@ if [ "$(echo "$dr" | field engine)" = fakeip ]; then
 	case "$answer" in 198.18.*) ;; *) fail "$PBR_DOMAIN резолвится в ${answer:-ничего}, а не в FakeIP";; esac
 	if [ "$(echo "$dr" | field route_router_traffic)" = 1 ]; then
 		pbr=$(trace "$PBR_DOMAIN"); pbr_ip=${pbr%% *}
-		[ -n "$pbr_ip" ] && [ "$pbr_ip" = "$tun_ip" ] ||
-			fail "$PBR_DOMAIN выходит с ${pbr:-нет ответа}, а не через туннель"
+		# The domain's service may be sent through any tunnel, so the exit of
+		# each one that is up counts. Compared with the first tunnel's alone,
+		# a service moved to another tunnel read as leaving past the tunnel.
+		exits=" $tun_ip "
+		for link in /sys/class/net/ipsec-out[2-7]; do
+			[ -e "$link" ] || continue
+			link=${link##*/}
+			ip -4 -o addr show dev "$link" 2>/dev/null | grep -q inet || continue
+			other=$(trace www.cloudflare.com "$link"); other=${other%% *}
+			[ -z "$other" ] || [ "$other" = "$wan_ip" ] || exits="$exits$other "
+		done
+		case "$exits" in
+			*" ${pbr_ip:-none} "*) ;;
+			*) fail "$PBR_DOMAIN выходит с ${pbr:-нет ответа}, а не через туннель" ;;
+		esac
 		how="через туннель ($pbr)"
 	else
 		# The router's own requests are not routed: only the answer is checked.
