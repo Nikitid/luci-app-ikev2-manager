@@ -12,6 +12,11 @@ function identifier(value) {
 function service_id(value) {
  if (type(value) != 'string' || !match(value, /^[a-z0-9][a-z0-9_-]{0,47}$/)) die('invalid catalog identity');
 }
+// What the committed state asks for, ready to be changed and proposed again:
+// without what the store derives, and without retired devices, which the store
+// carries by itself and refuses to be handed back.
+export function client_desired_state(state) { return desired_state(state); };
+
 function desired_state(state) {
  let desired = json(sprintf('%J', state.publication));
  delete desired.allocations;

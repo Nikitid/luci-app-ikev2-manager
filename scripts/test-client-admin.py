@@ -81,6 +81,25 @@ class AdminTests(unittest.TestCase):
         _, assigned = self.apply(self.request('assign-device', {'id': device['id'], 'enabled': True, 'selected_services': ['example_service']}), [])
         self.assertEqual(assigned['api']['devices'][0]['policy']['resources'][0]['domain'], 'catalog.example.com')
 
+    def test_removed_device_is_retired_and_later_changes_still_apply(self):
+        ids = [device['id'] for device in self.snapshot['publication']['devices']]
+        self.assertGreaterEqual(len(ids), 2)
+        prepared, self.snapshot = self.apply(self.request('remove-device', {'id': ids[0]}), [])
+        self.assertTrue(prepared['changed'])
+        self.assertIn(ids[0], self.snapshot['retired_ids'])
+        self.assertNotIn(ids[0], [d['id'] for d in json.loads(state.run(self.snapshot, 'admin-inspect').stdout)['devices']])
+        # With a retired device in the state, the next change must still be
+        # accepted: this is what opening a newly registered device does.
+        other = [d for d in self.snapshot['publication']['devices'] if d['id'] == ids[1]][0]
+        closed, self.snapshot = self.apply(self.request('assign-device', {'id': ids[1], 'enabled': False,
+                                           'selected_services': other['selected_services']}), [])
+        opened, self.snapshot = self.apply(self.request('assign-device', {'id': ids[1], 'enabled': True,
+                                           'selected_services': other['selected_services'], 'owner': 'A', 'note': ''}), [])
+        self.assertTrue(opened['changed'])
+        self.assertTrue([d for d in self.snapshot['publication']['devices'] if d['id'] == ids[1]][0]['enabled'])
+        again = self.run_admin(self.request('remove-device', {'id': ids[0]}), [])
+        self.assertNotEqual(again.returncode, 0)
+
     def test_assignments_cannot_create_devices_or_change_credentials(self):
         device = self.snapshot['publication']['devices'][0]
         payload = {'id': device['id'], 'enabled': False, 'selected_services': device['selected_services']}

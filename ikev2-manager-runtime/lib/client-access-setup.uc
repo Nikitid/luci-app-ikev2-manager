@@ -4,6 +4,7 @@
 'use strict';
 import { stdin, lstat, mkdir, chmod, popen } from 'fs';
 import { publish_client_state, read_client_state } from './client-access-store.uc';
+import { client_desired_state } from './client-access-admin.uc';
 
 let directory = '/etc/ikev2-manager/clients';
 
@@ -106,12 +107,10 @@ try {
 			publish_client_state(directory, { version: 1, server: { address: name, remote_id: name },
 				virtual_subnet: request.virtual_subnet, exit: request.exit, services: [], devices: [] }, 0, true);
 		} else {
-			let state = read_client_state(directory), desired = state.publication;
+			let state = read_client_state(directory), desired = client_desired_state(state);
 			// Enrolled devices carry this subnet in their denials and names.
 			if (desired.virtual_subnet != request.virtual_subnet) die('virtual subnet cannot change');
 			if (desired.exit != request.exit) {
-				delete desired.allocations;
-				for (let device in desired.devices) delete device.previous_policy;
 				desired.exit = request.exit;
 				publish_client_state(directory, desired, state.generation, false);
 			}
