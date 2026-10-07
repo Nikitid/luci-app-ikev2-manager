@@ -48,14 +48,16 @@ apply_setup() {
 run_action() {
  local id="$1" kind="$2" token="${3:-}" rc=0
  valid_job "$id" || die
- case "$kind" in update | invite | setup) valid_token "$token" || die ;; refresh) ;; *) die ;; esac
+ case "$kind" in update | invite | setup | mail-save | mail-send) valid_token "$token" || die ;; refresh) ;; *) die ;; esac
  if ! pid_lock_acquire "$admin_dir/worker.lock"; then
   [ "$kind" = refresh ] || rm -f "$inbox/$token.in"
   action_status "$id" error 'Another client administration action is running.'
   return 1
  fi
  trap 'pid_lock_release "$admin_dir/worker.lock"; exit 1' HUP INT TERM
- if [ "$kind" = invite ]; then action_status "$id" running 'Creating invitation...'
+ if [ "$kind" = mail-save ]; then action_status "$id" running 'Saving mail settings...'
+ elif [ "$kind" = mail-send ]; then action_status "$id" running 'Sending mail...'
+ elif [ "$kind" = invite ]; then action_status "$id" running 'Creating invitation...'
  elif [ "$kind" = setup ]; then action_status "$id" running 'Applying remote client settings...'
  else action_status "$id" running 'Updating client configuration...'; fi
  if [ "$kind" = invite ]; then
@@ -64,13 +66,23 @@ run_action() {
  elif [ "$kind" = setup ]; then
   apply_setup "$inbox/$token.in" || rc=1
   rm -f "$inbox/$token.in"
+ elif [ "$kind" = mail-save ]; then
+  pkg_run_bounded 30 /bin/sh -c 'exec /usr/bin/ucode "$1/client-access-mail.uc" save <"$2"' sh "$runtime_lib_dir" "$inbox/$token.in" >/dev/null 2>&1 || rc=1
+  rm -f "$inbox/$token.in"
+ elif [ "$kind" = mail-send ]; then
+  pkg_run_bounded 60 /bin/sh -c 'exec /usr/bin/ucode "$1/client-access-mail.uc" send "$3" <"$2"' sh "$runtime_lib_dir" "$inbox/$token.in" "$id" >/dev/null 2>&1 || rc=1
+  rm -f "$inbox/$token.in"
  elif [ "$kind" = update ]; then
   pkg_run_bounded 300 /bin/sh -c 'exec /usr/bin/ucode "$1/client-access-control.uc" update <"$2"' sh "$runtime_lib_dir" "$inbox/$token.in" >"$admin_dir/result" 2>/dev/null || rc=1
   rm -f "$inbox/$token.in"
  else
   pkg_run_bounded 300 /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" refresh >"$admin_dir/result" 2>/dev/null || rc=1
  fi
- if [ "$rc" = 0 ] && [ "$kind" = invite ]; then action_status "$id" ok 'Invitation created.'
+ if [ "$rc" = 0 ] && [ "$kind" = mail-save ]; then action_status "$id" ok 'Mail settings saved.'
+ elif [ "$kind" = mail-save ]; then action_status "$id" error 'Mail settings were refused. Check the server, the port and the sender address.'
+ elif [ "$rc" = 0 ] && [ "$kind" = mail-send ]; then action_status "$id" ok 'Mail sent.'
+ elif [ "$kind" = mail-send ]; then action_status "$id" error 'Mail was not sent. Check the mail settings, the password and that msmtp is installed.'
+ elif [ "$rc" = 0 ] && [ "$kind" = invite ]; then action_status "$id" ok 'Invitation created.'
  elif [ "$rc" = 0 ] && [ "$kind" = setup ]; then action_status "$id" ok 'Remote client settings applied.'
  elif [ "$kind" = setup ]; then action_status "$id" error 'Remote client settings could not be applied. Check the inbound server, the exit tunnel and the subnet.'
  elif [ "$rc" = 0 ]; then action_status "$id" ok 'Client configuration saved.'
@@ -96,18 +108,24 @@ case "${1:-}" in
   [ "$#" = 1 ] || die
   exec /usr/bin/ucode "$runtime_lib_dir/client-access-setup.uc" show
   ;;
- client-admin-update | client-admin-invite | client-admin-setup | client-admin-refresh | _action-run) ;;
+ client-admin-mail)
+  [ "$#" = 1 ] || die
+  exec /usr/bin/ucode "$runtime_lib_dir/client-access-mail.uc" show
+  ;;
+ client-admin-update | client-admin-invite | client-admin-setup | client-admin-refresh | client-admin-mail-save | client-admin-mail-send | _action-run) ;;
  *) die ;;
 esac
 mkdir -p "$inbox" "$action_status_dir" && chmod 700 "$admin_dir" "$inbox" "$action_status_dir" || die
 case "$1" in
- client-admin-update | client-admin-invite | client-admin-setup)
+ client-admin-update | client-admin-invite | client-admin-setup | client-admin-mail-save | client-admin-mail-send)
   [ "$#" = 2 ] && valid_token "$2" || die
   /usr/bin/ucode "$runtime_lib_dir/client-access-input.uc" "$2" "$inbox" 2>/dev/null || die
   staged_request="$inbox/$2.in"
   case "$1" in
    client-admin-invite) start_action invite "$2" ;;
    client-admin-setup) start_action setup "$2" ;;
+   client-admin-mail-save) start_action mail-save "$2" ;;
+   client-admin-mail-send) start_action mail-send "$2" ;;
    *) start_action update "$2" ;;
   esac
   ;;

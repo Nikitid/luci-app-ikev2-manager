@@ -4937,3 +4937,114 @@ msgstr "Введите адрес вида name@example.com."
 
 msgid "Not blocked without the tunnel"
 msgstr "Без туннеля не блокируется"
+
+msgid "Could not save mail settings."
+msgstr "Не удалось сохранить настройки почты."
+
+msgid "Could not send the link."
+msgstr "Не удалось отправить ссылку."
+
+msgid "Could not send the test message."
+msgstr "Не удалось отправить тестовое письмо."
+
+msgid "Encryption"
+msgstr "Шифрование"
+
+msgid "Enter a port from 1 to 65535."
+msgstr "Введите порт от 1 до 65535."
+
+msgid "Enter the SMTP server name, for example smtp.example.com."
+msgstr "Введите имя SMTP-сервера, например smtp.example.com."
+
+msgid "Enter the sender address."
+msgstr "Введите адрес отправителя."
+
+msgid "For Gmail, Yandex and Mail.ru: an app password."
+msgstr "Для Gmail, Яндекса и Mail.ru - пароль приложения."
+
+msgid "Install Waypoint on your computer, press Registration and paste this link:"
+msgstr "Установите Waypoint на компьютер, нажмите «Регистрация» и вставьте эту ссылку:"
+
+msgid "Login"
+msgstr "Логин"
+
+msgid "Mail for invitation links"
+msgstr "Почта для ссылок-приглашений"
+
+msgid "Mail service"
+msgstr "Почтовый сервис"
+
+msgid "Mail settings saved."
+msgstr "Настройки почты сохранены."
+
+msgid "Optional. Links can then be sent to a person by e-mail."
+msgstr "Необязательно. Ссылки можно будет отправлять человеку на почту."
+
+msgid "Other server"
+msgstr "Другой сервер"
+
+msgid "Port"
+msgstr "Порт"
+
+msgid "SMTP server"
+msgstr "SMTP-сервер"
+
+msgid "Saving mail settings..."
+msgstr "Сохранение настроек почты..."
+
+msgid "Send by e-mail"
+msgstr "Отправить на почту"
+
+msgid "Send test"
+msgstr "Отправить тест"
+
+msgid "Send to"
+msgstr "Кому"
+
+msgid "Sender address"
+msgstr "Адрес отправителя"
+
+msgid "Sending needs the msmtp package: install it under System - Software."
+msgstr "Для отправки нужен пакет msmtp: установите его в разделе Система - Программы."
+
+msgid "Sending..."
+msgstr "Отправка..."
+
+msgid "Sent."
+msgstr "Отправлено."
+
+msgid "Set up mail in the settings below first."
+msgstr "Сначала настройте почту ниже."
+
+msgid "Stored. Leave empty to keep it."
+msgstr "Сохранён. Оставьте пустым, чтобы не менять."
+
+msgid "Test message sent."
+msgstr "Тестовое письмо отправлено."
+
+msgid "Test recipient"
+msgstr "Кому отправить тест"
+
+msgid "The link works for a limited time and only for your devices. Do not forward it."
+msgstr "Ссылка действует ограниченное время и только для ваших устройств. Не пересылайте её."
+
+msgid "This is a test message from your router. Mail for invitation links works."
+msgstr "Это тестовое письмо с вашего роутера. Отправка ссылок-приглашений работает."
+
+msgid "Waypoint: test message"
+msgstr "Waypoint: тестовое письмо"
+
+msgid "Waypoint: your access link"
+msgstr "Waypoint: ваша ссылка доступа"
+
+msgid "Mail sent."
+msgstr "Письмо отправлено."
+
+msgid "Mail settings were refused. Check the server, the port and the sender address."
+msgstr "Настройки почты не приняты. Проверьте сервер, порт и адрес отправителя."
+
+msgid "Mail was not sent. Check the mail settings, the password and that msmtp is installed."
+msgstr "Письмо не отправлено. Проверьте настройки почты, пароль и что установлен msmtp."
+
+msgid "Sending mail..."
+msgstr "Отправка письма..."

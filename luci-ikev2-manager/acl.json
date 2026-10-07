@@ -46,6 +46,7 @@
 				"/usr/sbin/swanmon list-sas": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-show": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-settings": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-mail": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-status *": [ "exec" ]
 			},
 			"ubus": {
@@ -129,6 +130,8 @@
 				"/usr/libexec/ikev2-client-admin client-admin-update *": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-refresh": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-setup *": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-mail-save *": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-mail-send *": [ "exec" ],
 				"/var/run/ikev2-client-admin-*.in": [ "write" ],
 				"/tmp/run/ikev2-client-admin-*.in": [ "write" ],
 				"/usr/libexec/ikev2-client-admin client-admin-invite *": [ "exec" ],

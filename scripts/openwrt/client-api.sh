@@ -2,6 +2,7 @@
 # Real HTTP/TLS and filesystem permissions in a disposable OpenWrt container.
 set -eu
 sh /src/scripts/openwrt/client-setup.sh
+sh /src/scripts/openwrt/client-mail.sh
 sh /src/scripts/openwrt/client-admin.sh
 work="$(mktemp -d)"
 server_pid=''

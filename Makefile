@@ -171,6 +171,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-http.uc $(1)/usr/libexec/ikev2-manager.d/client-access-http.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-api.uc $(1)/usr/libexec/ikev2-manager.d/client-access-api.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-setup.uc $(1)/usr/libexec/ikev2-manager.d/client-access-setup.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-mail.uc $(1)/usr/libexec/ikev2-manager.d/client-access-mail.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-directory.uc $(1)/usr/libexec/ikev2-manager.d/client-access-directory.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-publication.uc $(1)/usr/libexec/ikev2-manager.d/client-access-publication.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-state.uc $(1)/usr/libexec/ikev2-manager.d/client-access-state.uc

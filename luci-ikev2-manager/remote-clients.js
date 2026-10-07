@@ -11,7 +11,8 @@ function readState() {
  return Promise.all([
   L.resolveDefault(fs.exec(helper, [ 'client-admin-show' ]), { code: 1, stdout: '' }),
   L.resolveDefault(fs.exec(catalogHelper, [ 'services' ]), { code: 1, stdout: '' }),
-  L.resolveDefault(fs.exec(helper, [ 'client-admin-settings' ]), { code: 1, stdout: '' })
+  L.resolveDefault(fs.exec(helper, [ 'client-admin-settings' ]), { code: 1, stdout: '' }),
+  L.resolveDefault(fs.exec(helper, [ 'client-admin-mail' ]), { code: 1, stdout: '' })
  ]);
 }
 
@@ -94,6 +95,85 @@ function setupSection(settings, reload) {
    ]),
    E('div', { 'class': 'ikev2-actions end' }, [ result.node, save ])
   ])));
+}
+
+// Whether links can be mailed: set by the page from the router's answer.
+var mailReady = false;
+
+function mailJob(button, result, kind, request, texts, onSuccess) {
+ var token = common.inputToken();
+ return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
+  return common.runJob({ button: button, result: result, busy: texts[0], success: texts[1], failure: texts[2],
+   startPath: helper, startArgs: [ kind, token ], statusPath: helper, statusArgs: [ 'client-admin-status' ], timeout: 90000, onSuccess: onSuccess });
+ }, function() { result.err(texts[2]); });
+}
+
+var mailPresets = [
+ [ 'gmail', 'Gmail', 'smtp.gmail.com', 587, 'starttls' ],
+ [ 'yandex', 'Yandex', 'smtp.yandex.ru', 465, 'ssl' ],
+ [ 'mailru', 'Mail.ru', 'smtp.mail.ru', 465, 'ssl' ],
+ [ 'outlook', 'Outlook / Microsoft 365', 'smtp.office365.com', 587, 'starttls' ],
+ [ 'icloud', 'iCloud', 'smtp.mail.me.com', 587, 'starttls' ]
+];
+
+// Where invitation links are mailed from. Optional: without it links are
+// copied by hand as before.
+function mailSection(mail, reload) {
+ var result = common.inlineResult(), save, test;
+ var known = mailPresets.filter(function(item) { return item[2] === mail.host; })[0];
+ var preset = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Mail service') }, mailPresets.map(function(item) {
+  return E('option', { value: item[0], selected: known && known[0] === item[0] ? '' : null }, [ item[1] ]);
+ }).concat([ E('option', { value: 'custom', selected: !known && mail.host ? '' : null }, [ _('Other server') ]) ]));
+ var host = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('SMTP server'), value: mail.host || mailPresets[0][2] });
+ var port = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Port'), value: String(mail.host ? mail.port : mailPresets[0][3]) });
+ var security = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Encryption') }, [ [ 'starttls', 'STARTTLS' ], [ 'ssl', 'SSL/TLS' ] ].map(function(item) {
+  return E('option', { value: item[0], selected: item[0] === (mail.host ? mail.security : mailPresets[0][4]) ? '' : null }, [ item[1] ]);
+ }));
+ var user = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Login'), value: mail.user || '', autocomplete: 'off' });
+ var password = E('input', { type: 'password', 'class': 'cbi-input-password', 'aria-label': _('Password'), autocomplete: 'new-password',
+  placeholder: mail.has_password ? _('Stored. Leave empty to keep it.') : '' });
+ var from = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Sender address'), value: mail.from || '' });
+ var to = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Test recipient'), placeholder: 'name@example.com' });
+ preset.addEventListener('change', function() {
+  var chosen = mailPresets.filter(function(item) { return item[0] === preset.value; })[0];
+  if (chosen) { host.value = chosen[2]; port.value = String(chosen[3]); security.value = chosen[4]; }
+ });
+ user.addEventListener('input', function() { if (!from.dataset.typed && /@/.test(user.value)) from.value = user.value; });
+ from.addEventListener('input', function() { from.dataset.typed = '1'; });
+ save = E('button', { 'class': 'cbi-button cbi-button-positive', type: 'button', click: function() {
+  var request;
+  try {
+   if (!/^[0-9]{1,5}$/.test(port.value.trim()) || Number(port.value) < 1 || Number(port.value) > 65535) throw new Error(_('Enter a port from 1 to 65535.'));
+   if (!/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host.value.trim())) throw new Error(_('Enter the SMTP server name, for example smtp.example.com.'));
+   request = { version: 1, host: host.value.trim(), port: Number(port.value), security: security.value, user: user.value.trim(),
+    password: password.value ? password.value : null, from: mailText(from.value) };
+   if (!request.from) throw new Error(_('Enter the sender address.'));
+  } catch (error) { result.err(error.message); return; }
+  return mailJob(save, result, 'client-admin-mail-save', request,
+   [ _('Saving mail settings...'), _('Mail settings saved.'), _('Could not save mail settings.') ], function() { password.value = ''; return reload(); });
+ } }, [ _('Save') ]);
+ test = E('button', { 'class': 'cbi-button cbi-button-action', type: 'button', disabled: mail.configured && mail.available ? null : '', click: function() {
+  var address;
+  try { address = mailText(to.value); if (!address) throw new Error(_('Enter an e-mail address like name@example.com.')); }
+  catch (error) { result.err(error.message); return; }
+  return mailJob(test, result, 'client-admin-mail-send', { version: 1, to: address, subject: _('Waypoint: test message'),
+   body: _('This is a test message from your router. Mail for invitation links works.') + '\n' },
+   [ _('Sending...'), _('Test message sent.'), _('Could not send the test message.') ]);
+ } }, [ _('Send test') ]);
+ return common.section(_('Mail for invitation links'), _('Optional. Links can then be sent to a person by e-mail.'), E('div', {}, [
+  mail.available ? '' : E('div', { 'class': 'ikev2-note warn' }, [ _('Sending needs the msmtp package: install it under System - Software.') ]),
+  E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
+   common.fieldLabel(_('Mail service')), preset,
+   common.fieldLabel(_('SMTP server')), host,
+   common.fieldLabel(_('Port')), port,
+   common.fieldLabel(_('Encryption')), security,
+   common.fieldLabel(_('Login')), user,
+   common.fieldLabel(_('Password'), _('For Gmail, Yandex and Mail.ru: an app password.')), password,
+   common.fieldLabel(_('Sender address')), from,
+   common.fieldLabel(_('Test recipient')), to
+  ]),
+  E('div', { 'class': 'ikev2-actions end' }, [ result.node, test, save ])
+ ]));
 }
 
 function editDialog(title, form, buildRequest, reload, pageResult, unsaved) {
@@ -299,6 +379,7 @@ function invitationDialog(state, labels, reload, person, replace) {
  if (!known && choices.length === 1) choices[0].input.checked = true;
  var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), value: known ? known.owner || '' : '' });
  var note = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), value: known ? known.note || '' : '' });
+ var email = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), value: known ? known.email || '' : '' });
  var count = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Devices') }, [ 1, 2, 3, 4, 5 ].map(function(n) {
   return E('option', { value: String(n), selected: n === replace.length ? '' : null }, [ String(n) ]);
  }));
@@ -312,6 +393,7 @@ function invitationDialog(state, labels, reload, person, replace) {
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
    common.fieldLabel(_('Who uses it')), owner,
+   common.fieldLabel(_('E-mail')), email,
    common.fieldLabel(_('Note')), note,
    common.fieldLabel(_('Devices'), _('One link registers this many devices of the person.')), count,
    common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens. Cannot be changed or used again.')), id,
@@ -323,9 +405,21 @@ function invitationDialog(state, labels, reload, person, replace) {
  function showLink(link) {
   var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link') });
   field.value = link;
-  var output = common.inlineResult(), copy;
+  var output = common.inlineResult(), copy, send;
+  var recipient = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Send to'), value: email.value.trim(), placeholder: 'name@example.com' });
+  send = E('button', { type: 'button', 'class': 'cbi-button', disabled: mailReady ? null : '',
+   title: mailReady ? '' : _('Set up mail in the settings below first.'), click: function() {
+   var address;
+   try { address = mailText(recipient.value); if (!address) throw new Error(_('Enter an e-mail address like name@example.com.')); }
+   catch (error) { output.err(error.message); return; }
+   return mailJob(send, output, 'client-admin-mail-send', { version: 1, to: address, subject: _('Waypoint: your access link'),
+    body: _('Install Waypoint on your computer, press Registration and paste this link:') + '\n\n' + field.value + '\n\n' +
+     _('The link works for a limited time and only for your devices. Do not forward it.') + '\n' },
+    [ _('Sending...'), _('Sent.'), _('Could not send the link.') ]);
+  } }, [ _('Send by e-mail') ]);
   ui.showModal(_('Invitation link'), [ E('div', { 'class': 'ikev2-page' }, [
    common.styles(), E('p', {}, [ _('Shown only once. Send it privately: the owner installs Waypoint on each device and pastes the link there.') ]), field,
+   E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:.8rem' }, [ recipient, send ]),
    E('div', { 'class': 'ikev2-actions end' }, [ output.node,
     E('button', { type: 'button', 'class': 'cbi-button', click: function() { field.value = ''; ui.hideModal(); } }, [ _('Close') ]),
     (copy = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() {
@@ -343,7 +437,7 @@ function invitationDialog(state, labels, reload, person, replace) {
   try {
    request = { version: 1, expected_generation: generation,
     endpoint: endpoint, id: id.value, selected_services: selected, lifetime_seconds: Number(lifetime.value) || 86400,
-    owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')) };
+    owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')), email: mailText(email.value) };
    if (Number(count.value) > 1) request.count = Number(count.value);
    if (replace.length) request.cancel = replace.map(function(item) { return item.id; });
   } catch (error) { result.err(error.message); return; }
@@ -373,7 +467,7 @@ return view.extend({
  load: readState,
  render: function(data) {
   var state, records = [], labels = {}, services = E('div', {}), devices = E('div', {});
-  var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), managed = E('div', {}), refresh, invite;
+  var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite;
   function reload() { return readState().then(setData); }
   function setData(next) {
    state = null;
@@ -382,6 +476,10 @@ return view.extend({
     settings = JSON.parse(next[2].stdout);
     if (next[2].code !== 0 || settings.version !== 1 || !Array.isArray(settings.tunnels)) settings = null;
    } catch (error) { settings = null; }
+   var mail = null;
+   try { mail = JSON.parse(next[3].stdout); if (next[3].code !== 0 || mail.version !== 1) mail = null; } catch (error) { mail = null; }
+   mailReady = !!(mail && mail.configured && mail.available);
+   mailBox.replaceChildren(mail && settings && settings.initialized ? mailSection(mail, reload) : E('div', {}));
    var section = settings ? setupSection(settings, reload) : E('div', {});
    fresh.replaceChildren(); setup.replaceChildren();
    (settings && !settings.initialized ? fresh : setup).replaceChildren(section);
@@ -465,7 +563,7 @@ return view.extend({
    (managed.replaceChildren(
     common.section(_('People and devices'), null, E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
     common.section(_('Services'), _('Lists are shared with Policy Routing.'), services, refresh),
-    setup
+    setup, mailBox
    ), managed)
   ]) ]);
  },
