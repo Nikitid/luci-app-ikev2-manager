@@ -335,9 +335,6 @@ struct ClientView: View {
             Button("Установить профиль…") { model.installProfile() }.buttonStyle(.borderedProminent).fixedSize()
         } else if status?.state == "connecting" {
             Button("Отключить") { model.command("disconnect") }
-            Button("Настройки VPN…") {
-                if let settings = URL(string: "x-apple.systempreferences:com.apple.NetworkExtensionSettingsUI.NESettingsUIExtension") { NSWorkspace.shared.open(settings) }
-            }
         } else if let status, status.guardInstalled, status.profileInstalled {
             if status.wanted { Button("Отключить") { model.command("disconnect") } }
             else { Button("Включить") { model.command("connect") }.buttonStyle(.borderedProminent) }

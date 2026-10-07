@@ -17,14 +17,6 @@
 			"path": "ikev2-manager/setup-v13"
 		}
 	},
-	"admin/services/ikev2-manager/users": {
-		"title": "VPN Users",
-		"order": 50,
-		"action": {
-			"type": "view",
-			"path": "ikev2-manager/users-v15"
-		}
-	},
 	"admin/services/ikev2-manager/server": {
 		"title": "Inbound Server",
 		"order": 40,
@@ -50,11 +42,11 @@
 		}
 	},
 	"admin/services/ikev2-manager/remote-clients": {
-		"title": "Remote clients",
+		"title": "Users",
 		"order": 55,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/remote-clients-v2"
+			"path": "ikev2-manager/remote-clients-v3"
 		}
 	}
 }

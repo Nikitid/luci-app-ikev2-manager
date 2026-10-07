@@ -1,5 +1,5 @@
 'use strict';
-'require view';
+'require baseclass';
 'require fs';
 'require ui';
 'require poll';
@@ -494,7 +494,9 @@ function userDialog(title, entry, includeIdentity, pageResult, refresh) {
 		name.focus();
 }
 
-return view.extend({
+// The inbound IKEv2 accounts as a panel of the users page: ordinary VPN
+// profiles for phones and other devices, their sessions and diagnostics.
+return baseclass.extend({
 	load: function() {
 		return L.resolveDefault(fs.stat('/usr/sbin/swanmon'), null).then(function(ready) {
 			if (!ready)
@@ -730,11 +732,7 @@ return view.extend({
 		setData(data);
 		poll.add(function() { return refresh(true); }, 5);
 
-		return E([
-			common.styles(),
-			E('div', { 'class': 'ikev2-page' }, [
-				common.header(_('VPN Users'),
-					_('Manage inbound IKEv2 credentials and current sessions. Traffic counters reset when a session reconnects.')),
+		return E('div', {}, [
 				E('div', { 'class': 'ikev2-windows-app' }, [
 					E('div', { 'class': 'ikev2-windows-app-mark' }, [ common.icon('windows') ]),
 					E('div', { 'class': 'ikev2-windows-app-copy' }, [
@@ -744,7 +742,7 @@ return view.extend({
 					installerResult.node,
 					installerButton
 				]),
-				common.section(_('Access list'),
+				common.section(_('VPN profiles'),
 					_('Passwords are write-only. Set a new password if one is lost. Router backups and downloaded iOS and Android profiles contain secrets; keep them like a password.'),
 					E('div', {}, [
 						customMode ? E('div', {
@@ -771,7 +769,6 @@ return view.extend({
 							diagnosticButton
 						])
 					]))
-			])
 		]);
 	},
 

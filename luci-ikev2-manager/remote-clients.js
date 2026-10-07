@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require ikev2-manager.shared-v14 as common';
+'require ikev2-manager.users-panel-v1 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
 var catalogHelper = '/usr/libexec/ikev2-domains-community';
@@ -464,8 +465,10 @@ function invitationDialog(state, labels, reload, person, replace) {
 }
 
 return view.extend({
- load: readState,
- render: function(data) {
+ // The page's own state, and what the VPN profiles panel needs.
+ load: function() { return Promise.all([ readState(), L.resolveDefault(vpnUsers.load(), null) ]); },
+ render: function(loaded) {
+  var data = loaded[0], profiles = loaded[1];
   var state, records = [], labels = {}, services = E('div', {}), devices = E('div', {});
   var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite;
   function reload() { return readState().then(setData); }
@@ -558,13 +561,14 @@ return view.extend({
   invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload); } }, [ _('Add person') ]);
   setData(data);
   return E([ common.styles(), E('div', { 'class': 'ikev2-page' }, [
-   common.header(_('Remote clients'), _('Selected services for Windows and macOS devices running Waypoint.')),
+   common.header(_('Users'), _('People, their Waypoint devices and ordinary VPN profiles.')),
    availability, fresh,
    (managed.replaceChildren(
-    common.section(_('People and devices'), null, E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
+    common.section(_('People and devices'), _('Waypoint on Windows and macOS: selected services only.'), E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
     common.section(_('Services'), _('Lists are shared with Policy Routing.'), services, refresh),
     setup, mailBox
-   ), managed)
+   ), managed),
+   profiles ? vpnUsers.render(profiles) : ''
   ]) ]);
  },
  handleSaveApply: null, handleSave: null, handleReset: null

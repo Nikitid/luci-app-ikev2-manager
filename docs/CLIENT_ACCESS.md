@@ -870,14 +870,13 @@ default route, the daemon stops it and reports `tunnel_takes_everything`. A
 router with a custom inbound configuration has to define that connection
 itself.
 
-On current macOS a profile-installed IKEv2 configuration is not listed by
-`scutil --nc` and a program cannot start it. The profile therefore connects on
-demand: the system brings the tunnel up and keeps it, with no step for the
-user. The daemon learns that the profile is installed from `profiles list
--all` and that the tunnel is up from the routes of the virtual subnet.
-Switching access off in the window closes the packet filter and leaves the
-system's connection alone; the tunnel routes the virtual subnet only. A user
-who switches the VPN off in the system's settings sees it come back.
+`scutil --nc` neither lists nor drives an IKEv2 configuration installed by a
+profile. The daemon therefore finds the configuration by its name and starts,
+stops and watches its session through the interface the system's own VPN menu
+uses (`SystemVPN.swift`). That interface is not a published one: its symbols
+are looked up when needed, and without them the window reports that the
+profile is missing. Switching access on connects the VPN and switching it off
+disconnects it, so the window and the system's menu always agree.
 
 `IKEv2ManagerClient` is the window. Both windows are built the same way: a
 status with one sign and colour, three checks (denial outside the tunnel,

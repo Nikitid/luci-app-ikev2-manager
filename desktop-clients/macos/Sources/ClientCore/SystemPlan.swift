@@ -118,9 +118,6 @@ public enum SystemPlan {
                     <key>PayloadDisplayName</key><string>\(serviceName)</string>
                     <key>UserDefinedName</key><string>\(serviceName)</string>
                     <key>VPNType</key><string>IKEv2</string>
-                    <key>OnDemandEnabled</key><integer>1</integer>
-                    <key>OnDemandRules</key>
-                    <array><dict><key>Action</key><string>Connect</string></dict></array>
                     <key>IKEv2</key>
                     <dict>
                         <key>RemoteAddress</key><string>\(escape(policy.serverAddress))</string>

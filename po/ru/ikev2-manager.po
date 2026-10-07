@@ -5048,3 +5048,15 @@ msgstr "Письмо не отправлено. Проверьте настро�
 
 msgid "Sending mail..."
 msgstr "Отправка письма..."
+
+msgid "Users"
+msgstr "Пользователи"
+
+msgid "People, their Waypoint devices and ordinary VPN profiles."
+msgstr "Люди, их устройства Waypoint и обычные VPN-профили."
+
+msgid "Waypoint on Windows and macOS: selected services only."
+msgstr "Waypoint на Windows и macOS: только выбранные сервисы."
+
+msgid "VPN profiles"
+msgstr "VPN-профили"

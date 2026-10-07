@@ -233,7 +233,7 @@ const source = fsNode.readFileSync('luci-ikev2-manager/users.js', 'utf8');
 // every page agree on one build; here it only has to be a versioned name.
 assert(/'require ikev2-manager\.shared-v\d+ as common';/.test(source),
 	'VPN Users uses a cache-versioned shared style and translation module');
-const factory = new Function('view', 'fs', 'ui', 'poll', 'common', 'L', 'E', '_', 'window', 'document', 'uqr', source);
+const factory = new Function('baseclass', 'fs', 'ui', 'poll', 'common', 'L', 'E', '_', 'window', 'document', 'uqr', source);
 const page = factory(view, fileApi, ui, poll, common, L, E, translate, windowMock, documentMock, uqr);
 
 (async () => {

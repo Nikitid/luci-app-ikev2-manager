@@ -40,7 +40,7 @@ const backend = {
 };
 const extend = { extend(value) { return value; } };
 function load(file, common) {
- return new Function('view','baseclass','E','document','window','L','fs','ui','common','_', fs.readFileSync(file === 'remote-clients.js' && process.env.REMOTE_CLIENTS_VIEW ? process.env.REMOTE_CLIENTS_VIEW : path.join(root,'luci-ikev2-manager',file),'utf8'))(extend,extend,E,document,window,L,backend,ui,common,s=>s);
+ return new Function('view','baseclass','E','document','window','L','fs','ui','common','_','vpnUsers', fs.readFileSync(file === 'remote-clients.js' && process.env.REMOTE_CLIENTS_VIEW ? process.env.REMOTE_CLIENTS_VIEW : path.join(root,'luci-ikev2-manager',file),'utf8'))(extend,extend,E,document,window,L,backend,ui,common,s=>s,{ load: () => Promise.resolve({ panel: true }), render: () => E('div', {}, [ 'VPN profiles panel' ]) });
 }
 const common = load('shared.js');
 common.runJob = options => { jobs.push(options); return Promise.resolve({state:'ok'}); };
@@ -49,6 +49,7 @@ function button(tree, label) { const result = nodes(tree).find(n => n.tagName ==
 function click(node) { return node.attrs.click(); }
 async function main() {
  const tree = page.render(await page.load());
+ assert(text(tree).includes('VPN profiles panel'), 'ordinary VPN profiles are managed on the same page');
  assert(text(tree).includes('Example service')); assert(text(tree).includes('alice'));
  // Who is behind each device, what it runs and where it is now.
  for (const shown of ['Alice Example', 'accounting', 'ALICE-PC', 'Windows 10.0.26100 \u00b7 client 2.3.0', 'Online for 2 h', 'from 203.0.113.9, tunnel address 10.20.0.7',
@@ -123,11 +124,11 @@ async function main() {
  assert(text(modal).includes('cannot be used again'));
  await click(button(modal,'Remove'));
  assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'remove-device', payload:{id:'bob-laptop'}});
- const unavailable = page.render([{code:1,stdout:''},data()[1]]);
+ const unavailable = page.render([[{code:1,stdout:''},data()[1]], null]);
  assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT'));
  // First activation: only the setup section is offered, and it stages one request.
  const fresh = { version: 1, initialized: false, enabled: false, port: 8443, server_enabled: true, server_identity: 'vpn.example.com', tunnels: ['1', '2'] };
- const first = page.render([{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(fresh)}]);
+ const first = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(fresh)}], null]);
  assert(nodes(first).some(n => n.style.display === 'none' && text(n).includes('People and devices')), 'management hidden before setup');
  assert(!text(first).includes('Client configuration is unavailable'));
  const setupInputs = nodes(first).filter(n => n.tagName === 'INPUT');
@@ -141,11 +142,11 @@ async function main() {
  await click(button(first,'Set up remote clients'));
  assert.deepStrictEqual(written[written.length-1].body, {version:1,enabled:true,port:9443,virtual_subnet:'172.31.240.0/20',exit:'2s'});
  assert.deepStrictEqual(jobs[jobs.length-1].startArgs.slice(0,1), ['client-admin-setup']);
- const blocked = page.render([{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {server_identity:null, tunnels:[]}))}]);
+ const blocked = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {server_identity:null, tunnels:[]}))}], null]);
  assert(button(blocked,'Set up remote clients').attrs.disabled != null, 'setup needs the inbound server and a tunnel');
- const custom = page.render([data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, custom_server:true}))}]);
+ const custom = page.render([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, custom_server:true}))}], null]);
  assert(text(custom).includes('ikev2-in-managed'), 'an administrator with an own server configuration is told what to add');
- const running = page.render([data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}]);
+ const running = page.render([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}], null]);
  assert(nodes(running).find(n => n.attrs['aria-label'] === 'Virtual subnet').attrs.disabled != null, 'the subnet of enrolled devices is fixed');
  assert(text(running).includes('alice') && text(running).includes('https://vpn.example.com:8443'));
  console.log('remote clients UI: render, forms, validation, queued requests, generations, setup and unavailable state OK');
