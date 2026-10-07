@@ -11,6 +11,22 @@ public enum SystemPlan {
         "io.github.nikitid.ikev2-manager-client." + identifier.uuidString
     }
 
+    /// The layout every party derives from the virtual subnet alone: the last
+    /// address of its lower half answers names, and its upper half is handed
+    /// out by the router, one address per name asked for.
+    public static func layout(_ subnet: String) throws -> (resolver: String, names: String) {
+        let parts = subnet.components(separatedBy: "/")
+        guard parts.count == 2, ipv4(parts[0]), let prefix = Int(parts[1]), (16...28).contains(prefix)
+        else { throw PolicyError.invalidPolicy }
+        let first = parts[0].split(separator: ".").reduce(UInt32(0)) { $0 << 8 | UInt32($1)! }
+        let half = UInt32(1) << UInt32(31 - prefix)
+        guard first % (half * 2) == 0 else { throw PolicyError.invalidPolicy }
+        func text(_ value: UInt32) -> String { "\(value >> 24).\((value >> 16) & 255).\((value >> 8) & 255).\(value & 255)" }
+        return (text(first + half - 1), text(first + half) + "/\(prefix + 1)")
+    }
+
+    public static func ipv4Address(_ text: String) -> Bool { ipv4(text) }
+
     static func ipv4(_ text: String) -> Bool {
         text.range(of: #"\A(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\z"#,
                    options: .regularExpression) != nil
@@ -19,16 +35,15 @@ public enum SystemPlan {
     /// Packet-filter rules for the client's anchor. The virtual subnet is
     /// denied on every path; a confirmed tunnel interface is let through for
     /// the selected addresses only, ahead of the denial.
-    public static func packetFilter(subnet: String, permit: (interface: String, addresses: [String])?) throws -> String {
-        let parts = subnet.components(separatedBy: "/")
-        guard parts.count == 2, ipv4(parts[0]), let prefix = Int(parts[1]), (16...28).contains(prefix)
-        else { throw PolicyError.invalidPolicy }
+    public static func packetFilter(subnet: String, permit interface: String?) throws -> String {
+        _ = try layout(subnet)
         var rules = ""
-        if let permit {
-            guard permit.interface.range(of: #"\A(?:ipsec|utun)[0-9]{1,4}\z"#, options: .regularExpression) != nil,
-                  !permit.addresses.isEmpty, permit.addresses.count <= 4096, permit.addresses.allSatisfy(ipv4)
+        if let interface {
+            // The whole subnet: fixed addresses, the resolver and the names
+            // network. Which of them this device may reach is the router's call.
+            guard interface.range(of: #"\A(?:ipsec|utun)[0-9]{1,4}\z"#, options: .regularExpression) != nil
             else { throw PolicyError.invalidPolicy }
-            rules += "pass out quick on \(permit.interface) inet from any to { \(permit.addresses.sorted().joined(separator: ", ")) } keep state\n"
+            rules += "pass out quick on \(interface) inet from any to \(subnet) keep state\n"
         }
         rules += "block drop out quick inet from any to \(subnet)\n"
         return rules

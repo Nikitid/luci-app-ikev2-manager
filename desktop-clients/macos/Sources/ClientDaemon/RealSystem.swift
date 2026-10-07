@@ -48,6 +48,40 @@ struct RealSystem: SystemActions {
         _ = try? Tool.run("/usr/bin/killall", ["-HUP", "mDNSResponder"])
     }
 
+    /// One file per domain in /etc/resolver, which the system reads for that
+    /// domain and everything under it. Files are told apart by their first line.
+    func setNameResolution(domains: [String], resolver: String) throws {
+        let directory = "/etc/resolver", marker = "# IKEv2 Manager Client"
+        let wanted = Set(domains)
+        guard wanted.allSatisfy({ $0.range(of: #"\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+\z"#, options: .regularExpression) != nil })
+        else { throw StoreError.invalid }
+        var changed = false
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [] where !wanted.contains(name) {
+            let path = directory + "/" + name
+            if (try? String(contentsOfFile: path, encoding: .utf8))?.hasPrefix(marker) == true { unlink(path); changed = true }
+        }
+        guard !wanted.isEmpty else { if changed { flushNames() }; return }
+        guard SystemPlan.ipv4Address(resolver) else { throw StoreError.invalid }
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
+        let content = marker + "\nnameserver " + resolver + "\n"
+        for name in wanted {
+            let path = directory + "/" + name
+            let existing = try? String(contentsOfFile: path, encoding: .utf8)
+            if existing == content { continue }
+            // A file somebody else put there for this domain is theirs.
+            if let existing, !existing.hasPrefix(marker) { throw StoreError.unsafe }
+            try content.write(toFile: path, atomically: true, encoding: .utf8)
+            chmod(path, 0o644)
+            changed = true
+        }
+        if changed { flushNames() }
+    }
+
+    private func flushNames() {
+        _ = try? Tool.run("/usr/bin/dscacheutil", ["-flushcache"])
+        _ = try? Tool.run("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+    }
+
     func loadPacketFilter(_ rules: String) throws {
         if rules.isEmpty {
             _ = try Tool.run("/sbin/pfctl", ["-a", SystemPlan.anchor, "-F", "rules"])
@@ -108,6 +142,10 @@ final class DrySystem: SystemActions, @unchecked Sendable {
     private func text(_ name: String) -> String { (try? String(contentsOf: file(name), encoding: .utf8)) ?? "" }
     func readHosts() throws -> String { text("hosts") }
     func writeHosts(_ text: String) throws { try text.write(to: file("hosts"), atomically: true, encoding: .utf8) }
+    func setNameResolution(domains: [String], resolver: String) throws {
+        let wanted = domains.isEmpty ? "" : resolver + " " + domains.joined(separator: " ") + "\n"
+        if wanted != text("resolvers") { try wanted.write(to: file("resolvers"), atomically: true, encoding: .utf8) }
+    }
     func loadPacketFilter(_ rules: String) throws { try rules.write(to: file("pf.rules"), atomically: true, encoding: .utf8) }
     func packetFilterRules() throws -> String { text("pf.rules") }
     func vpnInstalled() -> Bool { FileManager.default.fileExists(atPath: file("vpn-installed").path) }

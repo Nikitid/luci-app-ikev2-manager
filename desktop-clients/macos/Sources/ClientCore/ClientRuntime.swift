@@ -18,6 +18,9 @@ public enum TunnelFault: String, Error, Sendable {
 public protocol SystemActions: Sendable {
     func readHosts() throws -> String
     func writeHosts(_ text: String) throws
+    /// Makes these domains, and every name under them, ask `resolver`; any
+    /// other domain this client set up before stops doing so. Idempotent.
+    func setNameResolution(domains: [String], resolver: String) throws
     /// Replaces the rules of the client's packet-filter anchor and enables the filter.
     func loadPacketFilter(_ rules: String) throws
     /// The rules the system currently holds in the anchor, as it prints them.
@@ -160,8 +163,7 @@ public actor ClientRuntime {
     // MARK: protection
 
     private func rules(for history: PolicyHistory) throws -> String {
-        try SystemPlan.packetFilter(subnet: history.current.virtualSubnet,
-            permit: permitted.map { ($0.interface, history.current.resources.map(\.address)) })
+        try SystemPlan.packetFilter(subnet: history.current.virtualSubnet, permit: permitted?.interface)
     }
 
     /// Denial first, names second: a name never points at a virtual address
@@ -187,6 +189,10 @@ public actor ClientRuntime {
         }
         let hosts = try system.readHosts(), wanted = try history.reconcileHosts(hosts)
         if wanted != hosts { try system.writeHosts(wanted) }
+        // Everything under a selected domain is asked through the tunnel; the
+        // address that answers is inside the subnet the filter already holds.
+        try system.setNameResolution(domains: history.current.resources.map(\.domain).sorted(),
+                                     resolver: try SystemPlan.layout(subnet).resolver)
         guardInstalled = true
         return history
     }
@@ -257,7 +263,8 @@ public actor ClientRuntime {
             publish("connecting", now: now); return
         }
         let seen: TunnelObservation?
-        do { seen = try system.observeTunnel(addresses: history.current.resources.map(\.address)) }
+        let layout = try SystemPlan.layout(history.current.virtualSubnet)
+        do { seen = try system.observeTunnel(addresses: history.current.resources.map(\.address) + [layout.resolver]) }
         catch let fault as TunnelFault {
             closePermission(history)
             try? system.stopVPN()
@@ -328,6 +335,7 @@ public actor ClientRuntime {
         }
         let hosts = try system.readHosts(), cleared = try ManagedHosts.reconcile(hosts, entries: [])
         if cleared != hosts { try system.writeHosts(cleared) }
+        try system.setNameResolution(domains: [], resolver: "")
         try system.loadPacketFilter("")
         try store.erase()
     }

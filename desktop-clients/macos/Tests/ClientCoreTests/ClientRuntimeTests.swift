@@ -14,6 +14,8 @@ private final class Machine: SystemActions, @unchecked Sendable {
     func sync<T>(_ body: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try body() }
     func readHosts() throws -> String { sync { hosts } }
     func writeHosts(_ text: String) throws { sync { hosts = text; log.append("hosts") } }
+    var resolving: [String] = [], resolver = ""
+    func setNameResolution(domains: [String], resolver: String) throws { sync { resolving = domains; self.resolver = resolver; log.append("names") } }
     func loadPacketFilter(_ text: String) throws { sync { rules = text; log.append("filter") } }
     func packetFilterRules() throws -> String { sync { rules } }
     func vpnInstalled() -> Bool { sync { installed } }
@@ -88,6 +90,8 @@ private let invitation = "https://vpn.example.com:8443/client/v1/enroll#" + Stri
     #expect(machine.rules == "block drop out quick inet from any to 172.31.254.0/24\n")
     #expect(machine.hosts.contains("172.31.254.1 api.example.com"))
     #expect(machine.log.firstIndex(of: "filter")! < machine.log.firstIndex(of: "hosts")!)
+    #expect(machine.log.firstIndex(of: "filter")! < machine.log.firstIndex(of: "names")!, "names are asked through the tunnel only once the filter holds the resolver")
+    #expect(machine.resolving == ["api.example.com"] && machine.resolver == "172.31.254.127")
     #expect(throws: (any Error).self) { try DeviceTransport.parseInvitation("x") }
     await #expect(throws: (any Error).self) { try await runtime.begin(invitation: invitation) }
     try? FileManager.default.removeItem(at: store.directory)
@@ -126,7 +130,7 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     await runtime.tick(now: now); now += 2
     status = await runtime.status()
     #expect(status.state == "protected" && status.protected && status.error == "none")
-    #expect(machine.rules == "pass out quick on ipsec0 inet from any to { 172.31.254.1 } keep state\nblock drop out quick inet from any to 172.31.254.0/24\n")
+    #expect(machine.rules == "pass out quick on ipsec0 inet from any to 172.31.254.0/24 keep state\nblock drop out quick inet from any to 172.31.254.0/24\n")
     // A missed answer keeps permission briefly; a lasting one ends it.
     router.sync { router.ready = .failure(.pathUnavailable) }
     await runtime.tick(now: now)
@@ -182,14 +186,17 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     #expect(machine.hosts.contains("api.example.com"), "revocation keeps the names on their virtual addresses")
     try await runtime.remove()
     #expect(machine.rules.isEmpty && !machine.hosts.contains("api.example.com") && machine.hosts.contains("localhost"))
+    #expect(machine.resolving.isEmpty)
     #expect(!machine.installed && machine.log.contains { $0.hasPrefix("io.github.nikitid.ikev2-manager-client.") })
     #expect(!FileManager.default.fileExists(atPath: store.directory.path))
 }
 
 @Test func systemTextIsWhatTheSystemAccepts() throws {
     let policy = try ClientPolicy(data: Data(policyText.utf8))
-    #expect(throws: (any Error).self) { try SystemPlan.packetFilter(subnet: "172.31.254.0/24", permit: ("en0; pass all", ["172.31.254.1"])) }
-    #expect(throws: (any Error).self) { try SystemPlan.packetFilter(subnet: "172.31.254.0/24", permit: ("ipsec0", ["any"])) }
+    #expect(throws: (any Error).self) { try SystemPlan.packetFilter(subnet: "172.31.254.0/24", permit: "en0; pass all") }
+    #expect(try SystemPlan.layout("172.31.254.0/24") == ("172.31.254.127", "172.31.254.128/25"))
+    #expect(try SystemPlan.layout("172.31.240.0/20") == ("172.31.247.255", "172.31.248.0/21"))
+    #expect(throws: (any Error).self) { try SystemPlan.layout("172.31.254.7/24") }
     #expect(throws: (any Error).self) { try SystemPlan.packetFilter(subnet: "0.0.0.0/0 pass", permit: nil) }
     let profile = try SystemPlan.vpnProfile(policy: policy, password: secret, identifier: UUID(), serviceIdentifier: UUID())
     let root = try #require(try PropertyListSerialization.propertyList(from: profile, format: nil) as? [String: Any])
