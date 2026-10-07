@@ -29,9 +29,28 @@ namespace IkeV2Manager.Client
             string request = new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
                 { "operation", "ensure" },
                 { "owner", owner.ToString("N") }, { "entry_id", pinnedEntry == Guid.Empty ? null : pinnedEntry.ToString("D") },
-                { "server", policy.ServerAddress }, { "addresses", policy.Resources.Select(r => r.Address).ToArray() }
+                { "server", policy.ServerAddress }, { "addresses", policy.Resources.Select(r => r.Address)
+                    .Concat(new[] { PolicyHistory.NamesResolver(policy.VirtualSubnet), PolicyHistory.NamesRange(policy.VirtualSubnet) }).ToArray() }
             });
             return new ManagedVpnProfile(owner, Invoke(request, pinnedEntry));
+        }
+
+        // Name resolution policy: every name under a selected domain is asked
+        // at the router's resolver address, which exists only inside the tunnel.
+        // Without the tunnel such a name has no answer rather than a public one.
+        public static void ApplyNames(Guid owner, string resolver, IEnumerable<string> domains)
+        {
+            if (owner == Guid.Empty || resolver == null || domains == null) throw new ArgumentException("Owned name policy required");
+            Run(new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
+                { "operation", "names" }, { "owner", owner.ToString("N") }, { "resolver", resolver },
+                { "domains", domains.Distinct().OrderBy(d => d, StringComparer.Ordinal).ToArray() } }), "names-applied");
+        }
+
+        public static void RemoveNames(Guid owner)
+        {
+            if (owner == Guid.Empty) throw new ArgumentException("Owned name policy required");
+            Run(new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
+                { "operation", "names" }, { "owner", owner.ToString("N") }, { "resolver", null }, { "domains", new string[0] } }), "names-applied");
         }
 
         public static void Remove(Guid owner, Guid entry)
@@ -49,6 +68,15 @@ namespace IkeV2Manager.Client
         }
 
         private static Guid Invoke(string request, Guid pinnedEntry)
+        {
+            string text = Run(request, null);
+            Guid entry;
+            if (text.Length != 36 || !Guid.TryParseExact(text, "D", out entry) || entry == Guid.Empty ||
+                (pinnedEntry != Guid.Empty && pinnedEntry != entry)) throw new InvalidOperationException("Managed profile identity changed");
+            return entry;
+        }
+
+        private static string Run(string request, string expected)
         {
             string script;
             using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ManagedVpnProfile.ps1"))
@@ -74,10 +102,8 @@ namespace IkeV2Manager.Client
                 }
                 if (!output.Wait(5000) || !errors.Wait(5000) || process.ExitCode != 0)
                     throw new InvalidOperationException("Managed VPN profile unavailable");
-                Guid entry;
-                if (output.Result.Length != 36 || !Guid.TryParseExact(output.Result, "D", out entry) || entry == Guid.Empty ||
-                    (pinnedEntry != Guid.Empty && pinnedEntry != entry)) throw new InvalidOperationException("Managed profile identity changed");
-                return entry;
+                if (expected != null && output.Result != expected) throw new InvalidOperationException("Managed VPN profile unavailable");
+                return output.Result;
             }
         }
     }

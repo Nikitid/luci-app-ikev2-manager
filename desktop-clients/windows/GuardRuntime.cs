@@ -205,6 +205,10 @@ namespace IkeV2Manager.Client
             if (guard == null) throw new InvalidOperationException("Guard required before VPN provisioning");
             ClosePermission(); guard.VerifyProtection();
             SystemHosts.Apply(store, store.LoadPolicyHistory());
+            // Every name under a selected domain is asked through the tunnel;
+            // the denials above already hold the address that answers.
+            ManagedVpnProfile.ApplyNames(store.LoadPlan().Owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
+                store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain));
             var profile = ManagedVpnProfile.Ensure(policy, store.LoadPlan().Owner, store.LoadVpnEntry());
             store.SaveVpnEntry(profile.EntryId);
         }
@@ -264,16 +268,21 @@ namespace IkeV2Manager.Client
                 }
                 var observed = connection.Observe();
                 if (observed == null) { ClosePermission(); connectionState = "connecting"; return; }
-                var selectedAddresses = store.LoadPolicyHistory().Current.Resources.Select(r => IPAddress.Parse(r.Address)).ToArray();
-                if (routes != null && !routes.Matches(observed, selectedAddresses)) { ClosePermission(); routes.Dispose(); routes = null; }
-                if (routes == null) routes = new OwnedTunnelRoutes(observed, selectedAddresses);
+                // The fixed address of each selected domain, the address that
+                // answers names, and the network names are answered from.
+                var selected = store.LoadPolicyHistory().Current;
+                var selectedPrefixes = selected.Resources.Select(r => r.Address)
+                    .Concat(new[] { PolicyHistory.NamesResolver(selected.VirtualSubnet), PolicyHistory.NamesRange(selected.VirtualSubnet) }).ToArray();
+                if (routes != null && !routes.Matches(observed, selectedPrefixes)) { ClosePermission(); routes.Dispose(); routes = null; }
+                if (routes == null) routes = new OwnedTunnelRoutes(observed, selectedPrefixes);
                 routes.Verify(observed);
                 if (routeDeadline == DateTime.MinValue) routeDeadline = DateTime.UtcNow.AddSeconds(10);
-                foreach (var resource in store.LoadPolicyHistory().Current.Resources)
+                foreach (string prefix in selectedPrefixes)
                 {
-                    var destination = IPAddress.Parse(resource.Address);
+                    IPAddress destination; byte prefixLength;
+                    OwnedTunnelRoutes.ParsePrefix(prefix, out destination, out prefixLength);
                     var route = RouteObservation.Read(destination);
-                    if (!route.Matches(observed, destination))
+                    if (!route.Matches(observed, destination, prefixLength))
                     {
                         connectionError = route.IsLoopback ? "route_loopback" : route.InterfaceLuid != observed.InterfaceLuid ? "route_interface" :
                             !route.Source.Equals(observed.LocalAddress) ? "route_source" : "route_prefix";
@@ -353,7 +362,11 @@ namespace IkeV2Manager.Client
                 PolicyHistory previous = store.LoadPolicyHistory();
                 PolicyHistory next = previous == null ? PolicyHistory.Begin(policy) : previous.Propose(policy);
                 GuardReceipt plan = store.LoadPlan();
-                var addresses = next.ProtectedAddresses().Select(IPAddress.Parse).ToArray();
+                // Denied outside the tunnel for good: every fixed address ever
+                // assigned, the address that answers names and the whole
+                // network names are answered from.
+                var addresses = next.ProtectedAddresses()
+                    .Concat(new[] { PolicyHistory.NamesResolver(policy.VirtualSubnet), PolicyHistory.NamesRange(policy.VirtualSubnet) }).ToArray();
                 bool initial = plan == null;
                 if (initial)
                     using (var planned = new WfpGuard(Guid.NewGuid(), addresses)) plan = planned.Receipt();

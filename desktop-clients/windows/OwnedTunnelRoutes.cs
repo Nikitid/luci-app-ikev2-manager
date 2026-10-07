@@ -22,29 +22,43 @@ namespace IkeV2Manager.Client
         private bool disposed;
 
         public OwnedTunnelRoutes(TunnelObservation tunnel, IEnumerable<IPAddress> addresses)
+            : this(tunnel, addresses == null ? null : addresses.Select(a => a == null ? null : a.ToString())) { }
+
+        // "a.b.c.d" for one address, "a.b.c.d/len" for a network at its base.
+        internal static bool ParsePrefix(string text, out IPAddress address, out byte length)
         {
-            if (tunnel == null || tunnel.InterfaceLuid == 0 || tunnel.Connection == Guid.Empty || addresses == null)
+            address = null; length = 32;
+            if (text == null) return false;
+            string[] parts = text.Split('/');
+            if (parts.Length > 2 || !IPAddress.TryParse(parts[0], out address) || address.ToString() != parts[0]) return false;
+            var bytes = address.GetAddressBytes();
+            if (bytes.Length != 4 || !(bytes[0] == 10 || bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31 || bytes[0] == 192 && bytes[1] == 168)) return false;
+            if (parts.Length == 1) return true;
+            if (!Byte.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out length) ||
+                length < 16 || length > 31) return false;
+            uint value = ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+            return (value & ~(UInt32.MaxValue << (32 - length))) == 0;
+        }
+
+        public OwnedTunnelRoutes(TunnelObservation tunnel, IEnumerable<string> prefixes)
+        {
+            if (tunnel == null || tunnel.InterfaceLuid == 0 || tunnel.Connection == Guid.Empty || prefixes == null)
                 throw new ArgumentException("Verified tunnel and selected destinations required");
-            var values = addresses.ToArray();
+            var values = prefixes.ToArray();
             if (values.Length == 0 || values.Length > 4096 || values.Distinct().Count() != values.Length)
                 throw new ArgumentException("Invalid selected routes");
-            foreach (var address in values)
-            {
-                if (address == null) throw new ArgumentException("Invalid selected route");
-                var bytes = address.GetAddressBytes();
-                if (bytes.Length != 4 || !(bytes[0] == 10 || bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31 || bytes[0] == 192 && bytes[1] == 168))
-                    throw new ArgumentException("Selected routes must be private IPv4 destinations");
-            }
             luid = tunnel.InterfaceLuid; connection = tunnel.Connection;
-            destinations = values.Select(v => v.ToString()).OrderBy(v => v, StringComparer.Ordinal).ToArray();
+            destinations = values.OrderBy(v => v, StringComparer.Ordinal).ToArray();
             try
             {
-                foreach (var address in values)
+                foreach (var prefix in values)
                 {
+                    IPAddress address; byte length;
+                    if (!ParsePrefix(prefix, out address, out length)) throw new ArgumentException("Selected routes must be private IPv4 destinations");
                     RouteObservation.Native.Route row;
                     RouteObservation.Native.InitializeIpForwardEntry(out row);
                     row.Luid = luid;
-                    row.Destination = new RouteObservation.Native.Prefix { Address = RouteObservation.Native.Address.From(address), Length = 32 };
+                    row.Destination = new RouteObservation.Native.Prefix { Address = RouteObservation.Native.Address.From(address), Length = length };
                     row.NextHop = RouteObservation.Native.Address.From(IPAddress.Any);
                     row.Metric = 1; row.Protocol = 3; // MIB_IPPROTO_NETMGMT.
                     row.Autoconfigure = 0; row.Immortal = 1; row.Publish = 0; row.Loopback = 0;
@@ -59,7 +73,7 @@ namespace IkeV2Manager.Client
                     if (error != 0) throw new Win32Exception((int)error, "Selected route readback failed");
                     uint changed = 0;
                     if (installed.Luid != luid) changed |= 1;
-                    if (installed.Destination.Length != 32 || installed.Destination.Address.Family != 2 || installed.Destination.Address.IPv4 != row.Destination.Address.IPv4) changed |= 2;
+                    if (installed.Destination.Length != length || installed.Destination.Address.Family != 2 || installed.Destination.Address.IPv4 != row.Destination.Address.IPv4) changed |= 2;
                     if (installed.NextHop.Family != 2 || installed.NextHop.IPv4 != 0) changed |= 4;
                     if (installed.Metric != 1) changed |= 8;
                     if (installed.Protocol != 3) changed |= 16;
@@ -74,9 +88,12 @@ namespace IkeV2Manager.Client
         }
 
         public bool Matches(TunnelObservation tunnel, IEnumerable<IPAddress> addresses)
+        { return Matches(tunnel, addresses.Select(a => a.ToString())); }
+
+        public bool Matches(TunnelObservation tunnel, IEnumerable<string> prefixes)
         {
             return !disposed && tunnel != null && tunnel.InterfaceLuid == luid && tunnel.Connection == connection &&
-                destinations.SequenceEqual(addresses.Select(a => a.ToString()).OrderBy(a => a, StringComparer.Ordinal));
+                destinations.SequenceEqual(prefixes.OrderBy(a => a, StringComparer.Ordinal));
         }
 
         public void Verify(TunnelObservation tunnel)

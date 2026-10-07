@@ -40,6 +40,18 @@ internal static class EnrollmentIntegrationTests
         while (ClientStatusReader.Read(name).Protected != open && elapsed.ElapsedMilliseconds < milliseconds) Thread.Sleep(250);
         return ClientStatusReader.Read(name).Protected == open;
     }
+    // A host under a selected domain: answered only through the tunnel, with
+    // an IPv4 address from the router's names network and nothing else.
+    private static bool Named(string host)
+    {
+        try
+        {
+            var answers = System.Net.Dns.GetHostAddresses(host);
+            return answers.Length == 1 && answers[0].AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                answers[0].GetAddressBytes()[0] == 172 && answers[0].GetAddressBytes()[3] >= 128;
+        }
+        catch (System.Net.Sockets.SocketException) { return false; }
+    }
     // One line out and the same line back, or nothing.
     private static bool Echo(string host, int port)
     {
@@ -161,12 +173,18 @@ internal static class EnrollmentIntegrationTests
                         Require(named.Services.Length == 1 && named.Services[0] == "api" && named.Available.Length == 0, "Status did not name the assigned service");
                         Require(Echo(target, port), "Selected service did not answer through the confirmed path");
                         Require(!Echo(target, (int)config["closed_port"]), "A port outside the assignment answered");
+                        string under = "deep.cdn." + target;
+                        Require(Named(under), "A host under the selected domain was not answered through the tunnel");
+                        Require(Echo(under, port), "A host under the selected domain did not answer through the confirmed path");
+                        Require(!Echo(under, (int)config["closed_port"]), "A host under the selected domain answered on another port");
+                        Require(!Named("www.elsewhere.example"), "A name outside the assignment was answered by the tunnel resolver");
                         Console.WriteLine("Native protected status and selected service traffic verified");
                         Console.WriteLine("READY_NATIVE_PATHDOWN");
                         step = "path loss";
                         Require(Await(name, false, 30000), "Lost router path left the protected status");
                         Require(ClientStatusReader.Read(name).State == "tunnel_connected", "Path loss changed the tunnel state: " + Diagnosis(name));
                         Require(!Echo(target, port), "Selected service answered without the router path");
+                        Require(!Echo(under, port), "A host under the selected domain answered without the router path");
                         Console.WriteLine("READY_NATIVE_PATHUP");
                         step = "path recovery";
                         Require(Await(name, true, 45000), "Restored router path did not reopen access: " + Diagnosis(name));
@@ -176,6 +194,8 @@ internal static class EnrollmentIntegrationTests
                         elapsed.Restart();
                         while (ClientStatusReader.Read(name).State != "blocked" && elapsed.ElapsedMilliseconds < 10000) Thread.Sleep(100);
                         Require(ClientStatusReader.Read(name).State == "blocked" && !Echo(target, port), "Disconnect left the selected service reachable");
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ipconfig.exe", "/flushdns") { UseShellExecute = false, CreateNoWindow = true }).WaitForExit(5000);
+                        Require(!Named(under) && !Echo(under, port), "A host under the selected domain resolved or answered without the tunnel");
                         Require(ClientCommands.Send("connect", service: name) == "accepted", "Reconnect refused");
                         Require(Await(name, true, 60000), "Reconnect did not reopen access: " + Diagnosis(name));
                         // The user's choice outlives the service: a restart
@@ -238,6 +258,7 @@ internal static class EnrollmentIntegrationTests
                     var plan = store.LoadPlan();
                     if (ownsMappings) SystemHosts.Remove(store);
                     var entry = store.LoadVpnEntry();
+                    if (plan != null) ManagedVpnProfile.RemoveNames(plan.Owner);
                     if (entry != Guid.Empty) ManagedVpnProfile.Remove(plan.Owner, entry);
                     if (plan != null) using (var guard = WfpGuard.Resume(plan)) guard.Remove();
                 }

@@ -14,9 +14,14 @@ namespace IkeV2Manager.Client
         public bool IsLoopback { get; private set; }
 
         public bool Matches(TunnelObservation tunnel, IPAddress destination)
+        { return Matches(tunnel, destination, 32); }
+
+        // The route Windows chose is exactly the owned one: same interface,
+        // same source, same network. A wider or narrower route is another's.
+        public bool Matches(TunnelObservation tunnel, IPAddress network, byte length)
         {
             return tunnel != null && !IsLoopback && InterfaceLuid != 0 && InterfaceLuid == tunnel.InterfaceLuid &&
-                Source.Equals(tunnel.LocalAddress) && PrefixLength == 32 && Prefix.Equals(destination);
+                Source.Equals(tunnel.LocalAddress) && PrefixLength == length && Prefix.Equals(network);
         }
 
         public static RouteObservation Read(IPAddress destination)

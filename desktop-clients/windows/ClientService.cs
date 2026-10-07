@@ -56,6 +56,7 @@ namespace IkeV2Manager.Client
                     SystemHosts.Remove(store);
                     if (plan != null)
                     {
+                        ManagedVpnProfile.RemoveNames(plan.Owner);
                         var entry = store.LoadVpnEntry();
                         if (entry != Guid.Empty)
                         {

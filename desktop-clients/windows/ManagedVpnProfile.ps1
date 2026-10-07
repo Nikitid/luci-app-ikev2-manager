@@ -16,15 +16,54 @@ try {
         [Console]::Out.Write($entry.ToString('D'))
         exit 0
     }
+    if ($inputDocument.operation -eq 'names') {
+        # One owned set of name resolution rules, replaced whole. Each domain is
+        # listed as itself and as a suffix, so it and everything under it ask
+        # the resolver that exists only inside the tunnel.
+        Import-Module (Join-Path $PSHOME 'Modules\DnsClient') -ErrorAction Stop
+        $domains = @($inputDocument.domains)
+        if ($domains.Count -gt 4096) { throw 'Too many names' }
+        foreach ($domain in $domains) {
+            if ($domain -cnotmatch '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' -or $domain.Length -gt 253) { throw 'Invalid name' }
+        }
+        $wanted = @()
+        if ($domains.Count) {
+            $resolver = [Net.IPAddress]::Parse([string]$inputDocument.resolver)
+            $bytes = $resolver.GetAddressBytes()
+            if ($resolver.ToString() -cne $inputDocument.resolver -or $bytes.Length -ne 4 -or
+                -not ($bytes[0] -eq 10 -or ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) -or ($bytes[0] -eq 192 -and $bytes[1] -eq 168))) { throw 'Invalid resolver' }
+            $wanted = @($domains | ForEach-Object { $_; '.' + $_ } | Sort-Object -Unique)
+        }
+        $owned = @(Get-DnsClientNrptRule | Where-Object Comment -CEQ $name)
+        $current = @($owned | ForEach-Object { $_.Namespace } | Sort-Object -Unique)
+        $servers = @($owned | ForEach-Object { $_.NameServers } | Sort-Object -Unique)
+        if (($current -join ' ') -cne ($wanted -join ' ') -or ($wanted.Count -and ($servers -join ' ') -cne [string]$inputDocument.resolver)) {
+            foreach ($rule in $owned) { Remove-DnsClientNrptRule -Name $rule.Name -Force }
+            for ($index = 0; $index -lt $wanted.Count; $index += 200) {
+                $last = [Math]::Min($index + 199, $wanted.Count - 1)
+                Add-DnsClientNrptRule -Namespace $wanted[$index..$last] -NameServers ([string]$inputDocument.resolver) -Comment $name | Out-Null
+            }
+            Clear-DnsClientCache
+        }
+        $applied = @(Get-DnsClientNrptRule | Where-Object Comment -CEQ $name | ForEach-Object { $_.Namespace } | Sort-Object -Unique)
+        if (($applied -join ' ') -cne ($wanted -join ' ')) { throw 'Name policy incomplete' }
+        [Console]::Out.Write('names-applied')
+        exit 0
+    }
     if ($inputDocument.operation -ne 'ensure') { throw 'Invalid operation' }
     $server = [string]$inputDocument.server
     if ($server -cnotmatch '^[a-z0-9][a-z0-9.-]{1,251}[a-z0-9]$' -or $server -notmatch '\.' -or $server -match '^[0-9.]+$') { throw 'Invalid server' }
     $prefixes = @($inputDocument.addresses | ForEach-Object {
-        $address = [Net.IPAddress]::Parse($_)
-        if ($address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $address.ToString() -cne $_) { throw 'Invalid route' }
+        # One address, or a network written at its base as a.b.c.d/len.
+        $parts = ([string]$_).Split('/')
+        if ($parts.Count -gt 2) { throw 'Invalid route' }
+        $address = [Net.IPAddress]::Parse($parts[0])
+        if ($address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $address.ToString() -cne $parts[0]) { throw 'Invalid route' }
         $bytes = $address.GetAddressBytes()
         if (-not ($bytes[0] -eq 10 -or ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) -or ($bytes[0] -eq 192 -and $bytes[1] -eq 168))) { throw 'Non-private route' }
-        $_ + '/32'
+        if ($parts.Count -eq 1) { $_ + '/32' }
+        elseif ($parts[1] -cmatch '^(1[6-9]|2[0-9]|3[01])$') { [string]$_ }
+        else { throw 'Invalid route' }
     })
     if ($prefixes.Count -lt 1 -or $prefixes.Count -gt 4096 -or @($prefixes | Select-Object -Unique).Count -ne $prefixes.Count) { throw 'Invalid routes' }
     $existing = @(Get-VpnConnection -AllUserConnection | Where-Object Name -CEQ $name)

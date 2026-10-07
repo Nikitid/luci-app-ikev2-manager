@@ -65,6 +65,18 @@ internal static class ProductIntegrationTests
         catch (IOException) { return null; }
     }
 
+    // A host under a selected domain: answered only through the tunnel, with
+    // an IPv4 address from the router's names network and nothing else.
+    private static bool Named(string host)
+    {
+        try
+        {
+            var answers = System.Net.Dns.GetHostAddresses(host);
+            return answers.Length == 1 && answers[0].AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                answers[0].GetAddressBytes()[0] == 172 && answers[0].GetAddressBytes()[3] >= 128;
+        }
+        catch (System.Net.Sockets.SocketException) { return false; }
+    }
     private static int Main(string[] args)
     {
         string step = "start";
@@ -95,6 +107,17 @@ internal static class ProductIntegrationTests
             Require(reachable(), "Selected service did not answer through the installed client");
             if (url == null) Require(!Echo(target, (int)config["closed_port"]), "A port outside the assignment answered");
             else Console.WriteLine("PROBE_ORIGIN=" + Origin(url));
+            if (url == null)
+            {
+                Require(Named("deep.cdn." + target), "A host under the selected domain was not answered through the tunnel");
+                Require(Echo("deep.cdn." + target, port), "A host under the selected domain did not answer through the installed client");
+            }
+            else if (config.ContainsKey("probe_under"))
+            {
+                string under = (string)config["probe_under"];
+                Require(Named(new Uri(under).Host), "A host under the selected domain was not answered through the tunnel");
+                Console.WriteLine("PROBE_UNDER=" + Origin(under));
+            }
             Console.WriteLine("Native protected status and selected service traffic verified");
             step = "service crash";
             // The supervisor restarts a killed service; nothing answers between.

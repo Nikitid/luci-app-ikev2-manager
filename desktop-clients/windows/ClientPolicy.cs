@@ -227,6 +227,33 @@ namespace IkeV2Manager.Client
             return ManagedHosts.Reconcile(original, entries);
         }
 
+        // The layout every party derives from the virtual subnet alone: its
+        // lower half holds the fixed address of each published domain, the last
+        // address of that half answers names, and the upper half is handed out
+        // by the router, one address per name asked for.
+        public static string NamesResolver(string virtualSubnet)
+        {
+            uint first; int length; Layout(virtualSubnet, out first, out length);
+            return Text(first + (1u << (31 - length)) - 1);
+        }
+
+        public static string NamesRange(string virtualSubnet)
+        {
+            uint first; int length; Layout(virtualSubnet, out first, out length);
+            return Text(first + (1u << (31 - length))) + "/" + (length + 1).ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static void Layout(string virtualSubnet, out uint first, out int length)
+        {
+            string[] parts = (virtualSubnet ?? "").Split('/');
+            if (parts.Length != 2 || !Int32.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out length) || length < 16 || length > 28)
+                throw new ArgumentException("Invalid virtual subnet");
+            first = ClientPolicy.Address(parts[0]);
+        }
+
+        private static string Text(uint address)
+        { return String.Format(CultureInfo.InvariantCulture, "{0}.{1}.{2}.{3}", address >> 24, (address >> 16) & 255, (address >> 8) & 255, address & 255); }
+
         public ReadOnlyCollection<string> ProtectedAddresses()
         { return Array.AsReadOnly(allocations.Values.OrderBy(a => a, StringComparer.Ordinal).ToArray()); }
     }

@@ -22,26 +22,63 @@ namespace IkeV2Manager.Client
         private readonly Guid sublayer;
         private readonly List<Guid> filters = new List<Guid>();
         private readonly List<uint> addresses;
+        // One mask per destination: all ones for a single address, shorter for
+        // a network written as "a.b.c.d/len".
+        private readonly List<uint> masks = new List<uint>();
         private IntPtr engine;
         private IntPtr permissionEngine;
         private bool installed;
 
         public WfpGuard(Guid owner, IEnumerable<IPAddress> destinations)
+            : this(owner, destinations == null ? null : new List<IPAddress>(destinations).ConvertAll(d => d == null ? null : d.ToString())) { }
+
+        // Canonical text of a destination: "a.b.c.d", or "a.b.c.d/len" for a
+        // network of /8 to /31 written at its own base address.
+        internal static bool ParseDestination(string text, out uint address, out uint mask)
+        {
+            address = 0; mask = UInt32.MaxValue;
+            if (text == null) return false;
+            string[] parts = text.Split('/');
+            IPAddress parsed;
+            if (parts.Length > 2 || !IPAddress.TryParse(parts[0], out parsed) || parsed.ToString() != parts[0]) return false;
+            byte[] bytes = parsed.GetAddressBytes();
+            if (bytes.Length != 4) return false;
+            address = ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+            if (parts.Length == 2)
+            {
+                int length;
+                if (!Int32.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out length) ||
+                    length < 8 || length > 31 || length.ToString(System.Globalization.CultureInfo.InvariantCulture) != parts[1]) return false;
+                mask = UInt32.MaxValue << (32 - length);
+                if ((address & ~mask) != 0) return false;
+            }
+            return address != 0 && address != UInt32.MaxValue;
+        }
+
+        private static string DestinationText(uint address, uint mask)
+        {
+            string text = String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "{0}.{1}.{2}.{3}", address >> 24, (address >> 16) & 255, (address >> 8) & 255, address & 255);
+            if (mask == UInt32.MaxValue) return text;
+            int length = 0;
+            for (uint bits = mask; bits != 0; bits <<= 1) length++;
+            return text + "/" + length.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        public WfpGuard(Guid owner, IEnumerable<string> destinations)
         {
             if (IntPtr.Size != 8) throw new PlatformNotSupportedException("64-bit Windows required");
             sublayer = owner;
             if (owner == Guid.Empty) throw new ArgumentException("Guard owner required");
             if (destinations == null) throw new ArgumentNullException("destinations");
             addresses = new List<uint>();
-            foreach (IPAddress destination in destinations)
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string destination in destinations)
             {
-                if (destination == null) throw new ArgumentException("Destination required");
-                byte[] bytes = destination.GetAddressBytes();
-                if (bytes.Length != 4) throw new ArgumentException("IPv4 destination required");
-                uint address = ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
-                if (address == 0 || address == UInt32.MaxValue || addresses.Contains(address))
+                uint address, mask;
+                if (!ParseDestination(destination, out address, out mask) || !seen.Add(destination))
                     throw new ArgumentException("Invalid or duplicate destination");
-                addresses.Add(address);
+                addresses.Add(address); masks.Add(mask);
             }
             if (addresses.Count == 0 || addresses.Count > 4096) throw new ArgumentException("Destinations required");
             for (int i = 0; i < addresses.Count * 5; i++) filters.Add(Guid.NewGuid());
@@ -65,13 +102,14 @@ namespace IkeV2Manager.Client
                 }
                 VerifySublayer();
                 int index = 0;
-                foreach (uint address in addresses)
+                for (int item = 0; item < addresses.Count; item++)
                 {
-                    AddFilter(engine, address, Native.ConnectV4, false, 1, 0, filters[index++]);
-                    AddFilter(engine, address, Native.PacketV4, false, 1, 0, filters[index++]);
-                    AddFilter(engine, address, Native.PacketV4, false, 2, 0, filters[index++]);
-                    AddFilter(engine, address, Native.ReceivePacketV4, false, 1, 0, filters[index++]);
-                    AddFilter(engine, address, Native.ReceivePacketV4, false, 2, 0, filters[index++]);
+                    uint address = addresses[item], mask = masks[item];
+                    AddFilter(engine, address, mask, Native.ConnectV4, false, 1, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.PacketV4, false, 1, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.PacketV4, false, 2, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.ReceivePacketV4, false, 1, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.ReceivePacketV4, false, 2, 0, filters[index++]);
                 }
                 VerifyInstalled();
                 Check(Native.FwpmTransactionCommit0(engine));
@@ -89,11 +127,11 @@ namespace IkeV2Manager.Client
             try
             {
                 Check(Native.FwpmTransactionBegin0(next, 0));
-                foreach (uint address in addresses)
+                for (int item = 0; item < addresses.Count; item++)
                 {
-                    AddFilter(next, address, Native.ConnectV4, true, 0, interfaceLuid);
-                    AddFilter(next, address, Native.PacketV4, true, 0, interfaceLuid);
-                    AddFilter(next, address, Native.ReceivePacketV4, true, 0, interfaceLuid);
+                    AddFilter(next, addresses[item], masks[item], Native.ConnectV4, true, 0, interfaceLuid);
+                    AddFilter(next, addresses[item], masks[item], Native.PacketV4, true, 0, interfaceLuid);
+                    AddFilter(next, addresses[item], masks[item], Native.ReceivePacketV4, true, 0, interfaceLuid);
                 }
                 Check(Native.FwpmTransactionCommit0(next));
                 permissionEngine = next;
@@ -142,9 +180,9 @@ namespace IkeV2Manager.Client
         public GuardReceipt Receipt()
         {
             // The caller persists this plan before InstallBlocking touches WFP.
-            return new GuardReceipt { Owner = sublayer, Filters = filters.ToArray(),
-                Addresses = addresses.ConvertAll(a => String.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "{0}.{1}.{2}.{3}", a >> 24, (a >> 16) & 255, (a >> 8) & 255, a & 255)).ToArray() };
+            var texts = new string[addresses.Count];
+            for (int item = 0; item < texts.Length; item++) texts[item] = DestinationText(addresses[item], masks[item]);
+            return new GuardReceipt { Owner = sublayer, Filters = filters.ToArray(), Addresses = texts };
         }
 
         public static WfpGuard Recover(GuardReceipt receipt)
@@ -169,11 +207,16 @@ namespace IkeV2Manager.Client
         public static GuardReceipt ExtendPlan(GuardReceipt existing, IEnumerable<IPAddress> additions)
         {
             if (additions == null) throw new ArgumentNullException("additions");
+            return ExtendPlan(existing, new List<IPAddress>(additions).ConvertAll(a => a.ToString()));
+        }
+
+        public static GuardReceipt ExtendPlan(GuardReceipt existing, IEnumerable<string> additions)
+        {
+            if (additions == null) throw new ArgumentNullException("additions");
             using (var current = FromReceipt(existing))
             {
-                var combined = new List<IPAddress>();
-                foreach (string value in existing.Addresses) combined.Add(IPAddress.Parse(value));
-                foreach (IPAddress address in additions)
+                var combined = new List<string>(existing.Addresses);
+                foreach (string address in additions)
                     if (!combined.Contains(address)) combined.Add(address);
                 using (var extended = new WfpGuard(existing.Owner, combined))
                 {
@@ -193,15 +236,13 @@ namespace IkeV2Manager.Client
             var unique = new HashSet<Guid>();
             foreach (Guid key in receipt.Filters)
                 if (key == Guid.Empty || !unique.Add(key)) throw new ArgumentException("Invalid guard filter identity");
-            var destinations = new List<IPAddress>();
             foreach (string value in receipt.Addresses)
             {
-                IPAddress address;
-                if (!IPAddress.TryParse(value, out address) || address.ToString() != value)
+                uint address, mask;
+                if (!ParseDestination(value, out address, out mask) || DestinationText(address, mask) != value)
                     throw new ArgumentException("Canonical guard address required");
-                destinations.Add(address);
             }
-            var guard = new WfpGuard(receipt.Owner, destinations);
+            var guard = new WfpGuard(receipt.Owner, receipt.Addresses);
             guard.filters.Clear();
             guard.filters.AddRange(receipt.Filters);
             return guard;
@@ -244,21 +285,23 @@ namespace IkeV2Manager.Client
                     if (condition.Key != Native.RemoteAddress || condition.Match != 0 || condition.Value.Type != 256 ||
                         condition.Value.Pointer == IntPtr.Zero) throw new InvalidOperationException("Guard condition changed");
                     var mask = (Native.AddressMask)Marshal.PtrToStructure(condition.Value.Pointer, typeof(Native.AddressMask));
-                    if (mask.Mask != UInt32.MaxValue || !addresses.Contains(mask.Address) ||
-                        !seen.Add(mask.Address + ":" + filter.Layer + ":" + filter.Flags))
+                    bool planned = false;
+                    for (int item = 0; item < addresses.Count && !planned; item++)
+                        planned = addresses[item] == mask.Address && masks[item] == mask.Mask;
+                    if (!planned || !seen.Add(mask.Address + "/" + mask.Mask + ":" + filter.Layer + ":" + filter.Flags))
                         throw new InvalidOperationException("Guard destination changed");
                 }
                 finally { if (pointer != IntPtr.Zero) Native.FwpmFreeMemory0(ref pointer); }
             }
         }
 
-        private Guid AddFilter(IntPtr handle, uint address, Guid layer, bool permit, uint flags, ulong luid, Guid? plannedKey = null)
+        private Guid AddFilter(IntPtr handle, uint address, uint mask, Guid layer, bool permit, uint flags, ulong luid, Guid? plannedKey = null)
         {
             using (var memory = new NativeMemory())
             {
                 var conditions = new List<Native.Condition>();
                 conditions.Add(new Native.Condition { Key = Native.RemoteAddress, Value = new Native.Value {
-                    Type = 256, Pointer = memory.Struct(new Native.AddressMask { Address = address, Mask = UInt32.MaxValue }) } });
+                    Type = 256, Pointer = memory.Struct(new Native.AddressMask { Address = address, Mask = mask }) } });
                 if (permit) conditions.Add(new Native.Condition { Key = Native.LocalInterface, Value = new Native.Value {
                     Type = 4, Pointer = memory.Struct(luid) } });
                 Guid key = plannedKey ?? Guid.NewGuid();
