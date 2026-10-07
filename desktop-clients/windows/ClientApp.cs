@@ -164,7 +164,10 @@ namespace IkeV2Manager.Client
                     break;
                 case "registration_pending":
                     heading.Text = "Регистрация не завершена";
-                    description.Text = "Ожидается выдача настроек сервера. Подключение VPN и защита выбранных сервисов ещё не подтверждены.";
+                    description.Text = current.ConnectionError == "enrollment_connection_failed" ? "Нет связи с роутером по адресу из приглашения. Проверьте интернет; попытка повторяется автоматически." :
+                        current.ConnectionError == "enrollment_access_rejected" ? "Роутер не принял приглашение: оно истекло, уже использовано или отменено. Попросите у администратора новое." :
+                        current.ConnectionError != "none" ? "Роутер ответил не так, как ожидалось (" + current.ConnectionError + "). Попытка повторяется автоматически." :
+                        "Ожидается выдача настроек сервера. Подключение VPN и защита выбранных сервисов ещё не подтверждены.";
                     break;
                 case "registration_error":
                     heading.Text = "Ошибка регистрации";

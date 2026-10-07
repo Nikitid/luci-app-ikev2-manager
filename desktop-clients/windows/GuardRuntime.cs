@@ -58,6 +58,10 @@ namespace IkeV2Manager.Client
         private DeviceServices assigned;
         private string release = "";
         private string[] warnings = new string[0];
+        // Why the last registration step did not go through. It used to be
+        // published once and overwritten two seconds later, so a registration
+        // that could not reach the router looked like one that was waiting.
+        private string registrationError = "none";
 
         // A configured proxy carries a program's requests by name to the proxy,
         // which then reaches the service from wherever the proxy is: neither
@@ -207,12 +211,15 @@ namespace IkeV2Manager.Client
                 try
                 {
                     var registration = EnrollmentRegistration.Resume(store);
+                    registrationError = "none";
                     if (registration.Policy == null) { Publish("registration_pending"); return false; }
                     RestoreEnrollmentProtection();
                     return true;
                 }
-                catch
+                catch (Exception refusal)
                 {
+                    var named = refusal as EnrollmentException;
+                    registrationError = named != null ? named.Code : "enrollment_internal";
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after enrollment failure"); }
                     try { Publish("registration_error"); } catch { }
@@ -475,7 +482,7 @@ namespace IkeV2Manager.Client
                 Available = assigned == null ? new string[0] : assigned.Available.Take(64).ToArray(),
                 Domains = domains, Revision = revision, Wanted = connectionWanted, Release = release, Warnings = warnings,
                 Protected = healthy && state == "protected" && permittedInterface != 0,
-                ConnectionError = connectionError,
+                ConnectionError = state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
                 ProcessId = Process.GetCurrentProcess().Id });
         }

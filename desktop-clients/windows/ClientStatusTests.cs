@@ -68,6 +68,9 @@ internal static class ClientStatusTests
             }
             data["ConnectionError"] = "none"; data["State"] = "access_closed"; data["Wanted"] = false;
             if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).State != "access_closed") throw new Exception("Closed access was not reported");
+            data["State"] = "registration_pending"; data["ConnectionError"] = "enrollment_connection_failed"; data["GuardInstalled"] = false;
+            if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).ConnectionError != "enrollment_connection_failed") throw new Exception("The reason a registration waits was lost");
+            data["GuardInstalled"] = true;
             data["State"] = "connection_error";
             data["ConnectionError"] = "credential=secret";
             Check(data, 123, now, "status_invalid");

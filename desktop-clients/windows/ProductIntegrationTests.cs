@@ -158,7 +158,15 @@ internal static class ProductIntegrationTests
             ClientCommands.Send("continue");
             Require(Await(view => view.State == "registration_pending", 20000), "Invitation was not claimed: " + Shown());
             Console.WriteLine("READY_NATIVE_PENDING");
-            Require(Await(view => view.State == "blocked" && view.GuardInstalled, 90000), "Registration did not complete: " + Shown());
+            if (!Await(view => view.State == "blocked" && view.GuardInstalled, 90000))
+            {
+                // Say where it stands, from this machine's side, before failing.
+                string host = new Uri(endpoint).Host; string seen = "unresolved";
+                try { seen = System.Net.Dns.GetHostAddresses(host).Length + " address(es)"; } catch (System.Net.Sockets.SocketException) { }
+                bool reachable443 = false;
+                try { using (var probe = new System.Net.Sockets.TcpClient()) { var pending = probe.BeginConnect(host, new Uri(endpoint).Port, null, null); reachable443 = pending.AsyncWaitHandle.WaitOne(4000) && probe.Connected; } } catch (System.Net.Sockets.SocketException) { }
+                Require(false, "Registration did not complete: " + Shown() + "; server name: " + seen + "; port reachable: " + reachable443);
+            }
             Require(!reachable(), "Selected service answered before any connection");
             Console.WriteLine("READY_NATIVE_ENABLE");
             Thread.Sleep(3000);
