@@ -7,8 +7,9 @@ public enum SystemPlan {
     public static let serviceName = "IKEv2 Manager Client"
     public static let managedDomain = "managed.ikev2-manager"
 
+    public static let profilePrefix = "io.github.nikitid.ikev2-manager-client."
     public static func profileIdentifier(_ identifier: UUID) -> String {
-        "io.github.nikitid.ikev2-manager-client." + identifier.uuidString
+        profilePrefix + identifier.uuidString
     }
 
     /// The layout every party derives from the virtual subnet alone: the last
@@ -117,6 +118,9 @@ public enum SystemPlan {
                     <key>PayloadDisplayName</key><string>\(serviceName)</string>
                     <key>UserDefinedName</key><string>\(serviceName)</string>
                     <key>VPNType</key><string>IKEv2</string>
+                    <key>OnDemandEnabled</key><integer>1</integer>
+                    <key>OnDemandRules</key>
+                    <array><dict><key>Action</key><string>Connect</string></dict></array>
                     <key>IKEv2</key>
                     <dict>
                         <key>RemoteAddress</key><string>\(escape(policy.serverAddress))</string>

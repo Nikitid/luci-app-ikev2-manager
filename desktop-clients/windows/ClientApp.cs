@@ -13,24 +13,32 @@ namespace IkeV2Manager.Client
 {
     internal sealed class ClientWindow : Form
     {
-        private readonly Label heading = new Label { AutoSize = true, Font = new Font("Segoe UI", 18, FontStyle.Bold), Margin = new Padding(0, 0, 0, 12) };
-        private readonly Label description = new Label { AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(0, 0, 0, 24) };
-        private readonly Label guard = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 6) };
-        private readonly Label tunnel = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 6) };
-        private readonly Label path = new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 12) };
-        private readonly Label services = new Label { AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(0, 0, 0, 6) };
-        private readonly Button register = new Button { Text = "Регистрация…", AutoSize = true };
+        // How a state reads at a glance: one colour and one sign, the same on macOS.
+        private enum Tone { Open, Working, Attention, Off }
+        private static Color Shade(Tone tone)
+        {
+            return tone == Tone.Open ? Color.FromArgb(33, 140, 69) : tone == Tone.Working ? Color.FromArgb(217, 140, 13) :
+                tone == Tone.Attention ? Color.FromArgb(199, 51, 46) : Color.FromArgb(128, 128, 133);
+        }
+        private sealed class Surface : Panel { internal Surface() { DoubleBuffered = true; ResizeRedraw = true; } }
+        private readonly Surface surface = new Surface { Dock = DockStyle.Fill };
+        // What the surface draws; set by RefreshStatus.
+        private string heading = "", description = "", servicesLine = "", servicesNote = "", availableLine = "", notice = "", checkedLine = "";
+        private Tone tone = Tone.Off;
+        private readonly string[] checkLabels = { "Блокировка вне туннеля", "Туннель и маршруты", "Путь через офис" };
+        private readonly string[] checkValues = { "", "", "" };
+        private readonly Tone[] checkTones = { Tone.Off, Tone.Off, Tone.Off };
+        private readonly Button register = new Button { Text = "Зарегистрировать устройство…", AutoSize = true };
         private readonly Button resume = new Button { Text = "Продолжить регистрацию", AutoSize = true };
-        private readonly Button connect = new Button { Text = "Подключить", AutoSize = true };
-        private readonly Button disconnect = new Button { Text = "Отключить", AutoSize = true };
-        private readonly Button update = new Button { Text = "Скачать обновление", AutoSize = true, Visible = false };
+        private readonly Button connect = new Button { Text = "Включить доступ", AutoSize = true };
+        private readonly Button disconnect = new Button { Text = "Отключить доступ", AutoSize = true };
+        private readonly Button update = new Button { Text = "Скачать обновление", AutoSize = true, Visible = false, TabStop = false };
         // The one place downloads come from. The router supplies a version
         // number and nothing else.
         private const string Downloads = "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v";
         // Set by a registration started in this window: the first thing a newly
         // registered device wants is its connection.
         private bool connectAfterRegistration;
-        private readonly Label updated = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(0, 20, 0, 12) };
         private readonly Timer timer = new Timer { Interval = 3000 };
         private ClientView current = new ClientView("status_unavailable");
         private bool commandBusy;
@@ -38,87 +46,166 @@ namespace IkeV2Manager.Client
         internal ClientWindow()
         {
             Text = "IKEv2 Manager";
-            ClientSize = new Size(620, 430);
-            MinimumSize = new Size(580, 440);
+            ClientSize = new Size(560, 470);
             AutoScaleMode = AutoScaleMode.Dpi;
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = false;
             Font = new Font("Segoe UI", 10);
+            BackColor = Color.FromArgb(245, 245, 247);
             StartPosition = FormStartPosition.CenterScreen;
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(28), ColumnCount = 1, RowCount = 8 };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            layout.Controls.Add(heading);
-            layout.Controls.Add(description);
-            layout.Controls.Add(guard);
-            layout.Controls.Add(tunnel);
-            layout.Controls.Add(path);
-            layout.Controls.Add(services);
-            layout.Controls.Add(updated);
-            var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty };
-            var refresh = new Button { Text = "Проверить сейчас", AutoSize = true, Margin = new Padding(0, 0, 12, 0) };
+            var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(20, 8, 20, 16), WrapContents = true };
+            var refresh = new Button { Text = "Проверить", AutoSize = true };
             var report = new Button { Text = "Отчёт…", AutoSize = true };
             refresh.Click += (sender, args) => RefreshStatus();
             report.Click += (sender, args) => PreviewReport();
-            buttons.Controls.Add(refresh);
-            buttons.Controls.Add(report);
             register.Click += (sender, args) => BeginRegistration();
             resume.Click += (sender, args) => SubmitCommand("continue");
-            buttons.Controls.Add(register);
-            buttons.Controls.Add(resume);
             connect.Click += (sender, args) => SubmitCommand("connect");
             disconnect.Click += (sender, args) => SubmitCommand("disconnect");
-            buttons.Controls.Add(connect); buttons.Controls.Add(disconnect);
             update.Click += (sender, args) =>
             {
                 if (!ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version)) return;
                 try { System.Diagnostics.Process.Start(Downloads + current.Release + "/IKEv2ManagerClientSetup.exe"); }
                 catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Не удалось открыть браузер.", "Обновление"); }
             };
-            buttons.Controls.Add(update);
-            buttons.WrapContents = true;
-            layout.Controls.Add(buttons);
-            Controls.Add(layout);
-            // Text wraps at the width the window really has, at any scaling:
-            // a fixed limit cut words in half on a scaled display.
-            Resize += (sender, args) => FitText();
+            // The next thing to do stands first and stands out.
+            foreach (var primary in new[] { register, connect })
+            {
+                primary.FlatStyle = FlatStyle.Flat; primary.FlatAppearance.BorderSize = 0;
+                primary.BackColor = Color.FromArgb(0, 103, 192); primary.ForeColor = Color.White;
+            }
+            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, update })
+            {
+                button.Margin = new Padding(4, 4, 4, 4); button.Padding = new Padding(4, 2, 4, 2);
+                if (button.FlatStyle != FlatStyle.Flat)
+                {
+                    button.FlatStyle = FlatStyle.Flat; button.BackColor = Color.White;
+                    button.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 206);
+                }
+                buttons.Controls.Add(button);
+            }
+            surface.Paint += (sender, args) => Draw(args.Graphics, true);
+            Controls.Add(surface);
+            Controls.Add(buttons);
             timer.Tick += (sender, args) => RefreshStatus();
             Shown += (sender, args) => { RefreshStatus(); timer.Start(); };
             FormClosed += (sender, args) => timer.Dispose();
         }
 
-        // Long texts are broken into lines here, word by word, for the width the
-        // window has. Left to the label, a line was cut in the middle of a word.
-        private void FitText()
+        // Draws the status, the checks and the services, and returns the height
+        // they take, so the window is exactly as tall as what it says.
+        private int Draw(Graphics g, bool paint)
         {
-            var layout = Controls.Count == 0 ? null : Controls[0] as TableLayoutPanel;
-            if (layout == null) return;
-            // The column the labels sit in, less a margin of safety: a line that
-            // is a pixel too long is cut by the label at whatever letter fits.
-            int[] columns = layout.GetColumnWidths();
-            int width = Math.Max(200, (columns.Length == 0 ? layout.ClientSize.Width - layout.Padding.Horizontal : columns[0]) - 32);
-            foreach (var label in new[] { description, services, updated })
+            float k = g.DpiX / 96f;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            float left = 24 * k, width = surface.ClientSize.Width - 48 * k, y = 22 * k;
+            Color ink = Color.FromArgb(28, 28, 30), soft = Color.FromArgb(110, 110, 115), line = Color.FromArgb(217, 217, 222);
+            using (var titleFont = new Font("Segoe UI Semibold", 15))
+            using (var small = new Font("Segoe UI", 8))
+            using (var bold = new Font("Segoe UI Semibold", 10))
+            using (var sign = new Font("Segoe UI Symbol", 15, FontStyle.Bold))
+            using (var inkBrush = new SolidBrush(ink))
+            using (var softBrush = new SolidBrush(soft))
+            using (var linePen = new Pen(line))
+            using (var wrap = new StringFormat())
+            using (var right = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Center })
+            using (var middle = new StringFormat { LineAlignment = StringAlignment.Center })
+            using (var centre = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
-                string original = label.Tag as string ?? label.Text;
-                var lines = new List<string>();
-                foreach (string paragraph in original.Replace("\r\n", "\n").Split('\n'))
+                // Status: sign, what it is, what it means.
+                float disc = 44 * k, textLeft = left + disc + 14 * k, textWidth = width - disc - 14 * k;
+                if (paint)
                 {
-                    string line = "";
-                    foreach (string word in paragraph.Split(' '))
-                    {
-                        string longer = line.Length == 0 ? word : line + " " + word;
-                        if (line.Length != 0 && TextRenderer.MeasureText(longer, label.Font).Width > width)
-                        { lines.Add(line); line = word; }
-                        else line = longer;
-                    }
-                    lines.Add(line);
+                    using (var halo = new SolidBrush(Color.FromArgb(38, Shade(tone)))) g.FillEllipse(halo, left, y, disc, disc);
+                    using (var mark = new SolidBrush(Shade(tone)))
+                        g.DrawString(tone == Tone.Open ? "\u2713" : tone == Tone.Working ? "\u2026" : tone == Tone.Attention ? "!" : "\u23FB",
+                            sign, mark, new RectangleF(left, y, disc, disc), centre);
+                    g.DrawString(heading, titleFont, inkBrush, textLeft - 3 * k, y - 4 * k);
                 }
-                label.Tag = original;
-                label.MaximumSize = Size.Empty;
-                label.AutoSize = true;
-                label.Text = String.Join("\r\n", lines);
+                float headingHeight = g.MeasureString(heading, titleFont).Height - 4 * k;
+                SizeF detail = g.MeasureString(description, Font, (int)textWidth, wrap);
+                if (paint) g.DrawString(description, Font, softBrush, new RectangleF(textLeft, y + headingHeight, textWidth, detail.Height + 2), wrap);
+                y += Math.Max(disc, headingHeight + detail.Height) + 16 * k;
+
+                // Checks.
+                float pad = 14 * k, row = 26 * k, caption = 20 * k;
+                float cardHeight = pad + caption + row * 3 + pad - 6 * k;
+                if (paint)
+                {
+                    Card(g, left, y, width, cardHeight, linePen, 10 * k);
+                    g.DrawString("ПРОВЕРКИ", small, softBrush, left + pad, y + pad - 2 * k);
+                    for (int i = 0; i < 3; i++)
+                    {
+                        float top = y + pad + caption + row * i;
+                        using (var dot = new SolidBrush(Shade(checkTones[i]))) g.FillEllipse(dot, left + pad, top + row / 2 - 4 * k, 8 * k, 8 * k);
+                        g.DrawString(checkLabels[i], Font, inkBrush, new RectangleF(left + pad + 16 * k, top, width / 2, row), middle);
+                        g.DrawString(checkValues[i], Font, softBrush, new RectangleF(left + width / 2, top, width / 2 - pad, row), right);
+                    }
+                }
+                y += cardHeight + 12 * k;
+
+                // Services.
+                float inner = width - pad * 2;
+                SizeF names = g.MeasureString(servicesLine, bold, (int)inner, wrap);
+                SizeF note = servicesNote.Length == 0 ? SizeF.Empty : g.MeasureString(servicesNote, small, (int)inner, wrap);
+                SizeF offered = availableLine.Length == 0 ? SizeF.Empty : g.MeasureString(availableLine, small, (int)inner, wrap);
+                cardHeight = pad + caption + names.Height + note.Height + offered.Height + pad;
+                if (paint)
+                {
+                    Card(g, left, y, width, cardHeight, linePen, 10 * k);
+                    g.DrawString("СЕРВИСЫ ЧЕРЕЗ ОФИС", small, softBrush, left + pad, y + pad - 2 * k);
+                    float top = y + pad + caption;
+                    g.DrawString(servicesLine, bold, servicesNote.Length == 0 && current.Services.Length == 0 ? softBrush : inkBrush,
+                        new RectangleF(left + pad, top, inner, names.Height + 2), wrap);
+                    top += names.Height;
+                    if (servicesNote.Length != 0) { g.DrawString(servicesNote, small, softBrush, new RectangleF(left + pad, top, inner, note.Height + 2), wrap); top += note.Height; }
+                    if (availableLine.Length != 0) g.DrawString(availableLine, small, softBrush, new RectangleF(left + pad, top, inner, offered.Height + 2), wrap);
+                }
+                y += cardHeight + 12 * k;
+
+                // What needs the user's attention: an update, a proxy.
+                if (notice.Length != 0)
+                {
+                    SizeF said = g.MeasureString(notice, Font, (int)(width - 24 * k), wrap);
+                    if (paint)
+                    {
+                        using (var amber = new SolidBrush(Color.FromArgb(30, Shade(Tone.Working))))
+                        using (var shape = Rounded(left, y, width, said.Height + 20 * k, 10 * k)) g.FillPath(amber, shape);
+                        g.DrawString(notice, Font, inkBrush, new RectangleF(left + 12 * k, y + 10 * k, width - 24 * k, said.Height + 2), wrap);
+                    }
+                    y += said.Height + 20 * k + 12 * k;
+                }
+                if (paint) g.DrawString(checkedLine, small, softBrush, left, y);
+                y += g.MeasureString(checkedLine, small).Height + 4 * k;
             }
+            return (int)Math.Ceiling(y);
         }
 
-        // The text a label is asked to show, before it is broken into lines.
-        private static void Say(Label label, string text) { label.Tag = text; label.Text = text; }
+        private static System.Drawing.Drawing2D.GraphicsPath Rounded(float x, float y, float width, float height, float radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            float d = radius * 2;
+            path.AddArc(x, y, d, d, 180, 90); path.AddArc(x + width - d, y, d, d, 270, 90);
+            path.AddArc(x + width - d, y + height - d, d, d, 0, 90); path.AddArc(x, y + height - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private static void Card(Graphics g, float x, float y, float width, float height, Pen border, float radius)
+        {
+            using (var shape = Rounded(x, y, width, height, radius)) { g.FillPath(Brushes.White, shape); g.DrawPath(border, shape); }
+        }
+
+        // The window is as tall as its content and its buttons.
+        private void FitWindow()
+        {
+            int content;
+            using (var g = surface.CreateGraphics()) content = Draw(g, false);
+            int wanted = content + (ClientSize.Height - surface.ClientSize.Height);
+            if (Math.Abs(ClientSize.Height - wanted) > 1) ClientSize = new Size(ClientSize.Width, wanted);
+            surface.Invalidate();
+        }
 
         private void BeginRegistration()
         {
@@ -167,76 +254,85 @@ namespace IkeV2Manager.Client
             finally { commandBusy = false; if (!IsDisposed) RefreshStatus(); }
         }
 
-        private void RefreshStatus()
+        private void RefreshStatus() { Present(ClientStatusReader.Read()); }
+
+        // Everything the window says follows from one reading of the service.
+        internal void Present(ClientView view)
         {
-            current = ClientStatusReader.Read();
-            heading.ForeColor = current.State == "blocked" ? Color.FromArgb(155, 87, 0) :
-                current.Protected ? Color.FromArgb(0, 110, 60) : SystemColors.ControlText;
+            current = view;
+            tone = current.State == "protected" ? Tone.Open :
+                current.State == "connecting" || current.State == "tunnel_connected" || current.State == "registration_pending" ? Tone.Working :
+                current.State == "blocked" || current.State == "enrollment_required" ? Tone.Off : Tone.Attention;
             switch (current.State)
             {
                 case "blocked":
-                    heading.Text = "Доступ закрыт";
-                    Say(description, "Нет подтверждённого подключения к офису. Выбранные адреса остаются заблокированы.");
+                    heading = current.Wanted ? "Доступ закрыт" : "Доступ выключен";
+                    description = (current.Wanted ? "Нет подтверждённого подключения к офису. Сервисы офиса заблокированы." :
+                        "Вы выключили доступ. Сервисы офиса заблокированы, остальной интернет работает как обычно.");
                     break;
                 case "enrollment_required":
-                    heading.Text = "Требуется настройка доступа";
-                    Say(description, "Клиент ещё не получил политику доступа организации.");
+                    heading = "Устройство не зарегистрировано";
+                    description = ("Получите у администратора ссылку приглашения и нажмите «Зарегистрировать устройство».");
                     break;
                 case "registration_pending":
-                    heading.Text = "Регистрация не завершена";
-                    Say(description, current.ConnectionError == "enrollment_connection_failed" ? "Нет связи с роутером по адресу из приглашения. Проверьте интернет; попытка повторяется автоматически." :
+                    heading = "Регистрация не завершена";
+                    description = (current.ConnectionError == "enrollment_connection_failed" ? "Нет связи с роутером по адресу из приглашения. Проверьте интернет; попытка повторяется автоматически." :
                         current.ConnectionError == "enrollment_access_rejected" ? "Роутер не принял приглашение: оно истекло, уже использовано или отменено. Попросите у администратора новое." :
                         current.ConnectionError != "none" ? "Роутер ответил не так, как ожидалось (" + current.ConnectionError + "). Попытка повторяется автоматически." :
                         "Ожидается выдача настроек сервера. Подключение VPN и защита выбранных сервисов ещё не подтверждены.");
                     break;
                 case "registration_error":
-                    heading.Text = "Ошибка регистрации";
-                    Say(description, "Не удалось получить или сохранить настройки. VPN не активирован. Подробности состояния доступны в отчёте.");
+                    heading = "Ошибка регистрации";
+                    description = ("Не удалось получить или сохранить настройки. VPN не активирован. Подробности состояния доступны в отчёте.");
                     break;
                 case "connecting":
-                    heading.Text = "Подключение к VPN";
-                    Say(description, "Служба устанавливает IKEv2-соединение. Доступ к закреплённым адресам остаётся заблокирован.");
+                    heading = "Подключение";
+                    description = ("Служба устанавливает IKEv2-соединение. Доступ к закреплённым адресам остаётся заблокирован.");
                     break;
                 case "protected":
-                    heading.Text = "Доступ открыт";
-                    Say(description, "Выбранные сервисы идут через офис: туннель, маршруты и путь на роутере подтверждены. Остальной трафик идёт как обычно.");
+                    heading = "Доступ открыт";
+                    description = ("Выбранные сервисы идут через офис: туннель, маршруты и путь на роутере подтверждены. Остальной трафик идёт как обычно.");
                     break;
                 case "tunnel_connected":
-                    heading.Text = "Туннель установлен";
-                    Say(description, PathText(current.ConnectionError));
+                    heading = "Туннель установлен";
+                    description = (PathText(current.ConnectionError));
                     break;
                 case "connection_error":
-                    heading.Text = "Не удалось подключить VPN";
-                    Say(description, "Служба не подтвердила нужный туннель или маршруты. Доступ к закреплённым адресам остаётся заблокирован; попытка повторится автоматически.");
+                    heading = "Не удалось подключить VPN";
+                    description = ("Служба не подтвердила нужный туннель или маршруты. Доступ к закреплённым адресам остаётся заблокирован; попытка повторится автоматически.");
                     break;
                 case "access_closed":
-                    heading.Text = "Доступ не включён";
-                    Say(description, "Роутер знает это устройство, но доступ для него не включён администратором или отозван. Выбранные сервисы остаются заблокированы; проверка повторяется автоматически.");
+                    heading = "Доступ не включён";
+                    description = ("Роутер знает это устройство, но доступ для него не включён администратором или отозван. Выбранные сервисы остаются заблокированы; проверка повторяется автоматически.");
                     break;
                 case "error":
-                    heading.Text = "Ошибка системной службы";
-                    Say(description, "Служба не смогла подтвердить защиту или обновить настройки с сервера. Доступ не подтверждён; повторная синхронизация выполняется автоматически.");
+                    heading = "Ошибка системной службы";
+                    description = ("Служба не смогла подтвердить защиту или обновить настройки с сервера. Доступ не подтверждён; повторная синхронизация выполняется автоматически.");
                     break;
                 case "service_missing":
-                    heading.Text = "Служба не установлена";
-                    Say(description, "Системный компонент клиента отсутствует. Защита ещё не настроена.");
+                    heading = "Служба не установлена";
+                    description = ("Системный компонент клиента отсутствует. Защита ещё не настроена.");
                     break;
                 case "service_stopped":
-                    heading.Text = "Служба остановлена";
-                    Say(description, "Блокировки могут оставаться включены. Их текущее состояние не подтверждено.");
+                    heading = "Служба остановлена";
+                    description = ("Блокировки могут оставаться включены. Их текущее состояние не подтверждено.");
                     break;
                 default:
-                    heading.Text = "Состояние не подтверждено";
-                    Say(description, "Проверка службы или её статуса не прошла. Код состояния доступен в отчёте.");
+                    heading = "Состояние не подтверждено";
+                    description = ("Проверка службы или её статуса не прошла. Код состояния доступен в отчёте.");
                     break;
             }
-            guard.Text = "Блокировка вне туннеля: " + (current.GuardInstalled ? "включена и проверена" : "не подтверждена");
-            tunnel.Text = "Туннель и маршруты выбранных сервисов: " + (current.Routed ? "подтверждены" : current.State == "connecting" ? "устанавливаются" : "нет");
-            path.Text = "Путь на роутере: " + (current.Protected ? "подтверждён" : "не подтверждён");
-            Say(services, (current.Services.Length == 0 ? (current.Domains == 0 ? "Назначенные сервисы: нет" : "Назначенные сервисы: доменов " + current.Domains + ", названия уточняются") :
-                "Назначенные сервисы (доменов: " + current.Domains + ", версия настроек " + current.Revision + "): " + String.Join(", ", current.Services)) +
-                (current.Available.Length == 0 ? "" : "\r\nДоступны по запросу у администратора: " + String.Join(", ", current.Available)) +
-                (current.Warnings != null && current.Warnings.Contains("proxy") ? "\r\nВнимание: на этом компьютере включён прокси. Программы, которые ходят через него, обращаются к выбранным сервисам в обход туннеля." : ""));
+            bool fresh = current.State == "enrollment_required";
+            checkValues[0] = current.GuardInstalled ? "включена" : fresh ? "появится после регистрации" : "не подтверждена";
+            checkTones[0] = current.GuardInstalled ? Tone.Open : fresh ? Tone.Off : Tone.Attention;
+            checkValues[1] = current.Routed ? "подтверждены" : current.State == "connecting" ? "устанавливаются" : "нет";
+            checkTones[1] = current.Routed ? Tone.Open : current.State == "connecting" ? Tone.Working : Tone.Off;
+            checkValues[2] = current.Protected ? "подтверждён" : "не подтверждён";
+            checkTones[2] = current.Protected ? Tone.Open : current.Routed ? Tone.Working : Tone.Off;
+            servicesLine = current.Services.Length != 0 ? String.Join(" \u00B7 ", current.Services) :
+                current.Domains == 0 ? "Пока не назначены" : "Доменов: " + current.Domains + ", названия уточняются";
+            servicesNote = current.Services.Length == 0 ? "" : "Доменов: " + current.Domains + " \u00B7 версия настроек " + current.Revision;
+            availableLine = current.Available.Length == 0 ? "" : "По запросу у администратора: " + String.Join(", ", current.Available);
             bool registered = current.GuardInstalled && current.State != "registration_pending" && current.State != "registration_error";
             register.Visible = current.State == "enrollment_required" || current.State == "registration_error";
             resume.Visible = current.State == "registration_pending" || current.State == "registration_error";
@@ -249,9 +345,12 @@ namespace IkeV2Manager.Client
                 connectAfterRegistration = false;
                 SubmitCommand("connect");
             }
-            Say(updated, "Проверено: " + DateTime.Now.ToString("HH:mm:ss") +
-                (update.Visible ? "\r\nДоступна версия " + current.Release + ". Скачайте установщик и запустите его: регистрация сохранится." : ""));
-            FitText();
+            notice = (newer ? "Доступна версия " + current.Release + ". Установка сохранит регистрацию." : "") +
+                (current.Warnings != null && current.Warnings.Contains("proxy") ? (newer ? "\r\n" : "") +
+                    "На компьютере включён прокси: программы, которые ходят через него, обращаются к сервисам в обход офиса." : "");
+            var own = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            checkedLine = "Проверено " + DateTime.Now.ToString("HH:mm:ss") + " \u00B7 v" + own.Major + "." + own.Minor + "." + Math.Max(own.Build, 0);
+            FitWindow();
         }
 
         private static string PathText(string code)

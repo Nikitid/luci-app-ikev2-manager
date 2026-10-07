@@ -8,8 +8,8 @@ private let secret = String(repeating: "b", count: 64)
 /// Records what the runtime did to the machine and plays the machine's part.
 private final class Machine: SystemActions, @unchecked Sendable {
     let lock = NSLock()
-    var hosts = "127.0.0.1 localhost\n", rules = "", installed = true, connected = false
-    var started = 0, stopped = 0, tunnel: TunnelObservation?, fault: TunnelFault?
+    var hosts = "127.0.0.1 localhost\n", rules = "", installed = true
+    var tunnel: TunnelObservation?, fault: TunnelFault?
     var log: [String] = []
     func sync<T>(_ body: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try body() }
     func readHosts() throws -> String { sync { hosts } }
@@ -19,9 +19,6 @@ private final class Machine: SystemActions, @unchecked Sendable {
     func loadPacketFilter(_ text: String) throws { sync { rules = text; log.append("filter") } }
     func packetFilterRules() throws -> String { sync { rules } }
     func vpnInstalled() -> Bool { sync { installed } }
-    func vpnConnected() -> Bool { sync { connected } }
-    func startVPN() throws { sync { started += 1 } }
-    func stopVPN() throws { sync { stopped += 1; connected = false } }
     func removeVPNProfile(identifier: String) { sync { installed = false; log.append(identifier) } }
     func observeTunnel(addresses: [String]) throws -> TunnelObservation? {
         try sync { if let fault { throw fault }; return tunnel }
@@ -116,10 +113,7 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     machine.sync { machine.installed = true }
     try await runtime.setWanted(true)
     await runtime.tick(now: now); now += 2
-    #expect(await runtime.status().state == "connecting" && machine.started == 1)
-    machine.sync { machine.connected = true }
-    await runtime.tick(now: now); now += 2
-    #expect(await runtime.status().state == "connecting", "a connected service without confirmed routes is not a tunnel yet")
+    #expect(await runtime.status().state == "connecting", "the system has not brought the tunnel up yet")
     let tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7")
     machine.sync { machine.tunnel = tunnel }
     await runtime.tick(now: now); now += 2
@@ -145,12 +139,13 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.8", revision: 1)) }
     await runtime.tick(now: now); now += 2
     #expect(await runtime.status().error == "path_differentPolicy" && !machine.rules.contains("pass"))
-    // Disconnecting is remembered and closes the service.
+    // Switching access off is remembered and closes the filter; the tunnel
+    // is the system's and stays.
     router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
     await runtime.tick(now: now); now += 2
     try await runtime.setWanted(false)
     await runtime.tick(now: now); now += 2
-    #expect(await runtime.status().state == "blocked" && machine.stopped == 1 && !machine.rules.contains("pass"))
+    #expect(await runtime.status().state == "blocked" && !machine.rules.contains("pass"))
     #expect(try store.loadIntent() == false)
     try? FileManager.default.removeItem(at: store.directory)
 }
@@ -158,10 +153,10 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
 @Test func tunnelThatTakesEverythingIsRefused() async throws {
     var (runtime, machine, _, store, now) = try await registered()
     try await runtime.setWanted(true)
-    machine.sync { machine.connected = true; machine.fault = .takesEverything }
+    machine.sync { machine.fault = .takesEverything }
     await runtime.tick(now: now); now += 2
     let status = await runtime.status()
-    #expect(status.state == "connection_error" && status.error == "tunnel_takes_everything" && machine.stopped == 1)
+    #expect(status.state == "connection_error" && status.error == "tunnel_takes_everything")
     #expect(!machine.rules.contains("pass"))
     try? FileManager.default.removeItem(at: store.directory)
 }
@@ -169,7 +164,7 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
 @Test func revocationClosesAndRemovalCleans() async throws {
     var (runtime, machine, router, store, now) = try await registered()
     try await runtime.setWanted(true)
-    machine.sync { machine.connected = true; machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
+    machine.sync { machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
     router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
     await runtime.tick(now: now); now += 2
     #expect(await runtime.status().protected)
@@ -181,7 +176,7 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     router.sync { router.policyFailure = .accessRejected }
     now += 31
     await runtime.tick(now: now); now += 2
-    #expect(await runtime.status().state == "access_closed" && machine.stopped == 1 && !machine.rules.contains("pass"))
+    #expect(await runtime.status().state == "access_closed" && !machine.rules.contains("pass"))
     #expect(machine.rules.contains("block drop"), "revocation keeps the denial")
     #expect(machine.hosts.contains("api.example.com"), "revocation keeps the names on their virtual addresses")
     try await runtime.remove()

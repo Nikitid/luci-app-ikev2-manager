@@ -26,9 +26,6 @@ public protocol SystemActions: Sendable {
     /// The rules the system currently holds in the anchor, as it prints them.
     func packetFilterRules() throws -> String
     func vpnInstalled() -> Bool
-    func vpnConnected() -> Bool
-    func startVPN() throws
-    func stopVPN() throws
     /// The tunnel interface and its address once every address is routed
     /// through it and nothing else is; nil while the system is still settling.
     func observeTunnel(addresses: [String]) throws -> TunnelObservation?
@@ -252,23 +249,19 @@ public actor ClientRuntime {
         guard system.vpnInstalled() else {
             closePermission(history); connectionError = "none"; publish("profile_required", now: now); return
         }
+        // The system keeps the tunnel up by itself (the profile connects on
+        // demand); it routes the virtual subnet alone, and the packet filter
+        // decides whether anything may use it. Switching access off closes
+        // the filter and leaves the system's connection alone.
         guard try store.loadIntent() else {
             closePermission(history)
-            if system.vpnConnected() { try system.stopVPN() }
             connectionError = "none"; publish("blocked", now: now); return
-        }
-        guard system.vpnConnected() else {
-            closePermission(history)
-            if now >= retryConnectionAt { retryConnectionAt = now.addingTimeInterval(10); try system.startVPN() }
-            publish("connecting", now: now); return
         }
         let seen: TunnelObservation?
         let layout = try SystemPlan.layout(history.current.virtualSubnet)
         do { seen = try system.observeTunnel(addresses: history.current.resources.map(\.address) + [layout.resolver]) }
         catch let fault as TunnelFault {
             closePermission(history)
-            try? system.stopVPN()
-            retryConnectionAt = now.addingTimeInterval(30)
             connectionError = fault.rawValue; publish("connection_error", now: now); return
         }
         guard let seen else { closePermission(history); publish("connecting", now: now); return }
@@ -314,7 +307,6 @@ public actor ClientRuntime {
             }
             if synchronizationFailed {
                 closePermission(current)
-                if system.vpnConnected() { try? system.stopVPN() }
                 connectionError = "synchronization"; publish(accessClosed ? "access_closed" : "error", now: now); return
             }
             try await advanceConnection(registration, history: current, now: now)
@@ -329,7 +321,6 @@ public actor ClientRuntime {
     /// Uninstallation: names and rules go, then the stored device.
     public func remove() throws {
         permitted = nil
-        if system.vpnConnected() { try? system.stopVPN() }
         if let registration = try? store.loadRegistration() {
             system.removeVPNProfile(identifier: SystemPlan.profileIdentifier(registration.profile))
         }

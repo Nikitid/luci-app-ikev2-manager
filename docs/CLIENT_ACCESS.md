@@ -824,8 +824,19 @@ default route, the daemon stops it and reports `tunnel_takes_everything`. A
 router with a custom inbound configuration has to define that connection
 itself.
 
-`IKEv2ManagerClient` is the window, with the same states and wording as on
-Windows plus "a VPN profile is needed".
+The profile connects on demand, so the system itself brings the tunnel up and
+keeps it; the daemon neither starts nor stops it. On current macOS a
+profile-installed IKEv2 configuration is not listed by `scutil --nc`, so the
+daemon learns that the profile is installed from `profiles list -all` and that
+the tunnel is up from the routes of the virtual subnet. Switching access off
+closes the packet filter and leaves the system's connection alone: it routes
+the virtual subnet only, and nothing may use it.
+
+`IKEv2ManagerClient` is the window. Both windows are built the same way: a
+status with one sign and colour, three checks (denial outside the tunnel,
+tunnel and routes, path through the office), the assigned services, a notice
+for an update or a proxy, and one prominent button for the next step; the
+macOS one adds "a VPN profile is needed".
 
 `desktop-clients/macos/build.sh X.Y.Z` builds an installer package for Apple
 silicon: the application, the daemon under `/Library/PrivilegedHelperTools`,

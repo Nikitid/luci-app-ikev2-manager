@@ -26,6 +26,8 @@ enum Tool {
 struct RealSystem: SystemActions {
     let hostsPath = "/etc/hosts"
 
+    private final class Seen: @unchecked Sendable { var present = false, until = Date.distantPast }
+    private let profile = Seen()
     func readHosts() throws -> String {
         guard let data = FileManager.default.contents(atPath: hostsPath), let text = String(data: data, encoding: .utf8)
         else { throw StoreError.unsafe }
@@ -97,17 +99,15 @@ struct RealSystem: SystemActions {
         try Tool.run("/sbin/pfctl", ["-a", SystemPlan.anchor, "-s", "rules"]).output
     }
 
+    /// The profile is the system's own; its list of installed profiles says
+    /// whether the owner approved it. Asked at most every five seconds.
     func vpnInstalled() -> Bool {
-        ((try? Tool.run("/usr/sbin/scutil", ["--nc", "list"]).output) ?? "").contains("\"" + SystemPlan.serviceName + "\"")
+        if Date() < profile.until { return profile.present }
+        let listed = (try? Tool.run("/usr/bin/profiles", ["list", "-all"]).output) ?? ""
+        profile.present = listed.contains(SystemPlan.profilePrefix)
+        profile.until = Date().addingTimeInterval(5)
+        return profile.present
     }
-
-    func vpnConnected() -> Bool {
-        ((try? Tool.run("/usr/sbin/scutil", ["--nc", "status", SystemPlan.serviceName]).output) ?? "")
-            .split(separator: "\n").first == "Connected"
-    }
-
-    func startVPN() throws { _ = try Tool.run("/usr/sbin/scutil", ["--nc", "start", SystemPlan.serviceName]) }
-    func stopVPN() throws { _ = try Tool.run("/usr/sbin/scutil", ["--nc", "stop", SystemPlan.serviceName]) }
 
     func removeVPNProfile(identifier: String) {
         _ = try? Tool.run("/usr/bin/profiles", ["remove", "-identifier", identifier])
@@ -149,9 +149,6 @@ final class DrySystem: SystemActions, @unchecked Sendable {
     func loadPacketFilter(_ rules: String) throws { try rules.write(to: file("pf.rules"), atomically: true, encoding: .utf8) }
     func packetFilterRules() throws -> String { text("pf.rules") }
     func vpnInstalled() -> Bool { FileManager.default.fileExists(atPath: file("vpn-installed").path) }
-    func vpnConnected() -> Bool { FileManager.default.fileExists(atPath: file("vpn-connected").path) }
-    func startVPN() throws { try "".write(to: file("vpn-start-requested"), atomically: true, encoding: .utf8) }
-    func stopVPN() throws { try? FileManager.default.removeItem(at: file("vpn-connected")) }
     func removeVPNProfile(identifier: String) { try? FileManager.default.removeItem(at: file("vpn-installed")) }
     func observeTunnel(addresses: [String]) throws -> TunnelObservation? {
         let fields = text("tunnel").split(separator: " ").map(String.init)

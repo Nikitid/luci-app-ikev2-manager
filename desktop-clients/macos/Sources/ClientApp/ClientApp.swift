@@ -94,12 +94,12 @@ final class ClientModel: ObservableObject {
         guard let status else { return "Служба не отвечает" }
         switch status.state {
         case "protected": return "Доступ открыт"
-        case "blocked": return "Доступ закрыт"
-        case "enrollment_required": return "Требуется настройка доступа"
+        case "blocked": return "Доступ выключен"
+        case "enrollment_required": return "Устройство не зарегистрировано"
         case "registration_pending": return "Регистрация не завершена"
         case "registration_error": return "Ошибка регистрации"
         case "profile_required": return "Нужен профиль VPN"
-        case "connecting": return "Подключение к VPN"
+        case "connecting": return "Подключение"
         case "tunnel_connected": return "Туннель установлен"
         case "connection_error": return "Не удалось подключить VPN"
         case "starting": return "Служба запускается"
@@ -112,12 +112,12 @@ final class ClientModel: ObservableObject {
         guard let status else { return "Системный компонент клиента не установлен или остановлен. Состояние защиты не подтверждено." }
         switch status.state {
         case "protected": return "Выбранные сервисы идут через офис: туннель, маршруты и путь на роутере подтверждены. Остальной трафик идёт как обычно."
-        case "blocked": return "Подключение выключено. Выбранные адреса остаются заблокированы."
-        case "enrollment_required": return "Вставьте ссылку приглашения, выданную администратором."
+        case "blocked": return "Вы выключили доступ. Сервисы офиса заблокированы, остальной интернет работает как обычно."
+        case "enrollment_required": return "Получите у администратора ссылку приглашения и нажмите «Зарегистрировать устройство»."
         case "registration_pending": return "Ожидается выдача настроек сервера."
         case "registration_error": return "Не удалось получить или сохранить настройки. Попытка повторяется автоматически."
         case "profile_required": return "Устройство зарегистрировано. Осталось один раз установить профиль VPN в «Системных настройках»."
-        case "connecting": return "Система устанавливает IKEv2-соединение. Доступ к выбранным адресам пока заблокирован."
+        case "connecting": return "Система устанавливает соединение с офисом. Если это длится дольше минуты, включите «IKEv2 Manager Client» в «Системных настройках» → VPN."
         case "tunnel_connected":
             switch status.error {
             case "path_pathUnavailable": return "Роутер пока не подтвердил путь для выбранных сервисов. Доступ к ним заблокирован; проверка повторяется."
@@ -144,6 +144,8 @@ final class ClientModel: ObservableObject {
         return (release, url)
     }
 
+    var version: String { "v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0") }
+
     var report: String {
         guard let status, let data = try? JSONEncoder.pretty.encode(status) else { return "{\n  \"state\" : \"service_unavailable\"\n}" }
         return String(data: data, encoding: .utf8) ?? ""
@@ -158,6 +160,67 @@ extension JSONEncoder {
     }
 }
 
+/// How a state reads at a glance: one colour and one sign, the same on Windows.
+enum Tone {
+    case open, working, attention, off
+    var color: Color {
+        switch self {
+        case .open: return Color(red: 0.13, green: 0.55, blue: 0.27)
+        case .working: return Color(red: 0.85, green: 0.55, blue: 0.05)
+        case .attention: return Color(red: 0.78, green: 0.20, blue: 0.18)
+        case .off: return Color.secondary
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .open: return "checkmark"
+        case .working: return "ellipsis"
+        case .attention: return "exclamationmark"
+        case .off: return "power"
+        }
+    }
+}
+
+extension ClientModel {
+    var tone: Tone {
+        guard let status else { return .attention }
+        switch status.state {
+        case "protected": return .open
+        case "connecting", "tunnel_connected", "registration_pending", "profile_required", "starting": return .working
+        case "blocked", "enrollment_required": return .off
+        default: return .attention
+        }
+    }
+}
+
+/// A framed group of rows, the unit both windows are built from.
+struct Card<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased()).font(.caption).foregroundStyle(.secondary)
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+    }
+}
+
+struct CheckRow: View {
+    let label: String, value: String, tone: Tone
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(tone.color).frame(width: 8, height: 8)
+            Text(label)
+            Spacer()
+            Text(value).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct ClientView: View {
     @StateObject private var model = ClientModel()
     @State private var invitation = ""
@@ -166,43 +229,67 @@ struct ClientView: View {
 
     var body: some View {
         let status = model.status
-        VStack(alignment: .leading, spacing: 10) {
-            Text(model.heading).font(.title).bold()
-                .foregroundStyle(status?.protected == true ? Color.green : status?.state == "blocked" ? Color.orange : Color.primary)
-            Text(model.detail).fixedSize(horizontal: false, vertical: true)
-            Divider()
-            Text("Блокировка вне туннеля: " + (status?.guardInstalled == true ? "включена и проверена" : "не подтверждена"))
-            Text("Туннель и маршруты выбранных сервисов: " + (status?.routed == true ? "подтверждены" : status?.state == "connecting" ? "устанавливаются" : "нет"))
-            Text("Путь на роутере: " + (status?.protected == true ? "подтверждён" : "не подтверждён"))
-            Text(servicesLine(status)).fixedSize(horizontal: false, vertical: true)
-            if let update = model.update {
-                HStack {
-                    Text("Доступна версия \(update.version). Скачайте пакет и установите его: регистрация сохранится.").foregroundStyle(.secondary)
-                    Button("Скачать обновление") { NSWorkspace.shared.open(update.url) }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    Circle().fill(model.tone.color.opacity(0.15)).frame(width: 44, height: 44)
+                    Image(systemName: model.tone.symbol).font(.system(size: 18, weight: .bold)).foregroundStyle(model.tone.color)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.heading).font(.title2).bold()
+                    Text(model.detail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if !model.message.isEmpty { Text(model.message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-            Spacer(minLength: 4)
+            Card(title: "Проверки") {
+                let fresh = status?.state == "enrollment_required"
+                CheckRow(label: "Блокировка вне туннеля", value: status?.guardInstalled == true ? "включена" : fresh ? "появится после регистрации" : "не подтверждена",
+                         tone: status?.guardInstalled == true ? .open : fresh ? .off : .attention)
+                CheckRow(label: "Туннель и маршруты", value: status?.routed == true ? "подтверждены" : status?.state == "connecting" ? "устанавливаются" : "нет",
+                         tone: status?.routed == true ? .open : status?.state == "connecting" ? .working : .off)
+                CheckRow(label: "Путь через офис", value: status?.protected == true ? "подтверждён" : "не подтверждён",
+                         tone: status?.protected == true ? .open : status?.routed == true ? .working : .off)
+            }
+            Card(title: "Сервисы через офис") {
+                if let status, !status.services.isEmpty {
+                    Text(status.services.joined(separator: " · ")).bold().fixedSize(horizontal: false, vertical: true)
+                    Text("Доменов: \(status.domains) · версия настроек \(status.revision)").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text(status == nil ? "Нет данных" : status?.domains == 0 ? "Пока не назначены" : "Доменов: \(status?.domains ?? 0), названия уточняются")
+                        .foregroundStyle(.secondary)
+                }
+                if let status, !status.available.isEmpty {
+                    Text("По запросу у администратора: " + status.available.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let update = model.update {
+                HStack {
+                    Text("Доступна версия \(update.version). Установка сохранит регистрацию.").fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Скачать") { NSWorkspace.shared.open(update.url) }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Tone.working.color.opacity(0.12)))
+            }
+            if !model.message.isEmpty { Text(model.message).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            Spacer(minLength: 0)
             HStack {
-                if status?.state == "enrollment_required" || status?.state == "registration_error" {
-                    Button("Регистрация…") { registering = true }
-                }
-                if status?.state == "profile_required" { Button("Установить профиль VPN…") { model.installProfile() } }
-                if let status, status.guardInstalled, status.profileInstalled {
-                    if status.wanted { Button("Отключить") { model.command("disconnect") } }
-                    else { Button("Подключить") { model.command("connect") } }
-                }
-                Button("Отчёт…") { reporting = true }
+                primaryAction(status)
                 Spacer()
-                Text("Проверено: " + model.checked.formatted(date: .omitted, time: .standard)).foregroundStyle(.secondary).font(.caption)
-            }.disabled(model.busy)
+                Button("Проверить") { model.refresh() }
+                Button("Отчёт…") { reporting = true }
+            }.fixedSize(horizontal: false, vertical: true).disabled(model.busy)
+            Text("Проверено " + model.checked.formatted(date: .omitted, time: .standard) + " · " + model.version)
+                .foregroundStyle(.secondary).font(.caption)
         }
-        .padding(24)
-        .frame(minWidth: 560, minHeight: 360)
+        .padding(22)
+        .frame(width: 540)
+        .frame(minHeight: 420)
         .onAppear { model.start() }
         .sheet(isPresented: $registering) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Вставьте ссылку приглашения, выданную администратором")
+                Text("Регистрация устройства").font(.headline)
+                Text("Вставьте ссылку приглашения, выданную администратором.").foregroundStyle(.secondary)
                 SecureField("https://…/client/v1/enroll#…", text: $invitation).frame(width: 460)
                 HStack {
                     Spacer()
@@ -229,13 +316,16 @@ struct ClientView: View {
         }
     }
 
-    private func servicesLine(_ status: ClientStatusReport?) -> String {
-        guard let status else { return "Назначенные сервисы: нет данных" }
-        var line = status.services.isEmpty
-            ? (status.domains == 0 ? "Назначенные сервисы: нет" : "Назначенные сервисы: доменов \(status.domains), названия уточняются")
-            : "Назначенные сервисы (доменов: \(status.domains), версия настроек \(status.revision)): " + status.services.joined(separator: ", ")
-        if !status.available.isEmpty { line += "\nДоступны по запросу у администратора: " + status.available.joined(separator: ", ") }
-        return line
+    /// The one thing to do next, as the prominent button.
+    @ViewBuilder private func primaryAction(_ status: ClientStatusReport?) -> some View {
+        if status?.state == "enrollment_required" || status?.state == "registration_error" {
+            Button("Зарегистрировать устройство…") { registering = true }.buttonStyle(.borderedProminent).fixedSize()
+        } else if status?.state == "profile_required" {
+            Button("Установить профиль VPN…") { model.installProfile() }.buttonStyle(.borderedProminent).fixedSize()
+        } else if let status, status.guardInstalled, status.profileInstalled {
+            if status.wanted { Button("Отключить доступ") { model.command("disconnect") } }
+            else { Button("Включить доступ") { model.command("connect") }.buttonStyle(.borderedProminent) }
+        }
     }
 }
 
