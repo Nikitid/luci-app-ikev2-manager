@@ -294,7 +294,19 @@ desired_state() {
 		dpi_backend="${dpi_config%% *}"
 		dpi_mark="${dpi_config#* }"
 	fi
+	# Remote devices ask their names at an address inside the virtual subnet,
+	# and that question belongs to their own path: it is admitted, answered
+	# and refused there, not by the resolver enforced here.
+	managed_dns_exempt=''
+	if [ -f "${IKEV2_CLIENT_STATE_DIR:-/etc/ikev2-manager/clients}/initialized" ]; then
+		managed_subnet="$("$ucode_bin" "$runtime_lib_dir/client-access-runtime.uc" subnet "${IKEV2_CLIENT_STATE_DIR:-/etc/ikev2-manager/clients}" '' '' 2>/dev/null)" || managed_subnet=''
+		case "$managed_subnet" in
+			*[!0-9./]* | '') ;;
+			*) managed_dns_exempt="    iifname \"ipsec-in\" ip daddr $managed_subnet return" ;;
+		esac
+	fi
 	signature="$({
+		printf 'managed=%s\n' "$managed_dns_exempt"
 		printf 'fakeip=%s\n' "$(fakeip_policy_enabled && echo 1 || echo 0)"
 		printf 'ike=%s/%s\nwan=%s/%s\nfull\n' "$ike_clear" "$ike_mark" "$wan_clear" "$wan_mark"
 		cat "$work/full.exits"
@@ -385,12 +397,18 @@ EOF
 
   chain dns_guard {
     type filter hook prerouting priority -103; policy accept;
+EOF
+			[ -z "$managed_dns_exempt" ] || printf '%s\n' "$managed_dns_exempt"
+			cat <<'EOF'
     iifname @source_ifaces ip saddr != @dns_bypass_ipv4 udp dport 53 udp length < 20 update @dns_malformed_ipv4 { ip saddr timeout 1h } comment "ikev2-device:dns-malformed-source"
     iifname @source_ifaces ip saddr != @dns_bypass_ipv4 udp dport 53 udp length < 20 counter drop comment "ikev2-device:dns-malformed"
   }
 
   chain dns_prerouting {
     type nat hook prerouting priority -102; policy accept;
+EOF
+			[ -z "$managed_dns_exempt" ] || printf '%s\n' "$managed_dns_exempt"
+			cat <<'EOF'
     iifname @source_ifaces ip saddr != @dns_bypass_ipv4 meta l4proto { tcp, udp } th dport 53 counter redirect to :53 comment "ikev2-device:dns-enforce"
   }
 

@@ -9,16 +9,20 @@ step=baseline
 procd_pid='' ubus_pid=''
 cp /etc/config/ikev2-manager "$work/ikev2-manager"
 cp /etc/config/firewall "$work/firewall" 2>/dev/null || :
+cp /etc/config/network "$work/network" 2>/dev/null || :
 cleanup() {
  rc=$?
  [ "$rc" = 0 ] || printf 'client-setup: failed step=%s\n' "$step" >&2
  /etc/init.d/ikev2-client-access stop >/dev/null 2>&1 || :
  fw4 -q stop 2>/dev/null || :
+ nft delete table inet ikev2_device_policy 2>/dev/null || :
  [ -z "$procd_pid" ] || { kill "$procd_pid" 2>/dev/null || :; wait "$procd_pid" 2>/dev/null || :; }
  [ -z "$ubus_pid" ] || { kill "$ubus_pid" 2>/dev/null || :; wait "$ubus_pid" 2>/dev/null || :; }
  rm -rf /var/run/ubus
  cp "$work/ikev2-manager" /etc/config/ikev2-manager
  [ ! -f "$work/firewall" ] || cp "$work/firewall" /etc/config/firewall
+ if [ -f "$work/network" ]; then cp "$work/network" /etc/config/network; else rm -f /etc/config/network; fi
+ ip link del br-lan 2>/dev/null || :
  rm -rf "$work" "$state_dir"
 }
 trap cleanup EXIT INT TERM
@@ -62,7 +66,31 @@ uci set ikev2-manager.server.identity=vpn.example.com
 uci set ikev2-manager.server.pool4=10.25.0.10-10.25.0.50
 uci set ikev2-manager.client=client
 uci set ikev2-manager.client.enabled=1
+# The inbound zone the server's own Apply creates, closed to the router, and
+# the resolver that every local and VPN client is otherwise sent to.
+# netifd does not run in the container: the LAN device is made by hand.
+ip link add br-lan type dummy 2>/dev/null || :
+ip addr add 192.168.1.1/24 dev br-lan 2>/dev/null || :
+ip link set br-lan up
+[ -f /etc/config/network ] || : >/etc/config/network
+uci set network.lan=interface
+uci set network.lan.device=br-lan
+uci commit network
+uci set ikev2-manager.globals.dns_enforce=1
+uci set ikev2-manager.globals.configured=1
 uci commit ikev2-manager
+# The table exists before remote clients are set up, as on a router in use;
+# setting them up must change it, not find it "unchanged".
+/usr/libexec/ikev2-device-routing sync
+nft list chain inet ikev2_device_policy dns_prerouting | grep -q 'redirect to :53'
+if nft list chain inet ikev2_device_policy dns_prerouting | grep -q 'ipsec-in'; then exit 1; fi
+uci add firewall zone >/dev/null
+uci set firewall.@zone[-1].name=ikev2in
+uci set firewall.@zone[-1].device=ipsec-in
+uci set firewall.@zone[-1].input=REJECT
+uci set firewall.@zone[-1].output=ACCEPT
+uci set firewall.@zone[-1].forward=REJECT
+uci commit firewall
 [ "$(shown server_identity)" = vpn.example.com ]
 [ "$(shown 'tunnels[0]')" = 1 ]
 
@@ -90,6 +118,14 @@ setup c '{"version":1,"enabled":true,"port":9443,"virtual_subnet":"172.31.254.0/
 # Not only stored: the running firewall accepts the port from WAN.
 nft list chain inet fw4 input_wan | grep -q 'tcp dport 9443 .*accept'
 "$bridge" client-admin-show | jsonfilter -e '@.api_endpoint' | grep -qx 'https://vpn.example.com:9443/client/v1/enroll'
+# An admitted device's traffic to the virtual subnet is delivered on this router:
+# the closed inbound zone lets it in by its admission mark, and nothing else.
+nft list chain inet fw4 input_ikev2in | grep 'ip daddr 172.31.254.0/24' | grep 'mark 0x00800000' | grep -q accept
+# Name queries of remote devices are not captured by the local resolver's
+# enforcement: the exemption stands ahead of the redirect in the live table.
+nft list chain inet ikev2_device_policy dns_prerouting >"$work/dns-chain"
+grep -q 'redirect to :53' "$work/dns-chain"
+[ "$(grep -n 'iifname "ipsec-in" ip daddr 172.31.254.0/24 return' "$work/dns-chain" | cut -d: -f1)" -lt "$(grep -n 'redirect to :53' "$work/dns-chain" | cut -d: -f1)" ]
 # The controller is supervised from now on and has installed its closed table.
 i=0
 until ubus call service list '{"name":"ikev2-client-access"}' | grep -q '"access"' && nft list table inet ikev2_client_access >/dev/null 2>&1; do

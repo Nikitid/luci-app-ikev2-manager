@@ -664,6 +664,30 @@ sync_client_api_rule() {
 	uci set "firewall.ikev2pbr_client_api.dest_port=$port"
 	uci set firewall.ikev2pbr_client_api.target='ACCEPT'
 	uci set "firewall.ikev2pbr_client_api.enabled=$enabled"
+	# What an admitted remote device sends to the virtual subnet is delivered
+	# to the proxy on this router, so it passes the inbound zone's input even
+	# where VPN users have no access to the router itself. Only packets that
+	# carry the admission mark, which is decided again at input.
+	local managed_subnet=''
+	if [ -f /etc/ikev2-manager/clients/initialized ]; then
+		managed_subnet="$(ucode /usr/libexec/ikev2-manager.d/client-access-runtime.uc subnet /etc/ikev2-manager/clients '' '' 2>/dev/null)" || managed_subnet=''
+		case "$managed_subnet" in *[!0-9./]*) managed_subnet='' ;; esac
+	fi
+	# The zone exists once the inbound server has been applied; a rule naming
+	# a missing zone would make the firewall refuse its whole configuration.
+	if [ -n "$managed_subnet" ] && zone_exists "$(defaultv server firewall_zone ikev2in)"; then
+		uci set firewall.ikev2pbr_client_path=rule
+		uci set firewall.ikev2pbr_client_path.name='IKEv2 PBR remote client services'
+		uci set "firewall.ikev2pbr_client_path.src=$(defaultv server firewall_zone ikev2in)"
+		uci set firewall.ikev2pbr_client_path.family='ipv4'
+		uci set firewall.ikev2pbr_client_path.proto='tcp udp'
+		uci set "firewall.ikev2pbr_client_path.dest_ip=$managed_subnet"
+		uci set firewall.ikev2pbr_client_path.mark='0x00800000'
+		uci set firewall.ikev2pbr_client_path.target='ACCEPT'
+		uci set "firewall.ikev2pbr_client_path.enabled=$([ "$(getv server enabled)" = 1 ] && echo 1 || echo 0)"
+	else
+		uci -q delete firewall.ikev2pbr_client_path || :
+	fi
 }
 
 sync_inbound_access() {
@@ -1958,6 +1982,8 @@ case "${1:-}" in
 		uci commit firewall
 		firewall_check_strict
 		fw4 -q reload
+		# The resolver for local devices steps aside for the virtual subnet.
+		sync_device_runtime || die 'Device policy failed to load'
 		;;
 	access-apply)
 		zone="$(defaultv server firewall_zone ikev2in)"
