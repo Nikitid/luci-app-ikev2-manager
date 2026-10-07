@@ -28,7 +28,10 @@ let modal, hidden = 0, written = [], jobs = [], failWrite = false;
 const ui = { showModal(title, body) { modal = E('div', {}, body); }, hideModal() { hidden++; } };
 const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_endpoint: 'https://vpn.example.com:9443/client/v1/enroll', server: {address:"vpn.example.com"},
  services: [{ id: 'example_service', client_access: true, domain_count: 1, transports: [{ protocol: 'tcp', ports: [443] }] }],
- devices: [{ id: 'alice', enabled: true, selected_services: ['example_service'], revision: 3 }] };
+ devices: [{ id: 'alice', enabled: true, selected_services: ['example_service'], revision: 3, owner: 'Alice Example', note: 'accounting',
+  host: 'ALICE-PC', system: 'Windows 10.0.26100', client: '2.3.0', online: true, tunnel_address: '10.20.0.7', remote_address: '203.0.113.9', connected_seconds: 7300, seen_seconds: 4, seen_from: '203.0.113.9' },
+  { id: 'bob-laptop', enabled: true, selected_services: ['example_service'], revision: 1, owner: '', note: '', online: false, seen_seconds: 90000, seen_from: '198.51.100.4' },
+  { id: 'spare', enabled: false, selected_services: [], revision: 1, owner: '', note: '', online: false, seen_seconds: null }] };
 const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, stdout: 'example_service|Example service|builtin|0|0|tunnel\nnew_service|New service|builtin|0|0|tunnel\n' }];
 const backend = {
  exec(file, args) { if(args[0] === 'client-admin-take-invitation') return Promise.resolve({code:0,stdout:JSON.stringify({version:1,id:'new-laptop',invitation:'https://vpn.example.com:9443/client/v1/enroll#'+'c'.repeat(64)})}); return Promise.resolve(args[0] === 'services' ? data()[1] : data()[0]); },
@@ -46,6 +49,10 @@ function click(node) { return node.attrs.click(); }
 async function main() {
  const tree = page.render(await page.load());
  assert(text(tree).includes('Example service')); assert(text(tree).includes('alice'));
+ // Who is behind each device, what it runs and where it is now.
+ for (const shown of ['Alice Example', 'accounting', 'ALICE-PC', 'Windows 10.0.26100, client 2.3.0', 'Online for 2 h', 'from 203.0.113.9, tunnel address 10.20.0.7',
+  'Offline', 'last seen 1 d ago from 198.51.100.4', 'Not reported yet', 'Access closed'])
+  assert(text(tree).includes(shown), shown);
  assert(!text(tree).includes('token_sha256'));
  const edits = nodes(tree).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Edit');
  click(edits[0]);
@@ -67,7 +74,11 @@ async function main() {
  assert(text(modal).includes('1 to 65535'));
  click(edits[2]);
  const deviceInputs = nodes(modal).filter(n=>n.tagName==='INPUT');
- deviceInputs[0].checked=false;
+ deviceInputs.find(n=>n.type==='checkbox').checked=false;
+ deviceInputs.find(n=>n.attrs['aria-label']==='Who uses it').value='Alice <Example>';
+ await click(button(modal,'Save'));
+ assert(text(modal).includes('without < and >'), 'markup characters are refused in a description');
+ deviceInputs.find(n=>n.attrs['aria-label']==='Who uses it').value='Alice Example';
  // Keep the generation captured when the dialog opened, even if a refresh
  // changes the page's state while the administrator is editing it.
  snapshot.generation = 18;
@@ -76,6 +87,7 @@ async function main() {
  await click(button(modal,'Save'));
  assert.strictEqual(written[1].body.expected_generation,17);
  assert.strictEqual(written[1].body.operation,'assign-device'); assert.strictEqual(written[1].body.payload.enabled,false);
+ assert.strictEqual(written[1].body.payload.owner,'Alice Example'); assert.strictEqual(written[1].body.payload.note,'accounting');
  failWrite = true; await click(button(modal,'Save'));
  assert(text(modal).includes('write rejected')); assert.strictEqual(jobs.length,3);
  failWrite = false;
@@ -88,18 +100,25 @@ async function main() {
  const invitationInputs = nodes(modal).filter(n=>n.tagName==='INPUT');
  invitationInputs.find(n=>n.attrs['aria-label']==='Device identifier').value='new-laptop';
  invitationInputs.find(n=>n.type==='checkbox').checked=true;
+ invitationInputs.find(n=>n.attrs['aria-label']==='Who uses it').value='Carol Example';
  await click(invitationCreate);
  const invitationJob = jobs[jobs.length-1];
  assert.strictEqual(invitationJob.startArgs[0],'client-admin-invite');
  assert.strictEqual(written[written.length-1].body.expected_generation,0);
  assert.strictEqual(written[written.length-1].body.endpoint,snapshot.api_endpoint);
  assert.deepStrictEqual(written[written.length-1].body.selected_services,['example_service']);
+ assert.strictEqual(written[written.length-1].body.owner,'Carol Example'); assert.strictEqual(written[written.length-1].body.note,'');
  assert(!JSON.stringify(written).includes('cccccccc'), 'no invitation secret in request inbox');
  await invitationJob.onSuccess({action_id:'123-456'});
  const linkField=nodes(modal).find(n=>n.tagName==='TEXTAREA');
  assert(linkField && linkField.value.endsWith('#'+'c'.repeat(64)));
  assert(!JSON.stringify(jobs.map(j=>j.success)).includes('cccccccc'), 'no invitation secret in job status');
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
+ const removes = nodes(tree).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Remove');
+ assert.strictEqual(removes.length, 3); click(removes[1]);
+ assert(text(modal).includes('cannot be used again'));
+ await click(button(modal,'Remove'));
+ assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'remove-device', payload:{id:'bob-laptop'}});
  const unavailable = page.render([{code:1,stdout:''},data()[1]]);
  assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT'));
  // First activation: only the setup section is offered, and it stages one request.

@@ -99,7 +99,7 @@ for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	# Run without input: a usage error is fine, a compile error is 255.
 	rc=0
 	case "$script" in
-		*/client-access-admin.uc | */client-access-device-evidence.uc | */client-access-path-evidence.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
+		*/client-access-admin.uc | */client-access-directory.uc | */client-access-device-evidence.uc | */client-access-path-evidence.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
 			ucode -e "import * as module from '$script';" >/dev/null 2>&1 || rc=$? ;;
 		*/client-access-http.uc)
 			ucode -T "$script" >/dev/null 2>&1 || rc=$? ;;

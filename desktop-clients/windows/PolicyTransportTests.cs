@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using System.Collections.Generic;
 using IkeV2Manager.Client;
@@ -59,6 +60,9 @@ internal static class PolicyTransportTests
             if (PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\"}") != "2.3.0") throw new Exception("Release was not read");
             Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\",\"url\":\"https://example.com\"}"), "release_response_invalid");
             Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"../2.3\"}"), "release_response_invalid");
+            var about = PolicyTransportClient.Describe();
+            if (!about.ContainsKey("X-Client-Host") || !Regex.IsMatch(about["X-Client-System"], @"\AWindows [0-9]+\.[0-9]+\.[0-9]+\z") ||
+                !Regex.IsMatch(about["X-Client-Version"], @"\A[0-9]+\.[0-9]+\.[0-9]+\z")) throw new Exception("The computer was not described");
             Console.WriteLine("Policy transport checks passed: endpoint restrictions, bounded body, UTF-8, schema, readiness and safe errors");
             return 0;
         }

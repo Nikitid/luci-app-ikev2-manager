@@ -178,8 +178,12 @@ export function cleanup_client_credentials(directory, id, expected_generation) {
 	try {
 		safe(lockpath, 'file', 0600);
 		let journal = read_client_enrollment(directory);
+		// An abandoned registration, or a registered device that has since
+		// been removed: the retirement is checked against the state below.
+		let invited = filter(journal.ledger.invitations, item => item.id == id)[0], published = read_client_state(directory);
 		if (type(expected_generation) != 'int' || expected_generation !== journal.ledger.generation || journal.pending != null ||
-			!length(filter(journal.ledger.invitations, item => item.id == id && item.status == 'aborted')))
+			invited == null || !(invited.status == 'aborted' ||
+			(invited.status == 'completed' && index(published.retired_ids, id) >= 0)))
 			die('credential cleanup not authorized');
 		let base = directory + '/credentials', path = base + '/' + id + '.json';
 		safe(base, 'directory', 0700); safe(base + '/' + id + '.issued', 'file', 0600);

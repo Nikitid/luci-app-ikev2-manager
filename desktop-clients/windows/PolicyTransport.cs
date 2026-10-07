@@ -106,6 +106,9 @@ namespace IkeV2Manager.Client
             request.MaximumResponseHeadersLength = 16;
             request.Accept = "application/json";
             request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            // For the administrator's list of devices: which computer this is.
+            // Nothing depends on it, and only well-formed values are sent.
+            foreach (var about in Describe()) request.Headers[about.Key] = about.Value;
             using (var deadline = new Timer(ignored => request.Abort(), null, 10000, Timeout.Infinite))
             try
             {
@@ -247,6 +250,28 @@ namespace IkeV2Manager.Client
             }
             catch (WebException) { throw new PolicyFetchException("services_unavailable"); }
             catch (IOException) { throw new PolicyFetchException("services_unavailable"); }
+        }
+
+        internal static System.Collections.Generic.Dictionary<string, string> Describe()
+        {
+            var result = new System.Collections.Generic.Dictionary<string, string>();
+            try
+            {
+                string host = Environment.MachineName;
+                if (Regex.IsMatch(host ?? "", @"\A[A-Za-z0-9][A-Za-z0-9._-]{0,62}\z")) result["X-Client-Host"] = host;
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                {
+                    string system = key == null ? null : String.Format(System.Globalization.CultureInfo.InvariantCulture, "Windows {0}.{1}.{2}",
+                        key.GetValue("CurrentMajorVersionNumber"), key.GetValue("CurrentMinorVersionNumber"), key.GetValue("CurrentBuild"));
+                    if (Regex.IsMatch(system ?? "", @"\AWindows [0-9][0-9.]{0,30}\z")) result["X-Client-System"] = system;
+                }
+                var own = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                result["X-Client-Version"] = String.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}.{1}.{2}", own.Major, own.Minor, Math.Max(own.Build, 0));
+            }
+            catch (System.Security.SecurityException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (IOException) { }
+            return result;
         }
 
         internal static string ReadBody(Stream stream, string contentType, long contentLength, int limit, string invalid)

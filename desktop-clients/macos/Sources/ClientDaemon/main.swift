@@ -53,7 +53,13 @@ if let anchorPath {
 }
 let system: any SystemActions = dryDirectory.map { DrySystem(directory: URL(fileURLWithPath: $0)) } ?? RealSystem()
 guard let store = try? ClientStore(directory: URL(fileURLWithPath: stateDirectory)) else { fail("the state directory is not private to this user") }
-let runtime = ClientRuntime(store: store, system: system, transport: DeviceTransport(additionalAnchor: anchor))
+let release = ProcessInfo.processInfo.operatingSystemVersion
+// The window and the daemon are installed together; the window's bundle
+// carries the version both were built as.
+let installed = (NSDictionary(contentsOfFile: "/Applications/IKEv2 Manager Client.app/Contents/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
+let about = DeviceTransport.describe(host: ProcessInfo.processInfo.hostName,
+    system: "macOS \(release.majorVersion).\(release.minorVersion).\(release.patchVersion)", version: installed)
+let runtime = ClientRuntime(store: store, system: system, transport: DeviceTransport(additionalAnchor: anchor, about: about))
 
 if remove {
     let done = DispatchSemaphore(value: 0)

@@ -4,6 +4,7 @@
 import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
 import { readfile } from 'fs';
+import { record_client_seen } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence } from './client-access-device-evidence.uc';
 
@@ -42,7 +43,7 @@ function device_services(publication, device) {
 		selected: sort(selected, by_id), available: sort(available, by_id) };
 }
 
-export function client_policy_response(env, directory) {
+export function client_policy_response(env, directory, seen_directory) {
 	if (env.HTTPS != 'on')
 		return reply(403, 'tls_required');
 	let readiness = env.REQUEST_URI == '/client/v1/readiness', services = env.REQUEST_URI == '/client/v1/services';
@@ -100,6 +101,10 @@ export function client_policy_response(env, directory) {
 		let compiled = compile_client_policy(selected.policy);
 		if (length(sprintf('%J', compiled.policy)) > 1048576)
 			return reply(503, 'policy_unavailable');
+		// What the device says about itself, for the administrator's list.
+		// Never a reason to refuse the policy.
+		if (seen_directory != null)
+			try { record_client_seen(seen_directory, selected.id, headers, env.REMOTE_ADDR, time()); } catch (error) { };
 		return { status: 200, body: compiled.policy };
 	} catch (error) {
 		return reply(503, readiness ? 'path_unavailable' : services ? 'services_unavailable' : 'policy_unavailable');

@@ -13,6 +13,7 @@ cleanup() {
  [ -z "$worker_pid" ] || { kill "$worker_pid" 2>/dev/null || :; wait "$worker_pid" 2>/dev/null || :; }
  rm -rf "$work" "$state_dir"
  rm -f "$service_dir/test_service.lst"
+ rm -rf /var/run/ikev2-client-seen
 }
 trap cleanup EXIT INT TERM
 mkdir -p "$service_dir"
@@ -180,4 +181,40 @@ test_step=expiry
 cp "$work/invitation" "$result_file"; chmod 600 "$result_file"
 ucode -e 'import {consume_client_invitation} from "/usr/libexec/ikev2-manager.d/client-access-invitation.uc"; let failed=false; try {consume_client_invitation(ARGV[0],time()+3601);} catch(e) {failed=true;} if(!failed) die("Expired invitation delivered");' "$job"
 [ ! -e "$result_file" ]
+test_step=directory
+# Who is behind a device: the administrator's words, what the client reported
+# and the live session, shown together and never part of what decides access.
+before="$(ucode "$control" status | sed -n 's/^generation=//p')"
+target="$(ucode "$control" inspect | jsonfilter -e '@.devices[0].id')"
+[ -n "$target" ]
+services="$(ucode "$control" inspect | jsonfilter -e '@.devices[0].selected_services')"
+enabled=false
+printf '{"version":1,"expected_generation":%s,"operation":"assign-device","payload":{"id":"%s","enabled":%s,"selected_services":%s,"owner":"Alice Example","note":"accounting"}}\n' "$before" "$target" "$enabled" "$services" >"$work/request.json"
+ucode "$control" update <"$work/request.json" >"$work/result"
+before="$(ucode "$control" status | sed -n 's/^generation=//p')"
+ucode -e 'import {record_client_seen} from "/usr/libexec/ikev2-manager.d/client-access-directory.uc"; record_client_seen("/var/run/ikev2-client-seen", ARGV[0], {"x-client-host":"ALICE-PC","x-client-system":"Windows 10.0.26100","x-client-version":"2.3.0"}, "203.0.113.9", time());' "$target"
+ucode "$control" inspect >"$work/inspection"
+[ "$(jsonfilter -i "$work/inspection" -e '@.devices[0].owner')" = 'Alice Example' ]
+[ "$(jsonfilter -i "$work/inspection" -e '@.devices[0].note')" = accounting ]
+[ "$(jsonfilter -i "$work/inspection" -e '@.devices[0].host')" = ALICE-PC ]
+[ "$(jsonfilter -i "$work/inspection" -e '@.devices[0].system')" = 'Windows 10.0.26100' ]
+[ "$(jsonfilter -i "$work/inspection" -e '@.devices[0].seen_from')" = 203.0.113.9 ]
+[ "$(jsonfilter -i "$work/inspection" -e '@.devices[0].online')" = false ]
+# What a client sends is kept only in the expected shape.
+ucode -e 'import {record_client_seen} from "/usr/libexec/ikev2-manager.d/client-access-directory.uc"; record_client_seen("/var/run/ikev2-client-seen", ARGV[0], {"x-client-host":"<script>","x-client-system":"Windows 10; rm -rf","x-client-version":"../1"}, "203.0.113.9", time());' "$target"
+ucode "$control" inspect >"$work/inspection"
+! grep -q 'script\|rm -rf\|\.\./1' "$work/inspection"
+printf '{"version":1,"expected_generation":%s,"operation":"assign-device","payload":{"id":"%s","enabled":false,"selected_services":%s,"owner":"Alice <b>","note":""}}\n' "$before" "$target" "$services" >"$work/request.json"
+if ucode "$control" update <"$work/request.json" >/dev/null 2>&1; then exit 1; fi
+[ "$(ucode "$control" inspect | jsonfilter -e '@.devices[0].owner')" = 'Alice Example' ]
+# Removal retires the identity and forgets the description.
+printf '{"version":1,"expected_generation":%s,"operation":"remove-device","payload":{"id":"%s"}}\n' "$before" "$target" >"$work/request.json"
+ucode "$control" update <"$work/request.json" >"$work/result" 2>/dev/null
+grep -qx 'changed=1' "$work/result"
+ucode "$control" inspect >"$work/inspection"
+! grep -q "\"id\": \"$target\"" "$work/inspection"
+! grep -q 'Alice Example' "$work/inspection"
+[ ! -e "/var/run/ikev2-client-seen/$target.json" ]
+if ucode "$control" update <"$work/request.json" >/dev/null 2>&1; then exit 1; fi
+printf '%s\n' 'client-admin: device description, reported computer, refusal of markup and removal passed'
 printf '%s\n' 'client-admin: invitation job, secret-free status, protected one-shot delivery and expiry passed'

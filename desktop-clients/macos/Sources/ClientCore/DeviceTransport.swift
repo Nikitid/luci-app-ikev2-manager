@@ -46,8 +46,24 @@ public protocol DeviceRequests: Sendable {
 /// a disposable test router and is never set by the installed daemon.
 public struct DeviceTransport: DeviceRequests {
     public let additionalAnchor: Data?
+    /// Which computer this is, for the administrator's list of devices.
+    /// Sent with the policy request; nothing depends on it.
+    public let about: [String: String]
 
-    public init(additionalAnchor: Data? = nil) { self.additionalAnchor = additionalAnchor }
+    public init(additionalAnchor: Data? = nil, about: [String: String] = [:]) {
+        self.additionalAnchor = additionalAnchor
+        self.about = about
+    }
+
+    /// The headers a client describes itself with, each only in its expected shape.
+    public static func describe(host: String, system: String, version: String) -> [String: String] {
+        var result: [String: String] = [:]
+        let name = host.components(separatedBy: ".").first ?? host
+        if matches(name, #"\A[A-Za-z0-9][A-Za-z0-9._-]{0,62}\z"#) { result["X-Client-Host"] = name }
+        if matches(system, #"\AmacOS [0-9][0-9.]{0,30}\z"#) { result["X-Client-System"] = system }
+        if matches(version, #"\A[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}\z"#) { result["X-Client-Version"] = version }
+        return result
+    }
 
     static let token = #"\A[a-f0-9]{64}\z"#
     static let identifier = #"\A[a-z][a-z0-9-]{0,47}\z"#
@@ -167,7 +183,7 @@ public struct DeviceTransport: DeviceRequests {
     public func policy(endpoint: URL, deviceToken: String) async throws -> Data {
         guard Self.matches(deviceToken, Self.token) else { throw DeviceError.invalidEndpoint }
         let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/policy"), method: "GET",
-            headers: ["Authorization": "Bearer " + deviceToken], limit: 1_048_576, timeout: 10)
+            headers: about.merging(["Authorization": "Bearer " + deviceToken]) { _, own in own }, limit: 1_048_576, timeout: 10)
         if answer.status == 401 { throw DeviceError.accessRejected }
         guard answer.status == 200 else { throw DeviceError.httpRejected }
         return answer.data

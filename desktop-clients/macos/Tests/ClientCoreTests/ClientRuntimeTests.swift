@@ -216,6 +216,9 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
                    ready.replacingOccurrences(of: #""revision":4"#, with: #""revision":0"#), ready.replacingOccurrences(of: "}", with: #","extra":1}"#), "[]"] {
         #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeReadiness(Data(broken.utf8)) }
     }
+    #expect(DeviceTransport.describe(host: "Alices-MacBook.local", system: "macOS 27.2.0", version: "2.3.0") ==
+            ["X-Client-Host": "Alices-MacBook", "X-Client-System": "macOS 27.2.0", "X-Client-Version": "2.3.0"])
+    #expect(DeviceTransport.describe(host: "<script>", system: "macOS 27; rm", version: "../1").isEmpty)
     let names = #"{"version":1,"id":"office-mac","revision":4,"selected":[{"id":"api","domains":3}],"available":[{"id":"wiki","domains":9}]}"#
     #expect(try DeviceTransport.decodeServices(Data(names.utf8), id: "office-mac") == DeviceServices(selected: ["api"], available: ["wiki"], domains: 3))
     #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeServices(Data(names.utf8), id: "other") }

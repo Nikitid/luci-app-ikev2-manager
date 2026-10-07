@@ -5,6 +5,10 @@ import { publish_client_state, read_client_state } from './client-access-store.u
 
 import { read_client_enrollment } from './client-access-enrollment-store.uc';
 import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
+import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device } from './client-access-directory.uc';
+import { cleanup_client_credentials } from './client-access-credentials.uc';
+
+let seen_directory = '/var/run/ikev2-client-seen';
 
 let directory = '/etc/ikev2-manager/clients';
 try {
@@ -17,6 +21,12 @@ try {
 		print(`allocations=${length(state.publication.allocations)}\n`);
 	} else if (ARGV[0] == 'inspect' && length(ARGV) == 1) {
   let inspected = inspect_client_admin(read_client_state(directory));
+  let labels = read_client_labels(directory), sessions = {}, now = time();
+  let daemon = popen('/usr/sbin/swanmon list-sas 2>/dev/null', 'r');
+  let listed = daemon?.read(16777217), listing = daemon?.close();
+  if (listing == 0 && type(listed) == 'string' && length(listed) <= 16777216)
+   try { sessions = client_device_sessions(json(listed)); } catch (error) { sessions = {}; }
+  for (let device in inspected.devices) describe_client_device(device, labels, seen_directory, sessions, now);
   inspected.enrollment_generation = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? 0 : read_client_enrollment(directory).ledger.generation;
   let port_reader = popen('/sbin/uci -q get ikev2-manager.client_access.port', 'r');
   let port_raw = port_reader?.read(32), port_status = port_reader?.close();
@@ -45,6 +55,15 @@ try {
   }
   let prepared = prepare_client_admin(state, request, catalog);
   let generation = prepared.changed ? publish_client_state(directory, prepared.desired, state.generation, false) : state.generation;
+  if (request.operation == 'assign-device' && 'owner' in request.payload)
+   write_client_label(directory, request.payload.id, request.payload.owner, request.payload.note);
+  if (request.operation == 'remove-device') {
+   // The account goes with the device; its sessions end with the account.
+   // A device registered before this journal existed has no record to clean.
+   forget_client_device(directory, seen_directory, request.payload.id);
+   try { cleanup_client_credentials(directory, request.payload.id, read_client_enrollment(directory).ledger.generation); }
+   catch (error) { warn('client-access-control: the removed device kept its account\n'); }
+  }
   print(`generation=${generation}\nchanged=${prepared.changed ? 1 : 0}\n`);
  } else if ((ARGV[0] == 'initialize' || ARGV[0] == 'publish') && length(ARGV) == 1) {
 		let raw = stdin.read(16777217);

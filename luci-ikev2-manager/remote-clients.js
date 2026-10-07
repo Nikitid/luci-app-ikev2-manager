@@ -138,18 +138,77 @@ function serviceDialog(record, current, generation, reload, pageResult) {
  }, reload, pageResult);
 }
 
+// "5 min", "3 h", "2 d": how long ago, or for how long.
+function span(seconds) {
+ if (seconds < 90) return _('%d s').format(seconds);
+ if (seconds < 5400) return _('%d min').format(Math.round(seconds / 60));
+ if (seconds < 86400) return _('%d h').format(Math.round(seconds / 3600));
+ return _('%d d').format(Math.round(seconds / 86400));
+}
+
+function describeText(value, limit, label) {
+ value = String(value || '').trim();
+ if (value.length > limit || /[<>\u0000-\u001f\u007f]/.test(value))
+  throw new Error(_('%s: up to %d characters, without < and >.').format(label, limit));
+ return value;
+}
+
+// What the administrator needs to tell one device from another.
+function deviceWho(device) {
+ return E('div', {}, [ E('strong', {}, [ device.id ]) ].concat(
+  device.owner ? [ E('div', {}, [ device.owner ]) ] : [],
+  device.note ? [ E('div', { 'style': 'color:var(--ikev2-muted)' }, [ device.note ]) ] : []));
+}
+
+function deviceComputer(device) {
+ if (!device.host && !device.system) return E('span', { 'style': 'color:var(--ikev2-muted)' }, [ _('Not reported yet') ]);
+ return E('div', {}, [ E('div', {}, [ device.host || '-' ]) ].concat(
+  device.system ? [ E('div', { 'style': 'color:var(--ikev2-muted)' }, [ device.client ? _('%s, client %s').format(device.system, device.client) : device.system ]) ] : []));
+}
+
+function deviceState(device) {
+ if (!device.enabled || !device.selected_services.length) return E('span', {}, [ _('Access closed') ]);
+ if (device.online)
+  return E('div', {}, [ E('div', {}, [ Number.isInteger(device.connected_seconds) ? _('Online for %s').format(span(device.connected_seconds)) : _('Online') ]),
+   E('div', { 'style': 'color:var(--ikev2-muted)' }, [ _('from %s, tunnel address %s').format(device.remote_address || '-', device.tunnel_address || '-') ]) ]);
+ if (Number.isInteger(device.seen_seconds))
+  return E('div', {}, [ E('div', {}, [ _('Offline') ]),
+   E('div', { 'style': 'color:var(--ikev2-muted)' }, [ _('last seen %s ago from %s').format(span(device.seen_seconds), device.seen_from || '-') ]) ]);
+ return E('span', {}, [ _('Has not connected yet') ]);
+}
+
+function removeDialog(device, state, reload, pageResult) {
+ var result = common.inlineResult(), remove;
+ ui.showModal(_('Remove device %s').format(device.id), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(),
+  E('p', {}, [ _('The device loses its access and its account on this router, and its connection ends. Its identifier cannot be used again: a returning device needs a new invitation under another identifier.') ]),
+  E('div', { 'class': 'ikev2-actions end' }, [ result.node,
+   E('button', { 'class': 'cbi-button', 'type': 'button', 'click': ui.hideModal }, [ _('Cancel') ]),
+   (remove = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'click': function() {
+    return saveRequest(remove, result, { version: 1, expected_generation: state.generation, operation: 'remove-device', payload: { id: device.id } }, function() {
+     return reload().then(function() { ui.hideModal(); pageResult.ok(_('Device removed.')); });
+    });
+   } }, [ _('Remove') ])) ]) ]) ]);
+}
+
 function deviceDialog(device, state, labels, reload, pageResult) {
+ var owner = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), 'value': device.owner || '' });
+ var note = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), 'value': device.note || '' });
  var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Device access enabled') });
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
   return { id: service.id, input: E('input', { 'type': 'checkbox', 'checked': device.selected_services.indexOf(service.id) >= 0 ? '' : null, 'aria-label': labels[service.id] || service.id }) };
  });
  var form = E('div', {}, [
+  E('div', { 'class': 'ikev2-form-grid' }, [
+   E('div', {}, [ common.fieldLabel(_('Who uses it'), _('A name you will recognise: the employee, the role.')), owner ]),
+   E('div', {}, [ common.fieldLabel(_('Note')), note ])
+  ]),
   common.toggleRow(enabled, _('Device access enabled')),
   E('div', {}, choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); }))
  ]);
  editDialog(device.id, form, function() {
   return { version: 1, expected_generation: state.generation, operation: 'assign-device',
-   payload: { id: device.id, enabled: enabled.checked, selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }) } };
+   payload: { id: device.id, enabled: enabled.checked, selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }),
+    owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')) } };
  }, reload, pageResult);
 }
 
@@ -161,8 +220,14 @@ function invitationDialog(state, labels, reload) {
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
   return { id: service.id, input: E('input', { type: 'checkbox', 'aria-label': labels[service.id] || service.id }) };
  });
+ var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it') });
+ var note = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Note') });
  var form = E('div', {}, [
-  common.fieldLabel(_('Device identifier')), id,
+  common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens, for example ivanov-laptop. It cannot be changed or used again.')), id,
+  E('div', { 'class': 'ikev2-form-grid' }, [
+   E('div', {}, [ common.fieldLabel(_('Who uses it'), _('A name you will recognise: the employee, the role.')), owner ]),
+   E('div', {}, [ common.fieldLabel(_('Note')), note ])
+  ]),
   common.fieldLabel(_('Registration HTTPS address')), endpoint,
   E('p', { 'class': 'ikev2-note' }, [ _('Use the configured registration listener address. Creating an invitation does not verify its availability.') ]),
   E('div', {}, choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); }))
@@ -186,8 +251,12 @@ function invitationDialog(state, labels, reload) {
   if (!/^[a-z][a-z0-9-]{0,47}$/.test(id.value) || !selected.length) {
    result.err(_('Enter a device identifier and select at least one service.')); return;
   }
-  var token = common.inputToken(), request = { version: 1, expected_generation: generation,
-   endpoint: endpoint.value, id: id.value, selected_services: selected, lifetime_seconds: 600 };
+  var token = common.inputToken(), request;
+  try {
+   request = { version: 1, expected_generation: generation,
+    endpoint: endpoint.value, id: id.value, selected_services: selected, lifetime_seconds: 600,
+    owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')) };
+  } catch (error) { result.err(error.message); return; }
   return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
    return common.runJob({ button: create, result: result, busy: _('Creating invitation...'), success: _('Invitation created.'), failure: _('Could not create invitation.'),
     startPath: helper, startArgs: [ 'client-admin-invite', token ], statusPath: helper, statusArgs: [ 'client-admin-status' ], timeout: 330000,
@@ -260,15 +329,17 @@ return view.extend({
    ].concat(serviceRows)));
    var deviceRows = state.devices.map(function(device) {
     return E('tr', { 'class': 'tr' }, [
-     E('td', { 'class': 'td' }, [ device.id ]),
-     E('td', { 'class': 'td' }, [ device.enabled && device.selected_services.length ? _('Enabled') : _('No access') ]),
+     E('td', { 'class': 'td' }, [ deviceWho(device) ]),
+     E('td', { 'class': 'td' }, [ deviceComputer(device) ]),
+     E('td', { 'class': 'td' }, [ deviceState(device) ]),
      E('td', { 'class': 'td' }, [ device.selected_services.map(function(id) { return labels[id] || id; }).join(', ') || '-' ]),
-     E('td', { 'class': 'td' }, [ String(device.revision) ]),
-     E('td', { 'class': 'td' }, [ E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { deviceDialog(device, state, labels, reload, result); } }, [ _('Edit') ]) ])
+     E('td', { 'class': 'td' }, [
+      E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { deviceDialog(device, state, labels, reload, result); } }, [ _('Edit') ]), ' ',
+      E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'click': function() { removeDialog(device, state, reload, result); } }, [ _('Remove') ]) ])
     ]);
    });
    devices.replaceChildren(state.devices.length ? E('table', { 'class': 'table cbi-section-table' }, [
-    E('tr', { 'class': 'tr' }, [ _('Device'), _('Access'), _('Selected services'), _('Revision'), _('Actions') ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+    E('tr', { 'class': 'tr' }, [ _('Device'), _('Computer'), _('State'), _('Selected services'), _('Actions') ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
    ].concat(deviceRows)) : E('p', {}, [ _('No devices enrolled.') ]));
   }
   refresh = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() {

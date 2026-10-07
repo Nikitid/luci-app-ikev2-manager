@@ -7,7 +7,7 @@ import { client_enrollment_response } from './client-access-enrollment-api.uc';
 // handler. The state path is fixed and cannot be supplied by an HTTP caller.
 global.handle_request = function(env) {
 	let result = env.REQUEST_URI == '/client/v1/enroll' || env.REQUEST_URI == '/client/v1/enrollment' ?
-		client_enrollment_response(env, '/etc/ikev2-manager/clients') : client_policy_response(env, '/etc/ikev2-manager/clients');
+		client_enrollment_response(env, '/etc/ikev2-manager/clients') : client_policy_response(env, '/etc/ikev2-manager/clients', '/var/run/ikev2-client-seen');
 	let phrases = { '200': 'OK', '202': 'Accepted', '400': 'Bad Request', '401': 'Unauthorized',
 		'403': 'Forbidden', '404': 'Not Found', '405': 'Method Not Allowed', '503': 'Service Unavailable' };
 	let body = sprintf('%J\n', result.body);

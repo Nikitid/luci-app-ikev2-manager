@@ -4733,3 +4733,63 @@ msgstr "Зарегистрированные устройства использ
 
 msgid "Addresses that stand for the selected services. It must not be used anywhere in your networks."
 msgstr "Адреса, которые обозначают выбранные сервисы. Подсеть не должна использоваться в ваших сетях."
+
+msgid "%d s"
+msgstr "%d с"
+
+msgid "%d min"
+msgstr "%d мин"
+
+msgid "%d h"
+msgstr "%d ч"
+
+msgid "%d d"
+msgstr "%d дн."
+
+msgid "%s: up to %d characters, without < and >."
+msgstr "%s: до %d символов, без < и >."
+
+msgid "Not reported yet"
+msgstr "Пока нет данных"
+
+msgid "%s, client %s"
+msgstr "%s, клиент %s"
+
+msgid "Access closed"
+msgstr "Доступ закрыт"
+
+msgid "from %s, tunnel address %s"
+msgstr "с адреса %s, адрес в туннеле %s"
+
+msgid "last seen %s ago from %s"
+msgstr "был на связи %s назад с адреса %s"
+
+msgid "Has not connected yet"
+msgstr "Ещё не подключался"
+
+msgid "Remove device %s"
+msgstr "Удалить устройство %s"
+
+msgid "The device loses its access and its account on this router, and its connection ends. Its identifier cannot be used again: a returning device needs a new invitation under another identifier."
+msgstr "Устройство потеряет доступ и учётную запись на этом роутере, его соединение будет разорвано. Идентификатор повторно использовать нельзя: вернувшемуся устройству нужно новое приглашение с другим идентификатором."
+
+msgid "Device removed."
+msgstr "Устройство удалено."
+
+msgid "Who uses it"
+msgstr "Кто пользуется"
+
+msgid "A name you will recognise: the employee, the role."
+msgstr "Имя, по которому вы узнаете устройство: сотрудник, должность."
+
+msgid "Note"
+msgstr "Заметка"
+
+msgid "Latin letters, digits and hyphens, for example ivanov-laptop. It cannot be changed or used again."
+msgstr "Латинские буквы, цифры и дефисы, например ivanov-laptop. Изменить или использовать повторно нельзя."
+
+msgid "Computer"
+msgstr "Компьютер"
+
+msgid "State"
+msgstr "Состояние"
