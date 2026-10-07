@@ -5198,3 +5198,6 @@ msgstr "Весь трафик в туннель"
 
 msgid "The VPN profiles are not available."
 msgstr "VPN-профили недоступны."
+
+msgid "Enter the name of the person."
+msgstr "Введите имя человека."

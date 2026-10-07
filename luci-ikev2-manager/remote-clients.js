@@ -342,6 +342,7 @@ function pageStyles() {
   '.ikev2-page .ikev2-form-grid + .ikev2-actions.end { margin-top: 1rem; }' +
   '.ikev2-page .ikev2-section > .ikev2-windows-app { margin-top: 1.1rem; margin-bottom: 0; }' +
   '.ikev2-page .ikev2-person-profiles { display: grid; gap: .5rem; } .ikev2-page .ikev2-person-profiles:empty { display: none; }' +
+  '.ikev2-page .ikev2-user-list:empty { display: none; }' +
   '.ikev2-page details.ikev2-fold > summary { cursor: pointer; font-weight: 600; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); margin: var(--ikev2-s4) 0; } .ikev2-page details.ikev2-fold[open] > summary { margin-bottom: 0; }' +
   '.ikev2-page .ikev2-people-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; margin-bottom: .9rem; }' +
   '.ikev2-page .ikev2-search-box { position: relative; flex: 0 1 20rem; min-width: 0; max-width: 100%; }' +
@@ -406,9 +407,9 @@ function removeDialog(device, state, reload, pageResult) {
 
 function personDialog(person, state, labels, reload, pageResult, profileNames) {
  var device = person.devices.filter(function(item) { return !item.waiting; })[0];
- var owners = state.profile_owners || {};
- // Ordinary VPN profiles: this person's, and those nobody has yet.
- var profiles = (profileNames || []).filter(function(name) { return !owners[name] || owners[name] === person.name; }).map(function(name) {
+ var owners = state.shown_owners || state.profile_owners || {}, given = state.profile_owners || {};
+ // Ordinary VPN profiles: this person's, and those nobody was given to yet.
+ var profiles = (profileNames || []).filter(function(name) { return !given[name] || owners[name] === person.name; }).map(function(name) {
   return { name: name, input: E('input', { 'type': 'checkbox', 'checked': owners[name] === person.name ? '' : null, 'aria-label': name }) };
  });
  var profileBox = profiles.length ? E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('VPN profiles of this person')) ].concat(
@@ -418,8 +419,16 @@ function personDialog(person, state, labels, reload, pageResult, profileNames) {
    payload: { owner: name, profiles: profiles.filter(function(item) { return item.input.checked; }).map(function(item) { return item.name; }) } };
  }
  if (!device) {
-  // Nothing of Waypoint to decide: only which profiles are theirs.
-  editDialog(person.name, E('div', {}, [ profileBox || E('p', {}, [ _('No VPN profile is free to assign.') ]) ]), function() { return profileRequest(person.name); }, reload, pageResult);
+  // Nothing of Waypoint to decide: the person's name and which profiles are theirs.
+  var called = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), 'value': person.name });
+  editDialog(person.name, E('div', {}, [
+   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [ common.fieldLabel(_('Who uses it')), called ]),
+   profileBox || E('p', {}, [ _('No VPN profile is free to assign.') ])
+  ]), function() {
+   var name = describeText(called.value, 80, _('Who uses it'));
+   if (!name) throw new Error(_('Enter the name of the person.'));
+   return profileRequest(name);
+  }, reload, pageResult, true);
   return;
  }
  var owner = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), 'value': device.owner || '' });
@@ -667,7 +676,14 @@ return view.extend({
    var taken = {};
    state.devices.forEach(function(device) { taken[device.id] = true; });
    profileNames = allAccounts.filter(function(name) { return !taken[name]; });
-   var everyone = people(state.devices, state.waiting, state.profile_owners);
+   // Every ordinary profile stands under a person. One that nobody was
+   // given to yet is placed by its name - "anna-phone" and "anna-laptop"
+   // under "anna" - until the administrator says otherwise in Edit.
+   state.shown_owners = {};
+   profileNames.forEach(function(name) {
+    state.shown_owners[name] = (state.profile_owners || {})[name] || name.replace(/[-_.][^-_.]*$/, '') || name;
+   });
+   var everyone = people(state.devices, state.waiting, state.shown_owners);
    devices.replaceChildren(everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
     return personCard(person, labels, actions);
    })) : E('div', { 'class': 'ikev2-empty' }, [ invite && invite.disabled ? _('Publish a service below, then add the first device.') : _('No devices yet. Add one to get its invitation link.') ]));
@@ -703,7 +719,7 @@ return view.extend({
   // card cannot be lost between two redraws.
   function distribute() {
    if (!vpnMain.querySelector || !state) return;
-   var owners = state.profile_owners || {}, homes = {}, list = vpnMain.querySelector('.ikev2-user-list');
+   var owners = state.shown_owners || {}, homes = {}, list = vpnMain.querySelector('.ikev2-user-list');
    function profile(card) { var name = card.querySelector('.ikev2-user-name'); return name ? name.textContent.trim() : ''; }
    Array.prototype.forEach.call(devices.querySelectorAll('.ikev2-person-profiles'), function(node) { homes[node.getAttribute('data-owner')] = node; });
    // A card whose profile changed hands, or lost its owner, goes back first.
