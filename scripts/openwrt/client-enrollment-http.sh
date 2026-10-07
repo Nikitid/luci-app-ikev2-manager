@@ -130,7 +130,24 @@ fresh="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18
 [ "$(ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | tr '\n' ' ')" = 'spare-2 ' ]
 request 401 -X POST -H "Authorization: Bearer ${lost##*#}" -H "X-Device-Token: 4444444444444444444444444444444444444444444444444444444444444444" "$claim"
 request 202 -X POST -H "Authorization: Bearer ${fresh##*#}" -H "X-Device-Token: 4444444444444444444444444444444444444444444444444444444444444444" "$claim"
+# The ledger takes one registration at a time; let this one finish.
+i=0
+while :; do
+	status="$(curl --cacert "$work/cert.pem" --max-time 5 -o "$work/body" -w '%{http_code}' -H "Authorization: Bearer 4444444444444444444444444444444444444444444444444444444444444444" "$poll")"
+	[ "$status" = 200 ] && break
+	[ "$status" = 202 ] || exit 1
+	i=$((i + 1)); [ "$i" -lt 30 ] || exit 1
+	sleep 1
+done
+# A free place can be closed without touching registered devices.
+generation="$(ucode "$control" inspect | jsonfilter -e '@.enrollment_generation')"
+printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"extra","selected_services":["%s"],"lifetime_seconds":3600,"owner":"One Person","note":""}' \
+	"$generation" "$address" "$service" | ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue >/dev/null
+ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -qx extra
+printf '{"version":1,"expected_generation":%s,"operation":"close-place","payload":{"id":"extra"}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
+! ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -qx extra
 # One decision for all of a person's devices.
+shown="$(ucode "$control" inspect)"
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":false,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \
 	"$(printf '%s' "$shown" | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
 shown="$(ucode "$control" inspect)"
@@ -147,4 +164,4 @@ printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payl
 request 200 -H "Authorization: Bearer $first" https://localhost:18443/client/v1/services
 [ "$(jsonfilter -i "$work/body" -e '@.block_without_tunnel')" = false ]
 [ "$(ucode "$control" inspect | jsonfilter -e '@.devices[@.id="family-2"].email')" = one@example.com ]
-printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a shared decision, background credentials, protected storage, opening on registration, clock and expiry PASS'
+printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a closed place, a shared decision, background credentials, protected storage, opening on registration, clock and expiry PASS'

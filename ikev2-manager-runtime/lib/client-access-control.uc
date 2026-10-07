@@ -3,7 +3,7 @@
 import { stdin, lstat, mkdir, chmod, popen } from 'fs';
 import { publish_client_state, read_client_state } from './client-access-store.uc';
 
-import { read_client_enrollment } from './client-access-enrollment-store.uc';
+import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
 import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
 import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
@@ -51,6 +51,21 @@ try {
    if (type(raw) != 'string' || length(raw) > 1048576) die('oversized administrative request');
    request = json(raw);
   }
+  // A place a link still holds open is closed in the invitation ledger; the
+  // published state has no device for it yet. The label goes with it.
+  let closed = false;
+  if (type(request) == 'object' && request.operation == 'close-place') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 1 || type(payload.id) != 'string' ||
+    !(length(payload.id) <= 48 ? match(payload.id, /^[a-z][a-z0-9-]*$/) : null)) die('invalid place');
+   let ledger = read_client_enrollment(directory).ledger;
+   write_client_enrollment(directory, { version: 1, expected_generation: ledger.generation, operation: 'cancel', payload: { id: payload.id } }, time(), false);
+   try { write_client_label(directory, payload.id, '', '', { email: '', open: false }); } catch (error) { }
+   print(`generation=${state.generation}\nchanged=1\n`);
+   closed = true;
+  }
+  // Leaving the program from inside this block would be taken for a failure.
+  if (!closed) {
   let ids = client_admin_catalog_ids(state, request), catalog = [];
   for (let id in ids) {
    // IDs have already passed the strict identifier grammar. No submitted
@@ -76,6 +91,7 @@ try {
    catch (error) { warn('client-access-control: the removed device kept its account\n'); }
   }
   print(`generation=${generation}\nchanged=${prepared.changed ? 1 : 0}\n`);
+  }
  } else if ((ARGV[0] == 'initialize' || ARGV[0] == 'publish') && length(ARGV) == 1) {
 		let raw = stdin.read(16777217);
 		if (type(raw) != 'string' || length(raw) > 16777216)

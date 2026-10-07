@@ -251,7 +251,8 @@ function deviceRow(device, onRemove) {
   return E('div', { 'class': 'ikev2-device' }, [ E('div', { 'class': 'ikev2-session-main' }, [
    E('span', { 'class': 'ikev2-session-address' }, [ device.id ]),
    E('div', { 'class': 'ikev2-session-meta' }, [ common.pill(_('Waiting for registration'), 'info'),
-    E('span', {}, [ _('link valid for %s more').format(span(device.expires_seconds)) ]) ]) ]), E('span', {}) ]);
+    E('span', {}, [ _('link valid for %s more').format(span(device.expires_seconds)) ]) ]) ]),
+   E('button', { 'class': 'cbi-button', 'type': 'button', 'title': _('Nobody can register in this place any more.'), 'click': onRemove }, [ _('Remove') ]) ]);
  if (!device.enabled) state = common.pill(_('Access off'), 'warn');
  else if (!device.selected_services.length) state = common.pill(_('No services'), 'warn');
  else if (device.online) {
@@ -274,6 +275,7 @@ function deviceRow(device, onRemove) {
 // A person and their devices. Devices without a named owner stand alone.
 function personCard(person, labels, actions) {
  var first = person.devices[0], services = first.selected_services;
+ var free = person.devices.filter(function(device) { return device.waiting; }).length;
  // One grid for the person and one for each device, so the buttons of every
  // card stand in the same two columns.
  return E('div', { 'class': 'ikev2-person' }, [
@@ -282,7 +284,8 @@ function personCard(person, labels, actions) {
     E('span', { 'class': 'ikev2-user-avatar' }, [ person.name.slice(0, 1) ]),
     E('div', { 'style': 'min-width:0' }, [
      E('strong', { 'class': 'ikev2-user-name' }, [ person.name ]),
-     E('div', { 'class': 'ikev2-session-meta' }, (first.note ? [ E('span', {}, [ first.note ]) ] : []).concat(
+     E('div', { 'class': 'ikev2-session-meta' }, [ E('span', {}, [ free ? _('Devices: %d, free places: %d').format(person.devices.length - free, free) : _('Devices: %d').format(person.devices.length) ]) ].concat(
+      first.note ? [ E('span', {}, [ first.note ]) ] : [],
       services.length ? services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }) : [ common.pill(_('No services'), 'warn') ],
       first.block_without_tunnel === false ? [ common.pill(_('Not blocked without the tunnel'), 'warn') ] : []))
     ])
@@ -332,6 +335,19 @@ function suggestId(name) {
 
 function removeDialog(device, state, reload, pageResult) {
  var result = common.inlineResult(), remove;
+ // A free place has no device behind it: it is simply closed.
+ if (device.waiting) {
+  ui.showModal(_('Remove place %s').format(device.id), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(),
+   E('p', {}, [ _('The link stops registering a device in this place. Devices already registered stay.') ]),
+   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
+    E('button', { 'class': 'cbi-button', 'type': 'button', 'click': ui.hideModal }, [ _('Cancel') ]),
+    (remove = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'click': function() {
+     return saveRequest(remove, result, { version: 1, expected_generation: state.generation, operation: 'close-place', payload: { id: device.id } }, function() {
+      return reload().then(function() { ui.hideModal(); pageResult.ok(_('Place removed.')); });
+     });
+    } }, [ _('Remove') ])) ]) ]) ]);
+  return;
+ }
  ui.showModal(_('Remove device %s').format(device.id), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(),
   E('p', {}, [ _('The device loses access and its connection ends. Its identifier cannot be used again.') ]),
   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
@@ -575,6 +591,14 @@ return view.extend({
     timeout: 330000, onSuccess: reload });
   } }, [ _('Update service lists') ]);
   invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload); } }, [ _('Add person') ]);
+  // The VPN profiles panel brings its list and, apart from it, diagnostics
+  // that are needed rarely: the list stands with the people, the rest last.
+  var vpnMain = E('div', {}), vpnRest = E('div', {});
+  if (profiles) {
+   var panel = vpnUsers.render(profiles), parts = Array.prototype.slice.call(panel.childNodes || []);
+   if (parts.length >= 3) { parts.slice(0, parts.length - 1).forEach(function(node) { vpnMain.appendChild(node); }); vpnRest.appendChild(parts[parts.length - 1]); }
+   else vpnMain.appendChild(panel);
+  }
   setData(data);
   return E([ common.styles(), pageStyles(), E('div', { 'class': 'ikev2-page' }, [
    common.header(_('Users'), _('People, their Waypoint devices and ordinary VPN profiles.')),
@@ -582,9 +606,9 @@ return view.extend({
    (managed.replaceChildren(
     common.section(_('People and devices'), _('Waypoint on Windows and macOS: selected services only.'), E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
     common.section(_('Services'), _('Lists are shared with Policy Routing.'), services, refresh),
-    setup, mailBox
+    vpnMain, setup, mailBox
    ), managed),
-   profiles ? vpnUsers.render(profiles) : ''
+   vpnRest
   ]) ]);
  },
  handleSaveApply: null, handleSave: null, handleReset: null

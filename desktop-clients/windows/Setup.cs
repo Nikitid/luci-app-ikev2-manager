@@ -79,6 +79,23 @@ internal static class Setup
     private sealed class Refusal : Exception { internal Refusal(string message) : base(message) { } }
 
     [STAThread]
+    // The last step of an installation: it is done, and the program opens
+    // unless the user clears the box.
+    private static bool AskToOpen()
+    {
+        using (var done = new Form { Text = Title, ClientSize = new System.Drawing.Size(360, 130), FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = new System.Drawing.Font("Segoe UI", 10) })
+        {
+            var open = new CheckBox { Text = "Открыть " + Title, Checked = true, AutoSize = true, Location = new System.Drawing.Point(22, 54) };
+            var close = new Button { Text = "Готово", DialogResult = DialogResult.OK, AutoSize = true, Location = new System.Drawing.Point(250, 88) };
+            done.Controls.Add(new Label { Text = Title + " установлен.", AutoSize = true, Location = new System.Drawing.Point(20, 20) });
+            done.Controls.Add(open); done.Controls.Add(close);
+            done.AcceptButton = close;
+            done.ShowDialog();
+            return open.Checked;
+        }
+    }
+
     private static int Main(string[] args)
     {
         bool quiet = Array.IndexOf(args, "/quiet") >= 0, remove = Array.IndexOf(args, "/uninstall") >= 0;
@@ -99,8 +116,7 @@ internal static class Setup
             Install();
             if (!quiet)
             {
-                MessageBox.Show(Title + " установлен.", Title);
-                Process.Start(new ProcessStartInfo(AppPath) { WorkingDirectory = Destination, UseShellExecute = false });
+                if (AskToOpen()) Process.Start(new ProcessStartInfo(AppPath) { WorkingDirectory = Destination, UseShellExecute = false });
             }
             return 0;
         }

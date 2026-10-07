@@ -218,9 +218,10 @@ public struct DeviceTransport: DeviceRequests {
     static func decodeServices(_ data: Data, id: String) throws -> DeviceServices {
         // An older router does not say whether services stay blocked.
         let stated = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["block_without_tunnel"]
-        var expected: Set<String> = ["version", "id", "revision", "selected", "available"]
-        if stated != nil { expected.insert("block_without_tunnel") }
-        let root = try object(data, keys: expected)
+        // This answer describes; it grants nothing. A field a later router
+        // adds is ignored, so an installed client keeps working with it.
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(["version", "id", "revision", "selected", "available"]).isSubset(of: root.keys) else { throw DeviceError.invalidResponse }
         // A number is not an answer to a yes-or-no question.
         if let stated, CFGetTypeID(stated as CFTypeRef) != CFBooleanGetTypeID() { throw DeviceError.invalidResponse }
         guard try integer(root["version"], 1...1) == 1, root["id"] as? String == id else { throw DeviceError.invalidResponse }

@@ -59,14 +59,17 @@ namespace IkeV2Manager.Client
             try
             {
                 var data = ClientPolicy.Object(new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 65536, RecursionLimit = 5 }.DeserializeObject(json));
+                // This answer describes; it grants nothing. A field a later
+                // router adds is ignored, so an installed client keeps working
+                // with it. What is known must still be in its exact form.
+                foreach (string needed in new[] { "version", "id", "revision", "selected", "available" })
+                    if (!data.ContainsKey(needed)) throw new ArgumentException();
                 bool block = true;
                 if (data.ContainsKey("block_without_tunnel"))
                 {
                     if (!(data["block_without_tunnel"] is bool)) throw new ArgumentException();
                     block = (bool)data["block_without_tunnel"];
-                    ClientPolicy.Fields(data, "version", "id", "revision", "selected", "available", "block_without_tunnel");
                 }
-                else ClientPolicy.Fields(data, "version", "id", "revision", "selected", "available");
                 if (ClientPolicy.Integer(data["version"], 1, 1) != 1 || ClientPolicy.Text(data["id"]) != id) throw new ArgumentException();
                 ClientPolicy.Integer(data["revision"], 1, Int32.MaxValue);
                 int domains = 0;

@@ -26,6 +26,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Client application build failed' }
 & $compiler /nologo /platform:x64 /optimize+ /target:winexe "/out:$(Join-Path $Output 'WaypointSetup.exe')" `
     "/win32manifest:$(Join-Path $PSScriptRoot 'Setup.manifest')" "/win32icon:$icon" `
     "/resource:$serviceBinary,ClientService.exe" "/resource:$appBinary,IKEv2ManagerClient.exe" `
-    /r:System.ServiceProcess.dll /r:System.Windows.Forms.dll $stamp (Join-Path $PSScriptRoot 'Setup.cs')
+    /r:System.ServiceProcess.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll $stamp (Join-Path $PSScriptRoot 'Setup.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Client installer build failed' }
 Remove-Item -LiteralPath $stamp

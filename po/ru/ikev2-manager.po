@@ -5060,3 +5060,21 @@ msgstr "Waypoint на Windows и macOS: только выбранные серв
 
 msgid "VPN profiles"
 msgstr "VPN-профили"
+
+msgid "Nobody can register in this place any more."
+msgstr "В это место больше никто не зарегистрируется."
+
+msgid "Remove place %s"
+msgstr "Удалить место %s"
+
+msgid "The link stops registering a device in this place. Devices already registered stay."
+msgstr "Ссылка перестанет регистрировать устройство в это место. Уже зарегистрированные устройства остаются."
+
+msgid "Place removed."
+msgstr "Место удалено."
+
+msgid "Devices: %d, free places: %d"
+msgstr "Устройств: %d, свободных мест: %d"
+
+msgid "Devices: %d"
+msgstr "Устройств: %d"

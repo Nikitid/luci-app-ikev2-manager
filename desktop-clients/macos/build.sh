@@ -84,6 +84,13 @@ cat >"$stage/scripts/postinstall" <<SCRIPT
 chown root:wheel "/Library/LaunchDaemons/$label.plist" "/Library/PrivilegedHelperTools/$label" "/Library/PrivilegedHelperTools/$label.uninstall"
 chmod 644 "/Library/LaunchDaemons/$label.plist"
 launchctl bootstrap system "/Library/LaunchDaemons/$label.plist"
+# Open the window for whoever sits at the Mac. The system installer has no
+# place for a question about it; a failure here is not a failed installation.
+user="\$(stat -f %Su /dev/console 2>/dev/null)"
+if [ -n "\$user" ] && [ "\$user" != root ]; then
+	launchctl asuser "\$(id -u "\$user")" sudo -u "\$user" open "/Applications/Waypoint.app" >/dev/null 2>&1 || :
+fi
+exit 0
 SCRIPT
 chmod 755 "$stage/scripts/preinstall" "$stage/scripts/postinstall"
 plutil -lint "$app/Info.plist" "$stage/root/Library/LaunchDaemons/$label.plist" >/dev/null

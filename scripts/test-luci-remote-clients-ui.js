@@ -120,7 +120,12 @@ async function main() {
  assert(!JSON.stringify(jobs.map(j=>j.success)).includes('cccccccc'), 'no invitation secret in job status');
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
  const removes = nodes(tree).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Remove');
- assert.strictEqual(removes.length, 3); click(removes[1]);
+ assert.strictEqual(removes.length, 4);
+ // A free place is closed, not removed as a device.
+ click(removes[1]);
+ await click(button(modal,'Remove'));
+ assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'close-place', payload:{id:'alice-2'}});
+ click(removes[2]);
  assert(text(modal).includes('cannot be used again'));
  await click(button(modal,'Remove'));
  assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'remove-device', payload:{id:'bob-laptop'}});
