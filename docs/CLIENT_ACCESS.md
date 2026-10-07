@@ -376,7 +376,7 @@ out-of-pool and bootstrap allocations.
 ## Windows enforcement implementation
 
 `desktop-clients/windows/build.ps1 -Version X.Y.Z` builds the service, the
-window and `IKEv2ManagerClientSetup.exe`, which carries both. Setup requires
+window and `PrivateLaneSetup.exe`, which carries both. Setup requires
 elevation, installs an automatic SYSTEM service under a protected Program Files
 folder with service recovery, a Start menu shortcut and an uninstall entry, and
 opens the window. Running it again updates the binaries and keeps the
