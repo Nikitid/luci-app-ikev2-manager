@@ -425,7 +425,7 @@ function personCard(person, labels, actions) {
    ]),
    E('div', { 'class': 'ikev2-user-actions' }, [
     signButton('link', free ? _('New Waypoint link in place of the one given') : _('Waypoint link: the person\'s devices register with it'), 'cbi-button-action',
-     function() { if (free) actions.relink(person); else actions.link(person); }),
+     function() { actions.link(person); }),
     signButton('plus', _('Add an ordinary VPN profile'), 'cbi-button-action', function() { actions.add(person); }),
     signButton('settings', _('Edit'), 'cbi-button-edit ikev2-settle', function() { actions.edit(person); })
    ])
@@ -473,6 +473,7 @@ function magnifier() { return sign('M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4
 // The page's own layout rules, beside the shared ones.
 function pageStyles() {
  return E('style', {}, [
+  '.ikev2-page .ikev2-people-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: .6rem; flex-wrap: nowrap; white-space: nowrap; } .ikev2-page .ikev2-people-actions .cbi-button { margin: 0; height: 2.4rem; display: inline-flex; align-items: center; } @media (max-width: 700px) { .ikev2-page .ikev2-people-actions { flex-wrap: wrap; } }' +
   '.ikev2-page .ikev2-report { width: 100%; box-sizing: border-box; margin-top: .5rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; line-height: 1.35; white-space: pre; resize: vertical; }' +
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
@@ -682,12 +683,22 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  (state.used_ids || []).forEach(function(id) { taken[id] = true; });
  // The next free identifier for one more device of a known person.
  function free(base) {
-  if (!base) return '';
-  for (var n = 1; n < 100; n++) { var candidate = n === 1 && !taken[base] ? base : base + '-' + (n + 1); if (!taken[candidate] && !taken[candidate + '-1']) return candidate; }
-  return base;
+  base = base || 'device';
+  function unused(candidate) { return !taken[candidate] && ![ 1, 2, 3, 4, 5 ].some(function(n) { return taken[candidate + '-' + n]; }); }
+  if (unused(base)) return base;
+  // "anna-b", "anna-c": a letter, so a number after it stays the place in a link.
+  for (var n = 0; n < 26 * 26; n++) {
+   var candidate = base.slice(0, 38) + '-' + (n >= 26 ? String.fromCharCode(96 + Math.floor(n / 26)) : '') + String.fromCharCode(97 + n % 26);
+   if (unused(candidate)) return candidate;
+  }
+  return base.slice(0, 30) + '-' + Date.now().toString(36);
  }
  var known = person && person.devices[0];
- replace = replace || [];
+ // A link that still waits for devices is always replaced by the new one:
+ // it cannot be shown again, and two links for one person only confuse.
+ replace = person ? person.devices.filter(function(device) { return device.waiting; }) : [];
+ var registered = person ? person.devices.length - replace.length : 0;
+ var stored = person ? (state.person_limits || {})[person.name] : null;
  var id = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Device identifier'),
   value: person ? free(suggestId(person.name) || (known ? known.id.replace(/-[0-9]+$/, '') : '')) : '' });
  var endpoint = state.api_endpoint || 'https://' + state.server.address + ':8443/client/v1/enroll';
@@ -699,16 +710,30 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), value: person ? person.name : '' });
  var note = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), value: known ? known.note || '' : '' });
  var email = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), value: known ? known.email || '' : '' });
- var count = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Devices') }, [ 1, 2, 3, 4, 5 ].map(function(n) {
-  return E('option', { value: String(n), selected: n === replace.length ? '' : null }, [ String(n) ]);
+ // How many devices the person may have: their own setting, kept on the
+ // router. The link is for the places still free, five at most at a time.
+ var limitNow = stored || Math.max(2, registered + replace.length), limits = [];
+ for (var n = Math.max(1, registered); n <= Math.max(8, registered); n++) limits.push(n);
+ var count = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Devices of the person') }, limits.map(function(n) {
+  return E('option', { value: String(n), selected: n === Math.max(limitNow, registered) ? '' : null }, [ String(n) ]);
  }));
+ count.value = String(Math.max(limitNow, registered));
+ var places = E('div', { 'class': 'ikev2-note', 'style': 'margin-top:.8rem' });
+ function freePlaces() { return Math.min(5, Math.max(0, Number(count.value) - registered)); }
+ function tellPlaces() {
+  var free = freePlaces();
+  places.textContent = (registered ? _('Registered: %d.').format(registered) + ' ' : '') +
+   (free ? _('The link will register %d more.').format(free) : _('No place is free: raise the number or remove a device.')) +
+   (replace.length ? ' ' + _('The link issued before (%d places, valid for %s more) stops working; a link is shown only once.').format(replace.length, span(Math.max.apply(null, replace.map(function(item) { return item.expires_seconds || 0; })))) : '');
+  if (create) create.disabled = !free;
+ }
+ count.addEventListener('change', tellPlaces);
  var lifetime = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Link is valid for') }, [ [ 3600, _('1 hour') ], [ 86400, _('1 day') ], [ 604800, _('7 days') ] ].map(function(item) {
   return E('option', { value: String(item[0]), selected: item[0] === 86400 ? '' : null }, [ item[1] ]);
  }));
- // The identifier follows the name until the administrator types their own.
- var typed = !!known;
- id.addEventListener('input', function() { typed = true; });
- owner.addEventListener('input', function() { if (!typed) id.value = free(suggestId(owner.value)); });
+ // The identifier is internal: made from the person's name, never asked for.
+ // A device is shown under the name its computer reports.
+ owner.addEventListener('input', function() { id.value = free(suggestId(owner.value)); });
  // What kind of device this is. An ordinary profile is made by the VPN
  // profiles panel and then given to the person.
  var kind = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Kind of device') }, [
@@ -718,16 +743,14 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  // A known person brings name, mail and note; a device is added one at a time.
  var rows = person ? [] : [ common.fieldLabel(_('Who uses it')), owner, common.fieldLabel(_('E-mail')), email, common.fieldLabel(_('Note')), note ];
  rows.push(common.fieldLabel(person ? _('The devices start with') : _('Kind of device'), _('Changed later for each device by itself.')), kind);
- rows.push(common.fieldLabel(_('Devices'), _('How many devices may register with this link. Each appears by itself under the name of its computer.')), count);
+ rows.push(common.fieldLabel(_('Devices of the person'), _('How many Waypoint devices this person may have. Each registers with the same link and appears under the name of its computer.')), count);
  rows.push(common.fieldLabel(_('Link is valid for')), lifetime);
  // The identifier is made from the person's name; it is internal and rarely matters.
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, rows),
-  E('details', { 'style': 'margin-top:.6rem' }, [ E('summary', { 'style': 'cursor:pointer;color:var(--ikev2-muted)' }, [ _('Identifier') ]),
-   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact', 'style': 'margin-top:.5rem' }, [
-    common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens. Cannot be changed or used again.')), id ]) ]),
-  replace.length ? E('p', { 'class': 'ikev2-note' }, [ _('The previous link stops working.') ]) : '',
-  E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) ])
+  places,
+  E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services'), choices.length ? '' : _('None is published yet. A Waypoint device registers with at least one: publish a service below first. An ordinary VPN profile needs none.')),
+   choices.length ? checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) : '' ])
  ]);
  function showLink(link) {
   var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link'), 'class': 'ikev2-link', rows: '3' });
@@ -763,23 +786,31 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
    ui.hideModal(); addProfile({ name: called }); return;
   }
   var selected = choices.filter(function(choice) { return choice.input.checked; }).map(function(choice) { return choice.id; });
-  if (!/^[a-z][a-z0-9-]{0,45}$/.test(id.value) || !selected.length) {
-   result.err(_('Enter a device identifier and select at least one service.')); return;
-  }
-  var wanted = Number(count.value) > 1 ? [ 1, 2, 3, 4, 5 ].slice(0, Number(count.value)).map(function(n) { return id.value + '-' + n; }) : [ id.value ];
-  if (wanted.some(function(name) { return taken[name]; })) {
-   result.err(_('This identifier was used before and cannot be used again. Choose another.')); return;
-  }
+  if (!person && !owner.value.trim()) { result.err(_('Enter the name of the person.')); return; }
+  if (!choices.length) { result.err(_('Publish a service first: a Waypoint device registers with at least one.')); return; }
+  if (!selected.length) { result.err(_('Select at least one service. More are handed out later.')); return; }
+  if (!freePlaces()) { result.err(_('No place is free: raise the number or remove a device.')); return; }
+  id.value = free(suggestId(person ? person.name : owner.value));
   var token = common.inputToken(), request;
   try {
    request = { version: 1, expected_generation: generation,
     endpoint: endpoint, id: id.value, selected_services: selected, lifetime_seconds: Number(lifetime.value) || 86400,
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')), email: mailText(email.value) };
    request.mode = kind.value === 'full' ? 'full' : 'services';
-   if (Number(count.value) > 1) request.count = Number(count.value);
+   if (!request.owner) throw new Error(_('Enter the name of the person.'));
+   if (freePlaces() > 1) request.count = freePlaces();
    if (replace.length) request.cancel = replace.map(function(item) { return item.id; });
   } catch (error) { result.err(error.message); return; }
-  return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
+  // The person's number of devices is theirs to keep; it is stored first.
+  var kept = Number(count.value) === stored ? Promise.resolve(true) : new Promise(function(resolve) {
+   saveRequest(create, result, { version: 1, expected_generation: state.generation, operation: 'set-person-limit',
+    payload: { owner: request.owner, limit: Number(count.value) } }, function() { resolve(true); }).then(function() { resolve(false); }, function() { resolve(false); });
+  });
+  return kept.then(function(done) {
+   if (!done) return null;
+   return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384);
+  }).then(function(staged) {
+   if (staged === null) return null;
    return common.runJob({ button: create, result: result, busy: _('Creating invitation...'), success: _('Invitation created.'), failure: _('Could not create invitation.'),
     startPath: helper, startArgs: [ 'client-admin-invite', token ], statusPath: helper, statusArgs: [ 'client-admin-status' ], timeout: 330000,
     onSuccess: function(status) {
@@ -798,6 +829,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  tracker = common.trackChanges(create, [ form ]);
  // For a known person the form is already filled in and can be sent as it is.
  if (person) create.disabled = false;
+ tellPlaces();
  ui.showModal(replace.length ? _('New link for %s').format(person.name) : person ? _('Waypoint link for %s').format(person.name) : _('Add person'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
    E('button', { type: 'button', 'class': 'cbi-button', click: ui.hideModal }, [ _('Cancel') ]), create ]) ]) ]);
@@ -842,7 +874,7 @@ return view.extend({
    }
    availability.replaceChildren();
    if (refresh) refresh.disabled = false;
-   if (invite) invite.disabled = !Number.isInteger(state.enrollment_generation) || !state.services.some(function(service) { return service.client_access; });
+   if (invite) invite.disabled = !Number.isInteger(state.enrollment_generation);
    records = catalogRecords(next[1].stdout); labels = {};
    records.forEach(function(record) { labels[record.id] = record.label; });
    state.services.forEach(function(service) {
@@ -897,15 +929,12 @@ return view.extend({
    // switched off on purpose: nothing about them was decided yet.
    state.devices.forEach(function(device) { device.unapproved = !!state.approve && !device.enabled && device.revision === 1; });
    var actions = {
-    // A card is open if the administrator opened it, or - until they touch
-    // it - if something of the person is connected or still waited for.
-    // Cards are folded; one stays open only because the administrator
-    // opened it, and that is remembered while the browser tab lives.
+    // Cards are folded on every load; one is open only while the
+    // administrator keeps it open on this page.
     open: function(person) { return opened[person.name] === true; },
     toggle: function(person, card) {
      opened[person.name] = !/\bis-open\b/.test(card.getAttribute('class'));
      card.setAttribute('class', 'ikev2-person' + (opened[person.name] ? ' is-open' : ''));
-     try { window.sessionStorage.setItem('ikev2-people-open', JSON.stringify(opened)); } catch (error) { }
     },
     edit: function(person) { personDialog(person, state, labels, reload, result, profileNames, everyoneNames); },
     // A Waypoint device is never added by hand: it appears when it registers
@@ -971,7 +1000,7 @@ return view.extend({
    everyoneNames = everyone.map(function(person) { return person.name; });
    devices.replaceChildren(everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
     return personCard(person, labels, actions);
-   })) : E('div', { 'class': 'ikev2-empty' }, [ invite && invite.disabled ? _('Publish a service below, then add the first device.') : _('No devices yet. Add one to get its invitation link.') ]));
+   })) : E('div', { 'class': 'ikev2-empty' }, [ _('Nobody yet. Add a person to get their link.') ]));
    var online = state.devices.filter(function(device) { return device.online; }).length;
    summary.replaceChildren(common.pill(_('People: %d').format(everyone.length), 'neutral'), ' ',
     common.pill(_('Waypoint devices: %d, online: %d').format(state.devices.length, online), online ? 'good' : 'neutral'), ' ',
@@ -992,15 +1021,14 @@ return view.extend({
   // The VPN profiles panel brings its list, the Windows application and
   // diagnostics. The list stands with the people; a profile that belongs to
   // a person is shown in that person's card.
-  var windowsApp = E('span', { 'style': 'display:inline-flex;align-items:center;gap:.6rem' });
+  var windowsApp = E('span', { 'style': 'display:inline-flex;align-items:center;gap:.6rem;white-space:nowrap' });
   var vpnMain = E('div', {}), vpnRest = E('div', {}), summary = E('div', {}), journal = E('div', {});
   var search = E('input', { 'type': 'search', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
   var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
   var opened = {}, everyoneCount = 0, lastData = null, everyoneNames = [];
-  try { opened = JSON.parse(window.sessionStorage.getItem('ikev2-people-open') || '{}') || {}; } catch (error) { opened = {}; }
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
-   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'report-requested': _('Report requested'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
+   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'report-requested': _('Report requested'), 'devices-limit': _('Number of devices set'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
   // Put each owned profile's card into its person's card. The panel redraws
   // its list every few seconds and brings fresh cards; a fresh card takes the
   // place of the one shown before. Nothing is ever cleared wholesale, so a
@@ -1111,7 +1139,7 @@ return view.extend({
     common.section(_('People'), _('Waypoint devices on Windows and macOS reach selected services; VPN profiles are for phones and other devices.'),
      E('div', {}, [ E('div', { 'class': 'ikev2-people-bar' }, [ summary, E('span', { 'style': 'display:inline-flex;align-items:center;gap:.4rem;min-width:0;flex:0 1 24rem' }, [ E('div', { 'class': 'ikev2-search-box', 'style': 'flex:1 1 auto' }, [ magnifier(), search ]),
        vpnUsers.disconnectAll ? signButton('disconnectAll', _('Disconnect all'), 'cbi-button-negative', function(ev) { return vpnUsers.disconnectAll(ev.currentTarget); }) : '' ]) ]),
-      devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), E('span', { 'style': 'display:inline-flex;align-items:center;gap:.6rem;flex-wrap:wrap;justify-content:flex-end' }, [ windowsApp, invite ])),
+      devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), E('span', { 'class': 'ikev2-people-actions' }, [ windowsApp, invite ])),
     vpnMain,
     common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks.'),
      E('div', {}, [ services, E('div', { 'class': 'ikev2-actions end' }, [ serviceResult.node ]) ]), refresh),

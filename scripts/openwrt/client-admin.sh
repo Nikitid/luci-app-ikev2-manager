@@ -207,6 +207,14 @@ ucode "$control" inspect >"$work/inspection"
 printf '{"version":1,"expected_generation":%s,"operation":"assign-device","payload":{"id":"%s","enabled":false,"selected_services":%s,"owner":"Alice <b>","note":""}}\n' "$before" "$target" "$services" >"$work/request.json"
 if ucode "$control" update <"$work/request.json" >/dev/null 2>&1; then exit 1; fi
 [ "$(ucode "$control" inspect | jsonfilter -e '@.devices[0].owner')" = 'Alice Example' ]
+# A person's own settings - how many devices, which profiles - outlive any
+# device, and a limit outside 1..16 is refused.
+printf '{"version":1,"expected_generation":%s,"operation":"set-person-limit","payload":{"owner":"Carol Example","limit":3}}\n' "$before" >"$work/person.json"
+ucode "$control" update <"$work/person.json" >/dev/null
+printf '{"version":1,"expected_generation":%s,"operation":"assign-profiles","payload":{"owner":"Carol Example","profiles":["carol-phone"]}}\n' "$before" >"$work/person.json"
+ucode "$control" update <"$work/person.json" >/dev/null
+printf '{"version":1,"expected_generation":%s,"operation":"set-person-limit","payload":{"owner":"Carol Example","limit":40}}\n' "$before" >"$work/person.json"
+if ucode "$control" update <"$work/person.json" >/dev/null 2>&1; then echo 'client-admin: an absurd device limit was stored' >&2; exit 1; fi
 # Removal retires the identity and forgets the description.
 printf '{"version":1,"expected_generation":%s,"operation":"remove-device","payload":{"id":"%s"}}\n' "$before" "$target" >"$work/request.json"
 ucode "$control" update <"$work/request.json" >"$work/result" 2>/dev/null
@@ -215,6 +223,7 @@ ucode "$control" inspect >"$work/inspection"
 ! grep -q "\"id\": \"$target\"" "$work/inspection"
 ! grep -q 'Alice Example' "$work/inspection"
 [ ! -e "/var/run/ikev2-client-seen/$target.json" ]
+ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); if(s.person_limits["Carol Example"]!==3 || s.profile_owners["carol-phone"]!="Carol Example") die("Removing a device lost the settings of a person");' "$work/inspection"
 if ucode "$control" update <"$work/request.json" >/dev/null 2>&1; then exit 1; fi
-printf '%s\n' 'client-admin: device description, reported computer, refusal of markup and removal passed'
+printf '%s\n' 'client-admin: device description, reported computer, refusal of markup, removal and the settings of a person passed'
 printf '%s\n' 'client-admin: invitation job, secret-free status, protected one-shot delivery and expiry passed'

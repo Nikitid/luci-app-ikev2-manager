@@ -34,6 +34,7 @@ namespace IkeV2Manager.Client
         private Color Soft { get { return dark ? Color.FromArgb(160, 160, 166) : Color.FromArgb(110, 110, 115); } }
         private Color Line { get { return dark ? Color.FromArgb(70, 70, 74) : Color.FromArgb(217, 217, 222); } }
         private readonly List<Button> plain = new List<Button>();
+        private Button themeSign;
         private const string Preferences = @"Software\Waypoint";
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
@@ -53,6 +54,7 @@ namespace IkeV2Manager.Client
             dark = theme == "dark" || (theme == "system" && systemDark);
             BackColor = Back;
             foreach (var button in plain) { button.BackColor = Sheet; button.ForeColor = Ink; button.FlatAppearance.BorderColor = Line; }
+            if (themeSign != null) { themeSign.BackColor = Back; themeSign.ForeColor = Ink; themeSign.FlatAppearance.MouseOverBackColor = Sheet; }
             if (IsHandleCreated) { int on = dark ? 1 : 0; DwmSetWindowAttribute(Handle, 20, ref on, 4); }
             surface.Invalidate();
         }
@@ -118,9 +120,15 @@ namespace IkeV2Manager.Client
             var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(20, 8, 20, 16), WrapContents = true };
             var refresh = new Button { Text = "Проверить", AutoSize = true };
             var report = new Button { Text = "Отчёт…", AutoSize = true };
-            var look = new Button { Text = "Тема", AutoSize = true };
+            // The look of the window: a small sign in the corner, away from the actions.
+            var look = new Button { Text = "\u25D0", Size = new Size(30, 30), FlatStyle = FlatStyle.Flat, TabStop = false,
+                Font = new Font("Segoe UI Symbol", 14f), Cursor = Cursors.Hand };
+            look.FlatAppearance.BorderSize = 0;
+            new ToolTip().SetToolTip(look, "Тема");
+            themeSign = look;
             // Everything the program put on this computer goes with one action.
-            var remove = new Button { Text = "Удалить…", AutoSize = true, ForeColor = Color.FromArgb(199, 51, 46) };
+            var remove = new Button { Text = "Удалить…", AutoSize = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(199, 51, 46), ForeColor = Color.White };
+            remove.FlatAppearance.BorderSize = 0;
             remove.Click += (sender, args) =>
             {
                 if (MessageBox.Show(this, "Удалить Waypoint с этого компьютера?\n\nБудут удалены: VPN-подключение, блокировки, записи имён сервисов и регистрация устройства. " +
@@ -151,7 +159,7 @@ namespace IkeV2Manager.Client
                 primary.FlatStyle = FlatStyle.Flat; primary.FlatAppearance.BorderSize = 0;
                 primary.BackColor = Color.FromArgb(0, 103, 192); primary.ForeColor = Color.White;
             }
-            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, look, update, remove })
+            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, update, remove })
             {
                 button.Margin = new Padding(4, 4, 4, 4); button.Padding = new Padding(4, 2, 4, 2);
                 if (button.FlatStyle != FlatStyle.Flat)
@@ -161,6 +169,9 @@ namespace IkeV2Manager.Client
                 buttons.Controls.Add(button);
             }
             surface.Paint += (sender, args) => Draw(args.Graphics, true);
+            surface.Resize += (sender, args) => look.Location = new Point(surface.ClientSize.Width - 44, 12);
+            look.Location = new Point(surface.ClientSize.Width - 44, 12);
+            surface.Controls.Add(look);
             Controls.Add(surface);
             Controls.Add(buttons);
             timer.Tick += (sender, args) => RefreshStatus();

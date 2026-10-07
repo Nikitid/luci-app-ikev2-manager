@@ -5399,3 +5399,36 @@ msgstr "Диагностика..."
 
 msgid "Report requested"
 msgstr "Запрошен отчёт"
+
+msgid "Devices of the person"
+msgstr "Устройств у человека"
+
+msgid "Registered: %d."
+msgstr "Зарегистрировано: %d."
+
+msgid "The link will register %d more."
+msgstr "Ссылка зарегистрирует ещё %d."
+
+msgid "No place is free: raise the number or remove a device."
+msgstr "Свободных мест нет: увеличьте число или удалите устройство."
+
+msgid "The link issued before (%d places, valid for %s more) stops working; a link is shown only once."
+msgstr "Прежняя ссылка (мест: %d, действует ещё %s) перестанет работать; ссылку показывают только один раз."
+
+msgid "How many Waypoint devices this person may have. Each registers with the same link and appears under the name of its computer."
+msgstr "Сколько устройств Waypoint может быть у человека. Каждое регистрируется по той же ссылке и появляется под именем своего компьютера."
+
+msgid "None is published yet. A Waypoint device registers with at least one: publish a service below first. An ordinary VPN profile needs none."
+msgstr "Сервисов ещё нет. Устройству Waypoint для регистрации нужен хотя бы один: сначала опубликуйте сервис ниже. Обычному VPN-профилю сервисы не нужны."
+
+msgid "Publish a service first: a Waypoint device registers with at least one."
+msgstr "Сначала опубликуйте сервис: устройству Waypoint для регистрации нужен хотя бы один."
+
+msgid "Select at least one service. More are handed out later."
+msgstr "Выберите хотя бы один сервис. Остальные выдаются позже."
+
+msgid "Nobody yet. Add a person to get their link."
+msgstr "Пока никого нет. Добавьте человека, чтобы получить его ссылку."
+
+msgid "Number of devices set"
+msgstr "Задано число устройств"

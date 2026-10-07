@@ -73,6 +73,32 @@ export function read_profile_owners(directory) {
 	return result;
 };
 
+// How many Waypoint devices a person may have: owner -> number. A setting of
+// the person, not of one link; a link is issued for the places still free.
+export function read_person_limits(directory) {
+	let raw = private_file(directory + '/labels.json', 262144);
+	if (raw == null) return {};
+	let stored = json(raw)?.people, result = {};
+	if (type(stored) != 'object') return {};
+	for (let owner, limit in stored)
+		if (text(owner, 320) && length(owner) && type(limit) == 'int' && limit >= 1 && limit <= 16)
+			result[owner] = limit;
+	return result;
+};
+
+// Every part of the file is written back whichever part changed.
+function record(directory, devices, profiles, people) {
+	replace_file(directory + '/labels.json', { version: 1, devices: devices, profiles: profiles, people: people });
+}
+
+export function write_person_limit(directory, owner, limit) {
+	if (!text(owner, 320) || !length(owner) || type(limit) != 'int' || limit < 1 || limit > 16) die('invalid device limit');
+	let people = read_person_limits(directory);
+	people[owner] = limit;
+	if (length(keys(people)) > 1024) die('too many people');
+	record(directory, read_client_labels(directory), read_profile_owners(directory), people);
+};
+
 // Who a device belongs to, where its links go, and whether its services stay
 // blocked while the tunnel is down (the default) or go the ordinary way then.
 // A field left out keeps what was stored.
@@ -87,7 +113,7 @@ export function write_client_label(directory, id, owner, note, more) {
 	if (owner == '' && note == '' && email == '' && !open && !full && title == '') delete labels[id];
 	else labels[id] = { owner: owner, note: note, email: email, open: open, full: full, title: title };
 	if (length(keys(labels)) > 1024) die('too many labels');
-	replace_file(directory + '/labels.json', { version: 1, devices: labels, profiles: read_profile_owners(directory) });
+	record(directory, labels, read_profile_owners(directory), read_person_limits(directory));
 };
 
 // The profiles of one person, all at once: those named become theirs, their
@@ -101,7 +127,7 @@ export function write_profile_owners(directory, owner, names) {
 		owners[name] = owner;
 	}
 	if (length(keys(owners)) > 1024) die('too many profile owners');
-	replace_file(directory + '/labels.json', { version: 1, devices: read_client_labels(directory), profiles: owners });
+	record(directory, read_client_labels(directory), owners, read_person_limits(directory));
 };
 
 // What a client says about itself with an authenticated request. Each field
@@ -168,6 +194,7 @@ export function describe_client_device(device, labels, seen_directory, sessions,
 export function forget_client_device(directory, seen_directory, id) {
 	if (!identifier(id)) return;
 	let labels = read_client_labels(directory);
-	if (id in labels) { delete labels[id]; replace_file(directory + '/labels.json', { version: 1, devices: labels }); }
+	// The other parts of the file stay: removing a device once dropped whose profile was whose.
+	if (id in labels) { delete labels[id]; record(directory, labels, read_profile_owners(directory), read_person_limits(directory)); }
 	unlink(seen_directory + '/' + id + '.json');
 };

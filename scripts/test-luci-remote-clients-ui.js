@@ -39,7 +39,7 @@ const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, st
 const backend = {
  exec(file, args) { if(args[0] === 'client-admin-report-request') { reportAsked.push(args[1]); return Promise.resolve({code:0,stdout:'requested=1\n'}); }
   if(args[0] === 'client-admin-report') return Promise.resolve({code:0,stdout: reportAsked.length ? JSON.stringify({version:1,id:args[1],received_at:1700000000+reportAsked.length,report:{state:'access_closed',faults:['2026-01-01T00:00:00Z policy device_no_services']}}) : '{}\n'});
-  if(args[0] === 'client-admin-take-invitation') return Promise.resolve({code:0,stdout:JSON.stringify({version:1,id:'new-laptop',invitation:'https://vpn.example.com:9443/client/v1/enroll#'+'c'.repeat(64)})}); return Promise.resolve(args[0] === 'services' ? data()[1] : data()[0]); },
+  if(args[0] === 'client-admin-take-invitation') return Promise.resolve({code:0,stdout:JSON.stringify({version:1,id:'carol-example',invitation:'https://vpn.example.com:9443/client/v1/enroll#'+'c'.repeat(64)})}); return Promise.resolve(args[0] === 'services' ? data()[1] : data()[0]); },
  write(file, body, mode) { if (failWrite) return Promise.reject(new Error('write rejected')); written.push({ file, body: JSON.parse(body), mode }); return Promise.resolve(); }
 };
 const extend = { extend(value) { return value; } };
@@ -47,7 +47,10 @@ function load(file, common) {
  return new Function('view','baseclass','E','document','window','L','fs','ui','common','_','vpnUsers', fs.readFileSync(file === 'remote-clients.js' && process.env.REMOTE_CLIENTS_VIEW ? process.env.REMOTE_CLIENTS_VIEW : path.join(root,'luci-ikev2-manager',file),'utf8'))(extend,extend,E,document,window,L,backend,ui,common,s=>s,{ load: () => Promise.resolve({ panel: true }), render: () => E('div', {}, [ 'VPN profiles panel' ]) });
 }
 const common = load('shared.js');
-common.runJob = options => { jobs.push(options); return Promise.resolve({state:'ok'}); };
+// A person's device limit is stored before their link is made; that job is let through.
+common.runJob = options => { jobs.push(options); const last = written[written.length-1];
+ if (options.startArgs[0] === 'client-admin-update' && last && last.body.operation === 'set-person-limit') return Promise.resolve(options.onSuccess({state:'ok'})).then(() => ({state:'ok'}));
+ return Promise.resolve({state:'ok'}); };
 const page = load('remote-clients.js', common);
 function button(tree, label) { const result = nodes(tree).find(n => n.tagName === 'BUTTON' && text(n).trim() === label); assert(result, label); return result; }
 function click(node) { return node.attrs.click(); }
@@ -109,12 +112,16 @@ async function main() {
  click(button(tree,'Add person'));
  const invitationCreate = button(modal,'Create invitation');
  await click(invitationCreate);
- assert(text(modal).includes('select at least one service'));
+ assert(text(modal).includes('Enter the name of the person.'), 'a link is for a person');
  const invitationInputs = nodes(modal).filter(n=>n.tagName==='INPUT');
- invitationInputs.find(n=>n.attrs['aria-label']==='Device identifier').value='new-laptop';
+ assert(!invitationInputs.some(n=>n.attrs['aria-label']==='Device identifier'), 'the identifier is never asked for');
  invitationInputs.find(n=>n.type==='checkbox').checked=true;
  invitationInputs.find(n=>n.attrs['aria-label']==='Who uses it').value='Carol Example';
  await click(invitationCreate);
+ // How many devices she may have is her own setting, stored first; the link is for the free places.
+ assert.deepStrictEqual(written[written.length-2].body.operation === 'set-person-limit' && written[written.length-2].body.payload, {owner:'Carol Example',limit:2});
+ assert.strictEqual(written[written.length-1].body.id,'carol-example', 'the identifier is made from the name');
+ assert.strictEqual(written[written.length-1].body.count,2);
  const invitationJob = jobs[jobs.length-1];
  assert.strictEqual(invitationJob.startArgs[0],'client-admin-invite');
  assert.strictEqual(written[written.length-1].body.expected_generation,0);
@@ -122,13 +129,26 @@ async function main() {
  assert.deepStrictEqual(written[written.length-1].body.selected_services,['example_service']);
  assert.strictEqual(written[written.length-1].body.owner,'Carol Example'); assert.strictEqual(written[written.length-1].body.note,'');
  assert.strictEqual(written[written.length-1].body.mode,'services', 'a new device starts with its services alone unless said otherwise');
- assert.strictEqual(written[written.length-1].body.lifetime_seconds,86400); assert(!('count' in written[written.length-1].body), 'one device is the plain invitation');
+ assert.strictEqual(written[written.length-1].body.lifetime_seconds,86400);
  assert(!JSON.stringify(written).includes('cccccccc'), 'no invitation secret in request inbox');
  await invitationJob.onSuccess({action_id:'123-456'});
  const linkField=nodes(modal).find(n=>n.tagName==='TEXTAREA');
  assert(linkField && linkField.value.endsWith('#'+'c'.repeat(64)));
  assert(!JSON.stringify(jobs.map(j=>j.success)).includes('cccccccc'), 'no invitation secret in job status');
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
+ // A person who still has a link out: the new link replaces it, covers the
+ // places left under her own limit, and takes an identifier nothing used.
+ snapshot.person_limits = { 'Alice Example': 3 };
+ const again = page.render(await page.load());
+ click(nodes(again).find(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'New Waypoint link in place of the one given'));
+ assert(text(modal).includes('Registered: 1.') && text(modal).includes('The link will register 2 more.') && text(modal).includes('stops working'), 'the dialog says what the link covers and what happens to the old one');
+ const before2 = written.length;
+ await click(button(modal,'Create invitation'));
+ assert.strictEqual(written.length, before2 + 1, 'an unchanged limit is not stored again');
+ const relink = written[written.length-1].body;
+ assert.deepStrictEqual([relink.cancel, relink.count, relink.owner], [['alice-2'], 2, 'Alice Example']);
+ assert(!['alice','alice-1','alice-2'].includes(relink.id) && /^[a-z][a-z0-9-]*$/.test(relink.id), 'a used identifier is never offered: ' + relink.id);
+ delete snapshot.person_limits;
  const removes = nodes(tree).filter(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Remove');
  assert.strictEqual(removes.length, 5, 'four devices and places, and the published service');
  // A free place is closed, not removed as a device.

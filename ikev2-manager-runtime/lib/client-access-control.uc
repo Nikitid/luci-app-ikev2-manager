@@ -5,7 +5,7 @@ import { publish_client_state, read_client_state } from './client-access-store.u
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
 import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
-import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights } from './client-access-directory.uc';
+import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights, read_person_limits, write_person_limit } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
 import { record_client_event, read_client_events } from './client-access-journal.uc';
 import { request_client_report, read_client_report, describe_client_report, forget_client_report } from './client-access-report.uc';
@@ -49,6 +49,7 @@ try {
   inspected.used_ids = keys(used);
   inspected.events = read_client_events(40);
   inspected.profile_owners = read_profile_owners(directory);
+  inspected.person_limits = read_person_limits(directory);
   let approve_reader = popen('/sbin/uci -q get ikev2-manager.client_access.approve', 'r');
   inspected.approve = replace(approve_reader?.read(8) ?? '', /\n$/, '') == '1';
   approve_reader?.close();
@@ -121,6 +122,15 @@ try {
    if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2) die('invalid profile owner');
    write_profile_owners(directory, payload.owner, payload.profiles);
    record_client_event('profiles-set', payload.owner + ' ' + join(',', payload.profiles));
+   print(`generation=${state.generation}\nchanged=1\n`);
+   closed = true;
+  }
+  // How many Waypoint devices a person may have.
+  if (type(request) == 'object' && request.operation == 'set-person-limit') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2) die('invalid device limit');
+   write_person_limit(directory, payload.owner, payload.limit);
+   record_client_event('devices-limit', payload.owner + ' ' + payload.limit);
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;
   }

@@ -257,6 +257,14 @@ struct ClientView: View {
                     Text(model.heading).font(.title2).bold()
                     Text(model.detail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+                Spacer(minLength: 0)
+                // The look of the window: a small sign in the corner, away from the actions.
+                Menu {
+                    Picker("Тема", selection: $theme) {
+                        Text("Как в системе").tag("system"); Text("Светлая").tag("light"); Text("Тёмная").tag("dark")
+                    }.pickerStyle(.inline).labelsHidden()
+                } label: { Image(systemName: "circle.lefthalf.filled").font(.system(size: 15)) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Тема")
             }
             Card(title: "Проверки") {
                 let fresh = status?.state == "enrollment_required"
@@ -298,10 +306,7 @@ struct ClientView: View {
                 Spacer()
                 Button("Проверить") { model.refresh() }
                 Button("Отчёт…") { reporting = true }
-                Button { removing = true } label: { Text("Удалить…").foregroundStyle(Tone.attention.color) }
-                Picker("Тема", selection: $theme) {
-                    Text("Системная").tag("system"); Text("Светлая").tag("light"); Text("Тёмная").tag("dark")
-                }.labelsHidden().fixedSize()
+                Button("Удалить…") { removing = true }.buttonStyle(.borderedProminent).tint(Tone.attention.color)
             }.fixedSize(horizontal: false, vertical: true).disabled(model.busy)
             Text("Проверено " + model.checked.formatted(date: .omitted, time: .standard) + " · " + model.version)
                 .foregroundStyle(.secondary).font(.caption)
