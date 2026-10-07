@@ -3,7 +3,7 @@
 'require fs';
 'require ui';
 'require ikev2-manager.shared-v14 as common';
-'require ikev2-manager.users-panel-v1 as vpnUsers';
+'require ikev2-manager.users-panel-v2 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
 var catalogHelper = '/usr/libexec/ikev2-domains-community';
@@ -248,7 +248,7 @@ function mailText(value) {
 }
 
 // One device of a person: what it is, how it is doing, what to do with it.
-function deviceRow(device, onRemove, onMode) {
+function deviceRow(device, onRemove, onMode, onRights) {
  // A dot before the name says whether the device is on; words are kept for
  // what a dot cannot say.
  function named(tone, title) { return E('span', { 'class': 'ikev2-session-address' }, [ E('span', { 'class': 'ikev2-dot ' + tone, 'title': title }), device.host || device.id ]); }
@@ -257,8 +257,7 @@ function deviceRow(device, onRemove, onMode) {
   return E('div', { 'class': 'ikev2-device' }, [ E('div', { 'class': 'ikev2-session-main' }, [
    named('info', _('Waiting for registration')),
    meta([ _('Waiting for registration'), _('link valid for %s more').format(span(device.expires_seconds)) ]) ]),
-   modeSelect(device, null),
-   trashButton(_('Nobody can register in this place any more.'), onRemove) ]);
+   E('span', { 'class': 'ikev2-user-actions' }, [ modeSelect(device, null), trashButton(_('Nobody can register in this place any more.'), onRemove) ]) ]);
  var tone = 'neutral', title = _('Offline'), said = '';
  if (!device.enabled && device.unapproved) { tone = 'info'; title = said = _('Waiting for approval'); }
  else if (!device.enabled) { tone = 'warn'; title = said = _('Access off'); }
@@ -272,8 +271,9 @@ function deviceRow(device, onRemove, onMode) {
  var computer = [ device.system, device.client ? _('client %s').format(device.client) : '' ].filter(Boolean).join(' \u00b7 ');
  return E('div', { 'class': 'ikev2-device' }, [
   E('div', { 'class': 'ikev2-session-main' }, [ named(tone, title), meta([ device.host ? device.id : '', computer, said ]) ]),
-  modeSelect(device, onMode),
-  trashButton(_('Remove'), onRemove)
+  E('span', { 'class': 'ikev2-user-actions' }, [ modeSelect(device, onMode),
+   device.mode === 'full' && onRights ? signButton('settings', _('Rights on the inbound server'), 'cbi-button-edit', function() { onRights(device); }) : '',
+   trashButton(_('Remove'), onRemove) ])
  ]);
 }
 
@@ -320,13 +320,13 @@ function personCard(person, labels, actions) {
     ])
    ]),
    E('div', { 'class': 'ikev2-user-actions' }, [
-    E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { actions.edit(person); } }, [ _('Edit') ]),
-    free ? E('button', { 'class': 'cbi-button', 'type': 'button', 'title': _('The link is shown once. A new one replaces it.'), 'click': function() { actions.relink(person); } }, [ _('New link') ]) : '',
-    E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() { actions.add(person); } }, [ _('Add device') ])
+    free ? signButton('link', _('New link'), '', function() { actions.relink(person); }) : '',
+    signButton('settings', _('Edit'), 'cbi-button-edit', function() { actions.edit(person); }),
+    signButton('plus', _('Add device'), 'cbi-button-action', function() { actions.add(person); })
    ])
   ]),
   E('div', { 'class': 'ikev2-person-body' }, [
-   person.devices.length ? E('div', { 'class': 'ikev2-person-devices' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }, actions.mode); })) : '',
+   person.devices.length ? E('div', { 'class': 'ikev2-person-devices' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }, actions.mode, actions.rights); })) : '',
    // The person's ordinary VPN profiles are put here once the panel has drawn them.
    E('div', { 'class': 'ikev2-person-profiles', 'data-owner': person.name })
   ])
@@ -350,6 +350,16 @@ function sign(path) {
  icon.appendChild(shape);
  return icon;
 }
+var signs = {
+ plus: 'M12 5v14M5 12h14',
+ link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+ give: 'M12 3v12m-4-4 4 4 4-4M5 21h14'
+};
+// A button that is a sign, in the manner of the VPN profiles' own.
+function signButton(what, title, kind, handler) {
+ return E('button', { 'class': 'cbi-button ikev2-platform-action ' + (kind || ''), 'type': 'button', 'title': title, 'aria-label': title, 'click': handler },
+  [ signs[what] ? sign(signs[what]) : common.icon(what) ]);
+}
 function magnifier() { return sign('M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4.3-4.3'); }
 
 // The page's own layout rules, beside the shared ones.
@@ -357,7 +367,10 @@ function pageStyles() {
  return E('style', {}, [
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
-  '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .6rem .9rem; }' +
+  '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem .9rem; }' +
+  '.ikev2-page .ikev2-person-head .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; } .ikev2-page .ikev2-person-head .ikev2-platform-action:hover { border-color: var(--ikev2-border); }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-profile-actions { display: none; } .ikev2-page .ikev2-person-profiles .ikev2-user-card.is-giving .ikev2-profile-actions { display: inline-flex; }' +
+  '.ikev2-page .ikev2-people-bar .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; }' +
   '.ikev2-page .ikev2-device .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; }' +
   '.ikev2-page .ikev2-device .ikev2-platform-action:hover { border-color: var(--ikev2-border); }' +
   '.ikev2-page .ikev2-mode { display: inline-flex; gap: .15rem; padding-right: .9rem; border-right: 1px solid var(--ikev2-border); }' +
@@ -458,7 +471,7 @@ function removeDialog(device, state, reload, pageResult) {
    } }, [ _('Remove') ])) ]) ]) ]);
 }
 
-function personDialog(person, state, labels, reload, pageResult, profileNames) {
+function personDialog(person, state, labels, reload, pageResult, profileNames, peopleNames) {
  var device = person.devices.filter(function(item) { return !item.waiting; })[0];
  var owners = state.shown_owners || state.profile_owners || {}, given = state.profile_owners || {};
  // Ordinary VPN profiles: this person's, and those nobody was given to yet.
@@ -479,9 +492,10 @@ function personDialog(person, state, labels, reload, pageResult, profileNames) {
  }
  if (!device) {
   // Nothing of Waypoint to decide: the person's name and which profiles are theirs.
-  var called = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), 'value': person.name });
+  var called = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), 'value': person.name, 'list': 'ikev2-people-names' });
   editDialog(person.name, E('div', {}, [
-   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [ common.fieldLabel(_('Who uses it')), called ]),
+   E('datalist', { 'id': 'ikev2-people-names' }, (peopleNames || []).filter(function(name) { return name !== person.name; }).map(function(name) { return E('option', { 'value': name }); })),
+   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [ common.fieldLabel(_('Who uses it'), _('Type the name of a person already on the list to put these profiles under them.')), called ]),
    profileBox || E('p', {}, [ _('No VPN profile is free to assign.') ])
   ]), function() {
    var name = describeText(called.value, 80, _('Who uses it'));
@@ -659,6 +673,7 @@ return view.extend({
   var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite;
   function reload() { return readState().then(setData); }
   function setData(next) {
+   lastData = next;
    state = null;
    var settings = null;
    try {
@@ -742,8 +757,11 @@ return view.extend({
      opened[person.name] = !/\bis-open\b/.test(card.getAttribute('class'));
      card.setAttribute('class', 'ikev2-person' + (opened[person.name] ? ' is-open' : ''));
     },
-    edit: function(person) { personDialog(person, state, labels, reload, result, profileNames); },
+    edit: function(person) { personDialog(person, state, labels, reload, result, profileNames, everyoneNames); },
     add: function(person) { invitationDialog(state, labels, reload, person, null, newProfileFor); },
+    rights: function(device) {
+     if (!vpnUsers.accessPolicy || !vpnUsers.accessPolicy(device.id)) result.err(_('The rights of this device are not available.'));
+    },
     mode: function(device, mode, select) {
      select.disabled = true;
      return saveRequest(select, result, { version: 1, expected_generation: state.generation, operation: 'set-device-mode', payload: { id: device.id, mode: mode } }, reload);
@@ -764,6 +782,7 @@ return view.extend({
    });
    var everyone = people(state.devices, state.waiting, state.shown_owners);
    everyoneCount = everyone.length;
+   everyoneNames = everyone.map(function(person) { return person.name; });
    devices.replaceChildren(everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
     return personCard(person, labels, actions);
    })) : E('div', { 'class': 'ikev2-empty' }, [ invite && invite.disabled ? _('Publish a service below, then add the first device.') : _('No devices yet. Add one to get its invitation link.') ]));
@@ -790,7 +809,7 @@ return view.extend({
   var vpnMain = E('div', {}), vpnRest = E('div', {}), summary = E('div', {}), journal = E('div', {});
   var search = E('input', { 'type': 'search', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
   var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
-  var opened = {}, everyoneCount = 0;
+  var opened = {}, everyoneCount = 0, lastData = null, everyoneNames = [];
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
    'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
@@ -806,7 +825,8 @@ return view.extend({
    // A card whose profile changed hands, or lost its owner, goes back first.
    Object.keys(homes).forEach(function(owner) {
     Array.prototype.forEach.call(homes[owner].querySelectorAll('.ikev2-user-card'), function(card) {
-     if (owners[profile(card)] !== owner) { if (list) list.appendChild(card); else card.remove(); }
+     if (allAccounts.indexOf(profile(card)) < 0) card.remove();
+     else if (owners[profile(card)] !== owner) { if (list) list.appendChild(card); else card.remove(); }
     });
    });
    // A Waypoint device has an account too; it is shown as a device above,
@@ -818,8 +838,23 @@ return view.extend({
     var home = homes[owners[profile(card)]];
     if (!home) return;
     Array.prototype.forEach.call(home.querySelectorAll('.ikev2-user-card'), function(shown) { if (profile(shown) === profile(card)) shown.remove(); });
+    var ways = card.querySelector('.ikev2-profile-actions');
+    if (ways && !card.querySelector('.ikev2-give')) {
+     var give = signButton('give', _('Give the profile: file or QR code'), 'cbi-button-action ikev2-give', function() {
+      card.setAttribute('class', /\bis-giving\b/.test(card.getAttribute('class')) ? 'ikev2-user-card' : 'ikev2-user-card is-giving');
+     });
+     ways.parentNode.insertBefore(give, ways);
+    }
     home.appendChild(card);
    });
+  }
+  // The panel knows its accounts now; the page was told them once at load.
+  function refreshAccounts() {
+   if (!vpnUsers.names || !state) return;
+   var now = vpnUsers.names();
+   if (now.join('\n') === allAccounts.join('\n')) return;
+   allAccounts = now;
+   setData(lastData);
   }
   function applySearch() {
    if (!devices.querySelectorAll) return;
@@ -835,31 +870,24 @@ return view.extend({
   }
   search.addEventListener('input', applySearch);
   // An ordinary VPN profile for a person: the panel's own dialog makes the
-  // account, and the first new account that appears is given to the person.
+  // account and says which one it made; that account is given to the person.
   var awaited = null;
   function newProfileFor(person) {
-   var add = Array.prototype.filter.call(vpnMain.querySelectorAll ? vpnMain.querySelectorAll('button') : [], function(button) { return button.textContent.trim() === _('Add user'); })[0];
-   if (!add) { result.err(_('The VPN profiles are not available.')); return; }
-   awaited = { owner: person.name, known: allAccountsNow() };
-   add.click();
+   if (!vpnUsers.addUser || !vpnUsers.addUser()) { result.err(_('The VPN profiles are not available.')); return; }
+   awaited = person.name;
   }
-  function allAccountsNow() {
-   return Array.prototype.map.call(document.querySelectorAll ? document.querySelectorAll('.ikev2-user-card .ikev2-user-name') : [], function(node) { return node.textContent.trim(); });
-  }
-  function claimNewProfile() {
+  if (vpnUsers.onCreated) vpnUsers.onCreated(function(name) {
    if (!awaited || !state) return;
-   var fresh = allAccountsNow().filter(function(name) { return awaited.known.indexOf(name) < 0; });
-   if (!fresh.length) return;
-   var owner = awaited.owner, owners = state.profile_owners || {};
+   var owner = awaited, owners = state.profile_owners || {};
    awaited = null;
-   var mine = Object.keys(owners).filter(function(name) { return owners[name] === owner; }).concat(fresh[0]);
+   var mine = Object.keys(owners).filter(function(profile) { return owners[profile] === owner; }).concat(name);
    var token = common.inputToken();
    fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify({ version: 1, expected_generation: state.generation,
     operation: 'assign-profiles', payload: { owner: owner, profiles: mine } }), 384).then(function() {
     return common.runJob({ result: result, busy: _('Saving client configuration...'), success: _('Client configuration saved.'), failure: _('Could not save client configuration.'),
      startPath: helper, startArgs: [ 'client-admin-update', token ], statusPath: helper, statusArgs: [ 'client-admin-status' ], timeout: 120000, onSuccess: reload });
    });
-  }
+  });
   function fold(title, content) { return E('details', { 'class': 'ikev2-fold' }, [ E('summary', {}, [ title ]), content ]); }
   if (profiles) {
    var panel = vpnUsers.render(profiles), parts = Array.prototype.slice.call(panel.childNodes || []);
@@ -874,7 +902,7 @@ return view.extend({
    if (typeof MutationObserver !== 'undefined')
     new MutationObserver(function(changes) {
      // Only what the panel adds matters; our own moves take cards away.
-     if (changes.some(function(change) { return change.addedNodes.length; })) { claimNewProfile(); distribute(); applySearch(); }
+     if (changes.some(function(change) { return change.addedNodes.length; })) { refreshAccounts(); distribute(); applySearch(); }
     }).observe(vpnMain, { childList: true, subtree: true });
   }
   setData(data);
@@ -883,7 +911,8 @@ return view.extend({
    availability, fresh,
    (managed.replaceChildren(
     common.section(_('People'), _('Waypoint devices on Windows and macOS reach selected services; VPN profiles are for phones and other devices.'),
-     E('div', {}, [ E('div', { 'class': 'ikev2-people-bar' }, [ summary, E('div', { 'class': 'ikev2-search-box' }, [ magnifier(), search ]) ]),
+     E('div', {}, [ E('div', { 'class': 'ikev2-people-bar' }, [ summary, E('span', { 'style': 'display:inline-flex;align-items:center;gap:.4rem;min-width:0;flex:0 1 24rem' }, [ E('div', { 'class': 'ikev2-search-box', 'style': 'flex:1 1 auto' }, [ magnifier(), search ]),
+       vpnUsers.disconnectAll ? signButton('disconnectAll', _('Disconnect all'), 'cbi-button-negative', function(ev) { return vpnUsers.disconnectAll(ev.currentTarget); }) : '' ]) ]),
       devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
     vpnMain,
     common.section(_('Services for Waypoint'), _('Lists are shared with Policy Routing.'), services, refresh),

@@ -5222,3 +5222,15 @@ msgstr "Забрать профиль у другого человека"
 
 msgid "The link was not created. The identifier may have been used before, or a device is registering right now; try another identifier or wait a minute."
 msgstr "Ссылка не создана. Возможно, идентификатор уже использовался или прямо сейчас регистрируется устройство; попробуйте другой идентификатор или подождите минуту."
+
+msgid "Rights on the inbound server"
+msgstr "Права на входящем сервере"
+
+msgid "The rights of this device are not available."
+msgstr "Права этого устройства недоступны."
+
+msgid "Give the profile: file or QR code"
+msgstr "Выдать профиль: файл или QR-код"
+
+msgid "Type the name of a person already on the list to put these profiles under them."
+msgstr "Введите имя человека из списка, чтобы перенести эти профили к нему."

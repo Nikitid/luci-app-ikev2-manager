@@ -406,6 +406,10 @@ function passwordDialog(title, username, action, includeUsername, pageResult, re
 	(includeUsername ? name : password).focus();
 }
 
+// What the page around this panel may ask of it: to open its dialogs, to
+// name its accounts, and to be told when an account was made.
+var hooks = { created: null, add: null, policy: null, disconnectAll: null, names: null };
+
 function userDialog(title, entry, includeIdentity, pageResult, refresh) {
 	entry = entry || {};
 	var name = E('input', {
@@ -480,6 +484,7 @@ function userDialog(title, entry, includeIdentity, pageResult, refresh) {
 									ui.hideModal();
 									pageResult.ok(includeIdentity ?
 										_('VPN user added.') : _('Access policy saved.'));
+									if (includeIdentity && hooks.created) hooks.created(user);
 								});
 							});
 					}
@@ -720,6 +725,21 @@ return baseclass.extend({
 		var add = actionButton('addUser', _('Add user'), 'cbi-button-add', function() {
 				userDialog(_('Add VPN user'), {}, true, actionResult, refresh);
 			});
+		hooks.add = function() { userDialog(_('Add VPN user'), {}, true, actionResult, refresh); };
+		hooks.names = function() { return users.map(function(entry) { return entry.name; }); };
+		hooks.policy = function(name) {
+			var entry = users.filter(function(item) { return item.name === name; })[0];
+			if (entry) userDialog(_('VPN user access'), entry, false, actionResult, refresh);
+			return !!entry;
+		};
+		hooks.disconnectAll = function(button) {
+			if (!window.confirm(_('Disconnect all active VPN sessions?')))
+				return;
+			return runUserAction(button, [ 'disconnect-all' ], actionResult,
+				_('All sessions disconnected.'),
+				{ busy: _('Disconnecting...'),
+				  onSuccess: refresh });
+		};
 		disconnectAll = actionButton('disconnectAll', _('Disconnect all'),
 			'cbi-button-negative', function(ev) {
 				if (!window.confirm(_('Disconnect all active VPN sessions?')))
@@ -772,6 +792,11 @@ return baseclass.extend({
 		]);
 	},
 
+	onCreated: function(handler) { hooks.created = handler; },
+	addUser: function() { return hooks.add ? (hooks.add(), true) : false; },
+	accessPolicy: function(name) { return hooks.policy ? hooks.policy(name) : false; },
+	disconnectAll: function(button) { return hooks.disconnectAll ? hooks.disconnectAll(button) : null; },
+	names: function() { return hooks.names ? hooks.names() : []; },
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null

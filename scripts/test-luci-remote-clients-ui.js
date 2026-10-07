@@ -56,7 +56,7 @@ async function main() {
   'last seen 1 d ago from 198.51.100.4', 'Access off', 'Waiting for registration', 'link valid for 2 h more'])
   assert(text(tree).includes(shown), shown);
  assert(!text(tree).includes('token_sha256'));
- const edits = nodes(tree).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Edit');
+ const edits = nodes(tree).filter(n => n.tagName === 'BUTTON' && (text(n).trim() === 'Edit' || n.attrs['aria-label'] === 'Edit'));
  // People come first on the page, then the services.
  click(edits[3]);
  const save = button(modal,'Save'); assert(save.disabled, 'unchanged service cannot save');
