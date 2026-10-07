@@ -121,7 +121,7 @@ async function main() {
  assert(linkField && linkField.value.endsWith('#'+'c'.repeat(64)));
  assert(!JSON.stringify(jobs.map(j=>j.success)).includes('cccccccc'), 'no invitation secret in job status');
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
- const removes = nodes(tree).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Remove');
+ const removes = nodes(tree).filter(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Remove');
  assert.strictEqual(removes.length, 4);
  // A free place is closed, not removed as a device.
  click(removes[1]);

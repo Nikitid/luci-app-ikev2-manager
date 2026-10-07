@@ -258,7 +258,7 @@ function deviceRow(device, onRemove, onMode) {
    named('info', _('Waiting for registration')),
    meta([ _('Waiting for registration'), _('link valid for %s more').format(span(device.expires_seconds)) ]) ]),
    E('span', { 'class': 'ikev2-session-meta' }, [ device.mode === 'full' ? _('Everything into the tunnel') : _('Selected services') ]),
-   E('button', { 'class': 'cbi-button', 'type': 'button', 'title': _('Nobody can register in this place any more.'), 'click': onRemove }, [ _('Remove') ]) ]);
+   trashButton(_('Nobody can register in this place any more.'), onRemove) ]);
  var tone = 'neutral', title = _('Offline'), said = '';
  if (!device.enabled && device.unapproved) { tone = 'info'; title = said = _('Waiting for approval'); }
  else if (!device.enabled) { tone = 'warn'; title = said = _('Access off'); }
@@ -273,8 +273,13 @@ function deviceRow(device, onRemove, onMode) {
  return E('div', { 'class': 'ikev2-device' }, [
   E('div', { 'class': 'ikev2-session-main' }, [ named(tone, title), meta([ device.host ? device.id : '', computer, said ]) ]),
   modeSelect(device, onMode),
-  E('button', { 'class': 'cbi-button', 'type': 'button', 'click': onRemove }, [ _('Remove') ])
+  trashButton(_('Remove'), onRemove)
  ]);
+}
+
+// Removal as the same sign the VPN profiles use.
+function trashButton(title, onRemove) {
+ return E('button', { 'class': 'cbi-button ikev2-platform-action cbi-button-remove', 'type': 'button', 'title': title, 'aria-label': _('Remove'), 'click': onRemove }, [ common.icon('trash') ]);
 }
 
 // What one device sends into the tunnel; changing it is saved at once.
@@ -338,7 +343,10 @@ function pageStyles() {
  return E('style', {}, [
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
-  '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) 13rem auto; align-items: center; gap: .6rem .8rem; }' +
+  '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) 12.5rem auto; align-items: center; gap: .6rem .8rem; }' +
+  '.ikev2-page .ikev2-device .ikev2-platform-action, .ikev2-page .ikev2-device select { border-color: transparent; background-color: transparent; box-shadow: none; }' +
+  '.ikev2-page .ikev2-device .ikev2-platform-action:hover, .ikev2-page .ikev2-device select:hover, .ikev2-page .ikev2-device select:focus { border-color: var(--ikev2-border); }' +
+  '.ikev2-page .ikev2-device select { color: var(--ikev2-muted); text-align: right; }' +
   '.ikev2-page .ikev2-device select { width: 100%; min-width: 0; }' +
   '.ikev2-page .ikev2-person-devices { display: grid; gap: .6rem; padding-top: .75rem; border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: nowrap; }' +
