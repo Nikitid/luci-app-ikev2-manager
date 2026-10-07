@@ -249,30 +249,29 @@ function mailText(value) {
 
 // One device of a person: what it is, how it is doing, what to do with it.
 function deviceRow(device, onRemove, onMode) {
- var state, detail = '';
+ // A dot before the name says whether the device is on; words are kept for
+ // what a dot cannot say.
+ function named(tone, title) { return E('span', { 'class': 'ikev2-session-address' }, [ E('span', { 'class': 'ikev2-dot ' + tone, 'title': title }), device.host || device.id ]); }
+ function meta(parts) { return E('div', { 'class': 'ikev2-session-meta' }, parts.filter(Boolean).map(function(text) { return E('span', {}, [ text ]); })); }
  if (device.waiting)
   return E('div', { 'class': 'ikev2-device' }, [ E('div', { 'class': 'ikev2-session-main' }, [
-   E('span', { 'class': 'ikev2-session-address' }, [ device.id ]),
-   E('div', { 'class': 'ikev2-session-meta' }, [ common.pill(_('Waiting for registration'), 'info'),
-    E('span', {}, [ _('link valid for %s more').format(span(device.expires_seconds)) ]) ]) ]),
+   named('info', _('Waiting for registration')),
+   meta([ _('Waiting for registration'), _('link valid for %s more').format(span(device.expires_seconds)) ]) ]),
    E('span', { 'class': 'ikev2-session-meta' }, [ device.mode === 'full' ? _('Everything into the tunnel') : _('Selected services') ]),
    E('button', { 'class': 'cbi-button', 'type': 'button', 'title': _('Nobody can register in this place any more.'), 'click': onRemove }, [ _('Remove') ]) ]);
- if (!device.enabled && device.unapproved) state = common.pill(_('Waiting for approval'), 'info');
- else if (!device.enabled) state = common.pill(_('Access off'), 'warn');
- else if (!device.selected_services.length) state = common.pill(_('No services'), 'warn');
+ var tone = 'neutral', title = _('Offline'), said = '';
+ if (!device.enabled && device.unapproved) { tone = 'info'; title = said = _('Waiting for approval'); }
+ else if (!device.enabled) { tone = 'warn'; title = said = _('Access off'); }
+ else if (!device.selected_services.length) { tone = 'warn'; title = said = _('No services'); }
  else if (device.online) {
-  state = common.pill(Number.isInteger(device.connected_seconds) ? _('Online for %s').format(span(device.connected_seconds)) : _('Online'), 'good');
-  detail = _('from %s, tunnel address %s').format(device.remote_address || '-', device.tunnel_address || '-');
- } else if (Number.isInteger(device.seen_seconds)) {
-  state = common.pill(_('Offline'), 'neutral');
-  detail = _('last seen %s ago from %s').format(span(device.seen_seconds), device.seen_from || '-');
- } else state = common.pill(_('Not connected yet'), 'info');
+  tone = 'good'; title = _('Online');
+  said = (Number.isInteger(device.connected_seconds) ? _('Online for %s').format(span(device.connected_seconds)) : _('Online')) + ', ' +
+   _('from %s, tunnel address %s').format(device.remote_address || '-', device.tunnel_address || '-');
+ } else if (Number.isInteger(device.seen_seconds)) said = _('last seen %s ago from %s').format(span(device.seen_seconds), device.seen_from || '-');
+ else { tone = 'info'; title = said = _('Not connected yet'); }
  var computer = [ device.system, device.client ? _('client %s').format(device.client) : '' ].filter(Boolean).join(' \u00b7 ');
  return E('div', { 'class': 'ikev2-device' }, [
-  E('div', { 'class': 'ikev2-session-main' }, [
-   E('span', { 'class': 'ikev2-session-address' }, [ device.host || device.id ]),
-   E('div', { 'class': 'ikev2-session-meta' }, [ state ].concat([ device.host ? device.id : '', computer, detail ].filter(Boolean).map(function(text) { return E('span', {}, [ text ]); })))
-  ]),
+  E('div', { 'class': 'ikev2-session-main' }, [ named(tone, title), meta([ device.host ? device.id : '', computer, said ]) ]),
   modeSelect(device, onMode),
   E('button', { 'class': 'cbi-button', 'type': 'button', 'click': onRemove }, [ _('Remove') ])
  ]);
@@ -349,7 +348,13 @@ function pageStyles() {
   '.ikev2-page .ikev2-user-list:empty { display: none; }' +
   '.ikev2-page .ikev2-person { gap: 0; padding: .7rem 1rem; }' +
   '.ikev2-page .ikev2-person-body { display: none; padding-top: .7rem; margin-top: .7rem; border-top: 1px solid var(--ikev2-border); }' +
-  '.ikev2-page .ikev2-person.is-open .ikev2-person-body { display: grid; gap: .55rem; }' +
+  '.ikev2-page .ikev2-person.is-open .ikev2-person-body { display: grid; gap: .55rem; padding-left: 1.15rem; }' +
+  '.ikev2-page .ikev2-dot, .ikev2-page .ikev2-person-profiles .ikev2-user-name::before { content: ""; display: inline-block; width: .55rem; height: .55rem; margin-right: .5rem; border-radius: 50%; background: var(--ikev2-muted); opacity: .55; vertical-align: .05em; }' +
+  '.ikev2-page .ikev2-dot.good, .ikev2-page .ikev2-person-profiles .ikev2-user-card:has(.ikev2-user-identity .ikev2-pill.good) .ikev2-user-name::before { background: var(--ikev2-good); opacity: 1; }' +
+  '.ikev2-page .ikev2-dot.warn { background: var(--ikev2-warn); opacity: 1; } .ikev2-page .ikev2-dot.info { background: var(--ikev2-info); opacity: 1; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-identity .ikev2-pill { display: none; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-name { margin-bottom: 0; }' +
+  '.ikev2-page .ikev2-device .ikev2-session-address { margin-bottom: .1rem; }' +
   '.ikev2-page .ikev2-person-devices { padding-top: 0; border-top: 0; }' +
   '.ikev2-page .ikev2-person-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; min-width: 0; cursor: pointer; }' +
   '.ikev2-page .ikev2-person-toggle::before { content: ""; width: .45rem; height: .45rem; border-right: 2px solid var(--ikev2-muted); border-bottom: 2px solid var(--ikev2-muted); transform: rotate(-45deg); transition: transform .12s; }' +

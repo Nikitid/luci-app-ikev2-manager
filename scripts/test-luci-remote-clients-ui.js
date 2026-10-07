@@ -52,8 +52,8 @@ async function main() {
  assert(text(tree).includes('VPN profiles panel'), 'ordinary VPN profiles are managed on the same page');
  assert(text(tree).includes('Example service')); assert(text(tree).includes('alice'));
  // Who is behind each device, what it runs and where it is now.
- for (const shown of ['Alice Example', 'accounting', 'ALICE-PC', 'Windows 10.0.26100 \u00b7 client 2.3.0', 'Online for 2 h', 'from 203.0.113.9, tunnel address 10.20.0.7',
-  'Offline', 'last seen 1 d ago from 198.51.100.4', 'Access off', 'Waiting for registration', 'link valid for 2 h more'])
+ for (const shown of ['Alice Example', 'accounting', 'ALICE-PC', 'Windows 10.0.26100 \u00b7 client 2.3.0', 'Online for 2 h, from 203.0.113.9, tunnel address 10.20.0.7',
+  'last seen 1 d ago from 198.51.100.4', 'Access off', 'Waiting for registration', 'link valid for 2 h more'])
   assert(text(tree).includes(shown), shown);
  assert(!text(tree).includes('token_sha256'));
  const edits = nodes(tree).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Edit');
