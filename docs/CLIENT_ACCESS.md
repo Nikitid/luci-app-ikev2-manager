@@ -14,10 +14,15 @@ disposable router with real IKEv2/ESP on both sides of it
   managed names and routes, the owned IKEv2 connection, permission only while
   the router confirms its path, central policy updates and revocation.
 
+- every name under a published domain, answered and carried through the
+  tunnel without lists of subdomains (see "Names under a service");
+- the device directory on the Remote clients page: who a device belongs to,
+  its computer, system, client version, tunnel address and whether it is
+  connected; a device is opened by its registration and removed in one step.
+
 The macOS client is written and tested up to the privileged boundary (see
-"macOS"); its installed form has not been run. Also open: code signing of the
-Windows and macOS binaries, IPv6 answers for managed names, and suffix domains
-on the client (see "Updates and enrollment"). Sections below describe each part; where
+"macOS"); its installed form has not been run. Binaries are not signed with a
+publisher identity. Sections below describe each part; where
 an older paragraph says a step "remains incomplete", this list is the current
 state.
 
@@ -489,9 +494,19 @@ rendering was checked without an interactive desktop; interactive saving and
 normal-user installation still need verification.
 
 Live enrollment, profile validation, native connection and selected-route checks
-are integrated. Filter installation during boot is implemented but has not been
-tested across a reboot.
-IPv6, external proxies and third-party VPN coexistence remain verification gates.
+are integrated. Checked with the installed product against a production
+router: after a reboot the boot-time and persistent denials are present and
+the service reconnects and reaches `protected` before anyone logs on; after
+sleep the lost connection is redialled within the retry interval; with a
+global IPv6 address and a default IPv6 route on the machine, managed names
+return no AAAA record and a forced IPv6 request has nowhere to go; with a
+full-tunnel WireGuard connection that blocks other traffic, selected services
+stay closed and return when it is gone. A connection whose handle the system
+no longer knows is closed by what the system lists for the managed entry, so
+it cannot keep the service from redialling, stopping or being uninstalled.
+The service keeps `faults.log`, the last forty failures as time, place, kind
+and code, and the window's report includes it. WSL and containers were not
+present on the test machine and are unverified.
 An interface observation alone must not authorize permissions. The controller
 must verify the enrolled profile, current routes and data plane before opening
 access and revoke permissions when that evidence expires. This component is not
@@ -681,6 +696,50 @@ activation, the live firewall rule, the fixed subnet, exit change and disable.
 it was assigned and the other services published to clients, each as a name
 and a domain count. It grants nothing and carries no domains or addresses.
 
+## Names under a service
+
+A service is published as domains; a device must reach every name under them
+without anyone listing subdomains. The virtual subnet is split the same way
+by the router and by both clients, from the subnet alone: the lower half holds
+one fixed address per catalog domain, its last address is the resolver, and
+the upper half is the range names are answered from. The default subnet is a
+/20.
+
+A client sends questions for each assigned domain and everything under it to
+the resolver (NRPT rules on Windows, `/etc/resolver/<domain>` on macOS); the
+domain itself stays pinned in the hosts file. The resolver exists only inside
+the tunnel. The managed proxy answers an A question with an address from the
+names range and remembers the name behind it; any other record type gets an
+empty answer, and a name outside the device's services is refused. A
+connection to such an address is carried to the remembered name through the
+required exit, on the service's ports only, and only from a device the service
+is assigned to: the controller writes the tunnel addresses of each service's
+connected devices into a source set the proxy reloads (`client-path.sh`,
+`scripts/test-client-path.py`). Admission, the client's denials and its routes
+cover the whole subnet, so the resolver and the names range are closed outside
+the tunnel like the fixed addresses.
+
+Because no AAAA record is ever returned for a managed name, a machine with
+working IPv6 has no IPv6 destination for it. Browsers are told by policy to
+resolve through the system (the installers set the Chromium-family and Firefox
+policies and remove only what they set); a browser with its own encrypted
+resolver would otherwise never ask the tunnel. A system proxy takes browser
+traffic before any route does; the Windows client reports it as a warning.
+
+On the router the DNS enforcement redirect leaves questions arriving from the
+inbound tunnel for the virtual subnet alone, and the firewall admits marked
+traffic to the subnet when the inbound zone is closed.
+
+## Devices and their owners
+
+An invitation may carry the owner's name and a note. Registration records
+them, and the first policy request records what the device says about itself:
+computer name, system and client version. The Remote clients page shows these
+with the assigned services, the tunnel address and whether the device is
+connected. A device is opened as soon as its registration completes; removal
+closes its sessions, deletes its credentials and forgets its record
+(`client-admin.sh`).
+
 ## Client installers in a release
 
 The release workflow builds `IKEv2ManagerClientSetup.exe` on a Windows runner
@@ -696,9 +755,8 @@ the project's release page, so the router cannot point a user elsewhere. The
 program never installs anything by itself: the user runs the downloaded
 installer, which keeps the registration.
 
-A device registered from an invitation is known to the router but not let in
-until an administrator enables it under Device assignments; until then, and
-after revocation, the client reports `access_closed`.
+A disabled or revoked device stays known to the router and its client reports
+`access_closed`.
 
 ## Marks and other software on the router
 
@@ -781,6 +839,7 @@ storage, planned denial and names, service names, the generated profile, the
 router refusing readiness for a tunnel it did not authenticate, revocation and
 removal; the package's contents. Not yet run on a Mac with privileges: the
 installed daemon, the packet-filter anchor, the profile approval and a real
-IKEv2 session. Between boot and the daemon's start the denial is not loaded;
-managed names still point at virtual addresses, so nothing reaches the real
-service in that window.
+IKEv2 session. The packet filter does not keep rules across a boot. The
+daemon is a launchd job started at boot, before any user session, and loads
+the denial before it touches names; until then managed names point at virtual
+addresses that lead nowhere, so nothing reaches the real service.

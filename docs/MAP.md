@@ -92,6 +92,11 @@ client is the Swift package in `desktop-clients/macos`: `ClientCore` (runtime
 behind `SystemActions`), the root daemon, the window and `build.sh` for the
 installer package; the inbound server answers managed devices on
 `ikev2-in-managed` (`lib/manager-server.sh`, `scripts/openwrt/client-managed.sh`).
+Names under a service are `client_names_plan` in `lib/client-access.uc`, the
+proxy rules in `lib/client-access-path.uc` and the per-service source sets
+written by `client-access-path-control.uc sources`; the device directory is
+`lib/client-access-directory.uc`. `scripts/check-ucode-regex.sh` forbids the
+counted repetitions that made registration slow on a router.
 
 ## LuCI pages
 
