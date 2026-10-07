@@ -121,30 +121,20 @@ function serviceDialog(record, current, generation, reload, pageResult) {
  var published = E('input', { 'type': 'checkbox', 'checked': current.client_access ? '' : null, 'aria-label': _('Available to remote clients') });
  var tcp = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('TCP ports'), 'value': current.transports.filter(function(t) { return t.protocol === 'tcp'; }).map(function(t) { return t.ports.join(' '); }).join(' ') });
  var udp = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('UDP ports'), 'value': current.transports.filter(function(t) { return t.protocol === 'udp'; }).map(function(t) { return t.ports.join(' '); }).join(' ') });
- var hosts = E('textarea', { 'class': 'cbi-input-textarea', 'rows': '5', 'aria-label': _('Host names for clients'), 'style': 'width:100%' });
- hosts.value = (current.hosts || []).join('\n');
  var form = E('div', {}, [
   common.toggleRow(published, _('Available to remote clients'), _('Disabling removes this service from all device assignments.')),
   E('div', { 'class': 'ikev2-form-grid' }, [
    E('div', {}, [ common.fieldLabel(_('TCP ports')), tcp ]),
    E('div', {}, [ common.fieldLabel(_('UDP ports')), udp ])
-  ]),
-  E('div', {}, [ common.fieldLabel(_('Host names for clients'),
-   _('A client reaches exact names only. The service list names domains; add the host names under them that the service uses, one per line, for example api.example.com.')), hosts ])
+  ])
  ]);
  editDialog(record.label, form, function() {
   var transports = [], tcpPorts = ports(tcp.value), udpPorts = ports(udp.value);
   if (tcpPorts.length) transports.push({ protocol: 'tcp', ports: tcpPorts });
   if (udpPorts.length) transports.push({ protocol: 'udp', ports: udpPorts });
   if (!transports.length) throw new Error(_('Specify at least one TCP or UDP port.'));
-  var names = Array.from(new Set(String(hosts.value || '').toLowerCase().split(/[\s,]+/).filter(Boolean))).sort();
-  names.forEach(function(name) {
-   if (name.length > 253 || !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(name))
-    throw new Error(_('"%s" is not a host name.').format(name));
-  });
-  if (names.length > 256) throw new Error(_('List at most 256 host names.'));
   return { version: 1, expected_generation: generation, operation: 'configure-service',
-   payload: { id: record.id, client_access: published.checked, transports: transports, hosts: names } };
+   payload: { id: record.id, client_access: published.checked, transports: transports } };
  }, reload, pageResult);
 }
 

@@ -17,12 +17,6 @@ try {
 		print(`allocations=${length(state.publication.allocations)}\n`);
 	} else if (ARGV[0] == 'inspect' && length(ARGV) == 1) {
   let inspected = inspect_client_admin(read_client_state(directory));
-  for (let service in inspected.services) {
-   if (!service.client_access) continue;
-   let reader = popen('/usr/libexec/ikev2-domains-community client-service-hosts-get ' + service.id, 'r');
-   let listed = reader?.read(16385), status = reader?.close();
-   service.hosts = status == 0 && type(listed) == 'string' ? filter(split(listed, '\n'), name => length(name)) : [];
-  }
   inspected.enrollment_generation = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? 0 : read_client_enrollment(directory).ledger.generation;
   let port_reader = popen('/sbin/uci -q get ikev2-manager.client_access.port', 'r');
   let port_raw = port_reader?.read(32), port_status = port_reader?.close();
@@ -40,13 +34,6 @@ try {
    request = json(raw);
   }
   let ids = client_admin_catalog_ids(state, request), catalog = [];
-  if (request.operation == 'configure-service' && request.payload.client_access && 'hosts' in request.payload) {
-   // The catalog helper owns the list and checks every name against it.
-   let writer = popen('/usr/libexec/ikev2-domains-community client-service-hosts-set ' + request.payload.id, 'w');
-   if (!writer) die('catalog unavailable');
-   writer.write(join('\n', request.payload.hosts) + '\n');
-   if (writer.close() != 0) die('host names refused');
-  }
   for (let id in ids) {
    // IDs have already passed the strict identifier grammar. No submitted
    // path, URL, credential or command can reach the child process.

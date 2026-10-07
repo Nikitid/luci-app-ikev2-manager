@@ -12,7 +12,7 @@ cleanup() {
  [ "$test_rc" = 0 ] || printf "client-admin: failed step=%s\n" "$test_step" >&2
  [ -z "$worker_pid" ] || { kill "$worker_pid" 2>/dev/null || :; wait "$worker_pid" 2>/dev/null || :; }
  rm -rf "$work" "$state_dir"
- rm -f "$service_dir/test_service.lst" /etc/ikev2-manager/client-hosts.d/test_service.lst
+ rm -f "$service_dir/test_service.lst"
 }
 trap cleanup EXIT INT TERM
 mkdir -p "$service_dir"
@@ -180,29 +180,4 @@ test_step=expiry
 cp "$work/invitation" "$result_file"; chmod 600 "$result_file"
 ucode -e 'import {consume_client_invitation} from "/usr/libexec/ikev2-manager.d/client-access-invitation.uc"; let failed=false; try {consume_client_invitation(ARGV[0],time()+3601);} catch(e) {failed=true;} if(!failed) die("Expired invitation delivered");' "$job"
 [ ! -e "$result_file" ]
-test_step=hosts
-# Host names under a service's domains travel with its list to clients; a name
-# outside them is refused whole, and nothing is dropped silently.
-catalog=/usr/libexec/ikev2-domains-community
-printf 'catalog.example.com\n' >"$service_dir/test_service.lst"
-printf 'API.catalog.example.com\ncdn.eu.catalog.example.com\n' | "$catalog" client-service-hosts-set test_service
-[ "$("$catalog" client-service-hosts-get test_service | tr '\n' ' ')" = 'api.catalog.example.com cdn.eu.catalog.example.com ' ]
-[ "$("$catalog" client-service-domains test_service | tr '\n' ' ')" = 'catalog.example.com api.catalog.example.com cdn.eu.catalog.example.com ' ]
-for refused in 'api.other.example.org' 'catalog.example.com.evil.example' 'not a name' 'api.catalog.example.com
-elsewhere.example.net'; do
- if printf '%s\n' "$refused" | "$catalog" client-service-hosts-set test_service; then exit 1; fi
- [ "$("$catalog" client-service-hosts-get test_service | wc -l)" = 2 ]
-done
-cat >"$work/request.json" <<JSON
-{"version":1,"expected_generation":$(ucode "$control" status | sed -n 's/^generation=//p'),"operation":"configure-service","payload":{"id":"test_service","client_access":true,"transports":[{"protocol":"tcp","ports":[443]}],"hosts":["www.catalog.example.com"]}}
-JSON
-ucode "$control" update <"$work/request.json" >/dev/null
-ucode "$control" inspect >"$work/inspection"
-[ "$(jsonfilter -i "$work/inspection" -e '@.services[@.id="test_service"].hosts[0]')" = www.catalog.example.com ]
-[ "$(jsonfilter -i "$work/inspection" -e '@.services[@.id="test_service"].domain_count')" = 2 ]
-sed -i 's/www.catalog.example.com/www.elsewhere.example/' "$work/request.json"
-if ucode "$control" update <"$work/request.json" >/dev/null 2>&1; then exit 1; fi
-printf '' | "$catalog" client-service-hosts-set test_service
-[ ! -e /etc/ikev2-manager/client-hosts.d/test_service.lst ]
-printf '%s\n' 'client-admin: host names under a service, refusal of names outside it and publication passed'
 printf '%s\n' 'client-admin: invitation job, secret-free status, protected one-shot delivery and expiry passed'

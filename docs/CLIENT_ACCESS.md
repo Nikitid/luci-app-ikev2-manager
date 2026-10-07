@@ -696,12 +696,6 @@ the project's release page, so the router cannot point a user elsewhere. The
 program never installs anything by itself: the user runs the downloaded
 installer, which keeps the registration.
 
-A published service may carry host names under its domains (the "Host names
-for clients" field, kept by the catalog helper in
-`/etc/ikev2-manager/client-hosts.d`): clients reach exact names only, so
-`api.example.com` has to be listed beside `example.com`. A name outside the
-service's domains is refused.
-
 A device registered from an invitation is known to the router but not let in
 until an administrator enables it under Device assignments; until then, and
 after revocation, the client reports `access_closed`.

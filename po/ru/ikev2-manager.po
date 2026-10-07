@@ -4733,15 +4733,3 @@ msgstr "Зарегистрированные устройства использ
 
 msgid "Addresses that stand for the selected services. It must not be used anywhere in your networks."
 msgstr "Адреса, которые обозначают выбранные сервисы. Подсеть не должна использоваться в ваших сетях."
-
-msgid "Host names for clients"
-msgstr "Имена узлов для клиентов"
-
-msgid "A client reaches exact names only. The service list names domains; add the host names under them that the service uses, one per line, for example api.example.com."
-msgstr "Клиент работает только с точными именами. В списке сервиса указаны домены; добавьте имена узлов внутри них, которые использует сервис, по одному в строке, например api.example.com."
-
-msgid "\"%s\" is not a host name."
-msgstr "\"%s\" - не имя узла."
-
-msgid "List at most 256 host names."
-msgstr "Укажите не больше 256 имён узлов."
