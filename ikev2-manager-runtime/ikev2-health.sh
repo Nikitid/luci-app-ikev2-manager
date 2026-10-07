@@ -54,6 +54,7 @@ domain_router_helper="${IKEV2_DOMAIN_ROUTER_HELPER:-/usr/libexec/ikev2-domain-ro
 device_routing_helper="${IKEV2_DEVICE_ROUTING_HELPER:-/usr/libexec/ikev2-device-routing}"
 discord_voice_helper="${IKEV2_DISCORD_VOICE_HELPER:-/usr/libexec/ikev2-discord-voice}"
 user_policy_helper="${IKEV2_USER_POLICY_HELPER:-/usr/libexec/ikev2-user-policy}"
+user_policy_init="${IKEV2_USER_POLICY_INIT:-/etc/init.d/ikev2-user-policy}"
 manager_helper="${IKEV2_MANAGER_HELPER:-/usr/libexec/ikev2-manager}"
 sync_vips_helper="${IKEV2_SYNC_VIPS:-/usr/libexec/ikev2-sync-vips}"
 quality_helper="${IKEV2_QUALITY_HELPER:-/usr/libexec/ikev2-tunnel-quality}"
@@ -315,6 +316,18 @@ check_runtimes() {
 	# leaves every VPN client fail-closed and silent.
 	if [ -x "$user_policy_helper" ] && ! "$user_policy_helper" check >/dev/null 2>&1; then
 		repair "$user_policy_helper" sync
+		# One repair covers a missed event. A second pass in a row that finds
+		# the state stale again means the watcher itself is not reconciling:
+		# repairing in its place every pass would hide that for days, so it is
+		# replaced, and the log says so.
+		user_policy_stale=$((${user_policy_stale:-0} + 1))
+		if [ "$user_policy_stale" -ge 2 ]; then
+			logger -t ikev2-health -p daemon.warn 'The inbound policy watcher was not reconciling; restarting it'
+			"$user_policy_init" restart >/dev/null 2>&1 || :
+			user_policy_stale=0
+		fi
+	else
+		user_policy_stale=0
 	fi
 	# Repairs FakeIP under its own lock when it finds the runtime broken.
 	if [ "$engine" = fakeip ] && [ -x "$domain_router_helper" ]; then

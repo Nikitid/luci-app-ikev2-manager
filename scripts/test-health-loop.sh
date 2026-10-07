@@ -66,7 +66,10 @@ stub routing "$record
 case \"\$1\" in check) [ ! -e \"\$S/routing-broken\" ] ;; sync) rm -f \"\$S/routing-broken\" ;; esac"
 stub device "$record"
 stub discord "$record"
-stub user-policy "$record"
+stub user-policy "$record
+case \"\$1\" in check) [ ! -e \"\$S/policy-stale\" ] ;; esac"
+stub policy-init "$record
+[ \"\$1\" != restart ] || rm -f \"\$S/policy-stale\""
 stub domain-router "$record
 [ \"\$1\" != exits-apply ] || [ ! -e \"\$S/exits-refused\" ]"
 stub manager "$record"
@@ -110,6 +113,7 @@ IKEV2_DOMAIN_ROUTER_HELPER="$tmp/bin/domain-router" \
 IKEV2_DEVICE_ROUTING_HELPER="$tmp/bin/device" \
 IKEV2_DISCORD_VOICE_HELPER="$tmp/bin/discord" \
 IKEV2_USER_POLICY_HELPER="$tmp/bin/user-policy" \
+IKEV2_USER_POLICY_INIT="$tmp/bin/policy-init" \
 IKEV2_MANAGER_HELPER="$tmp/bin/manager" \
 IKEV2_SYNC_VIPS="$tmp/bin/sync-vips" \
 IKEV2_QUALITY_HELPER="$tmp/bin/quality" \
@@ -150,6 +154,18 @@ done
 	fail 'the XFRM links were started on every pass, not with the checks'
 wait_for '^domain-router data-plane-check now' 1 'the data plane was not checked when the tunnel came up'
 grep -q '^state=up ' "$tmp/run/ikev2-health.status" || fail 'the status does not say the tunnel is up'
+
+# An inbound policy that is stale once is repaired in place; one that is stale
+# again on the next pass has a watcher that is not reconciling, which is then
+# replaced rather than covered for.
+[ "$(count '^policy-init restart')" = 0 ] || fail 'a healthy inbound watcher was restarted'
+: >"$S/policy-stale"
+wait_for '^user-policy sync' 1 'a stale inbound policy was not repaired'
+wait_for '^policy-init restart' 1 'a watcher that stayed stale was not replaced'
+[ "$(count '^user-policy sync')" -ge 2 ] || fail 'the watcher was replaced on the first stale pass'
+restarts="$(count '^policy-init restart')"
+wait_for '^routing check' $(($(count '^routing check') + 3)) 'the passes stopped after replacing the inbound watcher'
+[ "$(count '^policy-init restart')" = "$restarts" ] || fail 'a recovered inbound watcher kept being restarted'
 
 # A runtime that drifted is repaired, under the router action lock.
 : >"$S/routing-broken"
