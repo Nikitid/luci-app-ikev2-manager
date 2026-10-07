@@ -315,7 +315,8 @@ function personCard(person, labels, actions) {
      E('div', { 'class': 'ikev2-session-meta' }, [ E('span', {}, [ counts ]) ].concat(
       online ? [ common.pill(_('online: %d').format(online), 'good') ] : [],
       first.note ? [ E('span', {}, [ first.note ]) ] : [],
-      services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }),
+      // A service's name, plainly: a dot here would read as a state.
+      services.map(function(id) { return E('span', { 'class': 'ikev2-tag' }, [ labels[id] || id ]); }),
       first.block_without_tunnel === false ? [ common.pill(_('Not blocked without the tunnel'), 'warn') ] : []))
     ])
    ]),
@@ -380,6 +381,9 @@ function pageStyles() {
   '.ikev2-page .ikev2-person-devices { display: grid; gap: .6rem; padding-top: .75rem; border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: nowrap; }' +
   '.ikev2-page .ikev2-form-grid + .ikev2-actions.end { margin-top: 1rem; }' +
+  '.ikev2-page textarea.ikev2-link { box-sizing: border-box; width: 100%; max-width: none; min-height: 4.6rem; padding: .6rem .7rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; line-height: 1.35; word-break: break-all; resize: none; }' +
+  '.ikev2-page .ikev2-link-send { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .6rem; margin-top: .7rem; } .ikev2-page .ikev2-link-send input { box-sizing: border-box; width: 100%; max-width: none; }' +
+  '.ikev2-page .ikev2-tag { display: inline-block; padding: .1rem .55rem; border: 1px solid var(--ikev2-border); border-radius: 999px; font-size: .78rem; color: var(--ikev2-muted); white-space: nowrap; }' +
   '.ikev2-page .ikev2-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .35rem 1rem; margin-top: .5rem; padding: .7rem .9rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-checks label { display: flex; align-items: center; gap: .5rem; min-width: 0; font-weight: 400; cursor: pointer; }' +
   '.ikev2-page .ikev2-checks input { margin: 0; flex: none; }' +
@@ -591,7 +595,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
   E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) ])
  ]);
  function showLink(link) {
-  var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link') });
+  var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link'), 'class': 'ikev2-link', rows: '3' });
   field.value = link;
   var output = common.inlineResult(), copy, send;
   var recipient = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Send to'), value: email.value.trim(), placeholder: 'name@example.com' });
@@ -607,8 +611,8 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
   } }, [ _('Send by e-mail') ]);
   ui.showModal(_('Invitation link'), [ E('div', { 'class': 'ikev2-page' }, [
    common.styles(), E('p', {}, [ _('Shown only once. Send it privately: the owner installs Waypoint on each device and pastes the link there.') ]), field,
-   E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:.8rem' }, [ recipient, send ]),
-   E('div', { 'class': 'ikev2-actions end' }, [ output.node,
+   E('div', { 'class': 'ikev2-link-send' }, [ recipient, send ]),
+   E('div', { 'class': 'ikev2-actions end', 'style': 'margin-top:1rem' }, [ output.node,
     E('button', { type: 'button', 'class': 'cbi-button', click: function() { field.value = ''; ui.hideModal(); } }, [ _('Close') ]),
     (copy = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() {
      return common.runAction({ button: copy, result: output, busy: _('Copying...'), success: _('Copied'), failure: _('Could not copy invitation link.'), run: function() { return common.copyText(field.value); } });
