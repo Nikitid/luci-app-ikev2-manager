@@ -143,6 +143,11 @@ internal static class Setup
             security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid, null),
                 sid == WellKnownSidType.BuiltinUsersSid ? FileSystemRights.ReadAndExecute : FileSystemRights.FullControl,
                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+        // An open window holds its own file: an update over it used to stop
+        // half way, with the service already stopped. The window is closed;
+        // the user opens it again, or setup does at the end.
+        foreach (var process in Process.GetProcessesByName("IKEv2ManagerClient"))
+            using (process) { try { process.Kill(); process.WaitForExit(5000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { } }
         Directory.CreateDirectory(Destination);
         Directory.SetAccessControl(Destination, security);
         Place("ClientService.exe", ServicePath);
