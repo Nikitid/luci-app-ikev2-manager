@@ -96,7 +96,7 @@ function setupSection(settings, reload) {
   ])));
 }
 
-function editDialog(title, form, buildRequest, reload, pageResult) {
+function editDialog(title, form, buildRequest, reload, pageResult, unsaved) {
  var result = common.inlineResult(), save, tracker;
  var body = E('div', { 'class': 'ikev2-page' }, [
   common.styles(), form,
@@ -115,10 +115,12 @@ function editDialog(title, form, buildRequest, reload, pageResult) {
   ])
  ]);
  tracker = common.trackChanges(save, [ form ]);
+ // A proposal the administrator has not stored yet can be saved as it is.
+ if (unsaved) save.disabled = false;
  ui.showModal(title, [ body ]);
 }
 
-function serviceDialog(record, current, generation, reload, pageResult) {
+function serviceDialog(record, current, generation, reload, pageResult, unsaved) {
  current = current || { client_access: false, transports: [ { protocol: 'tcp', ports: [ 443 ] } ] };
  var published = E('input', { 'type': 'checkbox', 'checked': current.client_access ? '' : null, 'aria-label': _('Available to remote clients') });
  var tcp = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('TCP ports'), 'value': current.transports.filter(function(t) { return t.protocol === 'tcp'; }).map(function(t) { return t.ports.join(' '); }).join(' ') });
@@ -137,7 +139,7 @@ function serviceDialog(record, current, generation, reload, pageResult) {
   if (!transports.length) throw new Error(_('Specify at least one TCP or UDP port.'));
   return { version: 1, expected_generation: generation, operation: 'configure-service',
    payload: { id: record.id, client_access: published.checked, transports: transports } };
- }, reload, pageResult);
+ }, reload, pageResult, unsaved);
 }
 
 // "5 min", "3 h", "2 d": how long ago, or for how long.
@@ -250,7 +252,7 @@ function personDialog(person, state, labels, reload, pageResult) {
   ]),
   E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
    person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null) ]),
-  E('div', {}, choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); }))
+  E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services')) ].concat(choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); })))
  ]);
  editDialog(person.name, form, function() {
   return { version: 1, expected_generation: state.generation, operation: 'assign-devices',
@@ -397,19 +399,31 @@ return view.extend({
     var pa = current(a) && current(a).client_access ? 0 : 1, pb = current(b) && current(b).client_access ? 0 : 1;
     return pa - pb || a.label.localeCompare(b.label);
    });
-   var serviceRows = records.map(function(record) {
-    var service = current(record), published = service && service.client_access;
+   // The catalog is long; the table holds what is published, and a picker
+   // below it publishes one more.
+   var shown = records.filter(function(record) { return current(record) && current(record).client_access; });
+   var serviceRows = shown.map(function(record) {
+    var service = current(record);
     return E('tr', { 'class': 'tr' }, [
-     E('td', { 'class': 'td' }, [ published ? E('strong', {}, [ record.label ]) : record.label ]),
-     E('td', { 'class': 'td' }, [ common.pill(published ? _('Published') : _('Not published'), published ? 'good' : 'neutral') ]),
-     E('td', { 'class': 'td' }, [ published ? portsText(service) : '' ]),
-     E('td', { 'class': 'td' }, [ service ? String(service.domain_count) : '' ]),
+     E('td', { 'class': 'td' }, [ E('strong', {}, [ record.label ]) ]),
+     E('td', { 'class': 'td' }, [ portsText(service) ]),
+     E('td', { 'class': 'td' }, [ String(service.domain_count) ]),
      E('td', { 'class': 'td', 'style': 'text-align:right' }, [ E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { serviceDialog(record, service, state.generation, reload, result); } }, [ _('Edit') ]) ])
     ]);
    });
-   services.replaceChildren(E('table', { 'class': 'table cbi-section-table' }, [
-    E('tr', { 'class': 'tr' }, [ _('Service'), _('For remote clients'), _('Ports'), _('Domains'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
-   ].concat(serviceRows)));
+   var others = records.filter(function(record) { return shown.indexOf(record) < 0; });
+   var pick = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Service to publish') }, others.map(function(record) {
+    return E('option', { 'value': record.id }, [ record.label ]);
+   }));
+   var publish = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() {
+    var record = others.filter(function(item) { return item.id === pick.value; })[0] || others[0];
+    if (record) serviceDialog(record, Object.assign({ transports: [ { protocol: 'tcp', ports: [ 443 ] } ] }, current(record) || {}, { client_access: true }), state.generation, reload, result, true);
+   } }, [ _('Publish...') ]);
+   services.replaceChildren(
+    shown.length ? E('table', { 'class': 'table cbi-section-table' }, [
+     E('tr', { 'class': 'tr' }, [ _('Service'), _('Ports'), _('Domains'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+    ].concat(serviceRows)) : E('div', { 'class': 'ikev2-empty' }, [ _('No service is published yet.') ]),
+    others.length ? E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:.9rem' }, [ pick, publish ]) : '');
    var actions = {
     edit: function(person) { personDialog(person, state, labels, reload, result); },
     add: function(person) { invitationDialog(state, labels, reload, person); },

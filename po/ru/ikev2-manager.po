@@ -4901,3 +4901,12 @@ msgstr "клиент %s"
 
 msgid "link valid for %s more"
 msgstr "ссылка действует ещё %s"
+
+msgid "Service to publish"
+msgstr "Сервис для публикации"
+
+msgid "Publish..."
+msgstr "Опубликовать..."
+
+msgid "No service is published yet."
+msgstr "Пока не опубликован ни один сервис."

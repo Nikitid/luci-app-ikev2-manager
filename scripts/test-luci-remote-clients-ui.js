@@ -68,8 +68,9 @@ async function main() {
  assert(written[0].file.startsWith('/var/run/ikev2-client-admin-')); assert.strictEqual(written[0].mode,384);
  assert.strictEqual(jobs[0].startArgs[0],'client-admin-update'); assert.deepStrictEqual(jobs[0].statusArgs,['client-admin-status']);
  await jobs[0].onSuccess(); assert.strictEqual(hidden,1);
- click(edits[4]);
- const serviceSave = button(modal,'Save');
+ // Another service is published from the picker; its proposal can be saved at once.
+ click(button(tree,'Publish...'));
+ const serviceSave = button(modal,'Save'); assert(!serviceSave.disabled, 'a service offered for publication can be saved as proposed');
  nodes(modal).filter(n=>n.tagName==='INPUT' && n.type==='text')[0].value = '70000';
  await click(serviceSave);
  assert.strictEqual(written.length,1, 'invalid ports cannot stage a request');
