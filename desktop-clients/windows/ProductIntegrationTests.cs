@@ -77,6 +77,63 @@ internal static class ProductIntegrationTests
         }
         catch (System.Net.Sockets.SocketException) { return false; }
     }
+    private static string Digest(string text)
+    {
+        using (var digest = System.Security.Cryptography.SHA256.Create())
+            return BitConverter.ToString(digest.ComputeHash(System.Text.Encoding.ASCII.GetBytes(text))).Replace("-", "").ToLowerInvariant();
+    }
+
+    // UDP through the path: a TXT question to a public resolver that answers
+    // with the network it was asked from. Returns that network's digest.
+    private static string UdpOrigin(string resolver)
+    {
+        try
+        {
+            var question = new System.Collections.Generic.List<byte> { 0x4f, 0x4f, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0 };
+            foreach (string label in "o-o.myaddr.l.google.com".Split('.'))
+            { question.Add((byte)label.Length); question.AddRange(System.Text.Encoding.ASCII.GetBytes(label)); }
+            question.AddRange(new byte[] { 0, 0, 16, 0, 1 });
+            using (var socket = new System.Net.Sockets.UdpClient())
+            {
+                socket.Client.ReceiveTimeout = 5000;
+                socket.Connect(resolver, 53);
+                socket.Send(question.ToArray(), question.Count);
+                System.Net.IPEndPoint from = null;
+                string answer = System.Text.Encoding.ASCII.GetString(socket.Receive(ref from));
+                var match = System.Text.RegularExpressions.Regex.Match(answer, @"edns0-client-subnet ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\.[0-9]{1,3}/");
+                return match.Success ? Digest(match.Groups[1].Value) : "no-subnet";
+            }
+        }
+        catch (System.Net.Sockets.SocketException) { return null; }
+    }
+
+    // The address a real browser is seen from, read out of its page.
+    private static string BrowserOrigin(string browser, string url)
+    {
+        string profile = Path.Combine(Path.GetTempPath(), "ikev2-client-browser-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var start = new ProcessStartInfo(browser, "--headless=new --disable-gpu --no-first-run --no-sandbox --user-data-dir=\"" + profile + "\" --dump-dom " + url)
+                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            using (var process = Process.Start(start))
+            {
+                var output = process.StandardOutput.ReadToEndAsync();
+                process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(40000)) { try { process.Kill(); } catch (InvalidOperationException) { } return null; }
+                var match = System.Text.RegularExpressions.Regex.Match(output.Result, @">\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3})\s*<");
+                return match.Success ? Digest(match.Groups[1].Value) : null;
+            }
+        }
+        catch (System.ComponentModel.Win32Exception) { return null; }
+        finally { try { if (Directory.Exists(profile)) Directory.Delete(profile, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
+    private static void Route(string arguments)
+    {
+        using (var process = Process.Start(new ProcessStartInfo("route.exe", arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true }))
+        { process.StandardOutput.ReadToEnd(); process.WaitForExit(10000); }
+    }
+
     private static int Main(string[] args)
     {
         string step = "start";
@@ -117,6 +174,41 @@ internal static class ProductIntegrationTests
                 string under = (string)config["probe_under"];
                 Require(Named(new Uri(under).Host), "A host under the selected domain was not answered through the tunnel");
                 Console.WriteLine("PROBE_UNDER=" + Origin(under));
+            }
+            if (config.ContainsKey("probe_dual"))
+            {
+                // A name that has an IPv6 address in public DNS must have none here.
+                Require(Named((string)config["probe_dual"]), "A name with a public IPv6 address was not held to its tunnel address");
+                Console.WriteLine("A dual-stack name resolved to its tunnel address only");
+            }
+            if (config.ContainsKey("probe_udp"))
+            {
+                Require(Named((string)config["probe_udp"]), "The UDP service's name was not answered through the tunnel");
+                Console.WriteLine("PROBE_UDP=" + UdpOrigin((string)config["probe_udp"]));
+            }
+            if (config.ContainsKey("browsers"))
+                foreach (object browser in (System.Collections.ArrayList)config["browsers"])
+                    if (File.Exists((string)browser))
+                        Console.WriteLine("PROBE_BROWSER=" + Path.GetFileNameWithoutExtension((string)browser) + "=" + BrowserOrigin((string)browser, url));
+            if (config.ContainsKey("hijack"))
+            {
+                // Another program's more specific route - what a second VPN does
+                // when it claims part of the same network. The client must
+                // notice that the route is no longer its own and close.
+                step = "foreign route";
+                var hijack = (System.Collections.Generic.Dictionary<string, object>)config["hijack"];
+                string add = (string)hijack["network"] + " MASK " + (string)hijack["mask"] + " " + (string)hijack["gateway"];
+                Route("ADD " + add);
+                try
+                {
+                    Require(Await(view => !view.Protected, 20000), "A foreign route into the names network left the protected status");
+                    Console.WriteLine("Foreign route closed access: " + Shown());
+                }
+                finally { Route("DELETE " + (string)hijack["network"] + " MASK " + (string)hijack["mask"]); }
+                Require(Await(view => view.Protected, 120000), "Access did not return after the foreign route was removed: " + Shown());
+                Require(reachable(), "Selected service did not recover after the foreign route was removed");
+                Console.WriteLine("Access returned once the foreign route was gone");
+                step = "connection";
             }
             Console.WriteLine("Native protected status and selected service traffic verified");
             step = "service crash";

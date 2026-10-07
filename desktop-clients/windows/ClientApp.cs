@@ -199,6 +199,8 @@ namespace IkeV2Manager.Client
             resume.Visible = current.State == "registration_pending" || current.State == "registration_error";
             connect.Visible = registered && !current.Wanted;
             disconnect.Visible = registered && current.Wanted;
+            if (current.Warnings != null && current.Warnings.Contains("proxy"))
+                services.Text += "\r\nВнимание: на этом компьютере включён прокси. Программы, которые ходят через него, обращаются к выбранным сервисам в обход туннеля.";
             bool newer = ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
             update.Visible = newer;
             if (connectAfterRegistration && registered && current.State == "blocked" && !current.Wanted && !commandBusy)

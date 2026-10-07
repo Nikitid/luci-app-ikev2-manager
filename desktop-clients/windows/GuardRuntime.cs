@@ -26,6 +26,10 @@ namespace IkeV2Manager.Client
         public string[] Available { get; internal set; }
         // The router's release, or empty while unknown.
         public string Release { get; internal set; }
+        // Conditions on this computer under which a selected service can be
+        // reached around the tunnel by a program that does not use the
+        // system's own routes and names. Named, not acted on.
+        public string[] Warnings { get; internal set; }
     }
 
     public sealed class GuardRuntime : IDisposable
@@ -53,6 +57,39 @@ namespace IkeV2Manager.Client
         private DateTime readyUntil;
         private DeviceServices assigned;
         private string release = "";
+        private string[] warnings = new string[0];
+
+        // A configured proxy carries a program's requests by name to the proxy,
+        // which then reaches the service from wherever the proxy is: neither
+        // the tunnel's routes nor its names apply. The same goes for a per-user
+        // proxy script. This is told to the user; it cannot be closed here.
+        internal static string[] Observe()
+        {
+            var found = new System.Collections.Generic.List<string>();
+            try
+            {
+                using (var machine = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Connections"))
+                {
+                    var settings = machine == null ? null : machine.GetValue("WinHttpSettings") as byte[];
+                    if (settings != null && settings.Length > 8 && (settings[8] & 2) != 0) found.Add("proxy");
+                }
+                foreach (string user in Microsoft.Win32.Registry.Users.GetSubKeyNames())
+                {
+                    if (!user.StartsWith("S-1-5-21-", StringComparison.Ordinal) || user.EndsWith("_Classes", StringComparison.Ordinal)) continue;
+                    using (var key = Microsoft.Win32.Registry.Users.OpenSubKey(user + @"\Software\Microsoft\Windows\CurrentVersion\Internet Settings"))
+                    {
+                        if (key == null) continue;
+                        object enabled = key.GetValue("ProxyEnable"), script = key.GetValue("AutoConfigURL");
+                        if ((enabled is int && (int)enabled != 0) || (script is string && ((string)script).Length != 0))
+                            if (!found.Contains("proxy")) found.Add("proxy");
+                    }
+                }
+            }
+            catch (System.Security.SecurityException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (System.IO.IOException) { }
+            return found.ToArray();
+        }
 
         public GuardRuntime(string storeName, bool enableSystemIntegration = false)
         {
@@ -141,6 +178,7 @@ namespace IkeV2Manager.Client
                     catch (PolicyFetchException) { }
                     try { release = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
                     catch (PolicyFetchException) { }
+                    warnings = Observe();
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
                     else EnsureProfile(next);
                     synchronizationFailed = false; accessClosed = false;
@@ -435,7 +473,7 @@ namespace IkeV2Manager.Client
             store.PublishStatus(new ClientStatus { State = state, GuardInstalled = healthy,
                 Services = assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray(),
                 Available = assigned == null ? new string[0] : assigned.Available.Take(64).ToArray(),
-                Domains = domains, Revision = revision, Wanted = connectionWanted, Release = release,
+                Domains = domains, Revision = revision, Wanted = connectionWanted, Release = release, Warnings = warnings,
                 Protected = healthy && state == "protected" && permittedInterface != 0,
                 ConnectionError = connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),

@@ -39,13 +39,16 @@ internal static class ClientStatusTests
             // Protection is one consistent statement or it is not accepted.
             data["ConnectionError"] = "none"; data["State"] = "protected"; data["Protected"] = true;
             Check(data, 123, now, "status_invalid");
-            data["Version"] = 3; data["Services"] = new[] { "api", "mail" }; data["Available"] = new[] { "wiki" }; data["Release"] = "2.3.0"; data["Domains"] = 5; data["Revision"] = 4; data["Wanted"] = true;
+            data["Version"] = 3; data["Services"] = new[] { "api", "mail" }; data["Available"] = new[] { "wiki" }; data["Release"] = "2.3.0"; data["Warnings"] = new[] { "proxy" }; data["Domains"] = 5; data["Revision"] = 4; data["Wanted"] = true;
             var open = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
             if (open.State != "protected" || !open.Protected || !(bool)new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(open.Report())["Protected"])
                 throw new Exception("Confirmed protection was not reported");
             if (open.Services.Length != 2 || open.Available.Length != 1 || open.Domains != 5 || open.Revision != 4 || !open.Wanted || !open.Routed) throw new Exception("Assigned services were lost");
             if (open.Release != "2.3.0" || !ClientView.Newer("2.3.0", new Version(2, 2, 9, 0)) || ClientView.Newer("2.3.0", new Version(2, 3, 0, 0)) ||
                 ClientView.Newer("", new Version(1, 0, 0, 0)) || ClientView.Newer("2.2.9", new Version(2, 3, 0, 0))) throw new Exception("Release comparison is wrong");
+            if (open.Warnings.Length != 1 || open.Warnings[0] != "proxy") throw new Exception("A warning was lost");
+            data["Warnings"] = new[] { "<b>" }; Check(data, 123, now, "status_invalid");
+            data["Warnings"] = new string[0];
             data["Release"] = "https://example.com/setup.exe"; Check(data, 123, now, "status_invalid");
             data["Release"] = "2.3.0";
             data["Available"] = new[] { "../wiki" }; Check(data, 123, now, "status_invalid");
@@ -85,7 +88,7 @@ internal static class ClientStatusTests
         var view = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), pid, now);
         if (view.State != expected || view.Protected) throw new Exception("Client status check failed: " + expected);
         var report = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(view.Report());
-        if (report.Count != 13 || report.ContainsKey("ProcessId") || report.ContainsKey("PrivateKey"))
+        if (report.Count != 14 || report.ContainsKey("ProcessId") || report.ContainsKey("PrivateKey"))
             throw new Exception("Diagnostic report contains unexpected data");
     }
 }

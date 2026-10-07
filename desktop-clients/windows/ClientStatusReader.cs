@@ -34,6 +34,7 @@ namespace IkeV2Manager.Client
         }
         public string[] Available { get; private set; }
         public string Release { get; internal set; }
+        public string[] Warnings { get; internal set; }
 
         // Whether the router runs a newer release than this program.
         public static bool Newer(string release, Version own)
@@ -47,7 +48,7 @@ namespace IkeV2Manager.Client
         {
             return new JavaScriptSerializer().Serialize(new { Version = 3, State = State,
                 GuardInstalled = GuardInstalled, Protected = Protected, Routed = Routed, ConnectionWanted = Wanted,
-                ConnectionError = ConnectionError, RouterRelease = Release ?? "", Services = Services, AvailableServices = Available, Domains = Domains, PolicyRevision = Revision, CreatedAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) });
+                ConnectionError = ConnectionError, RouterRelease = Release ?? "", Warnings = Warnings ?? new string[0], Services = Services, AvailableServices = Available, Domains = Domains, PolicyRevision = Revision, CreatedAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) });
         }
     }
 
@@ -98,7 +99,7 @@ namespace IkeV2Manager.Client
                 var data = serializer.DeserializeObject(json) as Dictionary<string, object>;
                 if (data == null || !data.ContainsKey("Version") || !(data["Version"] is int)) return new ClientView("status_invalid");
                 int version = (int)data["Version"];
-                if (version < 1 || version > 3 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : 13) || !data.ContainsKey("State") ||
+                if (version < 1 || version > 3 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : 14) || !data.ContainsKey("State") ||
                     !data.ContainsKey("GuardInstalled") || !data.ContainsKey("Protected") ||
                     !data.ContainsKey("UpdatedAtUtc") || !data.ContainsKey("ProcessId") ||
                     !(data["ProcessId"] is int) ||
@@ -133,7 +134,9 @@ namespace IkeV2Manager.Client
                 if (version < 3) return new ClientView(state == "protected" ? "status_invalid" : state, guard, connectionError);
                 object[] listed = data.ContainsKey("Services") ? data["Services"] as object[] : null;
                 object[] offered = data.ContainsKey("Available") ? data["Available"] as object[] : null;
-                if (!(data.ContainsKey("Release") && data["Release"] is string) ||
+                object[] warned = data.ContainsKey("Warnings") ? data["Warnings"] as object[] : null;
+                if (warned == null || warned.Length > 8 || warned.Any(item => !(item is string) || !Regex.IsMatch((string)item, @"\A(?:proxy)\z")) ||
+                    !(data.ContainsKey("Release") && data["Release"] is string) ||
                     !Regex.IsMatch((string)data["Release"], @"\A(?:[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4})?\z") ||
                     listed == null || listed.Length > 64 || offered == null || offered.Length > 64 ||
                     offered.Any(item => !(item is string) || !Regex.IsMatch((string)item, @"\A[a-z0-9][a-z0-9_-]{0,47}\z")) || !(data.ContainsKey("Domains") && data["Domains"] is int) ||
@@ -143,7 +146,7 @@ namespace IkeV2Manager.Client
                     ((state == "protected" || state == "tunnel_connected") && !(bool)data["Wanted"]))
                     return new ClientView("status_invalid");
                 return new ClientView(state, guard, connectionError, listed.Cast<string>().ToArray(), (int)data["Domains"], (int)data["Revision"], (bool)data["Wanted"], offered.Cast<string>().ToArray())
-                    { Release = (string)data["Release"] };
+                    { Release = (string)data["Release"], Warnings = warned.Cast<string>().ToArray() };
             }
             catch (ArgumentException) { return new ClientView("status_invalid"); }
             catch (InvalidOperationException) { return new ClientView("status_invalid"); }
