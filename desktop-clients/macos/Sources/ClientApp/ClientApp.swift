@@ -59,6 +59,19 @@ final class ClientModel: ObservableObject {
         }
     }
 
+    /// Runs the installed removal with the administrator's consent: the
+    /// system asks for the password, this program never sees it.
+    func uninstall() {
+        let script = "do shell script \"/Library/PrivilegedHelperTools/io.github.nikitid.ikev2-manager-client.uninstall\" with administrator privileges"
+        Task.detached {
+            var failure: NSDictionary?
+            NSAppleScript(source: script)?.executeAndReturnError(&failure)
+            await MainActor.run {
+                if failure == nil { NSApp.terminate(nil) } else { self.message = "Удаление не выполнено." }
+            }
+        }
+    }
+
     func register(_ invitation: String) {
         connectAfterRegistration = true
         command("begin", invitation: invitation)
@@ -103,7 +116,7 @@ final class ClientModel: ObservableObject {
         case "tunnel_connected": return "Проверка доступа"
         case "connection_error": return "Нет подключения"
         case "starting": return "Запуск"
-        case "access_closed": return "Доступ не разрешён"
+        case "access_closed": return status.error == "no_services" ? "Сервисы не назначены" : "Доступ не разрешён"
         default: return "Ошибка службы"
         }
     }
@@ -130,7 +143,7 @@ final class ClientModel: ObservableObject {
                 ? "Сервер предложил направить в туннель весь трафик. Подключение отклонено."
                 : status.error == "profile_mode" ? "Режим изменён администратором. Установите профиль заново."
                 : "Туннель не установлен. Попытка повторится."
-        case "access_closed": return "Доступ для этого устройства выключен администратором."
+        case "access_closed": return status.error == "no_services" ? "Администратор не назначил этому устройству сервисов. Сайты открываются как обычно." : "Доступ для этого устройства выключен администратором."
         default: return "Состояние защиты не подтверждено. Подробности в отчёте."
         }
     }
@@ -226,6 +239,7 @@ struct ClientView: View {
     @State private var invitation = ""
     @State private var registering = false
     @State private var reporting = false
+    @State private var removing = false
     /// "system", "light" or "dark": the look the user chose for this window.
     @AppStorage("theme") private var theme = "system"
 
@@ -281,6 +295,7 @@ struct ClientView: View {
                 Spacer()
                 Button("Проверить") { model.refresh() }
                 Button("Отчёт…") { reporting = true }
+                Button("Удалить…", role: .destructive) { removing = true }
                 Picker("Тема", selection: $theme) {
                     Text("Системная").tag("system"); Text("Светлая").tag("light"); Text("Тёмная").tag("dark")
                 }.labelsHidden().fixedSize()
@@ -307,6 +322,12 @@ struct ClientView: View {
                     }.keyboardShortcut(.defaultAction).disabled(invitation.isEmpty)
                 }
             }.padding(20)
+        }
+        .confirmationDialog("Удалить Waypoint с этого Mac?", isPresented: $removing) {
+            Button("Удалить", role: .destructive) { model.uninstall() }
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text("Будут удалены: профиль VPN, блокировки, записи имён сервисов и регистрация устройства. Чтобы вернуть доступ, понадобится новая ссылка от администратора.")
         }
         .sheet(isPresented: $reporting) {
             VStack(alignment: .leading, spacing: 12) {

@@ -5333,3 +5333,21 @@ msgstr "Устройства начинают с"
 
 msgid "Changed later for each device by itself."
 msgstr "Потом меняется у каждого устройства отдельно."
+
+msgid "Which ports of this service the devices may reach through the tunnel. Websites and most applications need TCP 443 only; leave UDP empty unless the service needs it (443 for QUIC, 53 for DNS, voice and games have their own)."
+msgstr "Какие порты этого сервиса устройства могут открывать через туннель. Сайтам и большинству приложений нужен только TCP 443; UDP оставьте пустым, если сервису он не нужен (443 для QUIC, 53 для DNS, у голосовой связи и игр свои)."
+
+msgid "Numbers separated by spaces."
+msgstr "Числа через пробел."
+
+msgid "Usually empty."
+msgstr "Обычно пусто."
+
+msgid "A service published here works for Waypoint devices whether or not Policy Routing uses it for the router's own networks."
+msgstr "Сервис, опубликованный здесь, работает для устройств Waypoint независимо от того, используется ли он в маршрутизации по правилам для сетей самого роутера."
+
+msgid "Windows application"
+msgstr "Приложение для Windows"
+
+msgid "For ordinary VPN profiles on Windows: download once, then open a profile in it."
+msgstr "Для обычных VPN-профилей на Windows: скачайте один раз, затем откройте в нём профиль."

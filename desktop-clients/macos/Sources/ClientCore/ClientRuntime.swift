@@ -77,6 +77,7 @@ public actor ClientRuntime {
     private var permitted: TunnelObservation?
     private var readyUntil = Date.distantPast
     private var nextReadinessAt = Date.distantPast
+    private var noServices = false
     private var nextPolicyPoll = Date.distantPast
     private var nextEnrollmentStep = Date.distantPast
     private var retryConnectionAt = Date.distantPast
@@ -198,7 +199,7 @@ public actor ClientRuntime {
         // Names point into the tunnel always, unless the administrator let
         // this device's services go the ordinary way while the tunnel is
         // down: then they point there only while access is confirmed.
-        let pointed = (names?.block ?? true) || permitted != nil
+        let pointed = !noServices && ((names?.block ?? true) || permitted != nil)
         let hosts = try system.readHosts()
         let wanted = pointed ? try history.reconcileHosts(hosts) : try ManagedHosts.reconcile(hosts, entries: [])
         if wanted != hosts { try system.writeHosts(wanted) }
@@ -230,6 +231,7 @@ public actor ClientRuntime {
             }
             synchronizationFailed = false
             accessClosed = false
+            noServices = false
             release = (try? await transport.release(endpoint: registration.endpoint, deviceToken: registration.deviceToken)) ?? release
             if let id = registration.id {
                 names = (try? await transport.services(endpoint: registration.endpoint, deviceToken: registration.deviceToken, id: id)) ?? names
@@ -241,7 +243,10 @@ public actor ClientRuntime {
         } catch {
             // Known to the router and not let in: not enabled yet, or revoked.
             synchronizationFailed = true
-            accessClosed = (error as? DeviceError) == .accessRejected
+            // Without a single service there is nothing to hold names for:
+            // they are let go, and come back with the first service.
+            noServices = (error as? DeviceError) == .noServices
+            accessClosed = noServices || (error as? DeviceError) == .accessRejected
             return history
         }
     }
@@ -353,7 +358,7 @@ public actor ClientRuntime {
             if synchronizationFailed {
                 closePermission(current)
                 if system.vpnConnected() { try? system.stopVPN() }
-                connectionError = "synchronization"; publish(accessClosed ? "access_closed" : "error", now: now); return
+                connectionError = noServices ? "no_services" : "synchronization"; publish(accessClosed ? "access_closed" : "error", now: now); return
             }
             try await advanceConnection(registration, history: current, now: now)
         } catch {

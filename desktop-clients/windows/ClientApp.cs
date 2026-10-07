@@ -119,6 +119,19 @@ namespace IkeV2Manager.Client
             var refresh = new Button { Text = "Проверить", AutoSize = true };
             var report = new Button { Text = "Отчёт…", AutoSize = true };
             var look = new Button { Text = "Тема", AutoSize = true };
+            // Everything the program put on this computer goes with one action.
+            var remove = new Button { Text = "Удалить…", AutoSize = true, ForeColor = Color.FromArgb(199, 51, 46) };
+            remove.Click += (sender, args) =>
+            {
+                if (MessageBox.Show(this, "Удалить Waypoint с этого компьютера?\n\nБудут удалены: VPN-подключение, блокировки, записи имён сервисов и регистрация устройства. " +
+                    "Чтобы вернуть доступ, понадобится новая ссылка от администратора.", "Удаление Waypoint", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "Setup.exe"), "/uninstall /quiet") { UseShellExecute = true, Verb = "runas" });
+                    Close();
+                }
+                catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Удаление не запущено: нужны права администратора.", "Удаление Waypoint"); }
+            };
             look.Click += (sender, args) => ChooseTheme(look);
             refresh.Click += (sender, args) => RefreshStatus();
             report.Click += (sender, args) => PreviewReport();
@@ -138,7 +151,7 @@ namespace IkeV2Manager.Client
                 primary.FlatStyle = FlatStyle.Flat; primary.FlatAppearance.BorderSize = 0;
                 primary.BackColor = Color.FromArgb(0, 103, 192); primary.ForeColor = Color.White;
             }
-            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, look, update })
+            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, look, update, remove })
             {
                 button.Margin = new Padding(4, 4, 4, 4); button.Padding = new Padding(4, 2, 4, 2);
                 if (button.FlatStyle != FlatStyle.Flat)
@@ -374,8 +387,10 @@ namespace IkeV2Manager.Client
                     description = "Туннель не установлен. Попытка повторится.";
                     break;
                 case "access_closed":
-                    heading = "Доступ не разрешён";
-                    description = "Доступ для этого устройства выключен администратором.";
+                    bool idle = current.Warnings != null && current.Warnings.Contains("idle");
+                    heading = idle ? "Сервисы не назначены" : "Доступ не разрешён";
+                    description = idle ? "Администратор не назначил этому устройству сервисов. Сайты открываются как обычно." :
+                        "Доступ для этого устройства выключен администратором.";
                     break;
                 case "error":
                     heading = "Ошибка службы";

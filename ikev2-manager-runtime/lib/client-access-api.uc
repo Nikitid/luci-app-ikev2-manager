@@ -89,6 +89,13 @@ export function client_policy_response(env, directory, seen_directory) {
 					selected = device;
 			}
 		}
+		if (matches == 1 && selected == null) {
+			// Known and not switched off, only left without a single service:
+			// the device is told so, and lets go of the names it held.
+			let known = filter(committed.publication?.devices ?? [], device => same_hash(token_hash, device.token_sha256))[0];
+			if (known != null && known.enabled === true && type(known.selected_services) == 'array' && !length(known.selected_services))
+				return reply(409, 'no_services');
+		}
 		if (matches != 1 || selected == null)
 			return reply(401, 'unauthorized');
 		if (readiness) {

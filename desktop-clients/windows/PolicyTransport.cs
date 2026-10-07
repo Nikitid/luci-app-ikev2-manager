@@ -152,6 +152,9 @@ namespace IkeV2Manager.Client
                 {
                     if (response != null && response.StatusCode == HttpStatusCode.Unauthorized)
                         throw new PolicyFetchException("device_access_revoked");
+                    // Known to the router and not switched off, only without a service.
+                    if (response != null && response.StatusCode == HttpStatusCode.Conflict)
+                        throw new PolicyFetchException("device_no_services");
                 }
                 throw new PolicyFetchException("policy_connection_failed");
             }
@@ -195,6 +198,9 @@ namespace IkeV2Manager.Client
                 {
                     if (response != null && response.StatusCode == HttpStatusCode.Unauthorized)
                         throw new PolicyFetchException("device_access_revoked");
+                    // Known to the router and not switched off, only without a service.
+                    if (response != null && response.StatusCode == HttpStatusCode.Conflict)
+                        throw new PolicyFetchException("device_no_services");
                     if (response != null) throw new PolicyFetchException("path_unavailable");
                 }
                 throw new PolicyFetchException("path_connection_failed");

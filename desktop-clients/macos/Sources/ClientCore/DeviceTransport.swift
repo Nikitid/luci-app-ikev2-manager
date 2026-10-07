@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 public enum DeviceError: String, Error, Sendable {
-    case invalidEndpoint, connectionFailed, accessRejected, httpRejected, invalidResponse
+    case invalidEndpoint, connectionFailed, accessRejected, noServices, httpRejected, invalidResponse
     case pathUnavailable, differentPolicy
 }
 
@@ -190,6 +190,8 @@ public struct DeviceTransport: DeviceRequests {
         let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/policy"), method: "GET",
             headers: about.merging(["Authorization": "Bearer " + deviceToken]) { _, own in own }, limit: 1_048_576, timeout: 10)
         if answer.status == 401 { throw DeviceError.accessRejected }
+        // Known to the router and not switched off, only without a service.
+        if answer.status == 409 { throw DeviceError.noServices }
         guard answer.status == 200 else { throw DeviceError.httpRejected }
         return answer.data
     }

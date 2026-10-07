@@ -59,6 +59,7 @@ namespace IkeV2Manager.Client
         private bool namesApplied = true;
         private DateTime nextReadinessAt;
         private bool appliedFull;
+        private bool noServices;
         private string release = "";
         private string[] warnings = new string[0];
         // Why the last registration step did not go through. It used to be
@@ -190,7 +191,7 @@ namespace IkeV2Manager.Client
                     if (assigned != null && assigned.Full) warnings = warnings.Concat(new[] { "full" }).ToArray();
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
                     else EnsureProfile(next);
-                    synchronizationFailed = false; accessClosed = false;
+                    synchronizationFailed = false; accessClosed = false; noServices = false;
                     AdvanceConnection();
                     Publish(connectionState);
                 }
@@ -199,7 +200,11 @@ namespace IkeV2Manager.Client
                     synchronizationFailed = true;
                     store.RecordFault("policy", refusal);
                     var named = refusal as PolicyFetchException;
-                    accessClosed = named != null && named.Code == "device_access_revoked";
+                    // Without a single service there is nothing to hold names for:
+                    // they are let go, and come back with the first service.
+                    noServices = named != null && named.Code == "device_no_services";
+                    accessClosed = noServices || (named != null && named.Code == "device_access_revoked");
+                    warnings = noServices ? new[] { "idle" } : warnings.Where(w => w != "idle").ToArray();
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after synchronization failure"); }
                     try { Publish(accessClosed ? "access_closed" : "error"); } catch { }
@@ -266,7 +271,7 @@ namespace IkeV2Manager.Client
         // Names point into the tunnel always, unless the administrator let
         // this device's services go the ordinary way while the tunnel is
         // down: then they point there only while access is confirmed.
-        private bool WantNames() { return assigned == null || assigned.Block || connectionState == "protected"; }
+        private bool WantNames() { return !noServices && (assigned == null || assigned.Block || connectionState == "protected"); }
 
         private void SyncNames(ClientPolicy policy)
         {

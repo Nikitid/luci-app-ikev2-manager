@@ -211,9 +211,10 @@ function serviceDialog(record, current, generation, reload, pageResult, unsaved)
  var udp = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('UDP ports'), 'value': current.transports.filter(function(t) { return t.protocol === 'udp'; }).map(function(t) { return t.ports.join(' '); }).join(' ') });
  var form = E('div', {}, [
   common.toggleRow(published, _('Available to remote clients'), _('Disabling removes this service from all device assignments.')),
-  E('div', { 'class': 'ikev2-form-grid' }, [
-   E('div', {}, [ common.fieldLabel(_('TCP ports')), tcp ]),
-   E('div', {}, [ common.fieldLabel(_('UDP ports')), udp ])
+  E('p', { 'class': 'ikev2-note', 'style': 'margin:1rem 0 .8rem' }, [ _('Which ports of this service the devices may reach through the tunnel. Websites and most applications need TCP 443 only; leave UDP empty unless the service needs it (443 for QUIC, 53 for DNS, voice and games have their own).') ]),
+  E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
+   common.fieldLabel(_('TCP ports'), _('Numbers separated by spaces.')), tcp,
+   common.fieldLabel(_('UDP ports'), _('Usually empty.')), udp
   ])
  ]);
  editDialog(record.label, form, function() {
@@ -751,7 +752,7 @@ return view.extend({
  render: function(loaded) {
   var data = loaded[0], profiles = loaded[1];
   var state, records = [], labels = {}, services = E('div', {}), devices = E('div', {});
-  var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite;
+  var result = common.inlineResult(), serviceResult = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite;
   function reload() { return readState().then(setData); }
   function setData(next) {
    lastData = next;
@@ -811,9 +812,9 @@ return view.extend({
      E('td', { 'class': 'td' }, [ String(service.domain_count) ]),
      E('td', { 'class': 'td' }, [ _('%d of %d').format(holders, state.devices.length) ]),
      E('td', { 'class': 'td' }, [ E('span', { 'class': 'ikev2-user-actions ikev2-row-signs' }, [
-      signButton('people', _('Who has this service'), 'cbi-button-action', function() { serviceHoldersDialog(record, state, reload, result); }),
-      signButton('settings', _('Ports'), 'cbi-button-edit ikev2-settle', function() { serviceDialog(record, service, state.generation, reload, result); }),
-      trashButton(_('Withdraw the service'), function() { withdrawDialog(record, service, state, reload, result); })
+      signButton('people', _('Who has this service'), 'cbi-button-action', function() { serviceHoldersDialog(record, state, reload, serviceResult); }),
+      signButton('settings', _('Ports'), 'cbi-button-edit ikev2-settle', function() { serviceDialog(record, service, state.generation, reload, serviceResult); }),
+      trashButton(_('Withdraw the service'), function() { withdrawDialog(record, service, state, reload, serviceResult); })
      ]) ])
     ]);
    });
@@ -823,7 +824,7 @@ return view.extend({
    }));
    var publish = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() {
     var record = others.filter(function(item) { return item.id === pick.value; })[0] || others[0];
-    if (record) serviceDialog(record, Object.assign({ transports: [ { protocol: 'tcp', ports: [ 443 ] } ] }, current(record) || {}, { client_access: true }), state.generation, reload, result, true);
+    if (record) serviceDialog(record, Object.assign({ transports: [ { protocol: 'tcp', ports: [ 443 ] } ] }, current(record) || {}, { client_access: true }), state.generation, reload, serviceResult, true);
    } }, [ _('Publish...') ]);
    services.replaceChildren(
     shown.length ? E('table', { 'class': 'table cbi-section-table' }, [
@@ -919,7 +920,7 @@ return view.extend({
    distribute(); applySearch();
   }
   refresh = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() {
-   return common.runJob({ button: refresh, result: result,
+   return common.runJob({ button: refresh, result: serviceResult,
     busy: _('Updating service lists...'), success: _('Service lists updated.'), failure: _('Could not update service lists.'),
     startPath: helper, startArgs: [ 'client-admin-refresh' ], statusPath: helper, statusArgs: [ 'client-admin-status' ],
     timeout: 330000, onSuccess: reload });
@@ -928,6 +929,7 @@ return view.extend({
   // The VPN profiles panel brings its list, the Windows application and
   // diagnostics. The list stands with the people; a profile that belongs to
   // a person is shown in that person's card.
+  var windowsApp = E('span', { 'style': 'display:inline-flex;align-items:center;gap:.6rem' });
   var vpnMain = E('div', {}), vpnRest = E('div', {}), summary = E('div', {}), journal = E('div', {});
   var search = E('input', { 'type': 'search', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
   var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
@@ -1020,7 +1022,17 @@ return view.extend({
     // place the panel draws into, out of sight; the application and the
     // diagnostics go to the fold at the end.
     vpnMain.appendChild(parts[1]); vpnMain.style.display = 'none';
-    vpnRest.appendChild(parts[0]); vpnRest.appendChild(parts[2]);
+    vpnRest.appendChild(parts[2]);
+    // The Windows application for ordinary profiles: its button and its
+    // outcome stand beside "Add person"; the banner around them is not shown.
+    var download = parts[0].querySelector ? parts[0].querySelector('button') : null;
+    if (download) {
+     var word = download.querySelector('span');
+     if (word) word.textContent = _('Windows application');
+     download.setAttribute('title', _('For ordinary VPN profiles on Windows: download once, then open a profile in it.'));
+     Array.prototype.slice.call(parts[0].childNodes).forEach(function(node) { if (node !== download && node.nodeType === 1 && !node.getAttribute('class')) windowsApp.appendChild(node); });
+     windowsApp.appendChild(download);
+    }
    } else vpnMain.appendChild(panel);
    if (typeof MutationObserver !== 'undefined')
     new MutationObserver(function(changes) {
@@ -1036,13 +1048,14 @@ return view.extend({
     common.section(_('People'), _('Waypoint devices on Windows and macOS reach selected services; VPN profiles are for phones and other devices.'),
      E('div', {}, [ E('div', { 'class': 'ikev2-people-bar' }, [ summary, E('span', { 'style': 'display:inline-flex;align-items:center;gap:.4rem;min-width:0;flex:0 1 24rem' }, [ E('div', { 'class': 'ikev2-search-box', 'style': 'flex:1 1 auto' }, [ magnifier(), search ]),
        vpnUsers.disconnectAll ? signButton('disconnectAll', _('Disconnect all'), 'cbi-button-negative', function(ev) { return vpnUsers.disconnectAll(ev.currentTarget); }) : '' ]) ]),
-      devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
+      devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), E('span', { 'style': 'display:inline-flex;align-items:center;gap:.6rem;flex-wrap:wrap;justify-content:flex-end' }, [ windowsApp, invite ])),
     vpnMain,
-    common.section(_('Services for Waypoint'), _('Lists are shared with Policy Routing.'), services, refresh),
+    common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks.'),
+     E('div', {}, [ services, E('div', { 'class': 'ikev2-actions end' }, [ serviceResult.node ]) ]), refresh),
     fold(_('Settings'), setup), fold(_('Mail for invitation links'), mailBox),
     fold(_('Journal'), common.section(_('Journal'), _('The last actions with remote clients.'), journal))
    ), managed),
-   fold(_('VPN profiles: Windows application and diagnostics'), vpnRest)
+   fold(_('Inbound connection diagnostics'), vpnRest)
   ]) ]);
  },
  handleSaveApply: null, handleSave: null, handleReset: null
