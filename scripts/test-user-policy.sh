@@ -979,6 +979,65 @@ grep -Fq 'failed 2 times in a row' "$tmp/failed-watch.stderr" || {
 	exit 1
 }
 
+# A watcher whose event source ended on a signal gets no message from it. It
+# must notice by itself and exit, so procd replaces it; it used to wait for
+# ever on its own pipe, alive and doing nothing, while clients stayed closed.
+# And while it runs, the periodic pass comes from its own clock: here nothing
+# ever writes an event, yet the session state keeps being refreshed.
+mkfifo "$tmp/event-silent"
+exec 8<>"$tmp/event-silent"
+# Every reconciliation reads the session snapshot once: count the reads.
+cat >"$tmp/bin/swanmon-count" <<EOF
+#!/bin/sh
+printf 'pass\\n' >>"$tmp/silent.passes"
+exec "$tmp/bin/swanmon" "\$@"
+EOF
+chmod +x "$tmp/bin/swanmon-count"
+PATH="$tmp/bin:$PATH" \
+	IKEV2_UCI_BIN="$tmp/bin/uci" \
+	IKEV2_UCI_CONFIG_DIR="$tmp/root/etc/config" \
+	IKEV2_USERS_DB="$tmp/root/etc/ikev2-manager/users.db" \
+	IKEV2_NFT="$tmp/bin/nft-healthy" \
+	IKEV2_USER_POLICY_SIGNATURE="$tmp/silent.signature" \
+	IKEV2_USER_POLICY_SESSIONS="$tmp/silent.sessions" \
+	IKEV2_SWANMON="$tmp/bin/swanmon-count" \
+	IKEV2_RULES_OUT="$tmp/rules-silent.nft" \
+	IKEV2_USER_POLICY_EVENT_SOURCE="$tmp/bin/event-source" \
+	IKEV2_USER_POLICY_REFRESH_INTERVAL=1 \
+	TEST_EVENT_FIFO="$tmp/event-silent" \
+	sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch \
+		>"$tmp/silent-watch.stdout" 2>"$tmp/silent-watch.stderr" &
+silent_pid=$!
+sleep 3
+kill -0 "$silent_pid" 2>/dev/null || { printf '%s\n' 'quiet inbound watcher did not stay up' >&2; exit 1; }
+passes_before="$(wc -l <"$tmp/silent.passes" 2>/dev/null || echo 0)"
+sleep 4
+passes_after="$(wc -l <"$tmp/silent.passes" 2>/dev/null || echo 0)"
+[ "$passes_after" -ge "$((passes_before + 2))" ] || {
+	kill "$silent_pid" 2>/dev/null || true
+	printf '%s\n' 'inbound watcher made no periodic pass without events' >&2
+	exit 1
+}
+source_wrapper="$(pgrep -P "$silent_pid" | head -n 1)"
+[ -n "$source_wrapper" ] || { kill "$silent_pid" 2>/dev/null || true; printf '%s\n' 'inbound watcher has no event source' >&2; exit 1; }
+kill -TERM "$source_wrapper"
+attempt=0
+while kill -0 "$silent_pid" 2>/dev/null && [ "$attempt" -lt 8 ]; do
+	attempt=$((attempt + 1))
+	sleep 1
+done
+if kill -0 "$silent_pid" 2>/dev/null; then
+	kill "$silent_pid" 2>/dev/null || true
+	wait "$silent_pid" 2>/dev/null || true
+	printf '%s\n' 'inbound watcher outlived an event source that ended without a word' >&2
+	exit 1
+fi
+if wait "$silent_pid" 2>/dev/null; then
+	printf '%s\n' 'inbound watcher without an event source returned success' >&2
+	exit 1
+fi
+exec 8>&- 8<&-
+
 # That the watcher checks and repairs the inbound user policy is checked on
 # the running watcher by scripts/test-health-loop.sh.
 

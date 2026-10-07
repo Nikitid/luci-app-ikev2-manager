@@ -666,14 +666,8 @@ watch_runtime() {
 	raw="${TMPDIR:-/tmp}/ikev2-user-policy-watch.$$"
 	events="${raw}.events"
 	monitor_pid=''
-	refresh_pid=''
 	sync_failures=0
 	cleanup_watcher() {
-		if [ -n "$refresh_pid" ]; then
-			kill "$refresh_pid" 2>/dev/null || true
-			wait "$refresh_pid" 2>/dev/null || true
-			refresh_pid=''
-		fi
 		if [ -n "$monitor_pid" ]; then
 			kill "$monitor_pid" 2>/dev/null || true
 			wait "$monitor_pid" 2>/dev/null || true
@@ -711,31 +705,46 @@ watch_runtime() {
 		printf 'ikev2-monitor-exit=%s\n' "$rc"
 	) >"$events" 2>/dev/null &
 	monitor_pid=$!
-	(
-		sleeper_pid=''
-		stop_refresh() {
-			[ -z "$sleeper_pid" ] || kill "$sleeper_pid" 2>/dev/null || true
-			[ -z "$sleeper_pid" ] || wait "$sleeper_pid" 2>/dev/null || true
-			exit 0
-		}
-		trap stop_refresh INT TERM
-		while true; do
-			sleep "$refresh_interval" &
-			sleeper_pid=$!
-			wait "$sleeper_pid"
-			sleeper_pid=''
-			printf '%s\n' ikev2-refresh
-		done
-	) >"$events" 2>/dev/null &
-	refresh_pid=$!
 	# Close the registration gap: an SA established before VICI subscribed is
 	# covered by this second snapshot, while an event already queued in the FIFO
 	# merely causes one harmless additional reconciliation.
 	sleep 1
 	sync_once || true
+	# This loop depends on nothing but itself. A helper that feeds a timer into
+	# the pipe can die without a word - one that ends on a signal leaves no
+	# message - and the loop would then wait for ever on a pipe it holds open
+	# with its own descriptor: alive for procd, dead for every client. So the
+	# wait is bounded here, the periodic reconciliation is driven by the clock,
+	# and each time the wait runs out the event source is checked for life.
+	last_sync="$(date +%s)"
+	reconcile() {
+		last_sync="$(date +%s)"
+		if sync_once; then
+			sync_failures=0
+		else
+			sync_failures=$((sync_failures + 1))
+			if [ "$sync_failures" -ge "$sync_failure_limit" ]; then
+				printf 'Inbound user-policy reconciliation failed %s times in a row\n' \
+					"$sync_failures" >&2
+				return 1
+			fi
+		fi
+	}
 	while true; do
-		IFS= read -r event <&3 || return 1
+		event=''
+		if ! IFS= read -r -t "$refresh_interval" event <&3; then
+			kill -0 "$monitor_pid" 2>/dev/null || {
+				printf '%s\n' 'Inbound VICI monitor stopped' >&2
+				return 1
+			}
+		fi
+		# Events that keep arriving must not postpone the periodic pass: it
+		# refreshes timeout-backed set elements and recovers a lost event.
+		if [ "$(($(date +%s) - last_sync))" -ge "$refresh_interval" ]; then
+			reconcile || return 1
+		fi
 		case "$event" in
+			'') ;;
 			ikev2-monitor-exit=*)
 				printf '%s\n' 'Inbound VICI monitor stopped' >&2
 				return 1
@@ -747,19 +756,8 @@ watch_runtime() {
 				read -r health_pid 2>/dev/null <"$health_lock/pid" || :
 				case "$health_pid" in '' | *[!0-9]*) ;; *) kill -USR1 "$health_pid" 2>/dev/null || : ;; esac
 				;;
-			ikev2-refresh|'child-updown event {'*'ikev2-in {'*)
-				# The timer is the recovery path for a lost event and refreshes
-				# timeout-backed set elements without polling every two seconds.
-				if sync_once; then
-					sync_failures=0
-				else
-					sync_failures=$((sync_failures + 1))
-					if [ "$sync_failures" -ge "$sync_failure_limit" ]; then
-						printf 'Inbound user-policy reconciliation failed %s times in a row\n' \
-							"$sync_failures" >&2
-						return 1
-					fi
-				fi
+			'child-updown event {'*'ikev2-in {'*|'child-updown event {'*'ikev2-in-managed {'*)
+				reconcile || return 1
 				;;
 		esac
 	done

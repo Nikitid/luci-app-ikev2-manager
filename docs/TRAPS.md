@@ -476,3 +476,21 @@ each hook where the mark is read. `client-access-authorization.uc` has an
 input chain for this, and `scripts/openwrt/client-path.sh` installs a foreign
 mark rewrite to keep it honest. A stand without other packages' rules cannot
 find this class of fault; one run on a real router did.
+
+## A loop that waits on its own pipe outlives its helpers
+
+The inbound policy watcher read events from a FIFO that it held open itself,
+and two helpers wrote to it: the VICI monitor wrapper and a timer. A helper
+that ends on a signal exits through its trap and writes nothing. With both
+gone the watcher blocked in `read` for ever - no end of file, because its own
+descriptor kept the pipe open. procd saw a live process, the health check saw
+a stale session file, and clients stayed closed until the service was
+restarted by hand.
+
+What made this expensive: the process was there, its PID unchanged for days,
+and nothing was logged. It looked like a lost event, not a dead producer.
+
+The rule: a loop must not depend on a helper to wake it. The watcher now waits
+with `read -t`, runs its periodic pass by the clock and checks the event source
+for life every time the wait runs out. `scripts/test-user-policy.sh` ends the
+source with a signal and requires the watcher to exit.
