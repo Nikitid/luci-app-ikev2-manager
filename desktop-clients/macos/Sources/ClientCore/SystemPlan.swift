@@ -83,7 +83,9 @@ public enum SystemPlan {
     /// A configuration profile with one IKEv2 service for this device. The
     /// device names itself in the managed domain, so the server offers it the
     /// virtual subnet alone and the system routes nothing else into the tunnel.
-    public static func vpnProfile(policy: ClientPolicy, password: String, identifier: UUID, serviceIdentifier: UUID) throws -> Data {
+    /// `full`: the device sends everything into the tunnel. It then names
+    /// itself plainly and the server offers it what any VPN user gets.
+    public static func vpnProfile(policy: ClientPolicy, password: String, identifier: UUID, serviceIdentifier: UUID, full: Bool = false) throws -> Data {
         guard password.range(of: #"\A[a-f0-9]{64}\z"#, options: .regularExpression) != nil
         else { throw PolicyError.invalidPolicy }
         let proposal = """
@@ -122,7 +124,7 @@ public enum SystemPlan {
                     <dict>
                         <key>RemoteAddress</key><string>\(escape(policy.serverAddress))</string>
                         <key>RemoteIdentifier</key><string>\(escape(policy.remoteID))</string>
-                        <key>LocalIdentifier</key><string>\(policy.id)@\(managedDomain)</string>
+                        <key>LocalIdentifier</key><string>\(full ? policy.id : policy.id + "@" + managedDomain)</string>
                         <key>AuthenticationMethod</key><string>None</string>
                         <key>ExtendedAuthEnabled</key><integer>1</integer>
                         <key>AuthName</key><string>\(policy.id)</string>

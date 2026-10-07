@@ -31,6 +31,8 @@ public struct DeviceServices: Sendable, Equatable {
     /// Whether services stay blocked while the tunnel is down. That is the
     /// rule; a router that says nothing about it means the rule.
     public var block = true
+    /// Whether everything goes into the tunnel, or the services alone.
+    public var full = false
     public init(selected: [String], available: [String], domains: Int) { self.selected = selected; self.available = available; self.domains = domains }
 }
 
@@ -241,6 +243,10 @@ public struct DeviceTransport: DeviceRequests {
         }
         var services = DeviceServices(selected: lists[0], available: lists[1], domains: domains)
         services.block = (stated as? Bool) ?? true
+        if let mode = root["mode"] {
+            guard let name = mode as? String, name == "services" || name == "full" else { throw DeviceError.invalidResponse }
+            services.full = name == "full"
+        }
         return services
     }
 

@@ -21,7 +21,9 @@ namespace IkeV2Manager.Client
                 @"Microsoft\Network\Connections\Pbk\rasphone.pbk");
         }
 
-        public static ManagedVpnProfile Ensure(ClientPolicy policy, Guid owner, Guid pinnedEntry)
+        // `full`: the system sends everything into the tunnel; otherwise only
+        // the routes of the selected services.
+        public static ManagedVpnProfile Ensure(ClientPolicy policy, Guid owner, Guid pinnedEntry, bool full = false)
         {
             if (policy == null || owner == Guid.Empty || policy.ServerAddress != policy.RemoteId)
                 throw new ArgumentException("Windows profile requires an identical server hostname and remote identity");
@@ -29,7 +31,7 @@ namespace IkeV2Manager.Client
             string request = new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
                 { "operation", "ensure" },
                 { "owner", owner.ToString("N") }, { "entry_id", pinnedEntry == Guid.Empty ? null : pinnedEntry.ToString("D") },
-                { "server", policy.ServerAddress }, { "addresses", policy.Resources.Select(r => r.Address)
+                { "server", policy.ServerAddress }, { "full", full }, { "addresses", policy.Resources.Select(r => r.Address)
                     .Concat(new[] { PolicyHistory.NamesResolver(policy.VirtualSubnet), PolicyHistory.NamesRange(policy.VirtualSubnet) }).ToArray() }
             });
             return new ManagedVpnProfile(owner, Invoke(request, pinnedEntry));

@@ -5159,3 +5159,24 @@ msgstr "Устройств Waypoint: %d, в сети: %d"
 
 msgid "Search"
 msgstr "Поиск"
+
+msgid "What goes into the tunnel"
+msgstr "Что идёт в туннель"
+
+msgid "The selected services only"
+msgstr "Только выбранные сервисы"
+
+msgid "Everything, like an ordinary VPN"
+msgstr "Весь трафик, как в обычном VPN"
+
+msgid "Everything: the device gets the rights of a VPN user on the inbound server."
+msgstr "Весь трафик: устройство получает права VPN-пользователя на входящем сервере."
+
+msgid "Full tunnel"
+msgstr "Полный туннель"
+
+msgid "Full tunnel switched on"
+msgstr "Полный туннель включён"
+
+msgid "Full tunnel switched off"
+msgstr "Полный туннель выключен"

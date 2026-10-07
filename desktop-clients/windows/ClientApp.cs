@@ -360,7 +360,7 @@ namespace IkeV2Manager.Client
                     break;
                 case "protected":
                     heading = "Доступ открыт";
-                    description = "Сервисы идут через туннель.";
+                    description = current.Warnings != null && current.Warnings.Contains("full") ? "Весь трафик идёт через туннель." : "Сервисы идут через туннель.";
                     break;
                 case "tunnel_connected":
                     heading = "Проверка доступа";

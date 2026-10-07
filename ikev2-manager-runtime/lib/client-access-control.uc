@@ -1,6 +1,6 @@
 // Local administrative entry point. The device HTTP API is read-only.
 'use strict';
-import { stdin, lstat, mkdir, chmod, popen } from 'fs';
+import { stdin, lstat, mkdir, chmod, popen, open } from 'fs';
 import { publish_client_state, read_client_state } from './client-access-store.uc';
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
@@ -97,8 +97,25 @@ try {
   if (request.operation == 'assign-device' && 'owner' in request.payload)
    write_client_label(directory, request.payload.id, request.payload.owner, request.payload.note);
   if (request.operation == 'assign-devices')
-   for (let id in request.payload.ids) write_client_label(directory, id, request.payload.owner, request.payload.note,
-    { email: request.payload.email, open: 'block_without_tunnel' in request.payload ? !request.payload.block_without_tunnel : null });
+   for (let id in request.payload.ids) {
+    let was = read_client_labels(directory)[id]?.full ?? false, full = 'mode' in request.payload ? request.payload.mode == 'full' : was;
+    write_client_label(directory, id, request.payload.owner, request.payload.note,
+     { email: request.payload.email, open: 'block_without_tunnel' in request.payload ? !request.payload.block_without_tunnel : null, full: full });
+    // A device that sends everything into the tunnel is let in as the
+    // server lets any VPN user in; one that sends its services alone has no
+    // other rights. The same record the VPN profiles keep for an account.
+    if (full != was) {
+     let nonce = 'mode' + time() + substr(id, 0, 8) + sprintf('%d', length(id));
+     nonce = replace(nonce, /[^A-Za-z0-9-]/g, '');
+     let input = open('/var/run/ikev2-manager-user-' + nonce + '.in', 'wxe', 0600);
+     if (input == null) die('unable to stage the account rights');
+     input.write('policy\n' + id + '\n\n' + (full ? 'inherit\ninherit\ninherit\ninherit' : 'deny\ndeny\ndeny\nexclude') + '\n\n\n');
+     input.close();
+     let applied = popen('/usr/libexec/ikev2-manager user-secret-set ' + nonce + ' >/dev/null 2>&1', 'r');
+     if (applied == null || applied.close() != 0) die('unable to set the account rights');
+     record_client_event(full ? 'mode-full' : 'mode-services', id);
+    }
+   }
   if (request.operation == 'remove-device') {
    // The account goes with the device; its sessions end with the account.
    // A device registered before this journal existed has no record to clean.

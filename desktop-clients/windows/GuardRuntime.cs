@@ -58,6 +58,7 @@ namespace IkeV2Manager.Client
         private DeviceServices assigned;
         private bool namesApplied = true;
         private DateTime nextReadinessAt;
+        private bool appliedFull;
         private string release = "";
         private string[] warnings = new string[0];
         // Why the last registration step did not go through. It used to be
@@ -186,6 +187,7 @@ namespace IkeV2Manager.Client
                     catch (PolicyFetchException) { }
                     warnings = Observe();
                     if (assigned != null && !assigned.Block) warnings = warnings.Concat(new[] { "open" }).ToArray();
+                    if (assigned != null && assigned.Full) warnings = warnings.Concat(new[] { "full" }).ToArray();
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
                     else EnsureProfile(next);
                     synchronizationFailed = false; accessClosed = false;
@@ -254,7 +256,10 @@ namespace IkeV2Manager.Client
             if (guard == null) throw new InvalidOperationException("Guard required before VPN provisioning");
             ClosePermission(); guard.VerifyProtection();
             SyncNames(policy);
-            var profile = ManagedVpnProfile.Ensure(policy, store.LoadPlan().Owner, store.LoadVpnEntry());
+            bool full = assigned != null && assigned.Full;
+            var profile = ManagedVpnProfile.Ensure(policy, store.LoadPlan().Owner, store.LoadVpnEntry(), full);
+            // A changed mode takes effect on a new connection.
+            if (full != appliedFull) { appliedFull = full; CloseConnection(); retryConnectionAt = DateTime.MinValue; }
             store.SaveVpnEntry(profile.EntryId);
         }
 

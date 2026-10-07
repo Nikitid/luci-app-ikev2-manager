@@ -85,7 +85,14 @@ try {
             -EncryptionMethod AES256 -IntegrityCheckMethod SHA256 -DHGroup Group14 -PfsGroup PFS2048 -Force | Out-Null
         $profile = Get-VpnConnection -Name $name -AllUserConnection
     }
-    if ($profile.ServerAddress -cne $server -or $profile.TunnelType -ne 'Ikev2' -or -not $profile.SplitTunneling -or
+    # Everything into the tunnel, or the selected routes alone: the entry is
+    # brought to what the router said, then checked against it.
+    $full = $inputDocument.full -eq $true
+    if ([bool]$profile.SplitTunneling -eq $full) {
+        Set-VpnConnection -Name $name -AllUserConnection -SplitTunneling (-not $full) -Force | Out-Null
+        $profile = Get-VpnConnection -Name $name -AllUserConnection
+    }
+    if ($profile.ServerAddress -cne $server -or $profile.TunnelType -ne 'Ikev2' -or ([bool]$profile.SplitTunneling -eq $full) -or
         $profile.EncryptionLevel -ne 'Custom' -or $profile.UseWinlogonCredential -or $profile.RememberCredential -or
         @($profile.AuthenticationMethod).Count -ne 1 -or $profile.AuthenticationMethod[0] -ne 'Eap' -or
         ($inputDocument.entry_id -and [Guid]$profile.Guid -ne [Guid]::Parse($inputDocument.entry_id))) { throw 'Owned profile changed' }

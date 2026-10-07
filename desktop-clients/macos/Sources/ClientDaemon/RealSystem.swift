@@ -118,12 +118,14 @@ struct RealSystem: SystemActions {
               interface.range(of: #"\Aipsec[0-9]{1,4}\z"#, options: .regularExpression) != nil else { return nil }
         for address in addresses.dropFirst() where try routeInterface(address) != interface { return nil }
         // Everything else must keep the route it had.
-        if try routeInterface("default") == interface { throw TunnelFault.takesEverything }
+        let everything = try routeInterface("default") == interface
         let lines = try Tool.run("/sbin/ifconfig", [interface]).output.split(separator: "\n")
         guard let line = lines.first(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("inet ") }) else { return nil }
         let fields = line.split(separator: " ")
         guard fields.count >= 2 else { return nil }
-        return TunnelObservation(interface: interface, address: String(fields[1]))
+        var seen = TunnelObservation(interface: interface, address: String(fields[1]))
+        seen.everything = everything
+        return seen
     }
 }
 

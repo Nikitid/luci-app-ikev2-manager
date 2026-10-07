@@ -41,10 +41,15 @@ function device_services(publication, device, directory) {
 	let by_id = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 	// Whether the device keeps its services blocked while the tunnel is down.
 	// That is the rule; the administrator may lift it for a person.
-	let block = true;
-	try { block = !(read_client_labels(directory)[device.id]?.open ?? false); } catch (error) { }
+	// And whether it sends everything into the tunnel or its services alone.
+	let block = true, mode = 'services';
+	try {
+		let label = read_client_labels(directory)[device.id];
+		block = !(label?.open ?? false);
+		if (label?.full === true) mode = 'full';
+	} catch (error) { }
 	return { version: 1, id: device.id, revision: device.policy.revision,
-		selected: sort(selected, by_id), available: sort(available, by_id), block_without_tunnel: block };
+		selected: sort(selected, by_id), available: sort(available, by_id), block_without_tunnel: block, mode: mode };
 }
 
 export function client_policy_response(env, directory, seen_directory) {

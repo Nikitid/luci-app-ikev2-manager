@@ -164,4 +164,16 @@ printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payl
 request 200 -H "Authorization: Bearer $first" https://localhost:18443/client/v1/services
 [ "$(jsonfilter -i "$work/body" -e '@.block_without_tunnel')" = false ]
 [ "$(ucode "$control" inspect | jsonfilter -e '@.devices[@.id="family-2"].email')" = one@example.com ]
-printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a closed place, a shared decision, background credentials, protected storage, opening on registration, clock and expiry PASS'
+# Everything into the tunnel: the device is told, and its account gets the
+# rights of a VPN user; back to services alone, it has none again.
+rights() { uci -q show ikev2-manager | sed -n "s/^ikev2-manager\.\(user_[a-f0-9]*\)\.username='family-1'$/\1/p" | while read -r section; do uci -q get "ikev2-manager.$section.internet_access"; done; }
+[ "$(rights)" = deny ]
+printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":["%s"],"owner":"One Person","note":"both","mode":"full"}}' \
+	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
+request 200 -H "Authorization: Bearer $first" https://localhost:18443/client/v1/services
+[ "$(jsonfilter -i "$work/body" -e '@.mode')" = full ]
+[ "$(rights)" = inherit ]
+printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":["%s"],"owner":"One Person","note":"both","mode":"services"}}' \
+	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
+[ "$(rights)" = deny ]
+printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a closed place, a shared decision, the full-tunnel mode, background credentials, protected storage, opening on registration, clock and expiry PASS'

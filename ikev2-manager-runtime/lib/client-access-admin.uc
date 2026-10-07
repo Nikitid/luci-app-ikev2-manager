@@ -59,6 +59,11 @@ export function client_admin_catalog_ids(state, request) {
    push(named, 'block_without_tunnel');
    if (type(request.payload.block_without_tunnel) != 'bool') die('invalid device assignment');
   }
+  // Whether the device sends only its services into the tunnel or everything.
+  if ('mode' in request.payload) {
+   push(named, 'mode');
+   if (index([ 'services', 'full' ], request.payload.mode) < 0) die('invalid device assignment');
+  }
   fields(request.payload, named);
   if (type(request.payload.ids) != 'array' || !length(request.payload.ids) || length(request.payload.ids) > 16) die('invalid device list');
   let seen = {};

@@ -92,6 +92,7 @@ async function main() {
  assert.strictEqual(written[1].body.expected_generation,17);
  assert.strictEqual(written[1].body.operation,'assign-devices'); assert.deepStrictEqual(written[1].body.payload.ids,['alice']); assert.strictEqual(written[1].body.payload.enabled,false);
  assert.strictEqual(written[1].body.payload.owner,'Alice Example'); assert.strictEqual(written[1].body.payload.note,'accounting');
+ assert.strictEqual(written[1].body.payload.mode,'services', 'the mode is sent with the decision');
  failWrite = true; await click(button(modal,'Save'));
  assert(text(modal).includes('write rejected')); assert.strictEqual(jobs.length,3);
  failWrite = false;

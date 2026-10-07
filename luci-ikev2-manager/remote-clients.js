@@ -291,6 +291,7 @@ function personCard(person, labels, actions) {
      E('div', { 'class': 'ikev2-session-meta' }, [ E('span', {}, [ free ? _('Devices: %d, free places: %d').format(person.devices.length - free, free) : _('Devices: %d').format(person.devices.length) ]) ].concat(
       first.note ? [ E('span', {}, [ first.note ]) ] : [],
       services.length ? services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }) : person.devices.length ? [ common.pill(_('No services'), 'warn') ] : [],
+      first.mode === 'full' ? [ common.pill(_('Full tunnel'), 'info') ] : [],
       first.block_without_tunnel === false ? [ common.pill(_('Not blocked without the tunnel'), 'warn') ] : []))
     ])
    ]),
@@ -411,6 +412,10 @@ function personDialog(person, state, labels, reload, pageResult, profileNames) {
  var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Access enabled') });
  var email = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), 'value': device.email || '' });
  var block = E('input', { 'type': 'checkbox', 'checked': device.block_without_tunnel === false ? null : '', 'aria-label': _('Block services without the tunnel') });
+ var mode = E('select', { 'class': 'cbi-input-select', 'aria-label': _('What goes into the tunnel') }, [
+  E('option', { 'value': 'services', 'selected': device.mode === 'full' ? null : '' }, [ _('The selected services only') ]),
+  E('option', { 'value': 'full', 'selected': device.mode === 'full' ? '' : null }, [ _('Everything, like an ordinary VPN') ])
+ ]);
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
   return { id: service.id, input: E('input', { 'type': 'checkbox', 'checked': device.selected_services.indexOf(service.id) >= 0 ? '' : null, 'aria-label': labels[service.id] || service.id }) };
  });
@@ -418,7 +423,8 @@ function personDialog(person, state, labels, reload, pageResult, profileNames) {
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
    common.fieldLabel(_('Who uses it')), owner,
    common.fieldLabel(_('E-mail')), email,
-   common.fieldLabel(_('Note')), note
+   common.fieldLabel(_('Note')), note,
+   common.fieldLabel(_('What goes into the tunnel'), _('Everything: the device gets the rights of a VPN user on the inbound server.')), mode
   ]),
   E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
    person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null),
@@ -431,7 +437,7 @@ function personDialog(person, state, labels, reload, pageResult, profileNames) {
    payload: { ids: person.devices.filter(function(item) { return !item.waiting; }).map(function(item) { return item.id; }), enabled: enabled.checked,
     selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }),
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')),
-    email: mailText(email.value), block_without_tunnel: block.checked } };
+    email: mailText(email.value), block_without_tunnel: block.checked, mode: mode.value === 'full' ? 'full' : 'services' } };
  }, reload, pageResult, false, profiles.length ? function(button, result) {
   // The profiles follow the name the person has after this save.
   return new Promise(function(resolve, reject) {
@@ -667,7 +673,7 @@ return view.extend({
   var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
-   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'profiles-set': _('VPN profiles assigned') };
+   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
   // Put each owned profile's card into its person's card. The panel redraws
   // its list every few seconds and brings fresh cards; a fresh card takes the
   // place of the one shown before. Nothing is ever cleared wholesale, so a

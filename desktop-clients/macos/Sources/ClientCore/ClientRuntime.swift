@@ -4,6 +4,8 @@ import Security
 public struct TunnelObservation: Sendable, Equatable {
     public let interface: String
     public let address: String
+    /// Whether the default route goes through this tunnel.
+    public var everything = false
     public init(interface: String, address: String) { self.interface = interface; self.address = address }
 }
 
@@ -53,6 +55,8 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var release: String
     /// Whether services stay blocked while the tunnel is down.
     public var blockWithoutTunnel = true
+    /// Whether everything goes into the tunnel.
+    public var fullTunnel = false
     public var updatedAt: Int
 
     /// Whether `release` is newer than the running program's own version.
@@ -101,7 +105,7 @@ public actor ClientRuntime {
             profileInstalled: system.vpnInstalled(), error: connectionError,
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
-            revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true,
+            revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true, fullTunnel: names?.full ?? false,
             updatedAt: Int(now.timeIntervalSince1970))
     }
 
@@ -256,7 +260,7 @@ public actor ClientRuntime {
         guard let registration = try store.loadRegistration(), let password = registration.password,
               let history = try store.loadHistory() else { throw StoreError.invalid }
         return try SystemPlan.vpnProfile(policy: history.current, password: password,
-                                         identifier: registration.profile, serviceIdentifier: registration.profileService)
+                                         identifier: registration.profile, serviceIdentifier: registration.profileService, full: names?.full ?? false)
     }
 
     private func advanceConnection(_ registration: Registration, history: PolicyHistory, now: Date) async throws {
@@ -286,6 +290,19 @@ public actor ClientRuntime {
             connectionError = fault.rawValue; publish("connection_error", now: now); return
         }
         guard let seen else { closePermission(history); publish("connecting", now: now); return }
+        // The installed profile decides what the system routes into the
+        // tunnel, and it must agree with the mode the router set: a tunnel
+        // that takes everything when only services were meant is refused, and
+        // one that takes only services when everything was meant asks for the
+        // profile to be installed again.
+        let full = names?.full ?? false
+        if seen.everything != full {
+            closePermission(history)
+            try? system.stopVPN()
+            retryConnectionAt = now.addingTimeInterval(30)
+            connectionError = full ? "profile_mode" : TunnelFault.takesEverything.rawValue
+            publish("connection_error", now: now); return
+        }
         // While access stands confirmed, the tunnel is still looked at every
         // step, but the router is asked again only every few seconds: each
         // question costs it a process, and its own admission does not wait.

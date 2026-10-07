@@ -111,7 +111,7 @@ final class ClientModel: ObservableObject {
     var detail: String {
         guard let status else { return "Переустановите программу." }
         switch status.state {
-        case "protected": return "Сервисы идут через туннель."
+        case "protected": return status.fullTunnel ? "Весь трафик идёт через туннель." : "Сервисы идут через туннель."
         case "blocked": return status.blockWithoutTunnel ? "Сервисы заблокированы." : "Сервисы идут напрямую, без туннеля."
         case "enrollment_required": return "Нужна ссылка приглашения от администратора."
         case "registration_pending": return "Ожидается ответ сервера."
@@ -128,6 +128,7 @@ final class ClientModel: ObservableObject {
         case "connection_error":
             return status.error == "tunnel_takes_everything"
                 ? "Сервер предложил направить в туннель весь трафик. Подключение отклонено."
+                : status.error == "profile_mode" ? "Режим изменён администратором. Установите профиль заново."
                 : "Туннель не установлен. Попытка повторится."
         case "access_closed": return "Доступ для этого устройства выключен администратором."
         default: return "Состояние защиты не подтверждено. Подробности в отчёте."
@@ -331,7 +332,7 @@ struct ClientView: View {
     @ViewBuilder private func primaryAction(_ status: ClientStatusReport?) -> some View {
         if status?.state == "enrollment_required" || status?.state == "registration_error" {
             Button("Регистрация…") { registering = true }.buttonStyle(.borderedProminent).fixedSize()
-        } else if status?.state == "profile_required" {
+        } else if status?.state == "profile_required" || (status?.state == "connection_error" && status?.error == "profile_mode") {
             Button("Установить профиль…") { model.installProfile() }.buttonStyle(.borderedProminent).fixedSize()
         } else if status?.state == "connecting" {
             Button("Отключить") { model.command("disconnect") }

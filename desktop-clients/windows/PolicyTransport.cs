@@ -51,8 +51,10 @@ namespace IkeV2Manager.Client
         // Whether services stay blocked while the tunnel is down. That is the
         // rule; a router that says nothing about it means the rule.
         public readonly bool Block;
+        // Whether everything goes into the tunnel, or the services alone.
+        public readonly bool Full;
 
-        private DeviceServices(string[] selected, string[] available, int domains, bool block) { Selected = selected; Available = available; Domains = domains; Block = block; }
+        private DeviceServices(string[] selected, string[] available, int domains, bool block, bool full) { Selected = selected; Available = available; Domains = domains; Block = block; Full = full; }
 
         internal static DeviceServices Parse(string json, string id)
         {
@@ -69,6 +71,13 @@ namespace IkeV2Manager.Client
                 {
                     if (!(data["block_without_tunnel"] is bool)) throw new ArgumentException();
                     block = (bool)data["block_without_tunnel"];
+                }
+                bool full = false;
+                if (data.ContainsKey("mode"))
+                {
+                    string mode = data["mode"] as string;
+                    if (mode != "services" && mode != "full") throw new ArgumentException();
+                    full = mode == "full";
                 }
                 if (ClientPolicy.Integer(data["version"], 1, 1) != 1 || ClientPolicy.Text(data["id"]) != id) throw new ArgumentException();
                 ClientPolicy.Integer(data["revision"], 1, Int32.MaxValue);
@@ -89,7 +98,7 @@ namespace IkeV2Manager.Client
                     }
                     lists.Add(names.ToArray());
                 }
-                return new DeviceServices(lists[0], lists[1], domains, block);
+                return new DeviceServices(lists[0], lists[1], domains, block, full);
             }
             catch (ArgumentException) { throw new PolicyFetchException("services_response_invalid"); }
             catch (InvalidOperationException) { throw new PolicyFetchException("services_response_invalid"); }
