@@ -29,6 +29,11 @@ function replace_file(path, value) {
 	if (!writefile(path + '.new', raw) || !chmod(path + '.new', 0600) || !rename(path + '.new', path)) die('unable to record');
 }
 
+// Where a link may be sent, in the plain form of an address.
+function mail(value) {
+	return value == '' || (length(value) <= 254 && match(value, /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]+$/) != null);
+}
+
 export function read_client_labels(directory) {
 	let raw = private_file(directory + '/labels.json', 262144);
 	if (raw == null) return {};
@@ -36,15 +41,21 @@ export function read_client_labels(directory) {
 	if (type(labels) != 'object' || labels.version !== 1 || type(labels.devices) != 'object') die('invalid labels');
 	for (let id, label in labels.devices)
 		if (identifier(id) && type(label) == 'object' && text(label.owner, 320) && text(label.note, 640))
-			result[id] = { owner: label.owner, note: label.note };
+			result[id] = { owner: label.owner, note: label.note,
+				email: type(label.email) == 'string' && mail(label.email) ? label.email : '', open: label.open === true };
 	return result;
 };
 
-export function write_client_label(directory, id, owner, note) {
+// Who a device belongs to, where its links go, and whether its services stay
+// blocked while the tunnel is down (the default) or go the ordinary way then.
+// A field left out keeps what was stored.
+export function write_client_label(directory, id, owner, note, more) {
 	if (!identifier(id) || !text(owner, 320) || !text(note, 640)) die('invalid label');
-	let labels = read_client_labels(directory);
-	if (owner == '' && note == '') delete labels[id];
-	else labels[id] = { owner: owner, note: note };
+	let labels = read_client_labels(directory), before = labels[id];
+	let email = more?.email ?? before?.email ?? '', open = more?.open ?? before?.open ?? false;
+	if (type(email) != 'string' || !mail(email) || type(open) != 'bool') die('invalid label');
+	if (owner == '' && note == '' && email == '' && !open) delete labels[id];
+	else labels[id] = { owner: owner, note: note, email: email, open: open };
 	if (length(keys(labels)) > 1024) die('too many labels');
 	replace_file(directory + '/labels.json', { version: 1, devices: labels });
 };
@@ -94,6 +105,8 @@ export function describe_client_device(device, labels, seen_directory, sessions,
 	let label = labels[device.id], seen = read_seen(seen_directory, device.id), session = sessions[device.id];
 	device.owner = label?.owner ?? '';
 	device.note = label?.note ?? '';
+	device.email = label?.email ?? '';
+	device.block_without_tunnel = !(label?.open ?? false);
 	device.host = seen?.host;
 	device.system = seen?.system;
 	device.client = seen?.client;

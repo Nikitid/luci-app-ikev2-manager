@@ -135,4 +135,16 @@ printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payl
 	"$(printf '%s' "$shown" | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
 shown="$(ucode "$control" inspect)"
 [ "$(printf '%s' "$shown" | jsonfilter -e '@.devices[@.note="both"].enabled' | sort -u)" = false ]
+# The administrator may let a person's services go the ordinary way while the
+# tunnel is down; the device is told, and told the rule when nothing was said.
+first=1111111111111111111111111111111111111111111111111111111111111111
+printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \
+	"$(printf '%s' "$shown" | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
+request 200 -H "Authorization: Bearer $first" https://localhost:18443/client/v1/services
+[ "$(jsonfilter -i "$work/body" -e '@.block_without_tunnel')" = true ]
+printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":["%s"],"owner":"One Person","note":"both","email":"one@example.com","block_without_tunnel":false}}' \
+	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
+request 200 -H "Authorization: Bearer $first" https://localhost:18443/client/v1/services
+[ "$(jsonfilter -i "$work/body" -e '@.block_without_tunnel')" = false ]
+[ "$(ucode "$control" inspect | jsonfilter -e '@.devices[@.id="family-2"].email')" = one@example.com ]
 printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a shared decision, background credentials, protected storage, opening on registration, clock and expiry PASS'

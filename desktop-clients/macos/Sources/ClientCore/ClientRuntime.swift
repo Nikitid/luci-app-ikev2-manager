@@ -48,6 +48,8 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var revision: Int
     /// The router's release, or empty while unknown.
     public var release: String
+    /// Whether services stay blocked while the tunnel is down.
+    public var blockWithoutTunnel = true
     public var updatedAt: Int
 
     /// Whether `release` is newer than the running program's own version.
@@ -95,7 +97,8 @@ public actor ClientRuntime {
             profileInstalled: system.vpnInstalled(), error: connectionError,
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
-            revision: history?.current.revision ?? 0, release: release, updatedAt: Int(now.timeIntervalSince1970))
+            revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true,
+            updatedAt: Int(now.timeIntervalSince1970))
     }
 
     // MARK: registration
@@ -184,12 +187,17 @@ public actor ClientRuntime {
             try system.loadPacketFilter(try rules(for: history))
             guard try denied() else { throw StoreError.unsafe }
         }
-        let hosts = try system.readHosts(), wanted = try history.reconcileHosts(hosts)
+        // Names point into the tunnel always, unless the administrator let
+        // this device's services go the ordinary way while the tunnel is
+        // down: then they point there only while access is confirmed.
+        let pointed = (names?.block ?? true) || permitted != nil
+        let hosts = try system.readHosts()
+        let wanted = pointed ? try history.reconcileHosts(hosts) : try ManagedHosts.reconcile(hosts, entries: [])
         if wanted != hosts { try system.writeHosts(wanted) }
         // Everything under a selected domain is asked through the tunnel; the
         // address that answers is inside the subnet the filter already holds.
-        try system.setNameResolution(domains: history.current.resources.map(\.domain).sorted(),
-                                     resolver: try SystemPlan.layout(subnet).resolver)
+        try system.setNameResolution(domains: pointed ? history.current.resources.map(\.domain).sorted() : [],
+                                     resolver: pointed ? try SystemPlan.layout(subnet).resolver : "")
         guardInstalled = true
         return history
     }

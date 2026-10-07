@@ -112,7 +112,7 @@ final class ClientModel: ObservableObject {
         guard let status else { return "Переустановите программу." }
         switch status.state {
         case "protected": return "Сервисы идут через туннель."
-        case "blocked": return "Сервисы заблокированы."
+        case "blocked": return status.blockWithoutTunnel ? "Сервисы заблокированы." : "Сервисы идут напрямую, без туннеля."
         case "enrollment_required": return "Нужна ссылка приглашения от администратора."
         case "registration_pending": return "Ожидается ответ сервера."
         case "registration_error": return "Настройки не получены. Повторите регистрацию."
@@ -243,8 +243,9 @@ struct ClientView: View {
             }
             Card(title: "Проверки") {
                 let fresh = status?.state == "enrollment_required"
-                CheckRow(label: "Блокировка вне туннеля", value: status?.guardInstalled == true ? "включена" : fresh ? "после регистрации" : "не подтверждена",
-                         tone: status?.guardInstalled == true ? .open : fresh ? .off : .attention)
+                let relaxed = status?.blockWithoutTunnel == false
+                CheckRow(label: "Блокировка вне туннеля", value: relaxed ? "выключена администратором" : status?.guardInstalled == true ? "включена" : fresh ? "после регистрации" : "не подтверждена",
+                         tone: relaxed ? .off : status?.guardInstalled == true ? .open : fresh ? .off : .attention)
                 CheckRow(label: "Туннель", value: status?.routed == true ? "подключён" : status?.state == "connecting" ? "подключается" : "нет",
                          tone: status?.routed == true ? .open : status?.state == "connecting" ? .working : .off)
                 CheckRow(label: "Подтверждение сервера", value: status?.protected == true ? "получено" : "нет",

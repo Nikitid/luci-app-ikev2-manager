@@ -88,7 +88,7 @@ request 404 https://127.0.0.1:18443/ubus
 request 404 https://127.0.0.1:18443/cgi-bin/luci
 request 401 https://127.0.0.1:18443/client/v1/services
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
-ucode -e "import {readfile} from 'fs'; let s=json(readfile('$work/body')); if(length(keys(s))!=5 || s.version!==1 || s.id!='team' || s.revision!=1 || type(s.available)!='array' || length(s.selected)<1 || type(s.selected[0].id)!='string' || s.selected[0].domains<1 || length(keys(s.selected[0]))!=2) die('Device service list is wrong');"
+ucode -e "import {readfile} from 'fs'; let s=json(readfile('$work/body')); if(length(keys(s))!=6 || s.block_without_tunnel!==true || s.version!==1 || s.id!='team' || s.revision!=1 || type(s.available)!='array' || length(s.selected)<1 || type(s.selected[0].id)!='string' || s.selected[0].domains<1 || length(keys(s.selected[0]))!=2) die('Device service list is wrong');"
 ! grep -q 'example.com' "$work/body"
 request 401 https://127.0.0.1:18443/client/v1/release
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/release

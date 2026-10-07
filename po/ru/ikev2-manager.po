@@ -4922,3 +4922,18 @@ msgstr "Прежняя ссылка перестанет работать."
 
 msgid "The link is shown once. A new one replaces it."
 msgstr "Ссылка показывается один раз. Новая заменяет её."
+
+msgid "E-mail"
+msgstr "E-mail"
+
+msgid "Block services without the tunnel"
+msgstr "Блокировать сервисы без туннеля"
+
+msgid "Off: while the tunnel is down, the services are reached the ordinary way."
+msgstr "Выключено: пока туннеля нет, сервисы открываются обычным путём."
+
+msgid "Enter an e-mail address like name@example.com."
+msgstr "Введите адрес вида name@example.com."
+
+msgid "Not blocked without the tunnel"
+msgstr "Без туннеля не блокируется"

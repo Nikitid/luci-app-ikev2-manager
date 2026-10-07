@@ -51,7 +51,15 @@ export function client_admin_catalog_ids(state, request) {
  if (request.operation == 'assign-devices') {
   // One person's devices share a decision: the same switch, the same
   // services, the same owner and note.
-  fields(request.payload, [ 'ids', 'enabled', 'selected_services', 'owner', 'note' ]);
+  // Optional with them: where links are sent and whether services stay
+  // blocked without the tunnel.
+  let named = [ 'ids', 'enabled', 'selected_services', 'owner', 'note' ];
+  if ('email' in request.payload) push(named, 'email');
+  if ('block_without_tunnel' in request.payload) {
+   push(named, 'block_without_tunnel');
+   if (type(request.payload.block_without_tunnel) != 'bool') die('invalid device assignment');
+  }
+  fields(request.payload, named);
   if (type(request.payload.ids) != 'array' || !length(request.payload.ids) || length(request.payload.ids) > 16) die('invalid device list');
   let seen = {};
   for (let id in request.payload.ids) { identifier(id); if (seen[id]) die('invalid device list'); seen[id] = true; }

@@ -157,6 +157,12 @@ function describeText(value, limit, label) {
  return value;
 }
 
+function mailText(value) {
+ value = String(value || '').trim();
+ if (value && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]+$/.test(value)) throw new Error(_('Enter an e-mail address like name@example.com.'));
+ return value;
+}
+
 // One device of a person: what it is, how it is doing, what to do with it.
 function deviceRow(device, onRemove) {
  var state, detail = '';
@@ -193,7 +199,8 @@ function personCard(person, labels, actions) {
    E('div', { 'style': 'min-width:0' }, [
     E('strong', { 'class': 'ikev2-user-name' }, [ person.name ]),
     E('div', { 'class': 'ikev2-session-meta' }, (first.note ? [ E('span', {}, [ first.note ]) ] : []).concat(
-     services.length ? services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }) : [ common.pill(_('No services'), 'warn') ]))
+     services.length ? services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }) : [ common.pill(_('No services'), 'warn') ],
+     first.block_without_tunnel === false ? [ common.pill(_('Not blocked without the tunnel'), 'warn') ] : []))
    ])
   ]),
   E('div', { 'class': 'ikev2-session-list' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }); })),
@@ -244,23 +251,28 @@ function personDialog(person, state, labels, reload, pageResult) {
  var owner = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), 'value': device.owner || '' });
  var note = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), 'value': device.note || '' });
  var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Access enabled') });
+ var email = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), 'value': device.email || '' });
+ var block = E('input', { 'type': 'checkbox', 'checked': device.block_without_tunnel === false ? null : '', 'aria-label': _('Block services without the tunnel') });
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
   return { id: service.id, input: E('input', { 'type': 'checkbox', 'checked': device.selected_services.indexOf(service.id) >= 0 ? '' : null, 'aria-label': labels[service.id] || service.id }) };
  });
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
    common.fieldLabel(_('Who uses it')), owner,
+   common.fieldLabel(_('E-mail')), email,
    common.fieldLabel(_('Note')), note
   ]),
   E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
-   person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null) ]),
+   person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null),
+   common.toggleRow(block, _('Block services without the tunnel'), _('Off: while the tunnel is down, the services are reached the ordinary way.')) ]),
   E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services')) ].concat(choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); })))
  ]);
  editDialog(person.name, form, function() {
   return { version: 1, expected_generation: state.generation, operation: 'assign-devices',
    payload: { ids: person.devices.filter(function(item) { return !item.waiting; }).map(function(item) { return item.id; }), enabled: enabled.checked,
     selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }),
-    owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')) } };
+    owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')),
+    email: mailText(email.value), block_without_tunnel: block.checked } };
  }, reload, pageResult);
 }
 

@@ -48,15 +48,25 @@ namespace IkeV2Manager.Client
     {
         public readonly string[] Selected, Available;
         public readonly int Domains;
+        // Whether services stay blocked while the tunnel is down. That is the
+        // rule; a router that says nothing about it means the rule.
+        public readonly bool Block;
 
-        private DeviceServices(string[] selected, string[] available, int domains) { Selected = selected; Available = available; Domains = domains; }
+        private DeviceServices(string[] selected, string[] available, int domains, bool block) { Selected = selected; Available = available; Domains = domains; Block = block; }
 
         internal static DeviceServices Parse(string json, string id)
         {
             try
             {
                 var data = ClientPolicy.Object(new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 65536, RecursionLimit = 5 }.DeserializeObject(json));
-                ClientPolicy.Fields(data, "version", "id", "revision", "selected", "available");
+                bool block = true;
+                if (data.ContainsKey("block_without_tunnel"))
+                {
+                    if (!(data["block_without_tunnel"] is bool)) throw new ArgumentException();
+                    block = (bool)data["block_without_tunnel"];
+                    ClientPolicy.Fields(data, "version", "id", "revision", "selected", "available", "block_without_tunnel");
+                }
+                else ClientPolicy.Fields(data, "version", "id", "revision", "selected", "available");
                 if (ClientPolicy.Integer(data["version"], 1, 1) != 1 || ClientPolicy.Text(data["id"]) != id) throw new ArgumentException();
                 ClientPolicy.Integer(data["revision"], 1, Int32.MaxValue);
                 int domains = 0;
@@ -76,7 +86,7 @@ namespace IkeV2Manager.Client
                     }
                     lists.Add(names.ToArray());
                 }
-                return new DeviceServices(lists[0], lists[1], domains);
+                return new DeviceServices(lists[0], lists[1], domains, block);
             }
             catch (ArgumentException) { throw new PolicyFetchException("services_response_invalid"); }
             catch (InvalidOperationException) { throw new PolicyFetchException("services_response_invalid"); }

@@ -141,7 +141,7 @@ namespace IkeV2Manager.Client
                 object[] listed = data.ContainsKey("Services") ? data["Services"] as object[] : null;
                 object[] offered = data.ContainsKey("Available") ? data["Available"] as object[] : null;
                 object[] warned = data.ContainsKey("Warnings") ? data["Warnings"] as object[] : null;
-                if (warned == null || warned.Length > 8 || warned.Any(item => !(item is string) || !Regex.IsMatch((string)item, @"\A(?:proxy)\z")) ||
+                if (warned == null || warned.Length > 8 || warned.Any(item => !(item is string) || !Regex.IsMatch((string)item, @"\A(?:proxy|open)\z")) ||
                     !(data.ContainsKey("Release") && data["Release"] is string) ||
                     !Regex.IsMatch((string)data["Release"], @"\A(?:[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4})?\z") ||
                     listed == null || listed.Length > 64 || offered == null || offered.Length > 64 ||

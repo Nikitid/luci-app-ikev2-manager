@@ -337,7 +337,8 @@ namespace IkeV2Manager.Client
             {
                 case "blocked":
                     heading = current.Wanted ? "Доступ закрыт" : "Доступ выключен";
-                    description = current.Wanted ? "Нет подключения. Сервисы заблокированы." : "Сервисы заблокированы.";
+                    description = current.Warnings != null && current.Warnings.Contains("open") ? "Сервисы идут напрямую, без туннеля." :
+                        current.Wanted ? "Нет подключения. Сервисы заблокированы." : "Сервисы заблокированы.";
                     break;
                 case "enrollment_required":
                     heading = "Устройство не зарегистрировано";
@@ -394,8 +395,9 @@ namespace IkeV2Manager.Client
                     break;
             }
             bool fresh = current.State == "enrollment_required";
-            checkValues[0] = current.GuardInstalled ? "включена" : fresh ? "после регистрации" : "не подтверждена";
-            checkTones[0] = current.GuardInstalled ? Tone.Open : fresh ? Tone.Off : Tone.Attention;
+            bool relaxed = current.Warnings != null && current.Warnings.Contains("open");
+            checkValues[0] = relaxed ? "выключена администратором" : current.GuardInstalled ? "включена" : fresh ? "после регистрации" : "не подтверждена";
+            checkTones[0] = relaxed ? Tone.Off : current.GuardInstalled ? Tone.Open : fresh ? Tone.Off : Tone.Attention;
             checkValues[1] = current.Routed ? "подключён" : current.State == "connecting" ? "подключается" : "нет";
             checkTones[1] = current.Routed ? Tone.Open : current.State == "connecting" ? Tone.Working : Tone.Off;
             checkValues[2] = current.Protected ? "получено" : "нет";

@@ -4,7 +4,7 @@
 import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
 import { readfile } from 'fs';
-import { record_client_seen } from './client-access-directory.uc';
+import { record_client_seen, read_client_labels } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence } from './client-access-device-evidence.uc';
 
@@ -27,7 +27,7 @@ function valid_fields(value, expected) {
 // What the device shows its user: the services it was assigned and the other
 // services published to clients, by name and size. Domain lists stay in the
 // policy, which carries only what this device may reach.
-function device_services(publication, device) {
+function device_services(publication, device, directory) {
 	let assigned = filter(publication.devices, item => item.id == device.id);
 	if (length(assigned) != 1 || type(assigned[0].selected_services) != 'array' || type(publication.services) != 'array')
 		die('inconsistent device assignment');
@@ -39,8 +39,12 @@ function device_services(publication, device) {
 			{ id: service.id, domains: length(service.domains) });
 	}
 	let by_id = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+	// Whether the device keeps its services blocked while the tunnel is down.
+	// That is the rule; the administrator may lift it for a person.
+	let block = true;
+	try { block = !(read_client_labels(directory)[device.id]?.open ?? false); } catch (error) { }
 	return { version: 1, id: device.id, revision: device.policy.revision,
-		selected: sort(selected, by_id), available: sort(available, by_id) };
+		selected: sort(selected, by_id), available: sort(available, by_id), block_without_tunnel: block };
 }
 
 export function client_policy_response(env, directory, seen_directory) {
@@ -88,7 +92,7 @@ export function client_policy_response(env, directory, seen_directory) {
 				selected.id, headers['x-client-address'], time()) };
 		}
 		if (services)
-			return { status: 200, body: device_services(committed.publication, selected) };
+			return { status: 200, body: device_services(committed.publication, selected, directory) };
 		if (release) {
 			// The clients are released with this package under the same
 			// version. Only the number leaves the router; a client builds

@@ -56,6 +56,7 @@ namespace IkeV2Manager.Client
         private ulong permittedInterface;
         private DateTime readyUntil;
         private DeviceServices assigned;
+        private bool namesApplied = true;
         private string release = "";
         private string[] warnings = new string[0];
         // Why the last registration step did not go through. It used to be
@@ -183,6 +184,7 @@ namespace IkeV2Manager.Client
                     try { release = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
                     catch (PolicyFetchException) { }
                     warnings = Observe();
+                    if (assigned != null && !assigned.Block) warnings = warnings.Concat(new[] { "open" }).ToArray();
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
                     else EnsureProfile(next);
                     synchronizationFailed = false; accessClosed = false;
@@ -250,13 +252,33 @@ namespace IkeV2Manager.Client
             if (!systemIntegration) return;
             if (guard == null) throw new InvalidOperationException("Guard required before VPN provisioning");
             ClosePermission(); guard.VerifyProtection();
-            SystemHosts.Apply(store, store.LoadPolicyHistory());
-            // Every name under a selected domain is asked through the tunnel;
-            // the denials above already hold the address that answers.
-            ManagedVpnProfile.ApplyNames(store.LoadPlan().Owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
-                store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain));
+            SyncNames(policy);
             var profile = ManagedVpnProfile.Ensure(policy, store.LoadPlan().Owner, store.LoadVpnEntry());
             store.SaveVpnEntry(profile.EntryId);
+        }
+
+        // Names point into the tunnel always, unless the administrator let
+        // this device's services go the ordinary way while the tunnel is
+        // down: then they point there only while access is confirmed.
+        private bool WantNames() { return assigned == null || assigned.Block || connectionState == "protected"; }
+
+        private void SyncNames(ClientPolicy policy)
+        {
+            bool want = WantNames();
+            if (want)
+            {
+                SystemHosts.Apply(store, store.LoadPolicyHistory());
+                // Every name under a selected domain is asked through the tunnel;
+                // the denials already hold the address that answers.
+                ManagedVpnProfile.ApplyNames(store.LoadPlan().Owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
+                    store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain));
+            }
+            else
+            {
+                SystemHosts.Remove(store);
+                ManagedVpnProfile.RemoveNames(store.LoadPlan().Owner);
+            }
+            namesApplied = want;
         }
 
         public void RequestConnection(bool wanted)
@@ -455,6 +477,8 @@ namespace IkeV2Manager.Client
                     var registration = EnrollmentRegistration.Load(store);
                     healthy = guard != null;
                     AdvanceConnection();
+                    if (systemIntegration && guard != null && registrationComplete && WantNames() != namesApplied)
+                        SyncNames(store.LoadPolicyHistory().Current);
                     Publish(synchronizationFailed ? (accessClosed ? "access_closed" : "error") : guard == null ? (registration == null ? "enrollment_required" : "registration_pending") : connectionState);
                 }
                 catch (Exception fault)

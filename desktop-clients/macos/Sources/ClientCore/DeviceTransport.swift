@@ -28,6 +28,9 @@ public struct DeviceServices: Sendable, Equatable {
     public let selected: [String]
     public let available: [String]
     public let domains: Int
+    /// Whether services stay blocked while the tunnel is down. That is the
+    /// rule; a router that says nothing about it means the rule.
+    public var block = true
     public init(selected: [String], available: [String], domains: Int) { self.selected = selected; self.available = available; self.domains = domains }
 }
 
@@ -213,7 +216,13 @@ public struct DeviceTransport: DeviceRequests {
     }
 
     static func decodeServices(_ data: Data, id: String) throws -> DeviceServices {
-        let root = try object(data, keys: ["version", "id", "revision", "selected", "available"])
+        // An older router does not say whether services stay blocked.
+        let stated = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["block_without_tunnel"]
+        var expected: Set<String> = ["version", "id", "revision", "selected", "available"]
+        if stated != nil { expected.insert("block_without_tunnel") }
+        let root = try object(data, keys: expected)
+        // A number is not an answer to a yes-or-no question.
+        if let stated, CFGetTypeID(stated as CFTypeRef) != CFBooleanGetTypeID() { throw DeviceError.invalidResponse }
         guard try integer(root["version"], 1...1) == 1, root["id"] as? String == id else { throw DeviceError.invalidResponse }
         _ = try integer(root["revision"], 1...Int(Int32.max))
         var lists: [[String]] = [], domains = 0
@@ -229,7 +238,9 @@ public struct DeviceTransport: DeviceRequests {
             }
             lists.append(names)
         }
-        return DeviceServices(selected: lists[0], available: lists[1], domains: domains)
+        var services = DeviceServices(selected: lists[0], available: lists[1], domains: domains)
+        services.block = (stated as? Bool) ?? true
+        return services
     }
 
     static func decodeRelease(_ data: Data) throws -> String {

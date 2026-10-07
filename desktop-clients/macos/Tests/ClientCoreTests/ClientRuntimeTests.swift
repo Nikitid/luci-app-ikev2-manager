@@ -221,6 +221,12 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     #expect(DeviceTransport.describe(host: "<script>", system: "macOS 27; rm", version: "../1").isEmpty)
     let names = #"{"version":1,"id":"office-mac","revision":4,"selected":[{"id":"api","domains":3}],"available":[{"id":"wiki","domains":9}]}"#
     #expect(try DeviceTransport.decodeServices(Data(names.utf8), id: "office-mac") == DeviceServices(selected: ["api"], available: ["wiki"], domains: 3))
+    // An older router says nothing about blocking, which means the rule; a
+    // newer one may lift it, and a number is not an answer.
+    let lifted = names.replacingOccurrences(of: #""version":1"#, with: #""version":1,"block_without_tunnel":false"#)
+    let relaxed = try DeviceTransport.decodeServices(Data(lifted.utf8), id: "office-mac")
+    #expect(lifted != names && !relaxed.block)
+    #expect(throws: DeviceError.self) { try DeviceTransport.decodeServices(Data(lifted.replacingOccurrences(of: "false", with: "0").utf8), id: "office-mac") }
     #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeServices(Data(names.utf8), id: "other") }
     #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeServices(Data(names.replacingOccurrences(of: "wiki", with: "../wiki").utf8), id: "office-mac") }
     let enrolled = #"{"version":1,"state":"enrolled","policy":"# + policyText + #","credentials":{"username":"office-mac","password":""# + secret + #""}}"#

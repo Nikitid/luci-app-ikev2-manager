@@ -66,7 +66,8 @@ try {
   if (request.operation == 'assign-device' && 'owner' in request.payload)
    write_client_label(directory, request.payload.id, request.payload.owner, request.payload.note);
   if (request.operation == 'assign-devices')
-   for (let id in request.payload.ids) write_client_label(directory, id, request.payload.owner, request.payload.note);
+   for (let id in request.payload.ids) write_client_label(directory, id, request.payload.owner, request.payload.note,
+    { email: request.payload.email, open: 'block_without_tunnel' in request.payload ? !request.payload.block_without_tunnel : null });
   if (request.operation == 'remove-device') {
    // The account goes with the device; its sessions end with the account.
    // A device registered before this journal existed has no record to clean.
