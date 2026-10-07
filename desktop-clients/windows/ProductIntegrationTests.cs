@@ -216,6 +216,13 @@ internal static class ProductIntegrationTests
                 Console.WriteLine("Access returned once the foreign route was gone");
                 step = "connection";
             }
+            if (config.ContainsKey("hold_seconds"))
+            {
+                // Leaves the product open and connected for someone to look at.
+                Console.WriteLine("HOLD_OPEN release=" + ClientStatusReader.Read().Release);
+                Thread.Sleep((int)config["hold_seconds"] * 1000);
+                Require(ClientStatusReader.Read().Protected, "Protection did not last while the window was looked at: " + Shown());
+            }
             Console.WriteLine("Native protected status and selected service traffic verified");
             step = "service crash";
             // The supervisor restarts a killed service; nothing answers between.

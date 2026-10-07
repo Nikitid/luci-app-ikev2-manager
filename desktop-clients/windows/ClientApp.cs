@@ -53,7 +53,7 @@ namespace IkeV2Manager.Client
             layout.Controls.Add(services);
             layout.Controls.Add(updated);
             var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty };
-            var refresh = new Button { Text = "Обновить", AutoSize = true, Margin = new Padding(0, 0, 12, 0) };
+            var refresh = new Button { Text = "Проверить сейчас", AutoSize = true, Margin = new Padding(0, 0, 12, 0) };
             var report = new Button { Text = "Отчёт…", AutoSize = true };
             refresh.Click += (sender, args) => RefreshStatus();
             report.Click += (sender, args) => PreviewReport();
@@ -76,9 +76,28 @@ namespace IkeV2Manager.Client
             buttons.WrapContents = true;
             layout.Controls.Add(buttons);
             Controls.Add(layout);
+            // Text wraps at the width the window really has, at any scaling:
+            // a fixed limit cut words in half on a scaled display.
+            Resize += (sender, args) => FitText();
             timer.Tick += (sender, args) => RefreshStatus();
             Shown += (sender, args) => { RefreshStatus(); timer.Start(); };
             FormClosed += (sender, args) => timer.Dispose();
+        }
+
+        // Long texts are sized by measuring them for the width the window has,
+        // with the same word wrapping they are drawn with.
+        private void FitText()
+        {
+            var layout = Controls.Count == 0 ? null : Controls[0];
+            if (layout == null) return;
+            int width = Math.Max(200, layout.ClientSize.Width - layout.Padding.Horizontal);
+            foreach (var label in new[] { description, services, updated })
+            {
+                label.AutoSize = false;
+                label.MaximumSize = Size.Empty;
+                label.Size = new Size(width, TextRenderer.MeasureText(label.Text.Length == 0 ? " " : label.Text, label.Font,
+                    new Size(width, Int32.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl).Height + 2);
+            }
         }
 
         private void BeginRegistration()
@@ -210,6 +229,7 @@ namespace IkeV2Manager.Client
             }
             updated.Text = "Проверено: " + DateTime.Now.ToString("HH:mm:ss") +
                 (update.Visible ? "\r\nДоступна версия " + current.Release + ". Скачайте установщик и запустите его: регистрация сохранится." : "");
+            FitText();
         }
 
         private static string PathText(string code)
