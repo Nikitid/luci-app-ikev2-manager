@@ -248,10 +248,10 @@ function mailText(value) {
 function deviceRow(device, onRemove) {
  var state, detail = '';
  if (device.waiting)
-  return E('div', { 'class': 'ikev2-session' }, [ E('div', { 'class': 'ikev2-session-main' }, [
+  return E('div', { 'class': 'ikev2-device' }, [ E('div', { 'class': 'ikev2-session-main' }, [
    E('span', { 'class': 'ikev2-session-address' }, [ device.id ]),
    E('div', { 'class': 'ikev2-session-meta' }, [ common.pill(_('Waiting for registration'), 'info'),
-    E('span', {}, [ _('link valid for %s more').format(span(device.expires_seconds)) ]) ]) ]) ]);
+    E('span', {}, [ _('link valid for %s more').format(span(device.expires_seconds)) ]) ]) ]), E('span', {}) ]);
  if (!device.enabled) state = common.pill(_('Access off'), 'warn');
  else if (!device.selected_services.length) state = common.pill(_('No services'), 'warn');
  else if (device.online) {
@@ -262,7 +262,7 @@ function deviceRow(device, onRemove) {
   detail = _('last seen %s ago from %s').format(span(device.seen_seconds), device.seen_from || '-');
  } else state = common.pill(_('Not connected yet'), 'info');
  var computer = [ device.system, device.client ? _('client %s').format(device.client) : '' ].filter(Boolean).join(' \u00b7 ');
- return E('div', { 'class': 'ikev2-session' }, [
+ return E('div', { 'class': 'ikev2-device' }, [
   E('div', { 'class': 'ikev2-session-main' }, [
    E('span', { 'class': 'ikev2-session-address' }, [ device.host || device.id ]),
    E('div', { 'class': 'ikev2-session-meta' }, [ state ].concat([ device.host ? device.id : '', computer, detail ].filter(Boolean).map(function(text) { return E('span', {}, [ text ]); })))
@@ -274,24 +274,40 @@ function deviceRow(device, onRemove) {
 // A person and their devices. Devices without a named owner stand alone.
 function personCard(person, labels, actions) {
  var first = person.devices[0], services = first.selected_services;
- return E('div', { 'class': 'ikev2-user-card' }, [
-  E('div', { 'class': 'ikev2-user-identity' }, [
-   E('span', { 'class': 'ikev2-user-avatar' }, [ person.name.slice(0, 1) ]),
-   E('div', { 'style': 'min-width:0' }, [
-    E('strong', { 'class': 'ikev2-user-name' }, [ person.name ]),
-    E('div', { 'class': 'ikev2-session-meta' }, (first.note ? [ E('span', {}, [ first.note ]) ] : []).concat(
-     services.length ? services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }) : [ common.pill(_('No services'), 'warn') ],
-     first.block_without_tunnel === false ? [ common.pill(_('Not blocked without the tunnel'), 'warn') ] : []))
+ // One grid for the person and one for each device, so the buttons of every
+ // card stand in the same two columns.
+ return E('div', { 'class': 'ikev2-person' }, [
+  E('div', { 'class': 'ikev2-person-head' }, [
+   E('div', { 'class': 'ikev2-user-identity' }, [
+    E('span', { 'class': 'ikev2-user-avatar' }, [ person.name.slice(0, 1) ]),
+    E('div', { 'style': 'min-width:0' }, [
+     E('strong', { 'class': 'ikev2-user-name' }, [ person.name ]),
+     E('div', { 'class': 'ikev2-session-meta' }, (first.note ? [ E('span', {}, [ first.note ]) ] : []).concat(
+      services.length ? services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }) : [ common.pill(_('No services'), 'warn') ],
+      first.block_without_tunnel === false ? [ common.pill(_('Not blocked without the tunnel'), 'warn') ] : []))
+    ])
+   ]),
+   E('div', { 'class': 'ikev2-user-actions' }, [
+    person.devices.some(function(device) { return !device.waiting; }) ?
+     E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { actions.edit(person); } }, [ _('Edit') ]) : '',
+    person.devices.some(function(device) { return device.waiting; }) ?
+     E('button', { 'class': 'cbi-button', 'type': 'button', 'title': _('The link is shown once. A new one replaces it.'), 'click': function() { actions.relink(person); } }, [ _('New link') ]) : '',
+    E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() { actions.add(person); } }, [ _('Add device') ])
    ])
   ]),
-  E('div', { 'class': 'ikev2-session-list' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }); })),
-  E('div', { 'class': 'ikev2-user-actions' }, [
-   person.devices.some(function(device) { return !device.waiting; }) ?
-    E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { actions.edit(person); } }, [ _('Edit') ]) : '',
-   person.devices.some(function(device) { return device.waiting; }) ?
-    E('button', { 'class': 'cbi-button', 'type': 'button', 'title': _('The link is shown once. A new one replaces it.'), 'click': function() { actions.relink(person); } }, [ _('New link') ]) : '',
-   E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() { actions.add(person); } }, [ _('Add device') ])
-  ])
+  E('div', { 'class': 'ikev2-person-devices' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }); }))
+ ]);
+}
+
+// The page's own layout rules, beside the shared ones.
+function pageStyles() {
+ return E('style', {}, [
+  '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
+  '.ikev2-page .ikev2-person-head, .ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
+  '.ikev2-page .ikev2-person-devices { display: grid; gap: .6rem; padding-top: .75rem; border-top: 1px solid var(--ikev2-border); }' +
+  '.ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: nowrap; }' +
+  '.ikev2-page .ikev2-form-grid + .ikev2-actions.end { margin-top: 1rem; }' +
+  '@media (max-width: 720px) { .ikev2-page .ikev2-person-head, .ikev2-page .ikev2-device { grid-template-columns: 1fr; } .ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: wrap; justify-content: flex-start; } }'
  ]);
 }
 
@@ -560,7 +576,7 @@ return view.extend({
   } }, [ _('Update service lists') ]);
   invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload); } }, [ _('Add person') ]);
   setData(data);
-  return E([ common.styles(), E('div', { 'class': 'ikev2-page' }, [
+  return E([ common.styles(), pageStyles(), E('div', { 'class': 'ikev2-page' }, [
    common.header(_('Users'), _('People, their Waypoint devices and ordinary VPN profiles.')),
    availability, fresh,
    (managed.replaceChildren(
