@@ -143,7 +143,9 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     // is the system's and stays.
     router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
     await runtime.tick(now: now); now += 2
+    #expect(machine.rules.contains("pass"))
     try await runtime.setWanted(false)
+    #expect(!machine.rules.contains("pass"), "switching off closes at once, before the next step")
     await runtime.tick(now: now); now += 2
     #expect(await runtime.status().state == "blocked" && !machine.rules.contains("pass"))
     #expect(try store.loadIntent() == false)

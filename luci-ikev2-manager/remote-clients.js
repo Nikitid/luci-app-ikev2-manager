@@ -86,11 +86,11 @@ function setupSection(settings, reload) {
   E('div', {}, notes.concat([
    common.toggleRow(enabled, _('Accept remote clients'), settings.server_identity ?
     _('Registration address: %s').format('https://' + settings.server_identity + ':' + settings.port) : null),
-   E('div', { 'class': 'ikev2-grid' }, [
-    E('div', {}, [ common.fieldLabel(_('Registration port')), port ]),
-    E('div', {}, [ common.fieldLabel(_('Exit for remote clients')), exit ]),
-    E('div', {}, [ common.fieldLabel(_('Virtual subnet'), settings.initialized ?
-     _('Enrolled devices keep this subnet; it cannot change.') : _('Addresses that stand for the selected services. It must not be used anywhere in your networks.')), subnet ])
+   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact', 'style': 'margin-top:1.15rem' }, [
+    common.fieldLabel(_('Registration port')), port,
+    common.fieldLabel(_('Exit for remote clients')), exit,
+    common.fieldLabel(_('Virtual subnet'), settings.initialized ?
+     _('Enrolled devices keep this subnet; it cannot change.') : _('Addresses that stand for the selected services. It must not be used anywhere in your networks.')), subnet
    ]),
    E('div', { 'class': 'ikev2-actions end' }, [ result.node, save ])
   ])));

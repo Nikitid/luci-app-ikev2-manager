@@ -235,6 +235,8 @@ public actor ClientRuntime {
         guard !wanted || registered else { throw StoreError.invalid }
         try store.saveIntent(wanted)
         retryConnectionAt = .distantPast
+        // Off means off now, not when the step in progress gets round to it.
+        if !wanted { closePermission(try? store.loadHistory()) }
     }
 
     /// The profile for the system's VPN settings, for the administrator who registers the device.
@@ -280,6 +282,8 @@ public actor ClientRuntime {
             closePermission(history)
             connectionError = "path_" + refusal.rawValue; publish("tunnel_connected", now: now); return
         }
+        // The answer was awaited; access may have been switched off meanwhile.
+        guard try store.loadIntent() else { closePermission(history); connectionError = "none"; publish("blocked", now: now); return }
         if permitted != seen {
             permitted = seen
             do { try system.loadPacketFilter(try rules(for: history)) }
