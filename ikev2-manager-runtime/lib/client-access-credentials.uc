@@ -103,9 +103,11 @@ function command(command) {
 }
 function verify_policy(id) {
 	let section = 'ikev2-manager.user_' + substr(sha256(id), 0, 16);
-	for (let option, expected in { username: id, router_access: 'deny', internet_access: 'deny',
-		lan_access: 'deny', pbr_mode: 'exclude' })
-		if (command('/sbin/uci -q get ' + section + '.' + option) != expected) die('credential policy mismatch');
+	// Either a device that sends its services alone and has no other rights,
+	// or one that sends everything and has those of a VPN user: nothing else.
+	if (command('/sbin/uci -q get ' + section + '.username') != id) die('credential policy mismatch');
+	let rights = map([ 'router_access', 'internet_access', 'lan_access', 'pbr_mode' ], option => command('/sbin/uci -q get ' + section + '.' + option));
+	if (join(',', rights) != 'deny,deny,deny,exclude' && join(',', rights) != 'inherit,inherit,inherit,inherit') die('credential policy mismatch');
 }
 
 // Only the dedicated, authenticated enrollment API may return this bundle.

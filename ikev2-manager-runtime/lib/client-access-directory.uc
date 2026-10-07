@@ -4,7 +4,7 @@
 // kept apart from the committed state so that describing a device can never
 // change what the device may reach.
 'use strict';
-import { lstat, open, readfile, writefile, chmod, rename, mkdir, unlink } from 'fs';
+import { popen as run_command, lstat, open, readfile, writefile, chmod, rename, mkdir, unlink } from 'fs';
 
 function text(value, limit) {
 	// Text on one line, counted in bytes: the page allows 80 and 160
@@ -44,6 +44,20 @@ export function read_client_labels(directory) {
 			result[id] = { owner: label.owner, note: label.note,
 				email: type(label.email) == 'string' && mail(label.email) ? label.email : '', open: label.open === true, full: label.full === true };
 	return result;
+};
+
+// A device that sends everything into the tunnel is let in as the server
+// lets any VPN user in; one that sends its services alone has no other
+// rights. The same record the VPN profiles keep for an account.
+export function set_account_rights(id, full) {
+	if (!identifier(id) || type(full) != 'bool') die('invalid account rights');
+	let nonce = replace('mode' + time() + substr(id, 0, 8) + length(id), /[^A-Za-z0-9-]/g, '');
+	let input = open('/var/run/ikev2-manager-user-' + nonce + '.in', 'wxe', 0600);
+	if (input == null) die('unable to stage the account rights');
+	input.write('policy\n' + id + '\n\n' + (full ? 'inherit\ninherit\ninherit\ninherit' : 'deny\ndeny\ndeny\nexclude') + '\n\n\n');
+	input.close();
+	let applied = run_command('/usr/libexec/ikev2-manager user-secret-set ' + nonce + ' >/dev/null 2>&1', 'r');
+	if (applied == null || applied.close() != 0) die('unable to set the account rights');
 };
 
 // Which person an ordinary VPN profile belongs to: account name -> owner.

@@ -6,6 +6,7 @@ import { provision_client_credentials } from './client-access-credentials.uc';
 import { read_client_state, publish_client_state } from './client-access-store.uc';
 import { prepare_client_admin } from './client-access-admin.uc';
 import { record_client_event } from './client-access-journal.uc';
+import { read_client_labels, set_account_rights } from './client-access-directory.uc';
 import { popen } from 'fs';
 let directory = '/etc/ikev2-manager/clients';
 try {
@@ -31,6 +32,10 @@ try {
 	let approve = replace(setting?.read(8) ?? '', /\n$/, '') == '1';
 	setting?.close();
 	record_client_event(approve ? 'registered-waiting' : 'registered', id);
+	// The mode chosen with the invitation; a failure here leaves the device
+	// with its services alone, which the page can change.
+	// Not before the administrator's approval, where that is asked for.
+	try { if (!approve && read_client_labels(directory)[id]?.full === true) set_account_rights(id, true); } catch (error) { }
 	if (!approve && device != null && !device.enabled && length(device.selected_services) && index(state.retired_ids, id) < 0) {
 		// The same change the page makes when the administrator opens a device.
 		let prepared = prepare_client_admin(state, { version: 1, expected_generation: state.generation,

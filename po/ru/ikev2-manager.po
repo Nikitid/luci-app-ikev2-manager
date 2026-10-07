@@ -5180,3 +5180,21 @@ msgstr "Полный туннель включён"
 
 msgid "Full tunnel switched off"
 msgstr "Полный туннель выключен"
+
+msgid "Kind of device"
+msgstr "Вид устройства"
+
+msgid "Waypoint: selected services"
+msgstr "Waypoint: выбранные сервисы"
+
+msgid "Waypoint: everything into the tunnel"
+msgstr "Waypoint: весь трафик в туннель"
+
+msgid "Ordinary VPN profile: phone or other device"
+msgstr "Обычный VPN-профиль: телефон или другое устройство"
+
+msgid "Everything into the tunnel"
+msgstr "Весь трафик в туннель"
+
+msgid "The VPN profiles are not available."
+msgstr "VPN-профили недоступны."

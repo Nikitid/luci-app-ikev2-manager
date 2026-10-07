@@ -5,7 +5,7 @@ import { publish_client_state, read_client_state } from './client-access-store.u
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
 import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
-import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners } from './client-access-directory.uc';
+import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
 import { record_client_event, read_client_events } from './client-access-journal.uc';
 
@@ -36,7 +36,7 @@ try {
   for (let item in (ledger?.invitations ?? []))
    if (item.status == 'issued' && item.expires_at > now)
     push(inspected.waiting, { id: item.id, selected_services: item.selected_services, expires_seconds: item.expires_at - now,
-     owner: labels[item.id]?.owner ?? '', note: labels[item.id]?.note ?? '' });
+     owner: labels[item.id]?.owner ?? '', note: labels[item.id]?.note ?? '', mode: labels[item.id]?.full === true ? 'full' : 'services' });
   let port_reader = popen('/sbin/uci -q get ikev2-manager.client_access.port', 'r');
   let port_raw = port_reader?.read(32), port_status = port_reader?.close();
   let api_port = port_status == 0 ? replace(port_raw ?? '', /\n$/, '') : '8443';
@@ -71,6 +71,22 @@ try {
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;
   }
+  // One device's mode: its services alone, or everything into the tunnel.
+  if (type(request) == 'object' && request.operation == 'set-device-mode') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2 ||
+    index([ 'services', 'full' ], payload.mode) < 0 || !length(filter(state.publication.devices, device => device.id == payload.id)) ||
+    index(state.retired_ids, payload.id) >= 0) die('invalid device mode');
+   let label = read_client_labels(directory)[payload.id], full = payload.mode == 'full';
+   if ((label?.full ?? false) != full) {
+    write_client_label(directory, payload.id, label?.owner ?? '', label?.note ?? '', { full: full });
+    // Rights only while the device is open.
+    set_account_rights(payload.id, full && filter(state.publication.devices, device => device.id == payload.id)[0].enabled);
+    record_client_event(full ? 'mode-full' : 'mode-services', payload.id);
+   }
+   print(`generation=${state.generation}\nchanged=1\n`);
+   closed = true;
+  }
   // Which ordinary VPN profiles belong to a person: a description, kept
   // beside the labels; the published state knows nothing of it.
   if (type(request) == 'object' && request.operation == 'assign-profiles') {
@@ -101,20 +117,10 @@ try {
     let was = read_client_labels(directory)[id]?.full ?? false, full = 'mode' in request.payload ? request.payload.mode == 'full' : was;
     write_client_label(directory, id, request.payload.owner, request.payload.note,
      { email: request.payload.email, open: 'block_without_tunnel' in request.payload ? !request.payload.block_without_tunnel : null, full: full });
-    // A device that sends everything into the tunnel is let in as the
-    // server lets any VPN user in; one that sends its services alone has no
-    // other rights. The same record the VPN profiles keep for an account.
-    if (full != was) {
-     let nonce = 'mode' + time() + substr(id, 0, 8) + sprintf('%d', length(id));
-     nonce = replace(nonce, /[^A-Za-z0-9-]/g, '');
-     let input = open('/var/run/ikev2-manager-user-' + nonce + '.in', 'wxe', 0600);
-     if (input == null) die('unable to stage the account rights');
-     input.write('policy\n' + id + '\n\n' + (full ? 'inherit\ninherit\ninherit\ninherit' : 'deny\ndeny\ndeny\nexclude') + '\n\n\n');
-     input.close();
-     let applied = popen('/usr/libexec/ikev2-manager user-secret-set ' + nonce + ' >/dev/null 2>&1', 'r');
-     if (applied == null || applied.close() != 0) die('unable to set the account rights');
-     record_client_event(full ? 'mode-full' : 'mode-services', id);
-    }
+    // A closed device has no rights whatever its mode: the account of a
+    // device that sends everything would otherwise stay a working VPN user.
+    if (full || was) set_account_rights(id, full && request.payload.enabled);
+    if (full != was) record_client_event(full ? 'mode-full' : 'mode-services', id);
    }
   if (request.operation == 'remove-device') {
    // The account goes with the device; its sessions end with the account.

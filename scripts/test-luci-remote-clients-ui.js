@@ -92,7 +92,7 @@ async function main() {
  assert.strictEqual(written[1].body.expected_generation,17);
  assert.strictEqual(written[1].body.operation,'assign-devices'); assert.deepStrictEqual(written[1].body.payload.ids,['alice']); assert.strictEqual(written[1].body.payload.enabled,false);
  assert.strictEqual(written[1].body.payload.owner,'Alice Example'); assert.strictEqual(written[1].body.payload.note,'accounting');
- assert.strictEqual(written[1].body.payload.mode,'services', 'the mode is sent with the decision');
+ assert(!('mode' in written[1].body.payload), 'what goes into the tunnel is decided per device, not here');
  failWrite = true; await click(button(modal,'Save'));
  assert(text(modal).includes('write rejected')); assert.strictEqual(jobs.length,3);
  failWrite = false;
@@ -113,6 +113,7 @@ async function main() {
  assert.strictEqual(written[written.length-1].body.endpoint,snapshot.api_endpoint);
  assert.deepStrictEqual(written[written.length-1].body.selected_services,['example_service']);
  assert.strictEqual(written[written.length-1].body.owner,'Carol Example'); assert.strictEqual(written[written.length-1].body.note,'');
+ assert.strictEqual(written[written.length-1].body.mode,'services', 'a new device starts with its services alone unless said otherwise');
  assert.strictEqual(written[written.length-1].body.lifetime_seconds,86400); assert(!('count' in written[written.length-1].body), 'one device is the plain invitation');
  assert(!JSON.stringify(written).includes('cccccccc'), 'no invitation secret in request inbox');
  await invitationJob.onSuccess({action_id:'123-456'});
