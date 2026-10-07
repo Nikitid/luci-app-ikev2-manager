@@ -113,6 +113,18 @@ export function validate_client_subnet(virtual_subnet) {
 	return subnet_range(virtual_subnet);
 };
 
+// How the virtual subnet is laid out. Its lower half holds the fixed address
+// of every published domain; the last address of that half answers names; the
+// upper half is handed out, one address per name asked for, to any host under
+// a published domain. Clients derive the same layout from the subnet alone.
+export function client_names_plan(virtual_subnet) {
+	let subnet = subnet_range(virtual_subnet), half = (subnet.last - subnet.first + 1) / 2;
+	let middle = subnet.first + half;
+	return { resolver: address_text(middle - 1), resolver_number: middle - 1,
+		range: `${address_text(middle)}/${+split(virtual_subnet, '/')[1] + 1}`,
+		range_first: middle, range_last: subnet.last };
+};
+
 export function validate_client_base(server, virtual_subnet, exit) {
 	fields(server, [ 'address', 'remote_id' ], 'server');
 	domain(server.address);
@@ -186,7 +198,7 @@ export function compile_client_policy(policy) {
 export function allocate_client_catalog(catalog) {
 	fields(catalog, [ 'version', 'virtual_subnet', 'services', 'allocations', 'selected_services' ], 'catalog');
 	integer(catalog.version, 1, 1, 'catalog version');
-	let subnet = subnet_range(catalog.virtual_subnet);
+	let subnet = subnet_range(catalog.virtual_subnet), names = client_names_plan(catalog.virtual_subnet);
 	if (type(catalog.services) != 'array' || type(catalog.allocations) != 'array' ||
 		type(catalog.selected_services) != 'array')
 		refuse('catalog arrays required');
@@ -195,7 +207,7 @@ export function allocate_client_catalog(catalog) {
 		fields(item, [ 'domain', 'address' ], 'allocation');
 		domain(item.domain);
 		let number = address_number(ipv4(item.address));
-		if (number <= subnet.first || number >= subnet.last || allocated[item.domain] || used[item.address])
+		if (number <= subnet.first || number >= names.resolver_number || allocated[item.domain] || used[item.address])
 			refuse('invalid or duplicate allocation');
 		allocated[item.domain] = item.address;
 		used[item.address] = true;
@@ -221,9 +233,9 @@ export function allocate_client_catalog(catalog) {
 			if (!service.client_access)
 				continue;
 			if (!allocated[name]) {
-				while (next < subnet.last && used[address_text(next)])
+				while (next < names.resolver_number && used[address_text(next)])
 					next++;
-				if (next >= subnet.last)
+				if (next >= names.resolver_number)
 					refuse('virtual subnet exhausted');
 				let address = address_text(next++);
 				allocated[name] = address;

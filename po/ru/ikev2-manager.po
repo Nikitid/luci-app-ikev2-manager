@@ -4698,8 +4698,8 @@ msgstr "Сначала включите исходящий туннель: вы�
 msgid "Enter a port from 1024 to 65535."
 msgstr "Укажите порт от 1024 до 65535."
 
-msgid "Enter a private IPv4 subnet from /16 to /28, for example 172.31.254.0/24."
-msgstr "Укажите частную IPv4-подсеть от /16 до /28, например 172.31.254.0/24."
+msgid "Enter a private IPv4 subnet from /16 to /28, for example 172.31.240.0/20."
+msgstr "Укажите частную IPv4-подсеть от /16 до /28, например 172.31.240.0/20."
 
 msgid "Applying remote client settings..."
 msgstr "Применяются настройки удалённых клиентов..."

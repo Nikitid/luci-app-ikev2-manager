@@ -4,7 +4,7 @@ import { lstat, open, readfile, readlink, lsdir, writefile, chmod, rename } from
 import { sha256 } from 'digest';
 import { read_client_state } from './client-access-store.uc';
 import { validate_client_subnet } from './client-access.uc';
-import { compile_client_path } from './client-access-path.uc';
+import { compile_client_path, client_sources_file } from './client-access-path.uc';
 
 function safe_directory(directory) {
 	let info = lstat(directory);
@@ -99,9 +99,24 @@ function route_slots(directory, plan, rules, routes) {
 
 try {
 	let mode = ARGV[0];
-	if (mode == 'prepare' && length(ARGV) == 6) {
+	if (mode == 'prepare' && length(ARGV) == 7) {
 		print(sprintf('%J\n', compile_client_path({ version: 1, state: read_client_state(ARGV[1]),
-			exit_link: ARGV[2], dns_address: ARGV[3], dns_port: +ARGV[4], listen_port: +ARGV[5] })));
+			exit_link: ARGV[2], dns_address: ARGV[3], dns_port: +ARGV[4], listen_port: +ARGV[5], runtime_dir: ARGV[6] })));
+	} else if (mode == 'sources' && length(ARGV) == 3) {
+		// Which tunnel addresses belong, right now, to devices assigned each
+		// service. Written only on change: the proxy rereads a changed file.
+		safe_directory(ARGV[1]);
+		let plan = json(protected_read(ARGV[2], 33554432));
+		if (type(plan.sources) != 'object') die('missing sources');
+		for (let service, addresses in plan.sources) {
+			if (!match(service, /^[a-z0-9][a-z0-9_-]{0,47}$/) || type(addresses) != 'array') die('invalid sources');
+			for (let address in addresses)
+				if (!match(address, /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/)) die('invalid source address');
+			let wanted = { version: 3, rules: length(addresses) ? [ { ip_cidr: map(sort(addresses), address => address + '/32') } ] : [] };
+			let path = client_sources_file(ARGV[1], service), current = null;
+			try { current = protected_read(path, 1048576); } catch (error) { current = null; }
+			if (current != sprintf('%J\n', wanted)) atomic_write(path, wanted);
+		}
 	} else if (mode == 'routes' && length(ARGV) == 5) {
 		safe_directory(ARGV[1]);
 		route_slots(ARGV[1], json(protected_read(ARGV[2], 33554432)), json(readfile(ARGV[3])), json(readfile(ARGV[4])));

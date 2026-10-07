@@ -37,7 +37,9 @@ close_grants() {
 	rm -f "$runtime_dir/device-ready.json"
 	runtime_exists || return 0
 	runtime_owned || return 1
-	printf 'flush set inet %s allow_tcp\nflush set inet %s allow_udp\n' "$table" "$table" >"$work/close.nft" || return 1
+	for granted in allow_tcp allow_udp names_tcp names_udp names_clients; do
+		printf 'flush set inet %s %s\n' "$table" "$granted"
+	done >"$work/close.nft" || return 1
 	pkg_run_bounded 3 "$nft_bin" -f "$work/close.nft" >/dev/null 2>&1
 }
 

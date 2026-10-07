@@ -116,7 +116,7 @@ async function main() {
  portInput.value = '9443'; setupInputs.find(n => n.type === 'checkbox').checked = true;
  nodes(first).find(n => n.tagName === 'SELECT').value = '2s';
  await click(button(first,'Set up remote clients'));
- assert.deepStrictEqual(written[written.length-1].body, {version:1,enabled:true,port:9443,virtual_subnet:'172.31.254.0/24',exit:'2s'});
+ assert.deepStrictEqual(written[written.length-1].body, {version:1,enabled:true,port:9443,virtual_subnet:'172.31.240.0/20',exit:'2s'});
  assert.deepStrictEqual(jobs[jobs.length-1].startArgs.slice(0,1), ['client-admin-setup']);
  const blocked = page.render([{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {server_identity:null, tunnels:[]}))}]);
  assert(button(blocked,'Set up remote clients').attrs.disabled != null, 'setup needs the inbound server and a tunnel');

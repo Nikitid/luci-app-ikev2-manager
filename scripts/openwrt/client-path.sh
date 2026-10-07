@@ -108,7 +108,10 @@ NFT
 ip netns exec "$path_exit" socat -v TCP4-LISTEN:4443,bind=192.0.2.9,reuseaddr,fork EXEC:/bin/cat >"$work/exit-echo.log" 2>&1 &
 ip netns exec "$path_exit" socat -T 2 UDP4-RECVFROM:4444,bind=192.0.2.9,reuseaddr,fork PIPE >"$work/exit-udp.log" 2>&1 &
 ip netns exec "$path_exit" dnsmasq --keep-in-foreground --no-resolv --no-hosts --bind-interfaces --listen-address=192.0.2.53 --address=/api.example.com/192.0.2.9 --pid-file="$work/dnsmasq.pid" >"$work/exit-dns.log" 2>&1 &
-ucode -e 'import {readfile} from "fs"; print(sprintf("%J", {version:1,state:json(readfile(ARGV[0])),exit_link:"ipsec-out",dns_address:"192.0.2.53",dns_port:53,listen_port:17896}));' "$work/state/state.json" >"$work/path-input.json"
+ucode -e 'import {readfile} from "fs"; print(sprintf("%J", {version:1,state:json(readfile(ARGV[0])),exit_link:"ipsec-out",dns_address:"192.0.2.53",dns_port:53,listen_port:17896,runtime_dir:ARGV[1]}));' "$work/state/state.json" "$work/runtime" >"$work/path-input.json"
+# In this hand-driven part the test plays the controller, here too: the one
+# connected device is listed for the one published service.
+printf '{"version":3,"rules":[{"ip_cidr":["10.25.0.10/32"]}]}\n' >"$work/runtime/src-api.json"
 ucode "$lib/client-access-policy.uc" path <"$work/path-input.json" >"$work/path.json" || fail 'managed path compilation failed'
 ucode -e 'import {readfile} from "fs"; let config=json(readfile(ARGV[0])).config; config.log.level="debug"; print(sprintf("%J",config));' "$work/path.json" >"$work/runtime/proxy.json"
 ucode -e 'import {readfile} from "fs"; print(json(readfile(ARGV[0])).nft);' "$work/path.json" >"$work/path.nft"
@@ -267,6 +270,25 @@ path_auto=1
 controller sync || fail 'automatic path activation failed'
 [ "$(probe)" = authenticated-path ] || fail 'automatically activated TCP path failed'
 [ "$(udp_probe)" = authenticated-udp ] || fail 'automatically activated UDP path failed'
+# Names. Any host under a published domain is answered through the tunnel with
+# an address of its own and reached by that name through the exit; nothing else
+# is answered, and what was answered is not reachable on other ports.
+asked() {
+	ip netns exec "$client" nslookup -type="${2:-a}" "$1" 172.31.254.127 2>/dev/null |
+		awk '/^Name:/ { named = 1 } named && /^Address/ { print $NF; exit }'
+}
+named_probe() {
+	printf 'named-path\n' | ip netns exec "$client" socat -T 2 - "TCP4:$1:${2:-4443},connect-timeout=2,shut-none" 2>/dev/null
+}
+deep="$(asked deep.cdn.api.example.com)"
+case "$deep" in 172.31.254.1[3-9][0-9] | 172.31.254.12[89] | 172.31.254.2[0-5][0-9]) ;; *) fail "a host under a published domain got '$deep'" ;; esac
+[ "$(asked api.example.com)" != "$deep" ] || fail 'two names share one address'
+[ "$(named_probe "$deep")" = named-path ] || fail 'a named host did not reach its service through the exit'
+[ -z "$(named_probe "$deep" 4446 || :)" ] || fail 'a named host answered on a port outside the service'
+[ -z "$(asked deep.cdn.api.example.com aaaa)" ] || fail 'a published name has an IPv6 answer'
+[ -z "$(asked www.elsewhere.example)" ] || fail 'a name outside every service was answered'
+[ -z "$(asked notapi.example.com)" ] || fail 'a name that only ends like a published domain was answered'
+[ "$(seen_path direct_service)" = "$path_direct_before" ] || fail 'a named host leaked to the direct route'
 path_proxy_pid="$(role "$server" ucode "$lib/client-access-path-control.uc" owner "$work/runtime")" || fail 'owned automatic proxy missing'
 controller sync || fail 'automatic path reconciliation failed'
 [ "$(role "$server" ucode "$lib/client-access-path-control.uc" owner "$work/runtime")" = "$path_proxy_pid" ] || fail 'unchanged path restarted proxy'
@@ -278,6 +300,8 @@ controller sync || fail 'automatic proxy recovery failed'
 ucode "$fixture" "$work/state" revoke
 controller sync || fail 'automatic revocation failed'
 [ -z "$(probe || :)" ] || fail 'automatic revocation retained access'
+[ -z "$(asked deep.cdn.api.example.com)" ] || fail 'a revoked device was still answered'
+[ -z "$(named_probe "$deep" || :)" ] || fail 'a revoked device still reached a named host'
 ucode "$fixture" "$work/state" enable
 controller sync || fail 'automatic generation activation failed'
 [ "$(probe)" = authenticated-path ] || fail 'automatic generation recovery lost TCP'

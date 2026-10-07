@@ -18,7 +18,8 @@ class PathTests(unittest.TestCase):
                                  'previous': previous, 'desired': desired})
         self.assertEqual(result.returncode, 0, result.stderr)
         return {'version': 1, 'state': json.loads(result.stdout), 'exit_link': 'ipsec-out',
-                'dns_address': '192.0.2.53', 'dns_port': 53, 'listen_port': 17896}
+                'dns_address': '192.0.2.53', 'dns_port': 53, 'listen_port': 17896,
+                'runtime_dir': '/var/run/ikev2-client-access'}
 
     def compile(self, value):
         result = state_tests.run(value, 'path')
@@ -29,12 +30,13 @@ class PathTests(unittest.TestCase):
         value = self.input()
         result = self.compile(value)
         config = result['config']
-        self.assertEqual([r['override_address'] for r in config['route']['rules'] if r['action'] == 'route'],
+        self.assertEqual([r['override_address'] for r in config['route']['rules'] if 'override_address' in r],
                          ['api.example.com', 'chat.example.com'])
         self.assertEqual(config['outbounds'], [{'type': 'direct', 'tag': 'managed-exit',
             'bind_interface': 'ipsec-out', 'domain_resolver': {'server': 'managed-dns', 'strategy': 'ipv4_only'}}])
         self.assertEqual(config['dns']['servers'], [{'type': 'tcp', 'tag': 'managed-dns',
-            'server': '192.0.2.53', 'server_port': 53, 'bind_interface': 'ipsec-out'}])
+            'server': '192.0.2.53', 'server_port': 53, 'bind_interface': 'ipsec-out'},
+            {'type': 'fakeip', 'tag': 'managed-names', 'inet4_range': '172.31.254.128/25'}])
         self.assertEqual(config['route']['rules'][-1],
                          {'inbound': ['tproxy-client-access-in'], 'action': 'reject', 'method': 'drop'})
         self.assertEqual(result['route']['ingress'], 'ipsec-in')
@@ -46,19 +48,50 @@ class PathTests(unittest.TestCase):
         desired['services'][0]['domains'] = ['updated.example.com']
         updated = self.input(desired, initial['state'])
         compiled = self.compile(updated)
-        routed = [r for r in compiled['config']['route']['rules'] if r['action'] == 'route']
+        routed = [r for r in compiled['config']['route']['rules'] if 'override_address' in r]
         self.assertNotIn('api.example.com', [r['override_address'] for r in routed])
+        self.assertNotIn('api.example.com', json.dumps(compiled['config']))
         old_address = initial['state']['api']['devices'][0]['policy']['resources'][0]['address']
         self.assertNotIn(old_address + '/32', [cidr for r in routed for cidr in r['ip_cidr']])
         self.assertEqual(updated['state']['publication']['allocations'][:2],
                          initial['state']['publication']['allocations'])
+
+    def test_names_under_a_service_are_answered_and_carried_only_for_its_devices(self):
+        config = self.compile(self.input())['config']
+        hijack = config['route']['rules'][0]
+        self.assertEqual(hijack, {'inbound': ['tproxy-client-access-in'], 'ip_cidr': ['172.31.254.127/32'],
+                                  'port': [53], 'action': 'hijack-dns'})
+        sets = {item['tag']: item for item in config['route']['rule_set']}
+        self.assertTrue(sets and all(item['type'] == 'local' and item['path'] ==
+                        '/var/run/ikev2-client-access/' + tag + '.json' for tag, item in sets.items()))
+        answers = [r for r in config['dns']['rules'] if r.get('server') == 'managed-names']
+        self.assertEqual(len(answers), len(sets))
+        for rule in answers:
+            # Only A, only from the service's own devices, only the domain
+            # itself and what is under it - never a name that merely ends alike.
+            self.assertEqual(rule['query_type'], ['A'])
+            self.assertTrue(rule['rule_set_ip_cidr_match_source'] and rule['rule_set'][0] in sets)
+            self.assertEqual(rule['domain_suffix'], ['.' + name for name in rule['domain']])
+        self.assertEqual(config['dns']['rules'][-1],
+                         {'inbound': ['tproxy-client-access-in'], 'action': 'predefined', 'rcode': 'REFUSED'})
+        named = [r for r in config['route']['rules'] if r.get('rule_set')]
+        self.assertTrue(named)
+        for rule in named:
+            self.assertTrue(rule['rule_set_ip_cidr_match_source'])
+            self.assertNotIn('ip_cidr', rule, 'an address condition would admit every name')
+            self.assertEqual(rule['outbound'], 'managed-exit')
+            self.assertTrue(rule['port'] and rule['network'])
+        self.assertEqual(config['route']['rules'][-1]['action'], 'reject')
+        self.assertTrue(config['experimental']['cache_file']['store_fakeip'])
 
     def test_untrusted_or_unusable_path_inputs_are_refused(self):
         initial = self.input()
         for field, value in [('exit_link', 'eth0'), ('exit_link', 'ipsec-out;command'),
                              ('dns_address', '127.0.0.1'), ('dns_address', '0.0.0.0'),
                              ('dns_address', '224.1.1.1'), ('dns_address', '999.1.1.1'),
-                             ('dns_port', 0), ('listen_port', '17896'), ('extra', True)]:
+                             ('dns_port', 0), ('listen_port', '17896'), ('extra', True),
+                             ('runtime_dir', 'relative'), ('runtime_dir', '/var/run/../etc'),
+                             ('runtime_dir', '/var/run/a b')]:
             candidate = copy.deepcopy(initial)
             candidate[field] = value
             result = state_tests.run(candidate, 'path')

@@ -52,7 +52,9 @@ SETTINGS
  endpoint="${endpoint%% *}"
  address="${endpoint%:*}"; port="${endpoint##*:}"
  [ "$address" != "$endpoint" ] || return 1
- client_path_control prepare "$state_dir" "$tunnel_link" "$address" "$port" 17896 >"$work/path-plan.json" || return 1
+ client_path_control prepare "$state_dir" "$tunnel_link" "$address" "$port" 17896 "$runtime_dir" >"$work/path-plan.json" || return 1
+ # The proxy reads these at start and whenever they change.
+ client_path_control sources "$runtime_dir" "$work/plan.json" || return 1
  "$ucode_bin" -e 'import {readfile} from "fs"; let p=json(readfile(ARGV[0])); print(sprintf("%J\n",p.config));' "$work/path-plan.json" >"$work/proxy.next.json" || return 1
  # Fast path retains active sockets only when the applied generation is current.
  if cmp -s "$work/proxy.next.json" "$runtime_dir/proxy.json" && path_current; then

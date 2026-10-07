@@ -51,7 +51,7 @@ function setupSection(settings, reload) {
  var enabled = E('input', { 'type': 'checkbox', 'checked': settings.enabled ? '' : null, 'aria-label': _('Accept remote clients') });
  var port = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Registration port'), 'value': String(settings.port) });
  var subnet = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Virtual subnet'),
-  'value': settings.virtual_subnet || '172.31.254.0/24', 'disabled': settings.initialized ? '' : null });
+  'value': settings.virtual_subnet || '172.31.240.0/20', 'disabled': settings.initialized ? '' : null });
  var exits = [];
  settings.tunnels.forEach(function(index) {
   exits.push([ index, settings.tunnels.length > 1 ? _('Tunnel %s, another tunnel when it fails').format(index) : _('Tunnel %s').format(index) ]);
@@ -69,7 +69,7 @@ function setupSection(settings, reload) {
   'disabled': !settings.server_identity || !settings.tunnels.length ? '' : null, 'click': function() {
   var number = Number(port.value.trim());
   if (!/^[0-9]{4,5}$/.test(port.value.trim()) || number < 1024 || number > 65535) { result.err(_('Enter a port from 1024 to 65535.')); return; }
-  if (!/^[0-9]{1,3}(\.[0-9]{1,3}){3}\/(1[6-9]|2[0-8])$/.test(subnet.value.trim())) { result.err(_('Enter a private IPv4 subnet from /16 to /28, for example 172.31.254.0/24.')); return; }
+  if (!/^[0-9]{1,3}(\.[0-9]{1,3}){3}\/(1[6-9]|2[0-8])$/.test(subnet.value.trim())) { result.err(_('Enter a private IPv4 subnet from /16 to /28, for example 172.31.240.0/20.')); return; }
   var token = common.inputToken();
   var request = { version: 1, enabled: enabled.checked, port: number, virtual_subnet: subnet.value.trim(), exit: exit.value };
   return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {

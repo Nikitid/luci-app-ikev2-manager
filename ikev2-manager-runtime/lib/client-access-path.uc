@@ -1,10 +1,16 @@
 // Dedicated managed-service proxy: no ordinary traffic or direct fallback.
 'use strict';
 import { validate_client_state } from './client-access-state.uc';
-import { allocate_client_catalog, compile_client_policy } from './client-access.uc';
+import { allocate_client_catalog, compile_client_policy, client_names_plan } from './client-access.uc';
+
+// The file a service's current devices are listed in. The controller rewrites
+// it as devices come and go; the proxy rereads it without restarting.
+export function client_sources_file(directory, service) {
+	return `${directory}/src-${service}.json`;
+};
 
 export function compile_client_path(input) {
-	let names = [ 'version', 'state', 'exit_link', 'dns_address', 'dns_port', 'listen_port' ];
+	let names = [ 'version', 'state', 'exit_link', 'dns_address', 'dns_port', 'listen_port', 'runtime_dir' ];
 	if (type(input) != 'object' || length(keys(input)) != length(names))
 		die('invalid client path input');
 	for (let name in names)
@@ -22,6 +28,8 @@ export function compile_client_path(input) {
 	for (let port in [ input.dns_port, input.listen_port ])
 		if (type(port) != 'int' || port < 1 || port > 65535)
 			die('invalid client path port');
+	if (type(input.runtime_dir) != 'string' || !match(input.runtime_dir, /^\/[A-Za-z0-9._\/-]{1,200}$/) || index(input.runtime_dir, '..') >= 0)
+		die('invalid runtime directory');
 	let state = validate_client_state(input.state), publication = state.publication;
 	let selected = map(filter(publication.services, service => service.client_access), service => service.id);
 	let catalog = allocate_client_catalog({ version: 1, virtual_subnet: publication.virtual_subnet,
@@ -35,7 +43,33 @@ export function compile_client_path(input) {
 		for (let rule in rules)
 			if (rule.action == 'route') rule.outbound = 'managed-exit';
 	}
-	let subnet = publication.virtual_subnet;
+	let subnet = publication.virtual_subnet, layout = client_names_plan(subnet);
+	// Names. A device asks the resolver address through its tunnel; a name
+	// under a domain of a service the device was assigned gets an address from
+	// the upper half, and the proxy remembers which name it stands for. Any
+	// other name, and any other device, is refused. The connection that then
+	// arrives at that address is let through only for the same device, on the
+	// service's ports, and leaves by name through the required exit.
+	let published = filter(publication.services, service => service.client_access && length(service.domains));
+	let sets = [], dns_rules = [], named = [];
+	for (let service in published) {
+		let tag = `src-${service.id}`, suffixes = map(service.domains, name => '.' + name);
+		push(sets, { type: 'local', tag: tag, format: 'source', path: client_sources_file(input.runtime_dir, service.id) });
+		push(dns_rules, { inbound: [ 'tproxy-client-access-in' ], rule_set: [ tag ], rule_set_ip_cidr_match_source: true,
+			domain: service.domains, domain_suffix: suffixes, query_type: [ 'A' ], action: 'route', server: 'managed-names' });
+		// Every other record type of such a name exists and is empty, so
+		// nothing looks elsewhere for an IPv6 address or a service binding.
+		push(dns_rules, { inbound: [ 'tproxy-client-access-in' ], rule_set: [ tag ], rule_set_ip_cidr_match_source: true,
+			domain: service.domains, domain_suffix: suffixes, action: 'predefined', rcode: 'NOERROR' });
+		for (let transport in service.transports)
+			push(named, { inbound: [ 'tproxy-client-access-in' ], rule_set: [ tag ], rule_set_ip_cidr_match_source: true,
+				domain: service.domains, domain_suffix: suffixes,
+				network: [ transport.protocol ], port: transport.ports, action: 'route', outbound: 'managed-exit' });
+	}
+	push(dns_rules, { inbound: [ 'tproxy-client-access-in' ], action: 'predefined', rcode: 'REFUSED' });
+	let closing = pop(rules);
+	rules = [ { inbound: [ 'tproxy-client-access-in' ], ip_cidr: [ layout.resolver + '/32' ], port: [ 53 ], action: 'hijack-dns' },
+		...rules, ...named, closing ];
 	// Admission (-165) precedes interception (-154). A missing local route or
 	// listener cannot forward virtual destinations through an unrelated route.
 	let nft = `table inet ikev2_client_path {
@@ -66,13 +100,18 @@ export function compile_client_path(input) {
 		config: {
 			log: { level: 'warn' },
 			dns: { servers: [ { type: 'tcp', tag: 'managed-dns', server: input.dns_address,
-				server_port: input.dns_port, bind_interface: input.exit_link } ],
-				final: 'managed-dns', strategy: 'ipv4_only' },
+				server_port: input.dns_port, bind_interface: input.exit_link },
+				{ type: 'fakeip', tag: 'managed-names', inet4_range: layout.range } ],
+				rules: dns_rules, final: 'managed-dns', strategy: 'ipv4_only' },
 			inbounds: [ { type: 'tproxy', tag: 'tproxy-client-access-in',
 				listen: '127.0.0.1', listen_port: input.listen_port } ],
 			outbounds: [ { type: 'direct', tag: 'managed-exit', bind_interface: input.exit_link,
 				domain_resolver: { server: 'managed-dns', strategy: 'ipv4_only' } } ],
-			route: { rules: rules, final: 'managed-exit' }
-		}
+			route: { rule_set: sets, rules: rules, final: 'managed-exit' },
+			// The names handed out survive a restart of the proxy, so an
+			// address a device still holds keeps meaning the same name.
+			experimental: { cache_file: { enabled: true, path: input.runtime_dir + '/names.db', store_fakeip: true } }
+		},
+		services: map(published, service => service.id)
 	};
 };
