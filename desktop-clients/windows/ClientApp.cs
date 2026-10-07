@@ -90,7 +90,10 @@ namespace IkeV2Manager.Client
         {
             var layout = Controls.Count == 0 ? null : Controls[0] as TableLayoutPanel;
             if (layout == null) return;
-            int width = Math.Max(200, layout.ClientSize.Width - layout.Padding.Horizontal - 8);
+            // The column the labels sit in, less a margin of safety: a line that
+            // is a pixel too long is cut by the label at whatever letter fits.
+            int[] columns = layout.GetColumnWidths();
+            int width = Math.Max(200, (columns.Length == 0 ? layout.ClientSize.Width - layout.Padding.Horizontal : columns[0]) - 32);
             foreach (var label in new[] { description, services, updated })
             {
                 string original = label.Tag as string ?? label.Text;
@@ -101,7 +104,7 @@ namespace IkeV2Manager.Client
                     foreach (string word in paragraph.Split(' '))
                     {
                         string longer = line.Length == 0 ? word : line + " " + word;
-                        if (line.Length != 0 && TextRenderer.MeasureText(longer, label.Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width > width)
+                        if (line.Length != 0 && TextRenderer.MeasureText(longer, label.Font).Width > width)
                         { lines.Add(line); line = word; }
                         else line = longer;
                     }
