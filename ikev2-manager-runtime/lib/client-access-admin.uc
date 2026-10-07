@@ -59,6 +59,16 @@ export function client_admin_catalog_ids(state, request) {
    push(named, 'block_without_tunnel');
    if (type(request.payload.block_without_tunnel) != 'bool') die('invalid device assignment');
   }
+  // A device may differ from the others of its person: its own services.
+  if ('per_device' in request.payload) {
+   push(named, 'per_device');
+   let own = request.payload.per_device;
+   if (type(own) != 'object' || length(keys(own)) != length(request.payload.ids)) die('invalid device assignment');
+   for (let id in request.payload.ids) {
+    if (type(own[id]) != 'array') die('invalid device assignment');
+    for (let service in own[id]) service_id(service);
+   }
+  }
   // Whether the device sends only its services into the tunnel or everything.
   if ('mode' in request.payload) {
    push(named, 'mode');
@@ -75,6 +85,14 @@ export function client_admin_catalog_ids(state, request) {
  if (request.operation == 'remove-device') {
   fields(request.payload, [ 'id' ]);
   identifier(request.payload.id);
+  return [];
+ }
+ if (request.operation == 'assign-service') {
+  fields(request.payload, [ 'id', 'devices' ]);
+  service_id(request.payload.id);
+  if (type(request.payload.devices) != 'array' || length(request.payload.devices) > 512) die('invalid device list');
+  let seen = {};
+  for (let id in request.payload.devices) { identifier(id); if (seen[id]) die('invalid device list'); seen[id] = true; }
   return [];
  }
  if (request.operation == 'refresh-catalog') {
@@ -116,7 +134,15 @@ export function prepare_client_admin(state, request, catalog) {
   for (let id in payload.ids) {
    let device = filter(desired.devices, item => item.id == id)[0];
    if (device == null) die('unknown or retired device');
-   device.enabled = payload.enabled; device.selected_services = payload.selected_services;
+   device.enabled = payload.enabled; device.selected_services = payload.per_device?.[id] ?? payload.selected_services;
+  }
+ } else if (request.operation == 'assign-service') {
+  // One service for many devices at once: exactly the devices named have it.
+  if (!length(filter(desired.services, service => service.id == payload.id && service.client_access))) die('service is not published');
+  for (let device in desired.devices) {
+   let wanted = index(payload.devices, device.id) >= 0, has = index(device.selected_services, payload.id) >= 0;
+   if (wanted && !has) push(device.selected_services, payload.id);
+   else if (!wanted && has) device.selected_services = filter(device.selected_services, id => id != payload.id);
   }
  } else if (request.operation == 'remove-device') {
   // Leaving a device out retires it: its identity is spent for good, so a

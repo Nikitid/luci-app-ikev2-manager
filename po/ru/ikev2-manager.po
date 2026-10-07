@@ -5255,3 +5255,81 @@ msgstr "Устройство названо"
 
 msgid "Rights apply when everything goes into the tunnel"
 msgstr "Права действуют, когда в туннель идёт весь трафик"
+
+msgid "%d of %d"
+msgstr "%d из %d"
+
+msgid "Device: name and services"
+msgstr "Устройство: имя и сервисы"
+
+msgid "Everyone"
+msgstr "Все"
+
+msgid "No devices yet."
+msgstr "Устройств пока нет."
+
+msgid "Nobody"
+msgstr "Никто"
+
+msgid "Published service"
+msgstr "Сервис"
+
+msgid "Rights on the inbound server..."
+msgstr "Права на входящем сервере..."
+
+msgid "Service handed out"
+msgstr "Сервис роздан"
+
+msgid "Service withdrawn."
+msgstr "Сервис снят."
+
+msgid "Services of this device"
+msgstr "Сервисы этого устройства"
+
+msgid "The service is taken from every device and is no longer offered to remote clients. Its list stays in Policy Routing."
+msgstr "Сервис снимается со всех устройств и больше не предлагается удалённым клиентам. Его список остаётся в маршрутизации по правилам."
+
+msgid "Usually the same as the person's. Tick or clear here for this device alone."
+msgstr "Обычно те же, что у человека. Здесь можно отметить или снять только для этого устройства."
+
+msgid "Who has %s"
+msgstr "У кого %s"
+
+msgid "Who has this service"
+msgstr "У кого этот сервис"
+
+msgid "Withdraw"
+msgstr "Снять"
+
+msgid "Withdraw %s"
+msgstr "Снять %s"
+
+msgid "Withdraw the service"
+msgstr "Снять сервис"
+
+msgid "some devices"
+msgstr "часть устройств"
+
+msgid "New Waypoint link in place of the one given"
+msgstr "Новая ссылка Waypoint взамен выданной"
+
+msgid "Waypoint link: the person's devices register with it"
+msgstr "Ссылка Waypoint: по ней регистрируются устройства человека"
+
+msgid "Add an ordinary VPN profile"
+msgstr "Добавить обычный VPN-профиль"
+
+msgid "Approve the device"
+msgstr "Подтвердить устройство"
+
+msgid "Switch access on"
+msgstr "Включить доступ"
+
+msgid "Waypoint link for %s"
+msgstr "Ссылка Waypoint: %s"
+
+msgid "The devices start with"
+msgstr "Устройства начинают с"
+
+msgid "Changed later for each device by itself."
+msgstr "Потом меняется у каждого устройства отдельно."

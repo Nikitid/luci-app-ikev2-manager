@@ -58,7 +58,7 @@ async function main() {
  assert(!text(tree).includes('token_sha256'));
  const edits = nodes(tree).filter(n => n.tagName === 'BUTTON' && (text(n).trim() === 'Edit' || n.attrs['aria-label'] === 'Edit'));
  // People come first on the page, then the services.
- click(edits[3]);
+ click(nodes(tree).find(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Ports'));
  const save = button(modal,'Save'); assert(save.disabled, 'unchanged service cannot save');
  const inputs = nodes(modal).filter(n => n.tagName === 'INPUT');
  inputs.find(n=>n.type==='checkbox').checked = false;
@@ -122,7 +122,7 @@ async function main() {
  assert(!JSON.stringify(jobs.map(j=>j.success)).includes('cccccccc'), 'no invitation secret in job status');
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
  const removes = nodes(tree).filter(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Remove');
- assert.strictEqual(removes.length, 4);
+ assert.strictEqual(removes.length, 5, 'four devices and places, and the published service');
  // A free place is closed, not removed as a device.
  click(removes[1]);
  await click(button(modal,'Remove'));

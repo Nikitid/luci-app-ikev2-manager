@@ -226,6 +226,50 @@ function serviceDialog(record, current, generation, reload, pageResult, unsaved)
  }, reload, pageResult, unsaved);
 }
 
+// Who has a service: people ticked have it on all their devices. One save
+// hands it out or takes it back for everybody at once.
+function serviceHoldersDialog(record, state, reload, pageResult) {
+ var groups = people(state.devices, [], {}).filter(function(person) { return person.devices.length; });
+ var rows = groups.map(function(person) {
+  var have = person.devices.filter(function(device) { return device.selected_services.indexOf(record.id) >= 0; }).length;
+  return { person: person, before: have === person.devices.length, part: have > 0 && have < person.devices.length,
+   input: E('input', { 'type': 'checkbox', 'checked': have === person.devices.length ? '' : null, 'aria-label': person.name }) };
+ });
+ function everyone(on) { rows.forEach(function(row) { row.input.checked = on; }); form.dispatchEvent(new Event('change')); }
+ var form = E('div', {}, [
+  E('div', { 'class': 'ikev2-actions', 'style': 'gap:.5rem' }, [
+   E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { everyone(true); } }, [ _('Everyone') ]),
+   E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { everyone(false); } }, [ _('Nobody') ]) ]),
+  rows.length ? checkList(rows.map(function(row) { return { input: row.input, text: row.person.name + (row.part ? ' (' + _('some devices') + ')' : '') }; }))
+   : E('p', {}, [ _('No devices yet.') ])
+ ]);
+ editDialog(_('Who has %s').format(record.label), form, function() {
+  var devices = [];
+  rows.forEach(function(row) {
+   // A person left as they were keeps what each of their devices had.
+   var keep = row.input.checked === row.before;
+   row.person.devices.forEach(function(device) {
+    if (keep ? device.selected_services.indexOf(record.id) >= 0 : row.input.checked) devices.push(device.id);
+   });
+  });
+  return { version: 1, expected_generation: state.generation, operation: 'assign-service', payload: { id: record.id, devices: devices } };
+ }, reload, pageResult);
+}
+
+function withdrawDialog(record, service, state, reload, pageResult) {
+ var result = common.inlineResult(), withdraw;
+ ui.showModal(_('Withdraw %s').format(record.label), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(),
+  E('p', {}, [ _('The service is taken from every device and is no longer offered to remote clients. Its list stays in Policy Routing.') ]),
+  E('div', { 'class': 'ikev2-actions end' }, [ result.node,
+   E('button', { 'class': 'cbi-button', 'type': 'button', 'click': ui.hideModal }, [ _('Cancel') ]),
+   (withdraw = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'click': function() {
+    return saveRequest(withdraw, result, { version: 1, expected_generation: state.generation, operation: 'configure-service',
+     payload: { id: record.id, client_access: false, transports: service.transports } }, function() {
+     return reload().then(function() { ui.hideModal(); pageResult.ok(_('Service withdrawn.')); });
+    });
+   } }, [ _('Withdraw') ])) ]) ]) ]);
+}
+
 // "5 min", "3 h", "2 d": how long ago, or for how long.
 function span(seconds) {
  if (seconds < 90) return _('%d s').format(seconds);
@@ -248,7 +292,7 @@ function mailText(value) {
 }
 
 // One device of a person: what it is, how it is doing, what to do with it.
-function deviceRow(device, onRemove, onMode, onRights, onRename) {
+function deviceRow(device, onRemove, onMode, onRights, onRename, onApprove) {
  // A dot before the name says whether the device is on; words are kept for
  // what a dot cannot say.
  function named(tone, title) { return E('span', { 'class': 'ikev2-session-address' }, [ E('span', { 'class': 'ikev2-dot ' + tone, 'title': title }),
@@ -273,9 +317,8 @@ function deviceRow(device, onRemove, onMode, onRights, onRename) {
  return E('div', { 'class': 'ikev2-device' }, [
   E('div', { 'class': 'ikev2-session-main' }, [ named(tone, title), meta([ device.title && device.host ? device.host : '', computer, said ]) ]),
   E('span', { 'class': 'ikev2-user-actions' }, [ modeSelect(device, onMode),
-   onRename ? signButton('pencil', _('Name the device'), 'cbi-button-edit', function() { onRename(device); }) : '',
-   signButton('settings', device.mode === 'full' ? _('Rights on the inbound server') : _('Rights apply when everything goes into the tunnel'), 'cbi-button-edit ikev2-settle',
-    function() { if (device.mode === 'full' && onRights) onRights(device); }),
+   !device.enabled && onApprove ? (function() { var approve = signButton('check', device.unapproved ? _('Approve the device') : _('Switch access on'), 'cbi-button-action', function() { onApprove(device, approve); }); return approve; })() : '',
+   signButton('settings', _('Device: name and services'), 'cbi-button-edit ikev2-settle', function() { onRename(device); }),
    trashButton(_('Remove'), onRemove) ])
  ]);
 }
@@ -324,13 +367,14 @@ function personCard(person, labels, actions) {
     ])
    ]),
    E('div', { 'class': 'ikev2-user-actions' }, [
-    free ? signButton('link', _('New link'), '', function() { actions.relink(person); }) : '',
-    signButton('settings', _('Edit'), 'cbi-button-edit', function() { actions.edit(person); }),
-    signButton('plus', _('Add device'), 'cbi-button-action', function() { actions.add(person); })
+    signButton('link', free ? _('New Waypoint link in place of the one given') : _('Waypoint link: the person\'s devices register with it'), 'cbi-button-action',
+     function() { if (free) actions.relink(person); else actions.link(person); }),
+    signButton('plus', _('Add an ordinary VPN profile'), 'cbi-button-action', function() { actions.add(person); }),
+    signButton('settings', _('Edit'), 'cbi-button-edit ikev2-settle', function() { actions.edit(person); })
    ])
   ]),
   E('div', { 'class': 'ikev2-person-body' }, [
-   person.devices.length ? E('div', { 'class': 'ikev2-person-devices' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }, actions.mode, actions.rights, actions.rename); })) : '',
+   person.devices.length ? E('div', { 'class': 'ikev2-person-devices' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }, actions.mode, actions.rights, actions.rename, actions.approve); })) : '',
    // The person's ordinary VPN profiles are put here once the panel has drawn them.
    E('div', { 'class': 'ikev2-person-profiles', 'data-owner': person.name })
   ])
@@ -356,7 +400,9 @@ function sign(path) {
 }
 var signs = {
  plus: 'M12 5v14M5 12h14',
+ check: 'M5 12.5l4.5 4.5L19 7.5',
  pencil: 'M4 20h4L19 9l-4-4L4 16v4Zm10-14 4 4',
+ people: 'M16 19a5 5 0 0 0-10 0m5-8a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm10 8a4.5 4.5 0 0 0-5-4.4M16 4.3a3.5 3.5 0 0 1 0 6.4',
  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
  give: 'M12 3v12m-4-4 4 4 4-4M5 21h14'
 };
@@ -373,6 +419,7 @@ function pageStyles() {
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
   '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem .9rem; }' +
+  '.ikev2-page .ikev2-person-head .ikev2-user-actions { flex-wrap: nowrap; gap: .25rem; } .ikev2-page .ikev2-person-head .ikev2-settle { margin-left: .55rem; position: relative; } .ikev2-page .ikev2-person-head .ikev2-settle::before { content: ""; position: absolute; left: -.45rem; top: 15%; height: 70%; border-left: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person-head .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; } .ikev2-page .ikev2-person-head .ikev2-platform-action:hover { border-color: var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-profile-actions { display: none; } .ikev2-page .ikev2-person-profiles .ikev2-user-card.is-giving .ikev2-profile-actions { display: inline-flex; }' +
   '.ikev2-page .ikev2-people-bar .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; }' +
@@ -395,6 +442,8 @@ function pageStyles() {
   '.ikev2-page .ikev2-section > .ikev2-windows-app { margin-top: 1.1rem; margin-bottom: 0; }' +
   '.ikev2-page .ikev2-person-profiles { display: grid; gap: .5rem; } .ikev2-page .ikev2-person-profiles:empty { display: none; }' +
   '.ikev2-page .ikev2-user-list:empty { display: none; }' +
+  '.ikev2-page .ikev2-row-signs { flex-wrap: nowrap; gap: .25rem; justify-content: flex-end; } .ikev2-page .ikev2-row-signs .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; }' +
+  '.ikev2-page .ikev2-row-signs > .ikev2-settle { margin-left: .55rem; position: relative; } .ikev2-page .ikev2-row-signs > .ikev2-settle::before { content: ""; position: absolute; left: -.45rem; top: 15%; height: 70%; border-left: 1px solid var(--ikev2-border); }' +
   // Waypoint devices on a faint green, ordinary profiles on a faint blue: told apart at a glance.
   '.ikev2-page .ikev2-device { padding: .45rem .7rem; border-radius: var(--ikev2-radius-sm); background: color-mix(in srgb, var(--ikev2-good) 9%, transparent); }' +
   '.ikev2-page .ikev2-person.is-open .ikev2-person-body { padding-left: .5rem; }' +
@@ -528,8 +577,13 @@ function personDialog(person, state, labels, reload, pageResult, profileNames, p
  var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Access enabled') });
  var email = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), 'value': device.email || '' });
  var block = E('input', { 'type': 'checkbox', 'checked': device.block_without_tunnel === false ? null : '', 'aria-label': _('Block services without the tunnel') });
+ // A service is the person's when every device of theirs has it. One that
+ // only some devices have is a device's own and is left to the device.
+ var registered = person.devices.filter(function(item) { return !item.waiting; });
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
-  return { id: service.id, input: E('input', { 'type': 'checkbox', 'checked': device.selected_services.indexOf(service.id) >= 0 ? '' : null, 'aria-label': labels[service.id] || service.id }) };
+  var have = registered.filter(function(item) { return item.selected_services.indexOf(service.id) >= 0; }).length;
+  return { id: service.id, before: have === registered.length, part: have > 0 && have < registered.length,
+   input: E('input', { 'type': 'checkbox', 'checked': have === registered.length ? '' : null, 'aria-label': labels[service.id] || service.id }) };
  });
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
@@ -540,13 +594,18 @@ function personDialog(person, state, labels, reload, pageResult, profileNames, p
   E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
    person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null),
    common.toggleRow(block, _('Block services without the tunnel'), _('Off: while the tunnel is down, the services are reached the ordinary way.')) ]),
-  E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) ]),
+  E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: (labels[choice.id] || choice.id) + (choice.part ? ' (' + _('some devices') + ')' : '') }; })) ]),
   profileBox
  ]);
  editDialog(person.name, form, function() {
   return { version: 1, expected_generation: state.generation, operation: 'assign-devices',
-   payload: { ids: person.devices.filter(function(item) { return !item.waiting; }).map(function(item) { return item.id; }), enabled: enabled.checked,
+   payload: { ids: registered.map(function(item) { return item.id; }), enabled: enabled.checked,
     selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }),
+    // What changed here goes to every device; what did not stays as each device had it.
+    per_device: registered.reduce(function(map, item) {
+     map[item.id] = choices.filter(function(c) { return c.input.checked !== c.before ? c.input.checked : item.selected_services.indexOf(c.id) >= 0; }).map(function(c) { return c.id; });
+     return map;
+    }, {}),
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')),
     email: mailText(email.value), block_without_tunnel: block.checked } };
  }, reload, pageResult, false, profiles.length ? function(button, result) {
@@ -597,10 +656,10 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  var kind = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Kind of device') }, [
   E('option', { 'value': 'services' }, [ _('Waypoint: selected services') ]),
   E('option', { 'value': 'full' }, [ _('Waypoint: everything into the tunnel') ])
- ].concat(addProfile && !replace.length ? [ E('option', { 'value': 'profile' }, [ _('Ordinary VPN profile: phone or other device') ]) ] : []));
+ ].concat(addProfile && !person && !replace.length ? [ E('option', { 'value': 'profile' }, [ _('Ordinary VPN profile: phone or other device') ]) ] : []));
  // A known person brings name, mail and note; a device is added one at a time.
  var rows = person ? [] : [ common.fieldLabel(_('Who uses it')), owner, common.fieldLabel(_('E-mail')), email, common.fieldLabel(_('Note')), note ];
- rows.push(common.fieldLabel(_('Kind of device')), kind);
+ rows.push(common.fieldLabel(person ? _('The devices start with') : _('Kind of device'), _('Changed later for each device by itself.')), kind);
  rows.push(common.fieldLabel(_('Devices'), _('How many devices may register with this link. Each appears by itself under the name of its computer.')), count);
  rows.push(common.fieldLabel(_('Link is valid for')), lifetime);
  // The identifier is made from the person's name; it is internal and rarely matters.
@@ -681,7 +740,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  tracker = common.trackChanges(create, [ form ]);
  // For a known person the form is already filled in and can be sent as it is.
  if (person) create.disabled = false;
- ui.showModal(replace.length ? _('New link for %s').format(person.name) : person ? _('Add device for %s').format(person.name) : _('Add person'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
+ ui.showModal(replace.length ? _('New link for %s').format(person.name) : person ? _('Waypoint link for %s').format(person.name) : _('Add person'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
    E('button', { type: 'button', 'class': 'cbi-button', click: ui.hideModal }, [ _('Cancel') ]), create ]) ]) ]);
 }
@@ -745,11 +804,17 @@ return view.extend({
    var shown = records.filter(function(record) { return current(record) && current(record).client_access; });
    var serviceRows = shown.map(function(record) {
     var service = current(record);
+    var holders = state.devices.filter(function(device) { return device.selected_services.indexOf(record.id) >= 0; }).length;
     return E('tr', { 'class': 'tr' }, [
      E('td', { 'class': 'td' }, [ E('strong', {}, [ record.label ]) ]),
      E('td', { 'class': 'td' }, [ portsText(service) ]),
      E('td', { 'class': 'td' }, [ String(service.domain_count) ]),
-     E('td', { 'class': 'td', 'style': 'text-align:right' }, [ E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { serviceDialog(record, service, state.generation, reload, result); } }, [ _('Edit') ]) ])
+     E('td', { 'class': 'td' }, [ _('%d of %d').format(holders, state.devices.length) ]),
+     E('td', { 'class': 'td' }, [ E('span', { 'class': 'ikev2-user-actions ikev2-row-signs' }, [
+      signButton('people', _('Who has this service'), 'cbi-button-action', function() { serviceHoldersDialog(record, state, reload, result); }),
+      signButton('settings', _('Ports'), 'cbi-button-edit ikev2-settle', function() { serviceDialog(record, service, state.generation, reload, result); }),
+      trashButton(_('Withdraw the service'), function() { withdrawDialog(record, service, state, reload, result); })
+     ]) ])
     ]);
    });
    var others = records.filter(function(record) { return shown.indexOf(record) < 0; });
@@ -762,7 +827,7 @@ return view.extend({
    } }, [ _('Publish...') ]);
    services.replaceChildren(
     shown.length ? E('table', { 'class': 'table cbi-section-table' }, [
-     E('tr', { 'class': 'tr' }, [ _('Service'), _('Ports'), _('Domains'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+     E('tr', { 'class': 'tr' }, [ _('Published service'), _('Ports'), _('Domains'), _('Devices'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
     ].concat(serviceRows)) : E('div', { 'class': 'ikev2-empty' }, [ _('No service is published yet.') ]),
     others.length ? E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:.9rem' }, [ pick, publish ]) : '');
    // New devices that wait for the administrator are told apart from those
@@ -771,22 +836,50 @@ return view.extend({
    var actions = {
     // A card is open if the administrator opened it, or - until they touch
     // it - if something of the person is connected or still waited for.
-    open: function(person) {
-     if (person.name in opened) return opened[person.name];
-     return everyoneCount <= 3 || person.devices.some(function(device) { return device.online || device.waiting; });
-    },
+    // Cards are folded; one stays open only because the administrator
+    // opened it, and that is remembered while the browser tab lives.
+    open: function(person) { return opened[person.name] === true; },
     toggle: function(person, card) {
      opened[person.name] = !/\bis-open\b/.test(card.getAttribute('class'));
      card.setAttribute('class', 'ikev2-person' + (opened[person.name] ? ' is-open' : ''));
+     try { window.sessionStorage.setItem('ikev2-people-open', JSON.stringify(opened)); } catch (error) { }
     },
     edit: function(person) { personDialog(person, state, labels, reload, result, profileNames, everyoneNames); },
-    add: function(person) { invitationDialog(state, labels, reload, person, null, newProfileFor); },
+    // A Waypoint device is never added by hand: it appears when it registers
+    // with the person's link. What is added by hand is an ordinary profile.
+    add: function(person) { newProfileFor(person); },
+    link: function(person) { invitationDialog(state, labels, reload, person); },
+    approve: function(device, button) {
+     return saveRequest(button, result, { version: 1, expected_generation: state.generation, operation: 'assign-device',
+      payload: { id: device.id, enabled: true, selected_services: device.selected_services } }, reload);
+    },
     rename: function(device) {
      var name = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Device name'), 'value': device.title || '', 'placeholder': device.host || device.id });
-     editDialog(device.title || device.host || device.id, E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
-      common.fieldLabel(_('Device name'), _('Empty: the name the computer reported.')), name ]), function() {
-      return { version: 1, expected_generation: state.generation, operation: 'rename-device', payload: { id: device.id, name: describeText(name.value, 80, _('Device name')) } };
-     }, reload, result);
+     var own = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
+      return { id: service.id, input: E('input', { 'type': 'checkbox', 'checked': device.selected_services.indexOf(service.id) >= 0 ? '' : null, 'aria-label': labels[service.id] || service.id }) };
+     });
+     var before = device.title || '';
+     editDialog(device.title || device.host || device.id, E('div', {}, [
+      E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [ common.fieldLabel(_('Device name'), _('Empty: the name the computer reported.')), name ]),
+      E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services of this device'), _('Usually the same as the person\'s. Tick or clear here for this device alone.')),
+       checkList(own.map(function(item) { return { input: item.input, text: labels[item.id] || item.id }; })) ]),
+      device.mode === 'full' ? E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:1rem' }, [
+       E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { ui.hideModal(); actions.rights(device); } }, [ _('Rights on the inbound server...') ]) ]) : ''
+     ]), function() {
+      describeText(name.value, 80, _('Device name'));
+      return { version: 1, expected_generation: state.generation, operation: 'assign-device',
+       payload: { id: device.id, enabled: device.enabled, selected_services: own.filter(function(item) { return item.input.checked; }).map(function(item) { return item.id; }) } };
+     }, reload, result, false, function(button, output) {
+      var wanted = describeText(name.value, 80, _('Device name'));
+      if (wanted === before) return null;
+      // The state moved on with the first save; the name is a description and is sent after it.
+      return readState().then(function(next) {
+       var generation = JSON.parse(next[0].stdout).generation;
+       return new Promise(function(resolve, reject) {
+        saveRequest(button, output, { version: 1, expected_generation: generation, operation: 'rename-device', payload: { id: device.id, name: wanted } }, resolve).then(null, reject);
+       });
+      });
+     });
     },
     rights: function(device) {
      if (!vpnUsers.accessPolicy || !vpnUsers.accessPolicy(device.id)) result.err(_('The rights of this device are not available.'));
@@ -839,9 +932,10 @@ return view.extend({
   var search = E('input', { 'type': 'search', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
   var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
   var opened = {}, everyoneCount = 0, lastData = null, everyoneNames = [];
+  try { opened = JSON.parse(window.sessionStorage.getItem('ikev2-people-open') || '{}') || {}; } catch (error) { opened = {}; }
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
-   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
+   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
   // Put each owned profile's card into its person's card. The panel redraws
   // its list every few seconds and brings fresh cards; a fresh card takes the
   // place of the one shown before. Nothing is ever cleared wholesale, so a

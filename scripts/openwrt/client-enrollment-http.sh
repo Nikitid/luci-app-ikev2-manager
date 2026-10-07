@@ -176,6 +176,13 @@ request 200 -H "Authorization: Bearer $first" https://localhost:18443/client/v1/
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":["%s"],"owner":"One Person","note":"both","mode":"services"}}' \
 	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
 [ "$(rights)" = deny ]
+# One service for chosen devices at once, and a device with its own services.
+has() { ucode "$control" inspect | jsonfilter -e "@.devices[@.id=\"$1\"].selected_services[*]" | tr '\n' ' '; }
+printf '{"version":1,"expected_generation":%s,"operation":"assign-service","payload":{"id":"%s","devices":["family-1"]}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
+[ "$(has family-1)" = "$service " ] && [ -z "$(has family-2)" ]
+printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":[],"per_device":{"family-1":["%s"],"family-2":["%s"]},"owner":"One Person","note":"both"}}' \
+	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" "$service" | ucode "$control" update >/dev/null
+[ "$(has family-1)" = "$service " ] && [ "$(has family-2)" = "$service " ]
 # The mode belongs to a device: one device of the person is switched alone,
 # and a device whose access is closed has no rights whatever its mode.
 other() { uci -q show ikev2-manager | sed -n "s/^ikev2-manager\.\(user_[a-f0-9]*\)\.username='family-2'$/\1/p" | while read -r section; do uci -q get "ikev2-manager.$section.internet_access"; done; }
@@ -188,4 +195,4 @@ printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payl
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \
 	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
 [ "$(rights)" = inherit ] && [ "$(other)" = deny ]
-printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a closed place, a shared decision, the full-tunnel mode, background credentials, protected storage, opening on registration, clock and expiry PASS'
+printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a closed place, a shared decision, the full-tunnel mode, a service for chosen devices, background credentials, protected storage, opening on registration, clock and expiry PASS'

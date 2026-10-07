@@ -151,6 +151,7 @@ try {
     (request.payload.block_without_tunnel === false ? ' not-blocked-without-tunnel' : ''));
   else if (request.operation == 'assign-device') record_client_event(request.payload.enabled ? 'access-set' : 'access-closed', request.payload.id);
   else if (request.operation == 'remove-device') record_client_event('device-removed', request.payload.id);
+  else if (request.operation == 'assign-service') record_client_event('service-assigned', request.payload.id + ' devices ' + length(request.payload.devices));
   else if (request.operation == 'configure-service') record_client_event(request.payload.client_access ? 'service-published' : 'service-withdrawn', request.payload.id);
   print(`generation=${generation}\nchanged=${prepared.changed ? 1 : 0}\n`);
   }
