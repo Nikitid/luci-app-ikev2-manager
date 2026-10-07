@@ -5156,3 +5156,6 @@ msgstr "Устройства Waypoint на Windows и macOS ходят к выб
 
 msgid "Waypoint devices: %d, online: %d"
 msgstr "Устройств Waypoint: %d, в сети: %d"
+
+msgid "Search"
+msgstr "Поиск"

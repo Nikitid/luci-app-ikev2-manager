@@ -307,6 +307,17 @@ function personCard(person, labels, actions) {
  ]);
 }
 
+// The sign of a search field; the shared icon set has none.
+function magnifier() {
+ if (typeof document === 'undefined' || !document.createElementNS) return '';
+ var space = 'http://www.w3.org/2000/svg', icon = document.createElementNS(space, 'svg'), shape = document.createElementNS(space, 'path');
+ icon.setAttribute('class', 'ikev2-icon'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('fill', 'none');
+ icon.setAttribute('stroke', 'currentColor'); icon.setAttribute('stroke-width', '2'); icon.setAttribute('stroke-linecap', 'round');
+ shape.setAttribute('d', 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4.3-4.3');
+ icon.appendChild(shape);
+ return icon;
+}
+
 // The page's own layout rules, beside the shared ones.
 function pageStyles() {
  return E('style', {}, [
@@ -317,7 +328,12 @@ function pageStyles() {
   '.ikev2-page .ikev2-form-grid + .ikev2-actions.end { margin-top: 1rem; }' +
   '.ikev2-page .ikev2-person-profiles { display: grid; gap: .5rem; } .ikev2-page .ikev2-person-profiles:empty { display: none; }' +
   '.ikev2-page details.ikev2-fold > summary { cursor: pointer; font-weight: 600; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); margin: var(--ikev2-s4) 0; } .ikev2-page details.ikev2-fold[open] > summary { margin-bottom: 0; }' +
-  '.ikev2-page .ikev2-search { width: 100%; max-width: 22rem; margin-bottom: .8rem; }' +
+  '.ikev2-page .ikev2-people-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; margin-bottom: .9rem; }' +
+  '.ikev2-page .ikev2-search-box { position: relative; flex: 0 1 20rem; min-width: 12rem; }' +
+  '.ikev2-page .ikev2-search-box .ikev2-icon { position: absolute; left: .7rem; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%); color: var(--ikev2-muted); pointer-events: none; }' +
+  '.ikev2-page .ikev2-search-box input.ikev2-search { width: 100%; height: 2.25rem; margin: 0; padding: 0 .8rem 0 2.1rem; border: 1px solid var(--ikev2-border); border-radius: 999px; background: var(--ikev2-surface-2); color: inherit; font: inherit; box-shadow: none; outline: none; }' +
+  '.ikev2-page .ikev2-search-box input.ikev2-search:focus { border-color: var(--ikev2-accent); }' +
+  '.ikev2-page .ikev2-search-box input.ikev2-search::placeholder { color: var(--ikev2-muted); }' +
   '@media (max-width: 720px) { .ikev2-page .ikev2-person-head, .ikev2-page .ikev2-device { grid-template-columns: 1fr; } .ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: wrap; justify-content: flex-start; } }'
  ]);
 }
@@ -618,6 +634,10 @@ return view.extend({
     relink: function(person) { invitationDialog(state, labels, reload, person, person.devices.filter(function(device) { return device.waiting; })); },
     remove: function(device) { removeDialog(device, state, reload, result); }
    };
+   // Ordinary profiles only: the accounts of Waypoint devices are not offered.
+   var taken = {};
+   state.devices.forEach(function(device) { taken[device.id] = true; });
+   profileNames = allAccounts.filter(function(name) { return !taken[name]; });
    var everyone = people(state.devices, state.waiting, state.profile_owners);
    devices.replaceChildren(everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
     return personCard(person, labels, actions);
@@ -642,9 +662,9 @@ return view.extend({
   // The VPN profiles panel brings its list, the Windows application and
   // diagnostics. The list stands with the people; a profile that belongs to
   // a person is shown in that person's card.
-  var vpnMain = E('div', {}), vpnRest = E('div', {}), summary = E('div', { 'style': 'margin-bottom:.9rem' }), journal = E('div', {});
-  var search = E('input', { 'type': 'search', 'class': 'cbi-input-text ikev2-search', 'placeholder': _('Find a person, a device or a profile'), 'aria-label': _('Find a person, a device or a profile') });
-  var profileNames = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
+  var vpnMain = E('div', {}), vpnRest = E('div', {}), summary = E('div', {}), journal = E('div', {});
+  var search = E('input', { 'type': 'search', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
+  var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
    'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'profiles-set': _('VPN profiles assigned') };
@@ -663,7 +683,12 @@ return view.extend({
      if (owners[profile(card)] !== owner) { if (list) list.appendChild(card); else card.remove(); }
     });
    });
+   // A Waypoint device has an account too; it is shown as a device above,
+   // not a second time as an ordinary profile.
+   var deviceIds = {};
+   state.devices.forEach(function(device) { deviceIds[device.id] = true; });
    Array.prototype.forEach.call(vpnMain.querySelectorAll('.ikev2-user-card'), function(card) {
+    if (deviceIds[profile(card)]) { card.setAttribute('data-device', '1'); card.style.display = 'none'; return; }
     var home = homes[owners[profile(card)]];
     if (!home) return;
     Array.prototype.forEach.call(home.querySelectorAll('.ikev2-user-card'), function(shown) { if (profile(shown) === profile(card)) shown.remove(); });
@@ -675,6 +700,7 @@ return view.extend({
    var wanted = search.value.trim().toLowerCase();
    [ devices.querySelectorAll('.ikev2-person'), vpnMain.querySelectorAll ? vpnMain.querySelectorAll('.ikev2-user-list > .ikev2-user-card') : [] ].forEach(function(found) {
     Array.prototype.forEach.call(found, function(node) {
+     if (node.getAttribute && node.getAttribute('data-device')) return;
      node.style.display = !wanted || String(node.textContent || '').toLowerCase().indexOf(wanted) >= 0 ? '' : 'none';
     });
    });
@@ -699,7 +725,8 @@ return view.extend({
    availability, fresh,
    (managed.replaceChildren(
     common.section(_('People'), _('Waypoint devices on Windows and macOS reach selected services; VPN profiles are for phones and other devices.'),
-     E('div', {}, [ summary, search, devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
+     E('div', {}, [ E('div', { 'class': 'ikev2-people-bar' }, [ summary, E('div', { 'class': 'ikev2-search-box' }, [ magnifier(), search ]) ]),
+      devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
     vpnMain,
     common.section(_('Services for Waypoint'), _('Lists are shared with Policy Routing.'), services, refresh),
     fold(_('Settings'), setup), fold(_('Mail for invitation links'), mailBox),
