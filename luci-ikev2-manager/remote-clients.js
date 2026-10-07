@@ -257,7 +257,7 @@ function deviceRow(device, onRemove, onMode) {
   return E('div', { 'class': 'ikev2-device' }, [ E('div', { 'class': 'ikev2-session-main' }, [
    named('info', _('Waiting for registration')),
    meta([ _('Waiting for registration'), _('link valid for %s more').format(span(device.expires_seconds)) ]) ]),
-   E('span', { 'class': 'ikev2-session-meta' }, [ device.mode === 'full' ? _('Everything into the tunnel') : _('Selected services') ]),
+   modeSelect(device, null),
    trashButton(_('Nobody can register in this place any more.'), onRemove) ]);
  var tone = 'neutral', title = _('Offline'), said = '';
  if (!device.enabled && device.unapproved) { tone = 'info'; title = said = _('Waiting for approval'); }
@@ -282,14 +282,21 @@ function trashButton(title, onRemove) {
  return E('button', { 'class': 'cbi-button ikev2-platform-action cbi-button-remove', 'type': 'button', 'title': title, 'aria-label': _('Remove'), 'click': onRemove }, [ common.icon('trash') ]);
 }
 
-// What one device sends into the tunnel; changing it is saved at once.
+// What one device sends into the tunnel, as two signs of which one is lit:
+// the selected services, or everything. Pressing the other one saves at once.
+var modeSigns = {
+ services: 'M4 7h6m4 0h6M12 5v4M4 12h10m4 0h2M16 10v4M4 17h3m4 0h9M9 15v4',
+ full: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-9 9h18M12 3c2.4 2.5 3.6 5.5 3.6 9s-1.2 6.5-3.6 9c-2.4-2.5-3.6-5.5-3.6-9S9.6 5.5 12 3Z'
+};
 function modeSelect(device, onMode) {
- var select = E('select', { 'class': 'cbi-input-select', 'aria-label': _('What goes into the tunnel') }, [
-  E('option', { 'value': 'services', 'selected': device.mode === 'full' ? null : '' }, [ _('Selected services') ]),
-  E('option', { 'value': 'full', 'selected': device.mode === 'full' ? '' : null }, [ _('Everything into the tunnel') ])
- ]);
- select.addEventListener('change', function() { onMode(device, select.value === 'full' ? 'full' : 'services', select); });
- return select;
+ var current = device.mode === 'full' ? 'full' : 'services';
+ return E('span', { 'class': 'ikev2-mode' }, [ [ 'services', _('Selected services') ], [ 'full', _('Everything into the tunnel') ] ].map(function(item) {
+  var button = E('button', { 'class': 'cbi-button ikev2-platform-action' + (item[0] === current ? ' is-on' : ''), 'type': 'button',
+   'title': item[1], 'aria-label': item[1], 'aria-pressed': item[0] === current ? 'true' : 'false',
+   'disabled': device.waiting ? '' : null }, [ sign(modeSigns[item[0]]) ]);
+  if (!device.waiting) button.addEventListener('click', function() { if (item[0] !== current) onMode(device, item[0], button); });
+  return button;
+ }));
 }
 
 // A person and their devices. Devices without a named owner stand alone.
@@ -327,27 +334,30 @@ function personCard(person, labels, actions) {
  return card;
 }
 
-// The sign of a search field; the shared icon set has none.
-function magnifier() {
+// A sign drawn by the page itself, in the manner of the shared icon set.
+function sign(path) {
  if (typeof document === 'undefined' || !document.createElementNS) return '';
  var space = 'http://www.w3.org/2000/svg', icon = document.createElementNS(space, 'svg'), shape = document.createElementNS(space, 'path');
  icon.setAttribute('class', 'ikev2-icon'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('fill', 'none');
- icon.setAttribute('stroke', 'currentColor'); icon.setAttribute('stroke-width', '2'); icon.setAttribute('stroke-linecap', 'round');
- shape.setAttribute('d', 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4.3-4.3');
+ icon.setAttribute('stroke', 'currentColor'); icon.setAttribute('stroke-width', '2'); icon.setAttribute('stroke-linecap', 'round'); icon.setAttribute('stroke-linejoin', 'round');
+ shape.setAttribute('d', path);
  icon.appendChild(shape);
  return icon;
 }
+function magnifier() { return sign('M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4.3-4.3'); }
 
 // The page's own layout rules, beside the shared ones.
 function pageStyles() {
  return E('style', {}, [
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
-  '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) 12.5rem auto; align-items: center; gap: .6rem .8rem; }' +
-  '.ikev2-page .ikev2-device .ikev2-platform-action, .ikev2-page .ikev2-device select { border-color: transparent; background-color: transparent; box-shadow: none; }' +
-  '.ikev2-page .ikev2-device .ikev2-platform-action:hover, .ikev2-page .ikev2-device select:hover, .ikev2-page .ikev2-device select:focus { border-color: var(--ikev2-border); }' +
-  '.ikev2-page .ikev2-device select { color: var(--ikev2-muted); text-align: right; }' +
-  '.ikev2-page .ikev2-device select { width: 100%; min-width: 0; }' +
+  '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .6rem .9rem; }' +
+  '.ikev2-page .ikev2-device .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; }' +
+  '.ikev2-page .ikev2-device .ikev2-platform-action:hover { border-color: var(--ikev2-border); }' +
+  '.ikev2-page .ikev2-mode { display: inline-flex; gap: .15rem; padding-right: .9rem; border-right: 1px solid var(--ikev2-border); }' +
+  '.ikev2-page .ikev2-mode .ikev2-platform-action { color: var(--ikev2-muted); opacity: .55; }' +
+  '.ikev2-page .ikev2-mode .ikev2-platform-action.is-on { color: var(--ikev2-accent); opacity: 1; }' +
+  '.ikev2-page .ikev2-mode .ikev2-platform-action[disabled] { cursor: default; }' +
   '.ikev2-page .ikev2-person-devices { display: grid; gap: .6rem; padding-top: .75rem; border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: nowrap; }' +
   '.ikev2-page .ikev2-form-grid + .ikev2-actions.end { margin-top: 1rem; }' +
