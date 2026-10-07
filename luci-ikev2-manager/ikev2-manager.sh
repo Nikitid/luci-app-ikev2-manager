@@ -2169,6 +2169,9 @@ case "${1:-}" in
 			# Managed desktop access was set up after the server was rendered.
 			if [ -f /etc/ikev2-manager/clients/initialized ] && [ "$(getv_default server custom_config 0)" != 1 ]; then
 				swanctl --list-conns 2>/dev/null | grep -q 'ikev2-in-managed:' || _need=1
+				# ...or for another virtual subnet than the one in force now.
+				_subnet="$(ucode /usr/libexec/ikev2-manager.d/client-access-runtime.uc subnet /etc/ikev2-manager/clients '' '' 2>/dev/null)" || _subnet=''
+				[ -z "$_subnet" ] || grep -Fq "local_ts = $_subnet" "$inbound_conf" 2>/dev/null || _need=1
 			fi
 			ip link show ipsec-in >/dev/null 2>&1 || _need=1
 		fi
