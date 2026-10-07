@@ -16,7 +16,7 @@ namespace IkeV2Manager.Client
         private ManagedVpnProfile(Guid owner, Guid entry)
         {
             Owner = owner; EntryId = entry;
-            Name = "IKEv2 Manager " + owner.ToString("N");
+            Name = "Private Lane " + owner.ToString("N");
             Phonebook = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 @"Microsoft\Network\Connections\Pbk\rasphone.pbk");
         }

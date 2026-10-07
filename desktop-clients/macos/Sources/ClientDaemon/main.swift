@@ -56,7 +56,7 @@ guard let store = try? ClientStore(directory: URL(fileURLWithPath: stateDirector
 let release = ProcessInfo.processInfo.operatingSystemVersion
 // The window and the daemon are installed together; the window's bundle
 // carries the version both were built as.
-let installed = (NSDictionary(contentsOfFile: "/Applications/IKEv2 Manager Client.app/Contents/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
+let installed = (NSDictionary(contentsOfFile: "/Applications/Private Lane.app/Contents/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
 let about = DeviceTransport.describe(host: ProcessInfo.processInfo.hostName,
     system: "macOS \(release.majorVersion).\(release.minorVersion).\(release.patchVersion)", version: installed)
 let runtime = ClientRuntime(store: store, system: system, transport: DeviceTransport(additionalAnchor: anchor, about: about))

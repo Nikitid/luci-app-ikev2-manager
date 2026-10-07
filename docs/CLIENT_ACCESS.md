@@ -740,10 +740,56 @@ connected. A device is opened as soon as its registration completes; removal
 closes its sessions, deletes its credentials and forgets its record
 (`client-admin.sh`).
 
+## Private Lane: names and supported systems
+
+The desktop client is called Private Lane on both systems: the program, its
+window, the installer (`PrivateLaneSetup.exe`, `PrivateLane-X.Y.Z.pkg`) and the
+VPN entry the system shows. Identifiers a user does not see (service name,
+state directory, launchd label, markers in the hosts file) keep their earlier
+form. The icon is drawn by `desktop-clients/assets/make-icon.py`; its results
+are committed. Both windows follow the system's light or dark appearance and
+let the user choose one.
+
+Supported: Windows 10 22H2 and Windows 11, x64, with the .NET Framework 4.8
+they include; macOS 14 and later on Apple silicon. Run so far on Windows 11
+and macOS 27; the other versions are supported by construction, not by test.
+Intel Macs are not supported: the package is built for Apple silicon only.
+
+## Networks a device may sit in
+
+What the design gives on networks the administrator does not control, by
+reasoning except where a test is named:
+
+- DNS interception or a false resolver. Managed names never ask the local
+  resolver (hosts entries, and a resolver that exists only inside the
+  tunnel). The server's own name is resolved locally; a false answer leads to
+  a host that cannot present the server's certificate, so neither the HTTPS
+  API nor IKEv2 authenticates and access stays closed.
+- IKEv2 captured or redirected by the local gateway: the same certificate
+  check fails it. Behind the router that is itself the server, the client
+  works (tested on both systems).
+- UDP 500/4500 blocked: no tunnel and no fallback; the window stays at
+  "connecting". A limitation of native IKEv2.
+- The registration port blocked outbound: registration, policy and readiness
+  are asked outside the tunnel, so access stays closed even with the tunnel
+  up. A limitation; moving these questions into the tunnel would lift it.
+- A local network inside the virtual subnet (WSL and container bridges take
+  ranges from 172.16.0.0/12): the local route is more specific than the
+  tunnel's, the route check refuses it and access stays closed. Choose the
+  virtual subnet with that in mind; it cannot change after the first device.
+- A full-tunnel VPN beside it: closed while that VPN blocks other traffic,
+  back when it is gone (tested with WireGuard on Windows).
+- A system proxy: traffic sent to the proxy bypasses the tunnel; the Windows
+  window warns, the macOS one does not yet.
+- A program with its own encrypted resolver, other than the browsers the
+  installer configures, reaches a service directly and not through the tunnel.
+- Captive portals, IPv6-only access networks and small path MTU are
+  unverified.
+
 ## Client installers in a release
 
-The release workflow builds `IKEv2ManagerClientSetup.exe` on a Windows runner
-and `IKEv2ManagerClient-X.Y.Z.pkg` on a macOS runner after the router package
+The release workflow builds `PrivateLaneSetup.exe` on a Windows runner
+and `PrivateLane-X.Y.Z.pkg` on a macOS runner after the router package
 is published, and attaches both to the release. Neither is signed with a
 publisher identity, so Windows shows its unknown-publisher warning and macOS
 needs "Open" from the context menu. These jobs have not run yet.

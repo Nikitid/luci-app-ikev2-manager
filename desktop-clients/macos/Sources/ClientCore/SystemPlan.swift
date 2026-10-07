@@ -4,7 +4,7 @@ import Foundation
 /// every rule and every profile key can be checked without privileges.
 public enum SystemPlan {
     public static let anchor = "com.apple/250.IKEv2ManagerClient"
-    public static let serviceName = "IKEv2 Manager Client"
+    public static let serviceName = "Private Lane"
     public static let managedDomain = "managed.ikev2-manager"
 
     public static let profilePrefix = "io.github.nikitid.ikev2-manager-client."

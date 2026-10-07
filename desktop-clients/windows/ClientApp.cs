@@ -25,14 +25,64 @@ namespace IkeV2Manager.Client
         // What the surface draws; set by RefreshStatus.
         private string heading = "", description = "", servicesLine = "", servicesNote = "", availableLine = "", notice = "", checkedLine = "";
         private Tone tone = Tone.Off;
-        private readonly string[] checkLabels = { "Блокировка вне туннеля", "Туннель и маршруты", "Путь через офис" };
+        // "system", "light" or "dark": the look this user chose for the window.
+        private string theme = "system";
+        private bool dark;
+        private Color Back { get { return dark ? Color.FromArgb(30, 30, 32) : Color.FromArgb(245, 245, 247); } }
+        private Color Sheet { get { return dark ? Color.FromArgb(44, 44, 46) : Color.White; } }
+        private Color Ink { get { return dark ? Color.FromArgb(240, 240, 242) : Color.FromArgb(28, 28, 30); } }
+        private Color Soft { get { return dark ? Color.FromArgb(160, 160, 166) : Color.FromArgb(110, 110, 115); } }
+        private Color Line { get { return dark ? Color.FromArgb(70, 70, 74) : Color.FromArgb(217, 217, 222); } }
+        private readonly List<Button> plain = new List<Button>();
+        private const string Preferences = @"Software\PrivateLane";
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
+
+        // The system's choice unless the user made one; applied to the title
+        // bar, the surface and the buttons.
+        private void ApplyTheme()
+        {
+            bool systemDark = false;
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                    systemDark = key != null && (key.GetValue("AppsUseLightTheme") as int?) == 0;
+            }
+            catch (System.Security.SecurityException) { }
+            catch (UnauthorizedAccessException) { }
+            dark = theme == "dark" || (theme == "system" && systemDark);
+            BackColor = Back;
+            foreach (var button in plain) { button.BackColor = Sheet; button.ForeColor = Ink; button.FlatAppearance.BorderColor = Line; }
+            if (IsHandleCreated) { int on = dark ? 1 : 0; DwmSetWindowAttribute(Handle, 20, ref on, 4); }
+            surface.Invalidate();
+        }
+
+        private void ChooseTheme(Control anchor)
+        {
+            var menu = new ContextMenuStrip();
+            foreach (var item in new[] { new[] { "system", "Системная" }, new[] { "light", "Светлая" }, new[] { "dark", "Тёмная" } })
+            {
+                string value = item[0];
+                var entry = new ToolStripMenuItem(item[1]) { Checked = theme == value };
+                entry.Click += (sender, args) =>
+                {
+                    theme = value;
+                    try { using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(Preferences)) key.SetValue("Theme", value); }
+                    catch (UnauthorizedAccessException) { }
+                    ApplyTheme();
+                };
+                menu.Items.Add(entry);
+            }
+            menu.Show(anchor, new Point(0, anchor.Height));
+        }
+        private readonly string[] checkLabels = { "Блокировка вне туннеля", "Туннель", "Подтверждение сервера" };
         private readonly string[] checkValues = { "", "", "" };
         private readonly Tone[] checkTones = { Tone.Off, Tone.Off, Tone.Off };
-        private readonly Button register = new Button { Text = "Зарегистрировать устройство…", AutoSize = true };
-        private readonly Button resume = new Button { Text = "Продолжить регистрацию", AutoSize = true };
-        private readonly Button connect = new Button { Text = "Включить доступ", AutoSize = true };
-        private readonly Button disconnect = new Button { Text = "Отключить доступ", AutoSize = true };
-        private readonly Button update = new Button { Text = "Скачать обновление", AutoSize = true, Visible = false, TabStop = false };
+        private readonly Button register = new Button { Text = "Регистрация…", AutoSize = true };
+        private readonly Button resume = new Button { Text = "Продолжить", AutoSize = true };
+        private readonly Button connect = new Button { Text = "Включить", AutoSize = true };
+        private readonly Button disconnect = new Button { Text = "Отключить", AutoSize = true };
+        private readonly Button update = new Button { Text = "Обновить", AutoSize = true, Visible = false, TabStop = false };
         // The one place downloads come from. The router supplies a version
         // number and nothing else.
         private const string Downloads = "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v";
@@ -45,17 +95,31 @@ namespace IkeV2Manager.Client
 
         internal ClientWindow()
         {
-            Text = "IKEv2 Manager";
+            Text = "Private Lane";
             ClientSize = new Size(560, 470);
             AutoScaleMode = AutoScaleMode.Dpi;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             Font = new Font("Segoe UI", 10);
-            BackColor = Color.FromArgb(245, 245, 247);
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(Preferences))
+                {
+                    string chosen = key == null ? null : key.GetValue("Theme") as string;
+                    if (chosen == "light" || chosen == "dark") theme = chosen;
+                }
+            }
+            catch (System.Security.SecurityException) { }
+            catch (UnauthorizedAccessException) { }
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            catch (ArgumentException) { }
+            catch (IOException) { }
             StartPosition = FormStartPosition.CenterScreen;
             var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(20, 8, 20, 16), WrapContents = true };
             var refresh = new Button { Text = "Проверить", AutoSize = true };
             var report = new Button { Text = "Отчёт…", AutoSize = true };
+            var look = new Button { Text = "Тема", AutoSize = true };
+            look.Click += (sender, args) => ChooseTheme(look);
             refresh.Click += (sender, args) => RefreshStatus();
             report.Click += (sender, args) => PreviewReport();
             register.Click += (sender, args) => BeginRegistration();
@@ -65,7 +129,7 @@ namespace IkeV2Manager.Client
             update.Click += (sender, args) =>
             {
                 if (!ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version)) return;
-                try { System.Diagnostics.Process.Start(Downloads + current.Release + "/IKEv2ManagerClientSetup.exe"); }
+                try { System.Diagnostics.Process.Start(Downloads + current.Release + "/PrivateLaneSetup.exe"); }
                 catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Не удалось открыть браузер.", "Обновление"); }
             };
             // The next thing to do stands first and stands out.
@@ -74,13 +138,12 @@ namespace IkeV2Manager.Client
                 primary.FlatStyle = FlatStyle.Flat; primary.FlatAppearance.BorderSize = 0;
                 primary.BackColor = Color.FromArgb(0, 103, 192); primary.ForeColor = Color.White;
             }
-            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, update })
+            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, look, update })
             {
                 button.Margin = new Padding(4, 4, 4, 4); button.Padding = new Padding(4, 2, 4, 2);
                 if (button.FlatStyle != FlatStyle.Flat)
                 {
-                    button.FlatStyle = FlatStyle.Flat; button.BackColor = Color.White;
-                    button.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 206);
+                    button.FlatStyle = FlatStyle.Flat; plain.Add(button);
                 }
                 buttons.Controls.Add(button);
             }
@@ -88,8 +151,14 @@ namespace IkeV2Manager.Client
             Controls.Add(surface);
             Controls.Add(buttons);
             timer.Tick += (sender, args) => RefreshStatus();
-            Shown += (sender, args) => { RefreshStatus(); timer.Start(); };
-            FormClosed += (sender, args) => timer.Dispose();
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemLookChanged;
+            Shown += (sender, args) => { ApplyTheme(); RefreshStatus(); timer.Start(); };
+            FormClosed += (sender, args) => { timer.Dispose(); Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemLookChanged; };
+        }
+
+        private void SystemLookChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs change)
+        {
+            if (theme == "system" && !IsDisposed) BeginInvoke((Action)ApplyTheme);
         }
 
         // Draws the status, the checks and the services, and returns the height
@@ -100,7 +169,7 @@ namespace IkeV2Manager.Client
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             float left = 24 * k, width = surface.ClientSize.Width - 48 * k, y = 22 * k;
-            Color ink = Color.FromArgb(28, 28, 30), soft = Color.FromArgb(110, 110, 115), line = Color.FromArgb(217, 217, 222);
+            Color ink = Ink, soft = Soft, line = Line;
             using (var titleFont = new Font("Segoe UI Semibold", 15))
             using (var small = new Font("Segoe UI", 8))
             using (var bold = new Font("Segoe UI Semibold", 10))
@@ -154,7 +223,7 @@ namespace IkeV2Manager.Client
                 if (paint)
                 {
                     Card(g, left, y, width, cardHeight, linePen, 10 * k);
-                    g.DrawString("СЕРВИСЫ ЧЕРЕЗ ОФИС", small, softBrush, left + pad, y + pad - 2 * k);
+                    g.DrawString("СЕРВИСЫ", small, softBrush, left + pad, y + pad - 2 * k);
                     float top = y + pad + caption;
                     g.DrawString(servicesLine, bold, servicesNote.Length == 0 && current.Services.Length == 0 ? softBrush : inkBrush,
                         new RectangleF(left + pad, top, inner, names.Height + 2), wrap);
@@ -192,9 +261,9 @@ namespace IkeV2Manager.Client
             return path;
         }
 
-        private static void Card(Graphics g, float x, float y, float width, float height, Pen border, float radius)
+        private void Card(Graphics g, float x, float y, float width, float height, Pen border, float radius)
         {
-            using (var shape = Rounded(x, y, width, height, radius)) { g.FillPath(Brushes.White, shape); g.DrawPath(border, shape); }
+            using (var shape = Rounded(x, y, width, height, radius)) using (var fill = new SolidBrush(Sheet)) { g.FillPath(fill, shape); g.DrawPath(border, shape); }
         }
 
         // The window is as tall as its content and its buttons.
@@ -212,16 +281,16 @@ namespace IkeV2Manager.Client
             if (commandBusy) return;
             if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
             {
-                MessageBox.Show(this, "Для начальной регистрации запустите приложение с правами администратора. Продолжение регистрации доступно без повышения прав.", "Регистрация");
+                MessageBox.Show(this, "Запустите программу от имени администратора.", "Регистрация");
                 return;
             }
-            using (var dialog = new Form { Text = "Регистрация доступа", ClientSize = new Size(560, 170),
+            using (var dialog = new Form { Text = "Регистрация", ClientSize = new Size(560, 170),
                 StartPosition = FormStartPosition.CenterParent, Font = Font, MinimizeBox = false, MaximizeBox = false })
             {
                 var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20), ColumnCount = 1 };
                 var input = new TextBox { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
                 var submit = new Button { Text = "Зарегистрировать", AutoSize = true, DialogResult = DialogResult.OK };
-                layout.Controls.Add(new Label { Text = "Вставьте ссылку приглашения, выданную администратором", AutoSize = true });
+                layout.Controls.Add(new Label { Text = "Ссылка приглашения", AutoSize = true });
                 layout.Controls.Add(input); layout.Controls.Add(submit); dialog.Controls.Add(layout); dialog.AcceptButton = submit;
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 try
@@ -248,9 +317,9 @@ namespace IkeV2Manager.Client
                 if (result == "accepted" && operation == "begin")
                     await Task.Factory.StartNew(() => ClientCommands.Send("continue"));
                 else if (result != "accepted" && result != "busy")
-                    MessageBox.Show(this, result == "administrator_required" ? "Требуются права администратора." : "Служба отклонила действие. Проверьте состояние клиента.", "Регистрация");
+                    MessageBox.Show(this, result == "administrator_required" ? "Требуются права администратора." : "Действие отклонено.", "Регистрация");
             }
-            catch { if (!IsDisposed) MessageBox.Show(this, "Не удалось связаться с системной службой. Проверьте её состояние.", "Регистрация"); }
+            catch { if (!IsDisposed) MessageBox.Show(this, "Служба не отвечает.", "Регистрация"); }
             finally { commandBusy = false; if (!IsDisposed) RefreshStatus(); }
         }
 
@@ -263,76 +332,78 @@ namespace IkeV2Manager.Client
             tone = current.State == "protected" ? Tone.Open :
                 current.State == "connecting" || current.State == "tunnel_connected" || current.State == "registration_pending" ? Tone.Working :
                 current.State == "blocked" || current.State == "enrollment_required" ? Tone.Off : Tone.Attention;
+            string code = current.ConnectionError;
             switch (current.State)
             {
                 case "blocked":
                     heading = current.Wanted ? "Доступ закрыт" : "Доступ выключен";
-                    description = (current.Wanted ? "Нет подтверждённого подключения к офису. Сервисы офиса заблокированы." :
-                        "Вы выключили доступ. Сервисы офиса заблокированы, остальной интернет работает как обычно.");
+                    description = current.Wanted ? "Нет подключения. Сервисы заблокированы." : "Сервисы заблокированы.";
                     break;
                 case "enrollment_required":
                     heading = "Устройство не зарегистрировано";
-                    description = ("Получите у администратора ссылку приглашения и нажмите «Зарегистрировать устройство».");
+                    description = "Нужна ссылка приглашения от администратора.";
                     break;
                 case "registration_pending":
-                    heading = "Регистрация не завершена";
-                    description = (current.ConnectionError == "enrollment_connection_failed" ? "Нет связи с роутером по адресу из приглашения. Проверьте интернет; попытка повторяется автоматически." :
-                        current.ConnectionError == "enrollment_access_rejected" ? "Роутер не принял приглашение: оно истекло, уже использовано или отменено. Попросите у администратора новое." :
-                        current.ConnectionError != "none" ? "Роутер ответил не так, как ожидалось (" + current.ConnectionError + "). Попытка повторяется автоматически." :
-                        "Ожидается выдача настроек сервера. Подключение VPN и защита выбранных сервисов ещё не подтверждены.");
+                    heading = "Регистрация";
+                    description = code == "enrollment_connection_failed" ? "Нет связи с сервером." :
+                        code == "enrollment_access_rejected" ? "Приглашение недействительно. Запросите новое." :
+                        code != "none" ? "Неожиданный ответ сервера (" + code + ")." : "Ожидается ответ сервера.";
                     break;
                 case "registration_error":
                     heading = "Ошибка регистрации";
-                    description = ("Не удалось получить или сохранить настройки. VPN не активирован. Подробности состояния доступны в отчёте.");
+                    description = "Настройки не получены. Повторите регистрацию.";
                     break;
                 case "connecting":
                     heading = "Подключение";
-                    description = ("Служба устанавливает IKEv2-соединение. Доступ к закреплённым адресам остаётся заблокирован.");
+                    description = "Устанавливается туннель.";
                     break;
                 case "protected":
                     heading = "Доступ открыт";
-                    description = ("Выбранные сервисы идут через офис: туннель, маршруты и путь на роутере подтверждены. Остальной трафик идёт как обычно.");
+                    description = "Сервисы идут через туннель.";
                     break;
                 case "tunnel_connected":
-                    heading = "Туннель установлен";
-                    description = (PathText(current.ConnectionError));
+                    heading = "Проверка доступа";
+                    description = code == "path_connection_failed" ? "Нет связи с сервером." :
+                        code == "path_different_policy" ? "Настройки обновляются." :
+                        code == "device_access_revoked" ? "Доступ отозван администратором." :
+                        code == "path_response_invalid" ? "Ответ сервера не принят." : "Сервер ещё не подтвердил доступ.";
                     break;
                 case "connection_error":
-                    heading = "Не удалось подключить VPN";
-                    description = ("Служба не подтвердила нужный туннель или маршруты. Доступ к закреплённым адресам остаётся заблокирован; попытка повторится автоматически.");
+                    heading = "Нет подключения";
+                    description = "Туннель не установлен. Попытка повторится.";
                     break;
                 case "access_closed":
-                    heading = "Доступ не включён";
-                    description = ("Роутер знает это устройство, но доступ для него не включён администратором или отозван. Выбранные сервисы остаются заблокированы; проверка повторяется автоматически.");
+                    heading = "Доступ не разрешён";
+                    description = "Доступ для этого устройства выключен администратором.";
                     break;
                 case "error":
-                    heading = "Ошибка системной службы";
-                    description = ("Служба не смогла подтвердить защиту или обновить настройки с сервера. Доступ не подтверждён; повторная синхронизация выполняется автоматически.");
+                    heading = "Ошибка службы";
+                    description = "Состояние защиты не подтверждено. Подробности в отчёте.";
                     break;
                 case "service_missing":
                     heading = "Служба не установлена";
-                    description = ("Системный компонент клиента отсутствует. Защита ещё не настроена.");
+                    description = "Переустановите программу.";
                     break;
                 case "service_stopped":
                     heading = "Служба остановлена";
-                    description = ("Блокировки могут оставаться включены. Их текущее состояние не подтверждено.");
+                    description = "Состояние защиты не подтверждено.";
                     break;
                 default:
-                    heading = "Состояние не подтверждено";
-                    description = ("Проверка службы или её статуса не прошла. Код состояния доступен в отчёте.");
+                    heading = "Состояние неизвестно";
+                    description = "Подробности в отчёте.";
                     break;
             }
             bool fresh = current.State == "enrollment_required";
-            checkValues[0] = current.GuardInstalled ? "включена" : fresh ? "появится после регистрации" : "не подтверждена";
+            checkValues[0] = current.GuardInstalled ? "включена" : fresh ? "после регистрации" : "не подтверждена";
             checkTones[0] = current.GuardInstalled ? Tone.Open : fresh ? Tone.Off : Tone.Attention;
-            checkValues[1] = current.Routed ? "подтверждены" : current.State == "connecting" ? "устанавливаются" : "нет";
+            checkValues[1] = current.Routed ? "подключён" : current.State == "connecting" ? "подключается" : "нет";
             checkTones[1] = current.Routed ? Tone.Open : current.State == "connecting" ? Tone.Working : Tone.Off;
-            checkValues[2] = current.Protected ? "подтверждён" : "не подтверждён";
+            checkValues[2] = current.Protected ? "получено" : "нет";
             checkTones[2] = current.Protected ? Tone.Open : current.Routed ? Tone.Working : Tone.Off;
             servicesLine = current.Services.Length != 0 ? String.Join(" \u00B7 ", current.Services) :
-                current.Domains == 0 ? "Пока не назначены" : "Доменов: " + current.Domains + ", названия уточняются";
-            servicesNote = current.Services.Length == 0 ? "" : "Доменов: " + current.Domains + " \u00B7 версия настроек " + current.Revision;
-            availableLine = current.Available.Length == 0 ? "" : "По запросу у администратора: " + String.Join(", ", current.Available);
+                current.Domains == 0 ? "Не назначены" : "Доменов: " + current.Domains;
+            servicesNote = current.Services.Length == 0 ? "" : "Доменов: " + current.Domains;
+            availableLine = current.Available.Length == 0 ? "" : "По запросу: " + String.Join(", ", current.Available);
             bool registered = current.GuardInstalled && current.State != "registration_pending" && current.State != "registration_error";
             register.Visible = current.State == "enrollment_required" || current.State == "registration_error";
             resume.Visible = current.State == "registration_pending" || current.State == "registration_error";
@@ -345,25 +416,12 @@ namespace IkeV2Manager.Client
                 connectAfterRegistration = false;
                 SubmitCommand("connect");
             }
-            notice = (newer ? "Доступна версия " + current.Release + ". Установка сохранит регистрацию." : "") +
+            notice = (newer ? "Доступна версия " + current.Release + "." : "") +
                 (current.Warnings != null && current.Warnings.Contains("proxy") ? (newer ? "\r\n" : "") +
-                    "На компьютере включён прокси: программы, которые ходят через него, обращаются к сервисам в обход офиса." : "");
+                    "Включён системный прокси: трафик через него идёт в обход туннеля." : "");
             var own = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             checkedLine = "Проверено " + DateTime.Now.ToString("HH:mm:ss") + " \u00B7 v" + own.Major + "." + own.Minor + "." + Math.Max(own.Build, 0);
             FitWindow();
-        }
-
-        private static string PathText(string code)
-        {
-            switch (code)
-            {
-                case "path_unavailable": return "Роутер пока не подтвердил путь для выбранных сервисов. Доступ к ним остаётся заблокирован; проверка повторяется автоматически.";
-                case "path_connection_failed": return "Нет связи со службой доступа на роутере. Доступ к выбранным сервисам остаётся заблокирован; проверка повторяется автоматически.";
-                case "path_different_policy": return "Роутер и клиент применяют разные версии настроек. Доступ остаётся заблокирован, пока настройки не совпадут.";
-                case "device_access_revoked": return "Доступ этого устройства отозван администратором. Выбранные сервисы остаются заблокированы.";
-                case "path_response_invalid": return "Роутер прислал ответ, который клиент не принял. Доступ к выбранным сервисам остаётся заблокирован.";
-                default: return "IKEv2 и маршруты выбранных адресов подтверждены. Ожидается подтверждение пути от роутера; доступ пока заблокирован.";
-            }
         }
 
         private void PreviewReport()
@@ -376,7 +434,7 @@ namespace IkeV2Manager.Client
             var serializer = new JavaScriptSerializer();
             var fields = serializer.Deserialize<Dictionary<string, object>>(current.Report());
             string json = "{\r\n" + String.Join(",\r\n", fields.Select(pair => "  " + serializer.Serialize(pair.Key) + ": " + serializer.Serialize(pair.Value))) + "\r\n}";
-            var preview = new Form { Text = "Отчёт о состоянии", ClientSize = new Size(600, 320), StartPosition = FormStartPosition.CenterParent };
+            var preview = new Form { Text = "Отчёт", ClientSize = new Size(600, 320), StartPosition = FormStartPosition.CenterParent };
             var content = new TextBox { Text = json, Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
                 ScrollBars = ScrollBars.Both, Font = new Font(FontFamily.GenericMonospace, 10), WordWrap = false };
             var save = new Button { Text = "Сохранить…", Dock = DockStyle.Bottom, Height = 40 };

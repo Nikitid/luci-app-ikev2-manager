@@ -19,20 +19,23 @@ swift build --package-path "$here" --scratch-path "$scratch" -c release >/dev/nu
 products="$(swift build --package-path "$here" --scratch-path "$scratch" -c release --show-bin-path)"
 stage="$(mktemp -d)"
 trap 'rm -r "$stage"' EXIT
-app="$stage/root/Applications/IKEv2 Manager Client.app/Contents"
+app="$stage/root/Applications/Private Lane.app/Contents"
 tools="$stage/root/Library/PrivilegedHelperTools"
 mkdir -p "$app/MacOS" "$tools" "$stage/root/Library/LaunchDaemons" "$stage/scripts" "$output"
 cp "$products/IKEv2ManagerClient" "$app/MacOS/IKEv2ManagerClient"
 cp "$products/ikev2-manager-clientd" "$tools/$label"
+mkdir -p "$app/Resources"
+cp "$here/../assets/PrivateLane.icns" "$app/Resources/PrivateLane.icns"
 cat >"$app/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key><string>$label.app</string>
-	<key>CFBundleName</key><string>IKEv2 Manager Client</string>
-	<key>CFBundleDisplayName</key><string>IKEv2 Manager Client</string>
+	<key>CFBundleName</key><string>Private Lane</string>
+	<key>CFBundleDisplayName</key><string>Private Lane</string>
 	<key>CFBundleExecutable</key><string>IKEv2ManagerClient</string>
+	<key>CFBundleIconFile</key><string>PrivateLane</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>$version</string>
 	<key>CFBundleVersion</key><string>$version</string>
@@ -65,10 +68,10 @@ set -u
 launchctl bootout system/$label 2>/dev/null
 "/Library/PrivilegedHelperTools/$label" --remove || echo 'The stored device could not be removed completely.' >&2
 rm -f "/Library/LaunchDaemons/$label.plist" "/Library/PrivilegedHelperTools/$label"
-rm -rf "/Applications/IKEv2 Manager Client.app"
+rm -rf "/Applications/Private Lane.app"
 pkgutil --forget $label >/dev/null 2>&1
 rm -f "/Library/PrivilegedHelperTools/$label.uninstall"
-echo 'IKEv2 Manager Client removed.'
+echo 'Private Lane removed.'
 SCRIPT
 chmod 755 "$tools/$label" "$tools/$label.uninstall" "$app/MacOS/IKEv2ManagerClient"
 cat >"$stage/scripts/preinstall" <<SCRIPT
@@ -86,9 +89,9 @@ chmod 755 "$stage/scripts/preinstall" "$stage/scripts/postinstall"
 plutil -lint "$app/Info.plist" "$stage/root/Library/LaunchDaemons/$label.plist" >/dev/null
 # An ad-hoc signature lets the binaries run on Apple silicon; it names nobody.
 codesign --force --sign - "$tools/$label" >/dev/null 2>&1
-codesign --force --sign - "$stage/root/Applications/IKEv2 Manager Client.app" >/dev/null 2>&1
+codesign --force --sign - "$stage/root/Applications/Private Lane.app" >/dev/null 2>&1
 # Extended attributes of the build machine have no place in the payload.
 xattr -cr "$stage/root"
 COPYFILE_DISABLE=1 pkgbuild --quiet --root "$stage/root" --scripts "$stage/scripts" --identifier "$label" --version "$version" \
-	--install-location / "$output/IKEv2ManagerClient-$version.pkg"
-printf '%s\n' "$output/IKEv2ManagerClient-$version.pkg"
+	--install-location / "$output/PrivateLane-$version.pkg"
+printf '%s\n' "$output/PrivateLane-$version.pkg"

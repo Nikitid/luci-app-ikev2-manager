@@ -13,7 +13,7 @@ using Microsoft.Win32;
 // the installed denials; only uninstallation removes them.
 internal static class Setup
 {
-    private const string Name = "IKEv2ManagerClient", Title = "IKEv2 Manager Client";
+    private const string Name = "IKEv2ManagerClient", Title = "Private Lane";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + Name;
     private static readonly string System32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
     private static readonly string Destination = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Title);
@@ -91,16 +91,15 @@ internal static class Setup
                 throw new Refusal("Запустите установку с правами администратора.");
             if (remove)
             {
-                if (!quiet && MessageBox.Show("Удалить " + Title + "?\n\nБлокировки, записи имён, VPN-профиль и регистрация этого устройства будут удалены. " +
-                    "Чтобы вернуть доступ, понадобится новое приглашение.", Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return 0;
+                if (!quiet && MessageBox.Show("Удалить " + Title + "?\n\nРегистрация устройства будет удалена.", Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return 0;
                 Uninstall();
-                if (!quiet) MessageBox.Show("Клиент удалён.", Title);
+                if (!quiet) MessageBox.Show(Title + " удалён.", Title);
                 return 0;
             }
             Install();
             if (!quiet)
             {
-                MessageBox.Show("Клиент установлен. Сейчас откроется окно клиента: вставьте в него ссылку приглашения от администратора.", Title);
+                MessageBox.Show(Title + " установлен.", Title);
                 Process.Start(new ProcessStartInfo(AppPath) { WorkingDirectory = Destination, UseShellExecute = false });
             }
             return 0;
@@ -109,7 +108,7 @@ internal static class Setup
         catch (Exception error)
         {
             // Type only: a path or a system message may carry local details.
-            if (!quiet) MessageBox.Show("Установка не завершена (" + error.GetType().Name + "). Состояние клиента не изменено сверх уже выполненных шагов; запустите установку ещё раз.",
+            if (!quiet) MessageBox.Show("Установка не завершена (" + error.GetType().Name + "). Запустите установку ещё раз.",
                 Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
@@ -154,7 +153,7 @@ internal static class Setup
         {
             key.SetValue("DisplayName", Title);
             key.SetValue("DisplayVersion", Assembly.GetExecutingAssembly().GetName().Version.ToString(3));
-            key.SetValue("Publisher", "IKEv2 Manager");
+            key.SetValue("Publisher", "Private Lane");
             key.SetValue("InstallLocation", Destination);
             key.SetValue("DisplayIcon", AppPath);
             key.SetValue("UninstallString", "\"" + self + "\" /uninstall");
