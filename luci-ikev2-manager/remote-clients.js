@@ -648,19 +648,27 @@ return view.extend({
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
    'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'profiles-set': _('VPN profiles assigned') };
-  var moving = false;
   // Put each owned profile's card into its person's card. The panel redraws
-  // its list every few seconds, so this runs after every redraw.
+  // its list every few seconds and brings fresh cards; a fresh card takes the
+  // place of the one shown before. Nothing is ever cleared wholesale, so a
+  // card cannot be lost between two redraws.
   function distribute() {
-   if (!vpnMain.querySelectorAll || !state) return;
-   moving = true;
-   var owners = state.profile_owners || {}, homes = {};
-   Array.prototype.forEach.call(devices.querySelectorAll('.ikev2-person-profiles'), function(node) { node.replaceChildren(); homes[node.getAttribute('data-owner')] = node; });
-   Array.prototype.forEach.call(vpnMain.querySelectorAll('.ikev2-user-card'), function(card) {
-    var name = card.querySelector('.ikev2-user-name'), home = name && homes[owners[name.textContent.trim()]];
-    if (home) home.appendChild(card);
+   if (!vpnMain.querySelector || !state) return;
+   var owners = state.profile_owners || {}, homes = {}, list = vpnMain.querySelector('.ikev2-user-list');
+   function profile(card) { var name = card.querySelector('.ikev2-user-name'); return name ? name.textContent.trim() : ''; }
+   Array.prototype.forEach.call(devices.querySelectorAll('.ikev2-person-profiles'), function(node) { homes[node.getAttribute('data-owner')] = node; });
+   // A card whose profile changed hands, or lost its owner, goes back first.
+   Object.keys(homes).forEach(function(owner) {
+    Array.prototype.forEach.call(homes[owner].querySelectorAll('.ikev2-user-card'), function(card) {
+     if (owners[profile(card)] !== owner) { if (list) list.appendChild(card); else card.remove(); }
+    });
    });
-   moving = false;
+   Array.prototype.forEach.call(vpnMain.querySelectorAll('.ikev2-user-card'), function(card) {
+    var home = homes[owners[profile(card)]];
+    if (!home) return;
+    Array.prototype.forEach.call(home.querySelectorAll('.ikev2-user-card'), function(shown) { if (profile(shown) === profile(card)) shown.remove(); });
+    home.appendChild(card);
+   });
   }
   function applySearch() {
    if (!devices.querySelectorAll) return;
@@ -680,7 +688,10 @@ return view.extend({
     vpnMain.appendChild(parts[1]); parts[1].appendChild(parts[0]); vpnRest.appendChild(parts[2]);
    } else vpnMain.appendChild(panel);
    if (typeof MutationObserver !== 'undefined')
-    new MutationObserver(function() { if (!moving) { distribute(); applySearch(); } }).observe(vpnMain, { childList: true, subtree: true });
+    new MutationObserver(function(changes) {
+     // Only what the panel adds matters; our own moves take cards away.
+     if (changes.some(function(change) { return change.addedNodes.length; })) { distribute(); applySearch(); }
+    }).observe(vpnMain, { childList: true, subtree: true });
   }
   setData(data);
   return E([ common.styles(), pageStyles(), E('div', { 'class': 'ikev2-page' }, [
