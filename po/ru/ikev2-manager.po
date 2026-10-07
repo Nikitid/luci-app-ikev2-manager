@@ -5213,3 +5213,12 @@ msgstr "в сети: %d"
 
 msgid "VPN profiles: Windows application and diagnostics"
 msgstr "VPN-профили: приложение для Windows и диагностика"
+
+msgid "This identifier was used before and cannot be used again. Choose another."
+msgstr "Этот идентификатор уже использовался, повторно его взять нельзя. Выберите другой."
+
+msgid "Take a profile from another person"
+msgstr "Забрать профиль у другого человека"
+
+msgid "The link was not created. The identifier may have been used before, or a device is registering right now; try another identifier or wait a minute."
+msgstr "Ссылка не создана. Возможно, идентификатор уже использовался или прямо сейчас регистрируется устройство; попробуйте другой идентификатор или подождите минуту."

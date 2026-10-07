@@ -334,6 +334,12 @@ function personCard(person, labels, actions) {
  return card;
 }
 
+// A short list of things to tick, where a row of large switches would be
+// too much: services, profiles.
+function checkList(items) {
+ return E('div', { 'class': 'ikev2-checks' }, items.map(function(item) { return E('label', {}, [ item.input, E('span', {}, [ item.text ]) ]); }));
+}
+
 // A sign drawn by the page itself, in the manner of the shared icon set.
 function sign(path) {
  if (typeof document === 'undefined' || !document.createElementNS) return '';
@@ -361,6 +367,10 @@ function pageStyles() {
   '.ikev2-page .ikev2-person-devices { display: grid; gap: .6rem; padding-top: .75rem; border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: nowrap; }' +
   '.ikev2-page .ikev2-form-grid + .ikev2-actions.end { margin-top: 1rem; }' +
+  '.ikev2-page .ikev2-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .35rem 1rem; margin-top: .5rem; padding: .7rem .9rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
+  '.ikev2-page .ikev2-checks label { display: flex; align-items: center; gap: .5rem; min-width: 0; font-weight: 400; cursor: pointer; }' +
+  '.ikev2-page .ikev2-checks input { margin: 0; flex: none; }' +
+  '.ikev2-page .ikev2-checks span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }' +
   '.ikev2-page .ikev2-section > .ikev2-windows-app { margin-top: 1.1rem; margin-bottom: 0; }' +
   '.ikev2-page .ikev2-person-profiles { display: grid; gap: .5rem; } .ikev2-page .ikev2-person-profiles:empty { display: none; }' +
   '.ikev2-page .ikev2-user-list:empty { display: none; }' +
@@ -455,8 +465,14 @@ function personDialog(person, state, labels, reload, pageResult, profileNames) {
  var profiles = (profileNames || []).filter(function(name) { return !given[name] || owners[name] === person.name; }).map(function(name) {
   return { name: name, input: E('input', { 'type': 'checkbox', 'checked': owners[name] === person.name ? '' : null, 'aria-label': name }) };
  });
- var profileBox = profiles.length ? E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('VPN profiles of this person')) ].concat(
-  profiles.map(function(item) { return common.toggleRow(item.input, item.name); }))) : '';
+ // Theirs are listed; the profiles that stand under somebody else are kept
+ // behind a fold, for the rare case of moving one.
+ var own = profiles.filter(function(item) { return owners[item.name] === person.name; }), others = profiles.filter(function(item) { return owners[item.name] !== person.name; });
+ function rows(list) { return checkList(list.map(function(item) { return { input: item.input, text: item.name }; })); }
+ var profileBox = profiles.length ? E('div', { 'style': 'margin-top:1rem' }, [
+  own.length ? common.fieldLabel(_('VPN profiles of this person')) : '', own.length ? rows(own) : '',
+  others.length ? E('details', { 'style': 'margin-top:.7rem' }, [ E('summary', { 'style': 'cursor:pointer;color:var(--ikev2-muted)' }, [ _('Take a profile from another person') ]), rows(others) ]) : ''
+ ]) : '';
  function profileRequest(name) {
   return { version: 1, expected_generation: state.generation, operation: 'assign-profiles',
    payload: { owner: name, profiles: profiles.filter(function(item) { return item.input.checked; }).map(function(item) { return item.name; }) } };
@@ -491,7 +507,7 @@ function personDialog(person, state, labels, reload, pageResult, profileNames) {
   E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
    person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null),
    common.toggleRow(block, _('Block services without the tunnel'), _('Off: while the tunnel is down, the services are reached the ordinary way.')) ]),
-  E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services')) ].concat(choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); }))),
+  E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) ]),
   profileBox
  ]);
  editDialog(person.name, form, function() {
@@ -513,6 +529,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  var generation = state.enrollment_generation;
  var taken = {};
  state.devices.concat(state.waiting || []).forEach(function(device) { taken[device.id] = true; });
+ (state.used_ids || []).forEach(function(id) { taken[id] = true; });
  // The next free identifier for one more device of a known person.
  function free(base) {
   if (!base) return '';
@@ -522,14 +539,14 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  var known = person && person.devices[0];
  replace = replace || [];
  var id = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Device identifier'),
-  value: known ? free(suggestId(person.owner) || known.id.replace(/-[0-9]+$/, '')) : '' });
+  value: person ? free(suggestId(person.name) || (known ? known.id.replace(/-[0-9]+$/, '') : '')) : '' });
  var endpoint = state.api_endpoint || 'https://' + state.server.address + ':8443/client/v1/enroll';
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
   return { id: service.id, input: E('input', { type: 'checkbox', 'aria-label': labels[service.id] || service.id,
    checked: known && known.selected_services.indexOf(service.id) >= 0 ? '' : null }) };
  });
  if (!known && choices.length === 1) choices[0].input.checked = true;
- var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), value: known ? known.owner || '' : '' });
+ var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), value: person ? person.name : '' });
  var note = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), value: known ? known.note || '' : '' });
  var email = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), value: known ? known.email || '' : '' });
  var count = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Devices') }, [ 1, 2, 3, 4, 5 ].map(function(n) {
@@ -547,7 +564,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  var kind = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Kind of device') }, [
   E('option', { 'value': 'services' }, [ _('Waypoint: selected services') ]),
   E('option', { 'value': 'full' }, [ _('Waypoint: everything into the tunnel') ])
- ].concat(person && addProfile && !replace.length ? [ E('option', { 'value': 'profile' }, [ _('Ordinary VPN profile: phone or other device') ]) ] : []));
+ ].concat(addProfile && !replace.length ? [ E('option', { 'value': 'profile' }, [ _('Ordinary VPN profile: phone or other device') ]) ] : []));
  // A known person brings name, mail and note; a device is added one at a time.
  var rows = person ? [] : [ common.fieldLabel(_('Who uses it')), owner, common.fieldLabel(_('E-mail')), email, common.fieldLabel(_('Note')), note ];
  rows.push(common.fieldLabel(_('Kind of device')), kind);
@@ -557,7 +574,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, rows),
   replace.length ? E('p', { 'class': 'ikev2-note' }, [ _('The previous link stops working.') ]) : '',
-  E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services')) ].concat(choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); })))
+  E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) ])
  ]);
  function showLink(link) {
   var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link') });
@@ -586,10 +603,19 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
   ]) ]);
  }
  create = E('button', { type: 'button', 'class': 'cbi-button cbi-button-positive', click: function() {
-  if (kind.value === 'profile') { ui.hideModal(); addProfile(person); return; }
+  if (kind.value === 'profile') {
+   var called;
+   try { called = person ? person.name : describeText(owner.value, 80, _('Who uses it')); } catch (error) { result.err(error.message); return; }
+   if (!called) { result.err(_('Enter the name of the person.')); return; }
+   ui.hideModal(); addProfile({ name: called }); return;
+  }
   var selected = choices.filter(function(choice) { return choice.input.checked; }).map(function(choice) { return choice.id; });
   if (!/^[a-z][a-z0-9-]{0,45}$/.test(id.value) || !selected.length) {
    result.err(_('Enter a device identifier and select at least one service.')); return;
+  }
+  var wanted = Number(count.value) > 1 ? [ 1, 2, 3, 4, 5 ].slice(0, Number(count.value)).map(function(n) { return id.value + '-' + n; }) : [ id.value ];
+  if (wanted.some(function(name) { return taken[name]; })) {
+   result.err(_('This identifier was used before and cannot be used again. Choose another.')); return;
   }
   var token = common.inputToken(), request;
   try {
@@ -757,7 +783,7 @@ return view.extend({
     startPath: helper, startArgs: [ 'client-admin-refresh' ], statusPath: helper, statusArgs: [ 'client-admin-status' ],
     timeout: 330000, onSuccess: reload });
   } }, [ _('Update service lists') ]);
-  invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload); } }, [ _('Add person') ]);
+  invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload, null, null, newProfileFor); } }, [ _('Add person') ]);
   // The VPN profiles panel brings its list, the Windows application and
   // diagnostics. The list stands with the people; a profile that belongs to
   // a person is shown in that person's card.

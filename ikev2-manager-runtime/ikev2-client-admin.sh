@@ -80,7 +80,8 @@ run_action() {
  else
   pkg_run_bounded 300 /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" refresh >"$admin_dir/result" 2>/dev/null || rc=1
  fi
- if [ "$rc" = 0 ] && [ "$kind" = mail-save ]; then action_status "$id" ok 'Mail settings saved.'
+ if [ "$rc" != 0 ] && [ "$kind" = invite ]; then action_status "$id" error 'The link was not created. The identifier may have been used before, or a device is registering right now; try another identifier or wait a minute.'
+ elif [ "$rc" = 0 ] && [ "$kind" = mail-save ]; then action_status "$id" ok 'Mail settings saved.'
  elif [ "$kind" = mail-save ]; then action_status "$id" error 'Mail settings were refused. Check the server, the port and the sender address.'
  elif [ "$rc" = 0 ] && [ "$kind" = mail-send ]; then action_status "$id" ok 'Mail sent.'
  elif [ "$kind" = mail-send ]; then action_status "$id" error 'Mail was not sent. Check the mail settings, the password and that msmtp is installed.'

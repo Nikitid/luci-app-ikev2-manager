@@ -40,6 +40,12 @@ try {
   let port_reader = popen('/sbin/uci -q get ikev2-manager.client_access.port', 'r');
   let port_raw = port_reader?.read(32), port_status = port_reader?.close();
   let api_port = port_status == 0 ? replace(port_raw ?? '', /\n$/, '') : '8443';
+  // Identifiers that can never be given again: removed devices and every
+  // place a link ever held. The page refuses them before asking.
+  let state_now = read_client_state(directory), used = {};
+  for (let id in state_now.retired_ids) used[id] = true;
+  for (let item in (ledger?.invitations ?? [])) used[item.id] = true;
+  inspected.used_ids = keys(used);
   inspected.events = read_client_events(40);
   inspected.profile_owners = read_profile_owners(directory);
   let approve_reader = popen('/sbin/uci -q get ikev2-manager.client_access.approve', 'r');
