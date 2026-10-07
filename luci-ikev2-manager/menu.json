@@ -46,7 +46,7 @@
 		"order": 55,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/remote-clients-v7"
+			"path": "ikev2-manager/remote-clients-v8"
 		}
 	}
 }

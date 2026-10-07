@@ -5210,3 +5210,6 @@ msgstr "свободных мест: %d"
 
 msgid "online: %d"
 msgstr "в сети: %d"
+
+msgid "VPN profiles: Windows application and diagnostics"
+msgstr "VPN-профили: приложение для Windows и диагностика"

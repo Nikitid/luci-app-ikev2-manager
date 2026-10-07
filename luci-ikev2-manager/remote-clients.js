@@ -820,8 +820,12 @@ return view.extend({
   if (profiles) {
    var panel = vpnUsers.render(profiles), parts = Array.prototype.slice.call(panel.childNodes || []);
    if (parts.length >= 3) {
-    // [ the Windows application, the list, diagnostics ]
-    vpnMain.appendChild(parts[1]); parts[1].appendChild(parts[0]); vpnRest.appendChild(parts[2]);
+    // [ the Windows application, the list, diagnostics ]. Every profile is
+    // shown under a person, so the list's own section is kept only as the
+    // place the panel draws into, out of sight; the application and the
+    // diagnostics go to the fold at the end.
+    vpnMain.appendChild(parts[1]); vpnMain.style.display = 'none';
+    vpnRest.appendChild(parts[0]); vpnRest.appendChild(parts[2]);
    } else vpnMain.appendChild(panel);
    if (typeof MutationObserver !== 'undefined')
     new MutationObserver(function(changes) {
@@ -842,7 +846,7 @@ return view.extend({
     fold(_('Settings'), setup), fold(_('Mail for invitation links'), mailBox),
     fold(_('Journal'), common.section(_('Journal'), _('The last actions with remote clients.'), journal))
    ), managed),
-   fold(_('Inbound connection diagnostics'), vpnRest)
+   fold(_('VPN profiles: Windows application and diagnostics'), vpnRest)
   ]) ]);
  },
  handleSaveApply: null, handleSave: null, handleReset: null
