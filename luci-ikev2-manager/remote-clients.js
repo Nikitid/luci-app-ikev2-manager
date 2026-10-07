@@ -57,7 +57,7 @@ function setupSection(settings, reload) {
   exits.push([ index, settings.tunnels.length > 1 ? _('Tunnel %s, another tunnel when it fails').format(index) : _('Tunnel %s').format(index) ]);
   if (settings.tunnels.length > 1) exits.push([ index + 's', _('Tunnel %s only').format(index) ]);
  });
- var exit = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Exit for remote clients') }, exits.map(function(item) {
+ var exit = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Exit tunnel') }, exits.map(function(item) {
   return E('option', { 'value': item[0], 'selected': item[0] === (settings.exit || '1') ? '' : null }, [ item[1] ]);
  }));
  var notes = [];
@@ -81,16 +81,16 @@ function setupSection(settings, reload) {
     timeout: 330000, onSuccess: reload });
   }, function() { result.err(_('Could not stage remote client settings.')); });
  } }, [ settings.initialized ? _('Save') : _('Set up remote clients') ]);
- return common.section(_('Access for remote clients'),
-  _('Devices register over HTTPS on this port and reach their services through the inbound server. The port is opened on WAN while this is on.'),
+ return common.section(settings.initialized ? _('Settings') : _('Set up remote clients'),
+  settings.initialized ? null : _('Devices register over HTTPS and reach the selected services through the inbound server.'),
   E('div', {}, notes.concat([
    common.toggleRow(enabled, _('Accept remote clients'), settings.server_identity ?
-    _('Registration address: %s').format('https://' + settings.server_identity + ':' + settings.port) : null),
+    _('%s, open on WAN while this is on').format('https://' + settings.server_identity + ':' + settings.port) : null),
    E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact', 'style': 'margin-top:1.15rem' }, [
     common.fieldLabel(_('Registration port')), port,
-    common.fieldLabel(_('Exit for remote clients')), exit,
+    common.fieldLabel(_('Exit tunnel'), _('Selected services leave through it.')), exit,
     common.fieldLabel(_('Virtual subnet'), settings.initialized ?
-     _('Enrolled devices keep this subnet; it cannot change.') : _('Addresses that stand for the selected services. It must not be used anywhere in your networks.')), subnet
+     _('Fixed once set.') : _('Must not be used anywhere in your networks. Fixed once set.')), subnet
    ]),
    E('div', { 'class': 'ikev2-actions end' }, [ result.node, save ])
   ])));
@@ -155,34 +155,77 @@ function describeText(value, limit, label) {
  return value;
 }
 
-// What the administrator needs to tell one device from another.
-function deviceWho(device) {
- return E('div', {}, [ E('strong', {}, [ device.id ]) ].concat(
-  device.owner ? [ E('div', {}, [ device.owner ]) ] : [],
-  device.note ? [ E('div', { 'style': 'color:var(--ikev2-muted)' }, [ device.note ]) ] : []));
+// One device of a person: what it is, how it is doing, what to do with it.
+function deviceRow(device, onRemove) {
+ var state, detail = '';
+ if (device.waiting)
+  return E('div', { 'class': 'ikev2-session' }, [ E('div', { 'class': 'ikev2-session-main' }, [
+   E('span', { 'class': 'ikev2-session-address' }, [ device.id ]),
+   E('div', { 'class': 'ikev2-session-meta' }, [ common.pill(_('Waiting for registration'), 'info'),
+    E('span', {}, [ _('link valid for %s more').format(span(device.expires_seconds)) ]) ]) ]) ]);
+ if (!device.enabled) state = common.pill(_('Access off'), 'warn');
+ else if (!device.selected_services.length) state = common.pill(_('No services'), 'warn');
+ else if (device.online) {
+  state = common.pill(Number.isInteger(device.connected_seconds) ? _('Online for %s').format(span(device.connected_seconds)) : _('Online'), 'good');
+  detail = _('from %s, tunnel address %s').format(device.remote_address || '-', device.tunnel_address || '-');
+ } else if (Number.isInteger(device.seen_seconds)) {
+  state = common.pill(_('Offline'), 'neutral');
+  detail = _('last seen %s ago from %s').format(span(device.seen_seconds), device.seen_from || '-');
+ } else state = common.pill(_('Not connected yet'), 'info');
+ var computer = [ device.system, device.client ? _('client %s').format(device.client) : '' ].filter(Boolean).join(' \u00b7 ');
+ return E('div', { 'class': 'ikev2-session' }, [
+  E('div', { 'class': 'ikev2-session-main' }, [
+   E('span', { 'class': 'ikev2-session-address' }, [ device.host || device.id ]),
+   E('div', { 'class': 'ikev2-session-meta' }, [ state ].concat([ device.host ? device.id : '', computer, detail ].filter(Boolean).map(function(text) { return E('span', {}, [ text ]); })))
+  ]),
+  E('button', { 'class': 'cbi-button', 'type': 'button', 'click': onRemove }, [ _('Remove') ])
+ ]);
 }
 
-function deviceComputer(device) {
- if (!device.host && !device.system) return E('span', { 'style': 'color:var(--ikev2-muted)' }, [ _('Not reported yet') ]);
- return E('div', {}, [ E('div', {}, [ device.host || '-' ]) ].concat(
-  device.system ? [ E('div', { 'style': 'color:var(--ikev2-muted)' }, [ device.client ? _('%s, client %s').format(device.system, device.client) : device.system ]) ] : []));
+// A person and their devices. Devices without a named owner stand alone.
+function personCard(person, labels, actions) {
+ var first = person.devices[0], services = first.selected_services;
+ return E('div', { 'class': 'ikev2-user-card' }, [
+  E('div', { 'class': 'ikev2-user-identity' }, [
+   E('span', { 'class': 'ikev2-user-avatar' }, [ person.name.slice(0, 1) ]),
+   E('div', { 'style': 'min-width:0' }, [
+    E('strong', { 'class': 'ikev2-user-name' }, [ person.name ]),
+    E('div', { 'class': 'ikev2-session-meta' }, (first.note ? [ E('span', {}, [ first.note ]) ] : []).concat(
+     services.length ? services.map(function(id) { return common.pill(labels[id] || id, 'neutral'); }) : [ common.pill(_('No services'), 'warn') ]))
+   ])
+  ]),
+  E('div', { 'class': 'ikev2-session-list' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }); })),
+  E('div', { 'class': 'ikev2-user-actions' }, [
+   person.devices.some(function(device) { return !device.waiting; }) ?
+    E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { actions.edit(person); } }, [ _('Edit') ]) : '',
+   E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() { actions.add(person); } }, [ _('Add device') ])
+  ])
+ ]);
 }
 
-function deviceState(device) {
- if (!device.enabled || !device.selected_services.length) return E('span', {}, [ _('Access closed') ]);
- if (device.online)
-  return E('div', {}, [ E('div', {}, [ Number.isInteger(device.connected_seconds) ? _('Online for %s').format(span(device.connected_seconds)) : _('Online') ]),
-   E('div', { 'style': 'color:var(--ikev2-muted)' }, [ _('from %s, tunnel address %s').format(device.remote_address || '-', device.tunnel_address || '-') ]) ]);
- if (Number.isInteger(device.seen_seconds))
-  return E('div', {}, [ E('div', {}, [ _('Offline') ]),
-   E('div', { 'style': 'color:var(--ikev2-muted)' }, [ _('last seen %s ago from %s').format(span(device.seen_seconds), device.seen_from || '-') ]) ]);
- return E('span', {}, [ _('Has not connected yet') ]);
+function people(devices, waiting) {
+ var list = [], byName = {};
+ devices.concat((waiting || []).map(function(item) {
+  return { id: item.id, owner: item.owner, note: item.note, selected_services: item.selected_services, expires_seconds: item.expires_seconds, enabled: true, waiting: true };
+ })).sort(function(a, b) { return a.id.localeCompare(b.id, undefined, { numeric: true }); }).forEach(function(device) {
+  var person = device.owner ? byName[device.owner] : null;
+  if (!person) { person = { name: device.owner || device.id, owner: device.owner || '', devices: [] }; list.push(person); if (device.owner) byName[device.owner] = person; }
+  person.devices.push(device);
+ });
+ return list.sort(function(a, b) { return a.name.localeCompare(b.name); });
+}
+
+// A Latin identifier from a person's name, for the field's first value.
+function suggestId(name) {
+ var map = { '\u0430':'a','\u0431':'b','\u0432':'v','\u0433':'g','\u0434':'d','\u0435':'e','\u0451':'e','\u0436':'zh','\u0437':'z','\u0438':'i','\u0439':'y','\u043a':'k','\u043b':'l','\u043c':'m','\u043d':'n','\u043e':'o','\u043f':'p','\u0440':'r','\u0441':'s','\u0442':'t','\u0443':'u','\u0444':'f','\u0445':'h','\u0446':'ts','\u0447':'ch','\u0448':'sh','\u0449':'sch','\u044a':'','\u044b':'y','\u044c':'','\u044d':'e','\u044e':'yu','\u044f':'ya' };
+ return String(name || '').toLowerCase().split('').map(function(c) { return map[c] != null ? map[c] : c; }).join('')
+  .replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+|-+$/g, '').slice(0, 40);
 }
 
 function removeDialog(device, state, reload, pageResult) {
  var result = common.inlineResult(), remove;
  ui.showModal(_('Remove device %s').format(device.id), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(),
-  E('p', {}, [ _('The device loses its access and its account on this router, and its connection ends. Its identifier cannot be used again: a returning device needs a new invitation under another identifier.') ]),
+  E('p', {}, [ _('The device loses access and its connection ends. Its identifier cannot be used again.') ]),
   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
    E('button', { 'class': 'cbi-button', 'type': 'button', 'click': ui.hideModal }, [ _('Cancel') ]),
    (remove = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'click': function() {
@@ -192,54 +235,79 @@ function removeDialog(device, state, reload, pageResult) {
    } }, [ _('Remove') ])) ]) ]) ]);
 }
 
-function deviceDialog(device, state, labels, reload, pageResult) {
+function personDialog(person, state, labels, reload, pageResult) {
+ var device = person.devices.filter(function(item) { return !item.waiting; })[0];
  var owner = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), 'value': device.owner || '' });
  var note = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), 'value': device.note || '' });
- var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Device access enabled') });
+ var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Access enabled') });
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
   return { id: service.id, input: E('input', { 'type': 'checkbox', 'checked': device.selected_services.indexOf(service.id) >= 0 ? '' : null, 'aria-label': labels[service.id] || service.id }) };
  });
  var form = E('div', {}, [
-  E('div', { 'class': 'ikev2-form-grid' }, [
-   E('div', {}, [ common.fieldLabel(_('Who uses it'), _('A name you will recognise: the employee, the role.')), owner ]),
-   E('div', {}, [ common.fieldLabel(_('Note')), note ])
+  E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
+   common.fieldLabel(_('Who uses it')), owner,
+   common.fieldLabel(_('Note')), note
   ]),
-  common.toggleRow(enabled, _('Device access enabled')),
+  E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
+   person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null) ]),
   E('div', {}, choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); }))
  ]);
- editDialog(device.id, form, function() {
-  return { version: 1, expected_generation: state.generation, operation: 'assign-device',
-   payload: { id: device.id, enabled: enabled.checked, selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }),
+ editDialog(person.name, form, function() {
+  return { version: 1, expected_generation: state.generation, operation: 'assign-devices',
+   payload: { ids: person.devices.filter(function(item) { return !item.waiting; }).map(function(item) { return item.id; }), enabled: enabled.checked,
+    selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }),
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')) } };
  }, reload, pageResult);
 }
 
-function invitationDialog(state, labels, reload) {
+function invitationDialog(state, labels, reload, person) {
  var result = common.inlineResult(), create, tracker;
  var generation = state.enrollment_generation;
- var id = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Device identifier') });
- var endpoint = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Registration HTTPS address'), value: state.api_endpoint || 'https://' + state.server.address + ':8443/client/v1/enroll' });
+ var taken = {};
+ state.devices.concat(state.waiting || []).forEach(function(device) { taken[device.id] = true; });
+ // The next free identifier for one more device of a known person.
+ function free(base) {
+  if (!base) return '';
+  for (var n = 1; n < 100; n++) { var candidate = n === 1 && !taken[base] ? base : base + '-' + (n + 1); if (!taken[candidate] && !taken[candidate + '-1']) return candidate; }
+  return base;
+ }
+ var known = person && person.devices[0];
+ var id = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Device identifier'),
+  value: known ? free(suggestId(person.owner) || known.id.replace(/-[0-9]+$/, '')) : '' });
+ var endpoint = state.api_endpoint || 'https://' + state.server.address + ':8443/client/v1/enroll';
  var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
-  return { id: service.id, input: E('input', { type: 'checkbox', 'aria-label': labels[service.id] || service.id }) };
+  return { id: service.id, input: E('input', { type: 'checkbox', 'aria-label': labels[service.id] || service.id,
+   checked: known && known.selected_services.indexOf(service.id) >= 0 ? '' : null }) };
  });
- var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it') });
- var note = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Note') });
+ if (!known && choices.length === 1) choices[0].input.checked = true;
+ var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), value: known ? known.owner || '' : '' });
+ var note = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), value: known ? known.note || '' : '' });
+ var count = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Devices') }, [ 1, 2, 3, 4, 5 ].map(function(n) {
+  return E('option', { value: String(n) }, [ String(n) ]);
+ }));
+ var lifetime = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Link is valid for') }, [ [ 3600, _('1 hour') ], [ 86400, _('1 day') ], [ 604800, _('7 days') ] ].map(function(item) {
+  return E('option', { value: String(item[0]), selected: item[0] === 86400 ? '' : null }, [ item[1] ]);
+ }));
+ // The identifier follows the name until the administrator types their own.
+ var typed = !!known;
+ id.addEventListener('input', function() { typed = true; });
+ owner.addEventListener('input', function() { if (!typed) id.value = free(suggestId(owner.value)); });
  var form = E('div', {}, [
-  common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens, for example ivanov-laptop. It cannot be changed or used again.')), id,
-  E('div', { 'class': 'ikev2-form-grid' }, [
-   E('div', {}, [ common.fieldLabel(_('Who uses it'), _('A name you will recognise: the employee, the role.')), owner ]),
-   E('div', {}, [ common.fieldLabel(_('Note')), note ])
+  E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
+   common.fieldLabel(_('Who uses it')), owner,
+   common.fieldLabel(_('Note')), note,
+   common.fieldLabel(_('Devices'), _('One link registers this many devices of the person.')), count,
+   common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens. Cannot be changed or used again.')), id,
+   common.fieldLabel(_('Link is valid for')), lifetime
   ]),
-  common.fieldLabel(_('Registration HTTPS address')), endpoint,
-  E('p', { 'class': 'ikev2-note' }, [ _('Use the configured registration listener address. Creating an invitation does not verify its availability.') ]),
-  E('div', {}, choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); }))
+  E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services')) ].concat(choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); })))
  ]);
  function showLink(link) {
   var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link') });
   field.value = link;
   var output = common.inlineResult(), copy;
   ui.showModal(_('Invitation link'), [ E('div', { 'class': 'ikev2-page' }, [
-   common.styles(), E('p', {}, [ _('This link expires in 10 minutes and is shown only once. Send it privately to the device owner.') ]), field,
+   common.styles(), E('p', {}, [ _('Shown only once. Send it privately: the owner installs Private Lane on each device and pastes the link there.') ]), field,
    E('div', { 'class': 'ikev2-actions end' }, [ output.node,
     E('button', { type: 'button', 'class': 'cbi-button', click: function() { field.value = ''; ui.hideModal(); } }, [ _('Close') ]),
     (copy = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() {
@@ -250,14 +318,15 @@ function invitationDialog(state, labels, reload) {
  }
  create = E('button', { type: 'button', 'class': 'cbi-button cbi-button-positive', click: function() {
   var selected = choices.filter(function(choice) { return choice.input.checked; }).map(function(choice) { return choice.id; });
-  if (!/^[a-z][a-z0-9-]{0,47}$/.test(id.value) || !selected.length) {
+  if (!/^[a-z][a-z0-9-]{0,45}$/.test(id.value) || !selected.length) {
    result.err(_('Enter a device identifier and select at least one service.')); return;
   }
   var token = common.inputToken(), request;
   try {
    request = { version: 1, expected_generation: generation,
-    endpoint: endpoint.value, id: id.value, selected_services: selected, lifetime_seconds: 600,
+    endpoint: endpoint, id: id.value, selected_services: selected, lifetime_seconds: Number(lifetime.value) || 86400,
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')) };
+   if (Number(count.value) > 1) request.count = Number(count.value);
   } catch (error) { result.err(error.message); return; }
   return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
    return common.runJob({ button: create, result: result, busy: _('Creating invitation...'), success: _('Invitation created.'), failure: _('Could not create invitation.'),
@@ -276,7 +345,7 @@ function invitationDialog(state, labels, reload) {
   }, function() { result.err(_('Could not stage invitation.')); });
  } }, [ _('Create invitation') ]);
  tracker = common.trackChanges(create, [ form ]);
- ui.showModal(_('Create invitation'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
+ ui.showModal(person ? _('Add device for %s').format(person.name) : _('Add person'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
    E('button', { type: 'button', 'class': 'cbi-button', click: ui.hideModal }, [ _('Cancel') ]), create ]) ]) ]);
 }
@@ -285,7 +354,7 @@ return view.extend({
  load: readState,
  render: function(data) {
   var state, records = [], labels = {}, services = E('div', {}), devices = E('div', {});
-  var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), managed = E('div', {}), refresh, invite;
+  var result = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), managed = E('div', {}), refresh, invite;
   function reload() { return readState().then(setData); }
   function setData(next) {
    state = null;
@@ -294,7 +363,9 @@ return view.extend({
     settings = JSON.parse(next[2].stdout);
     if (next[2].code !== 0 || settings.version !== 1 || !Array.isArray(settings.tunnels)) settings = null;
    } catch (error) { settings = null; }
-   setup.replaceChildren(settings ? setupSection(settings, reload) : E('div', {}));
+   var section = settings ? setupSection(settings, reload) : E('div', {});
+   fresh.replaceChildren(); setup.replaceChildren();
+   (settings && !settings.initialized ? fresh : setup).replaceChildren(section);
    managed.style.display = settings && !settings.initialized ? 'none' : '';
    if (settings && !settings.initialized) { availability.replaceChildren(); return; }
    try {
@@ -317,32 +388,36 @@ return view.extend({
    state.services.forEach(function(service) {
     if (!labels[service.id]) { labels[service.id] = service.id; records.push({ id: service.id, label: service.id }); }
    });
+   function portsText(service) {
+    return service.transports.map(function(t) { return t.protocol.toUpperCase() + ' ' + t.ports.join(', '); }).join(' \u00b7 ');
+   }
+   function current(record) { return state.services.filter(function(service) { return service.id === record.id; })[0]; }
+   // Published services first: they are what the page is about.
+   records.sort(function(a, b) {
+    var pa = current(a) && current(a).client_access ? 0 : 1, pb = current(b) && current(b).client_access ? 0 : 1;
+    return pa - pb || a.label.localeCompare(b.label);
+   });
    var serviceRows = records.map(function(record) {
-    var current = state.services.filter(function(service) { return service.id === record.id; })[0];
+    var service = current(record), published = service && service.client_access;
     return E('tr', { 'class': 'tr' }, [
-     E('td', { 'class': 'td' }, [ record.label ]),
-     E('td', { 'class': 'td' }, [ current && current.client_access ? _('Published') : _('Not published') ]),
-     E('td', { 'class': 'td' }, [ current ? String(current.domain_count) : '-' ]),
-     E('td', { 'class': 'td' }, [ E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { serviceDialog(record, current, state.generation, reload, result); } }, [ _('Edit') ]) ])
+     E('td', { 'class': 'td' }, [ published ? E('strong', {}, [ record.label ]) : record.label ]),
+     E('td', { 'class': 'td' }, [ common.pill(published ? _('Published') : _('Not published'), published ? 'good' : 'neutral') ]),
+     E('td', { 'class': 'td' }, [ published ? portsText(service) : '' ]),
+     E('td', { 'class': 'td' }, [ service ? String(service.domain_count) : '' ]),
+     E('td', { 'class': 'td', 'style': 'text-align:right' }, [ E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { serviceDialog(record, service, state.generation, reload, result); } }, [ _('Edit') ]) ])
     ]);
    });
    services.replaceChildren(E('table', { 'class': 'table cbi-section-table' }, [
-    E('tr', { 'class': 'tr' }, [ _('Service'), _('Client availability'), _('Domains'), _('Actions') ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+    E('tr', { 'class': 'tr' }, [ _('Service'), _('For remote clients'), _('Ports'), _('Domains'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
    ].concat(serviceRows)));
-   var deviceRows = state.devices.map(function(device) {
-    return E('tr', { 'class': 'tr' }, [
-     E('td', { 'class': 'td' }, [ deviceWho(device) ]),
-     E('td', { 'class': 'td' }, [ deviceComputer(device) ]),
-     E('td', { 'class': 'td' }, [ deviceState(device) ]),
-     E('td', { 'class': 'td' }, [ device.selected_services.map(function(id) { return labels[id] || id; }).join(', ') || '-' ]),
-     E('td', { 'class': 'td' }, [
-      E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { deviceDialog(device, state, labels, reload, result); } }, [ _('Edit') ]), ' ',
-      E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'click': function() { removeDialog(device, state, reload, result); } }, [ _('Remove') ]) ])
-    ]);
-   });
-   devices.replaceChildren(state.devices.length ? E('table', { 'class': 'table cbi-section-table' }, [
-    E('tr', { 'class': 'tr' }, [ _('Device'), _('Computer'), _('State'), _('Selected services'), _('Actions') ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
-   ].concat(deviceRows)) : E('p', {}, [ _('No devices enrolled.') ]));
+   var actions = {
+    edit: function(person) { personDialog(person, state, labels, reload, result); },
+    add: function(person) { invitationDialog(state, labels, reload, person); },
+    remove: function(device) { removeDialog(device, state, reload, result); }
+   };
+   devices.replaceChildren(state.devices.length || (state.waiting || []).length ? E('div', { 'class': 'ikev2-user-list' }, people(state.devices, state.waiting).map(function(person) {
+    return personCard(person, labels, actions);
+   })) : E('div', { 'class': 'ikev2-empty' }, [ invite && invite.disabled ? _('Publish a service below, then add the first device.') : _('No devices yet. Add one to get its invitation link.') ]));
   }
   refresh = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() {
    return common.runJob({ button: refresh, result: result,
@@ -350,16 +425,15 @@ return view.extend({
     startPath: helper, startArgs: [ 'client-admin-refresh' ], statusPath: helper, statusArgs: [ 'client-admin-status' ],
     timeout: 330000, onSuccess: reload });
   } }, [ _('Update service lists') ]);
-  invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload); } }, [ _('Create invitation') ]);
+  invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload); } }, [ _('Add person') ]);
   setData(data);
   return E([ common.styles(), E('div', { 'class': 'ikev2-page' }, [
-   common.header(_('Remote clients'), _('Publish selected services and assign them to enrolled Windows and macOS devices.')),
-   availability, setup,
+   common.header(_('Remote clients'), _('Selected services for Windows and macOS devices running Private Lane.')),
+   availability, fresh,
    (managed.replaceChildren(
-    common.section(_('Services for remote clients'), _('Domain lists are shared with Policy Routing and update automatically.'), E('div', {}, [
-     services, E('div', { 'class': 'ikev2-actions end' }, [ result.node, refresh ])
-    ])),
-    common.section(_('Device assignments'), _('Assign published services to each enrolled device.'), E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ invite ]) ]))
+    common.section(_('People and devices'), null, E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),
+    common.section(_('Services'), _('Lists are shared with Policy Routing.'), services, refresh),
+    setup
    ), managed)
   ]) ]);
  },

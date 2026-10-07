@@ -48,6 +48,17 @@ export function client_admin_catalog_ids(state, request) {
   for (let id in request.payload.selected_services) service_id(id);
   return [];
  }
+ if (request.operation == 'assign-devices') {
+  // One person's devices share a decision: the same switch, the same
+  // services, the same owner and note.
+  fields(request.payload, [ 'ids', 'enabled', 'selected_services', 'owner', 'note' ]);
+  if (type(request.payload.ids) != 'array' || !length(request.payload.ids) || length(request.payload.ids) > 16) die('invalid device list');
+  let seen = {};
+  for (let id in request.payload.ids) { identifier(id); if (seen[id]) die('invalid device list'); seen[id] = true; }
+  if (type(request.payload.enabled) != 'bool' || type(request.payload.selected_services) != 'array') die('invalid device assignment');
+  for (let id in request.payload.selected_services) service_id(id);
+  return [];
+ }
  if (request.operation == 'remove-device') {
   fields(request.payload, [ 'id' ]);
   identifier(request.payload.id);
@@ -88,6 +99,12 @@ export function prepare_client_admin(state, request, catalog) {
    found = true; device.enabled = payload.enabled; device.selected_services = payload.selected_services;
   }
   if (!found) die('unknown or retired device');
+ } else if (request.operation == 'assign-devices') {
+  for (let id in payload.ids) {
+   let device = filter(desired.devices, item => item.id == id)[0];
+   if (device == null) die('unknown or retired device');
+   device.enabled = payload.enabled; device.selected_services = payload.selected_services;
+  }
  } else if (request.operation == 'remove-device') {
   // Leaving a device out retires it: its identity is spent for good, so a
   // lost invitation or an old key can never bring it back under that name.

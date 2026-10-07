@@ -92,4 +92,36 @@ request 200 -H "Authorization: Bearer $device" "$poll"
 request 401 -X POST -H "Authorization: Bearer $invite" -H "X-Device-Token: $other" "$claim"
 ucode /src/scripts/openwrt/client-enrollment-http.uc expire
 request 401 -H "Authorization: Bearer $device" "$poll"
-printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, background credentials, protected storage, opening on registration, clock and expiry PASS'
+# One link for two devices of one person: two places, each used once, both
+# described as that person's, and nothing left for a third device.
+control=/usr/libexec/ikev2-manager.d/client-access-control.uc
+shown="$(ucode "$control" inspect)"
+address="$(printf '%s' "$shown" | jsonfilter -e '@.server.address')"
+service=api
+generation="$(printf '%s' "$shown" | jsonfilter -e '@.enrollment_generation')"
+link="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"family","selected_services":["%s"],"lifetime_seconds":86400,"count":2,"owner":"One Person","note":""}' \
+	"$generation" "$address" "$service" | ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue | jsonfilter -e '@.invitation')"
+shared="${link##*#}"
+[ "${#shared}" = 64 ]
+[ "$(ucode "$control" inspect | jsonfilter -e '@.waiting[@.owner="One Person"].id' | sort | tr '\n' ' ')" = 'family-1 family-2 ' ]
+for place in 1111111111111111111111111111111111111111111111111111111111111111 2222222222222222222222222222222222222222222222222222222222222222; do
+	request 202 -X POST -H "Authorization: Bearer $shared" -H "X-Device-Token: $place" "$claim"
+	i=0
+	while :; do
+		status="$(curl --cacert "$work/cert.pem" --max-time 5 -o "$work/body" -w '%{http_code}' -H "Authorization: Bearer $place" "$poll")"
+		[ "$status" = 200 ] && break
+		[ "$status" = 202 ] || exit 1
+		i=$((i + 1)); [ "$i" -lt 30 ] || exit 1
+		sleep 1
+	done
+done
+request 401 -X POST -H "Authorization: Bearer $shared" -H "X-Device-Token: 3333333333333333333333333333333333333333333333333333333333333333" "$claim"
+shown="$(ucode "$control" inspect)"
+[ "$(printf '%s' "$shown" | jsonfilter -e '@.devices[@.owner="One Person"].id' | sort | tr '\n' ' ')" = 'family-1 family-2 ' ]
+[ -z "$(printf '%s' "$shown" | jsonfilter -e '@.waiting[@.owner="One Person"].id')" ]
+# One decision for all of a person's devices.
+printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":false,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \
+	"$(printf '%s' "$shown" | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
+shown="$(ucode "$control" inspect)"
+[ "$(printf '%s' "$shown" | jsonfilter -e '@.devices[@.note="both"].enabled' | sort -u)" = false ]
+printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a shared decision, background credentials, protected storage, opening on registration, clock and expiry PASS'

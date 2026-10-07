@@ -48,7 +48,7 @@ export function validate_client_invitations(ledger) {
 		fields(item, [ 'id', 'token_sha256', 'selected_services', 'issued_at', 'expires_at', 'status' ]);
 		identity(item.id); hash(item.token_sha256); services(item.selected_services);
 		integer(item.issued_at, 1, ledger.updated_at);
-		integer(item.expires_at, item.issued_at + 60, item.issued_at + 3600);
+		integer(item.expires_at, item.issued_at + 60, item.issued_at + 604800);
 		if (index([ 'issued', 'reserved', 'cancelled', 'completed', 'aborted' ], item.status) < 0 || ids[item.id] || hashes[item.token_sha256])
 			die('duplicate or invalid enrollment invitation');
 		ids[item.id] = true; hashes[item.token_sha256] = true;
@@ -82,7 +82,7 @@ export function prepare_client_invitation(state, request, digest) {
 	if (request.version !== 1) die('invalid invitation version');
 	integer(request.expected_generation, 0, 2147483646);
 	identity(request.id); services(request.selected_services); hash(digest);
-	integer(request.lifetime_seconds, 60, 3600);
+	integer(request.lifetime_seconds, 60, 604800);
 	eligible(state, request.id, request.selected_services);
 	if (type(request.endpoint) != 'string' || length(request.endpoint) > 2048)
 		die('invalid invitation endpoint');
@@ -108,7 +108,7 @@ export function prepare_client_enrollment(input) {
 	if (request.operation == 'issue') {
 		fields(payload, [ 'id', 'token_sha256', 'selected_services', 'lifetime_seconds' ]);
 		identity(payload.id); hash(payload.token_sha256); services(payload.selected_services);
-		integer(payload.lifetime_seconds, 60, 3600);
+		integer(payload.lifetime_seconds, 60, 604800);
 		eligible(state, payload.id, payload.selected_services);
 		if (length(filter(state.publication.devices, device => device.token_sha256 == payload.token_sha256)))
 			die('enrollment token matches device credential');

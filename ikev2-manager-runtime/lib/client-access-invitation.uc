@@ -15,10 +15,27 @@ export function issue_client_invitation(directory, request, now) {
 	if (type(bytes) != 'string' || length(bytes) != 32) die('invitation entropy unavailable');
 	let token = '';
 	for (let i = 0; i < 32; i++) token += sprintf('%02x', ord(substr(bytes, i, 1)));
-	let prepared = prepare_client_invitation(read_client_state(directory), request, sha256(token));
-	let initialize = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null;
-	let journal = write_client_enrollment(directory, prepared, now, initialize);
-	return { version: 1, id: request.id, generation: journal.ledger.generation,
+	// One link may register several devices of one person. Each device has
+	// its own place, named <id>-1 .. <id>-N and keyed by a digest derived from
+	// the link and the place, so the ledger keeps one use per entry.
+	let count = request.count ?? 1, base = request.id, state = read_client_state(directory);
+	if (type(count) != 'int' || count < 1 || count > 5) die('invalid invitation device count');
+	delete request.count;
+	let places = [];
+	for (let place = 1; place <= count; place++) {
+		let one = json(sprintf('%J', request));
+		if (count > 1) one.id = base + '-' + place;
+		push(places, { request: one, digest: sha256(count > 1 ? token + ':' + place : token) });
+	}
+	// Refuse the whole link before any place is written.
+	for (let place in places) prepare_client_invitation(state, place.request, place.digest);
+	let journal = null;
+	for (let place in places) {
+		let initialize = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null;
+		if (journal != null) place.request.expected_generation = journal.ledger.generation;
+		journal = write_client_enrollment(directory, prepare_client_invitation(state, place.request, place.digest), now, initialize);
+	}
+	return { version: 1, id: base, generation: journal.ledger.generation,
 		expires_at: now + request.lifetime_seconds, invitation: request.endpoint + '#' + token };
 };
 

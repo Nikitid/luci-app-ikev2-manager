@@ -15,14 +15,16 @@ else if (ARGV[0] == 'issue' || ARGV[0] == 'issue-job') {
 		if (type(raw) != 'string' || length(raw) > 1048576) die('invalid invitation size');
 		// Who the device is for travels with the request and is recorded apart
 		// from the invitation, which carries only what decides access.
-		let request = json(raw), owner = null, note = null;
+		let request = json(raw), owner = null, note = null, count = type(request) == 'object' ? (request.count ?? 1) : 1;
 		if (type(request) == 'object' && 'owner' in request) {
 			owner = request.owner; note = request.note;
 			delete request.owner; delete request.note;
 		}
 		if (ARGV[0] == 'issue-job') stage_client_invitation(request, time(), ARGV[1]);
   else print(sprintf('%J\n', issue_client_invitation('/etc/ikev2-manager/clients', request, time())));
-		if (owner != null) write_client_label('/etc/ikev2-manager/clients', request.id, owner, note ?? '');
+		if (owner != null)
+			for (let place = 1; place <= count; place++)
+				write_client_label('/etc/ikev2-manager/clients', count > 1 ? request.id + '-' + place : request.id, owner, note ?? '');
 	} catch (error) {
 		warn('client-access-invitation: issuance refused or unavailable\n');
 		exit(1);

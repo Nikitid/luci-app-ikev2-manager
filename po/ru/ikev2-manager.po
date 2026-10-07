@@ -4796,3 +4796,108 @@ msgstr "Состояние"
 
 msgid "The inbound server runs your own configuration, which this page does not change. For macOS devices add to it a connection named ikev2-in-managed that answers the identity *@managed.ikev2-manager and offers only the virtual subnet; without it a Mac refuses the tunnel, because it would carry all of its traffic."
 msgstr "Входящий сервер работает на вашей собственной конфигурации, эта страница её не меняет. Для устройств на macOS добавьте в неё соединение ikev2-in-managed, которое отвечает на идентификатор *@managed.ikev2-manager и предлагает только виртуальную подсеть; без него Mac откажется от туннеля, потому что в туннель пошёл бы весь его трафик."
+
+msgid "%s, open on WAN while this is on"
+msgstr "%s, открыт на WAN, пока включено"
+
+msgid "1 day"
+msgstr "1 день"
+
+msgid "1 hour"
+msgstr "1 час"
+
+msgid "7 days"
+msgstr "7 дней"
+
+msgid "Access enabled"
+msgstr "Доступ включён"
+
+msgid "Access off"
+msgstr "Доступ выключен"
+
+msgid "Add device"
+msgstr "Добавить устройство"
+
+msgid "Add device for %s"
+msgstr "Добавить устройство: %s"
+
+msgid "Add person"
+msgstr "Добавить человека"
+
+msgid "Applies to all %d devices."
+msgstr "Действует на все устройства (%d)."
+
+msgid "Copied"
+msgstr "Скопировано"
+
+msgid "Copying..."
+msgstr "Копирование..."
+
+msgid "Devices register over HTTPS and reach the selected services through the inbound server."
+msgstr "Устройства регистрируются по HTTPS и ходят к выбранным сервисам через входящий сервер."
+
+msgid "Exit tunnel"
+msgstr "Выходной туннель"
+
+msgid "Fixed once set."
+msgstr "После сохранения не меняется."
+
+msgid "For remote clients"
+msgstr "Для удалённых клиентов"
+
+msgid "Latin letters, digits and hyphens. Cannot be changed or used again."
+msgstr "Латиница, цифры и дефисы. Нельзя изменить или использовать повторно."
+
+msgid "Link is valid for"
+msgstr "Ссылка действует"
+
+msgid "Lists are shared with Policy Routing."
+msgstr "Списки общие с маршрутизацией по правилам."
+
+msgid "Must not be used anywhere in your networks. Fixed once set."
+msgstr "Не должна использоваться в ваших сетях. После сохранения не меняется."
+
+msgid "No devices yet. Add one to get its invitation link."
+msgstr "Устройств пока нет. Добавьте первое, чтобы получить ссылку приглашения."
+
+msgid "No services"
+msgstr "Нет сервисов"
+
+msgid "Not connected yet"
+msgstr "Ещё не подключалось"
+
+msgid "One link registers this many devices of the person."
+msgstr "По одной ссылке регистрируется столько устройств человека."
+
+msgid "People and devices"
+msgstr "Люди и устройства"
+
+msgid "Ports"
+msgstr "Порты"
+
+msgid "Publish a service below, then add the first device."
+msgstr "Опубликуйте сервис ниже, затем добавьте первое устройство."
+
+msgid "Selected services for Windows and macOS devices running Private Lane."
+msgstr "Выбранные сервисы для устройств Windows и macOS с Private Lane."
+
+msgid "Selected services leave through it."
+msgstr "Через него выходят выбранные сервисы."
+
+msgid "Settings"
+msgstr "Настройки"
+
+msgid "Shown only once. Send it privately: the owner installs Private Lane on each device and pastes the link there."
+msgstr "Показывается один раз. Передайте лично: владелец ставит Private Lane на каждое устройство и вставляет туда ссылку."
+
+msgid "The device loses access and its connection ends. Its identifier cannot be used again."
+msgstr "Устройство теряет доступ, его соединение завершается. Идентификатор нельзя использовать повторно."
+
+msgid "Waiting for registration"
+msgstr "Ожидает регистрации"
+
+msgid "client %s"
+msgstr "клиент %s"
+
+msgid "link valid for %s more"
+msgstr "ссылка действует ещё %s"

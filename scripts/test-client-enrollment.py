@@ -79,7 +79,7 @@ class EnrollmentTests(unittest.TestCase):
             self.refused(self.prepare_invitation(request))
         for field, value in [('token', TOKEN), ('password', 'private'),
                              ('selected_services', ['unknown']), ('id', 'alice'),
-                             ('lifetime_seconds', 3601), ('expected_generation', True)]:
+                             ('lifetime_seconds', 604801), ('expected_generation', True)]:
             request = self.invitation_request(); request[field] = value
             self.refused(self.prepare_invitation(request))
 
@@ -146,7 +146,7 @@ class EnrollmentTests(unittest.TestCase):
 
     def test_strict_schema_and_bounded_invitation_lifetime(self):
         payload = {'id': 'laptop', 'token_sha256': DIGEST, 'selected_services': ['api'], 'lifetime_seconds': 600}
-        for field, value in [('lifetime_seconds', 59), ('lifetime_seconds', 3601), ('lifetime_seconds', True),
+        for field, value in [('lifetime_seconds', 59), ('lifetime_seconds', 604801), ('lifetime_seconds', True),
                              ('selected_services', []), ('selected_services', ['api', 'api']),
                              ('selected_services', ['unknown']), ('id', '../user'), ('token_sha256', TOKEN.upper()),
                              ('password', 'unexpected')]:

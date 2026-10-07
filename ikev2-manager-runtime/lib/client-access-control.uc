@@ -27,7 +27,15 @@ try {
   if (listing == 0 && type(listed) == 'string' && length(listed) <= 16777216)
    try { sessions = client_device_sessions(json(listed)); } catch (error) { sessions = {}; }
   for (let device in inspected.devices) describe_client_device(device, labels, seen_directory, sessions, now);
-  inspected.enrollment_generation = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? 0 : read_client_enrollment(directory).ledger.generation;
+  // Places a link still holds open: the administrator sees who has not
+  // registered yet and until when the link works.
+  let ledger = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? null : read_client_enrollment(directory).ledger;
+  inspected.enrollment_generation = ledger == null ? 0 : ledger.generation;
+  inspected.waiting = [];
+  for (let item in (ledger?.invitations ?? []))
+   if (item.status == 'issued' && item.expires_at > now)
+    push(inspected.waiting, { id: item.id, selected_services: item.selected_services, expires_seconds: item.expires_at - now,
+     owner: labels[item.id]?.owner ?? '', note: labels[item.id]?.note ?? '' });
   let port_reader = popen('/sbin/uci -q get ikev2-manager.client_access.port', 'r');
   let port_raw = port_reader?.read(32), port_status = port_reader?.close();
   let api_port = port_status == 0 ? replace(port_raw ?? '', /\n$/, '') : '8443';
@@ -57,6 +65,8 @@ try {
   let generation = prepared.changed ? publish_client_state(directory, prepared.desired, state.generation, false) : state.generation;
   if (request.operation == 'assign-device' && 'owner' in request.payload)
    write_client_label(directory, request.payload.id, request.payload.owner, request.payload.note);
+  if (request.operation == 'assign-devices')
+   for (let id in request.payload.ids) write_client_label(directory, id, request.payload.owner, request.payload.note);
   if (request.operation == 'remove-device') {
    // The account goes with the device; its sessions end with the account.
    // A device registered before this journal existed has no record to clean.

@@ -33,17 +33,25 @@ export function client_enrollment_response(env, directory) {
 		if (claim) {
 			if (!token(headers['x-device-token'])) return reply(400, 'invalid_device_token');
 			let device_hash = sha256(headers['x-device-token']), invitation = null;
-			for (let item in journal.ledger.invitations) if (same_hash(digest, item.token_sha256)) invitation = item;
-			if (invitation == null || now >= invitation.expires_at) return reply(401, 'unauthorized');
-			if (invitation.status == 'reserved' && journal.pending?.id == invitation.id) {
-				let device = filter(journal.pending.state.publication.devices, item => item.id == invitation.id)[0];
-				// A lost response can be retried by the same precommitted client
-				// credential. A different credential cannot reuse the invitation.
-				if (same_hash(device_hash, device.token_sha256)) return pending(invitation.id);
+			// A link is one invitation, or up to five places for one person's
+			// devices, each keyed by a digest of the link and the place.
+			let digests = [ digest ], bearer = substr(authorization, 7);
+			for (let place = 1; place <= 5; place++) push(digests, sha256(bearer + ':' + place));
+			for (let wanted in digests) {
+				for (let item in journal.ledger.invitations) {
+					if (!same_hash(wanted, item.token_sha256) || now >= item.expires_at) continue;
+					// A lost response can be retried by the same precommitted
+					// client credential; a different one cannot reuse the place.
+					if (item.status == 'reserved' && journal.pending?.id == item.id) {
+						let device = filter(journal.pending.state.publication.devices, entry => entry.id == item.id)[0];
+						if (same_hash(device_hash, device.token_sha256)) return pending(item.id);
+					}
+					if (item.status == 'issued' && invitation == null) invitation = item;
+				}
 			}
-			if (invitation.status != 'issued') return reply(401, 'unauthorized');
+			if (invitation == null) return reply(401, 'unauthorized');
 			let reserved = write_client_enrollment(directory, { version: 1, expected_generation: journal.ledger.generation,
-				operation: 'reserve', payload: { invitation_sha256: digest, device_token_sha256: device_hash } }, now, false);
+				operation: 'reserve', payload: { invitation_sha256: invitation.token_sha256, device_token_sha256: device_hash } }, now, false);
 			return pending(reserved.pending.id);
 		}
 		// The polling credential is independent of the invitation. It is held

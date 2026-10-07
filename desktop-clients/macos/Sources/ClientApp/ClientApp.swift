@@ -289,8 +289,8 @@ struct ClientView: View {
         .padding(22)
         .frame(width: 540)
         .frame(minHeight: 420)
-        .preferredColorScheme(theme == "light" ? .light : theme == "dark" ? .dark : nil)
-        .onAppear { model.start() }
+        .onAppear { applyTheme(); model.start() }
+        .onChange(of: theme) { applyTheme() }
         .sheet(isPresented: $registering) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Ссылка приглашения").font(.headline)
@@ -318,6 +318,12 @@ struct ClientView: View {
                 }
             }.padding(20)
         }
+    }
+
+    /// The whole application takes the look at once. Asking SwiftUI to go back
+    /// to "no preference" left half of the window in the previous look.
+    private func applyTheme() {
+        NSApp.appearance = theme == "light" ? NSAppearance(named: .aqua) : theme == "dark" ? NSAppearance(named: .darkAqua) : nil
     }
 
     /// The one thing to do next, as the prominent button.
