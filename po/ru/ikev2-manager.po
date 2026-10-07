@@ -5078,3 +5078,81 @@ msgstr "Устройств: %d, свободных мест: %d"
 
 msgid "Devices: %d"
 msgstr "Устройств: %d"
+
+msgid "A registered device stays closed until you enable it. Off: a link is enough."
+msgstr "Зарегистрированное устройство остаётся закрытым, пока вы его не включите. Выключено: достаточно ссылки."
+
+msgid "Access set"
+msgstr "Доступ задан"
+
+msgid "Approve new devices by hand"
+msgstr "Подтверждать новые устройства вручную"
+
+msgid "Device registered"
+msgstr "Устройство зарегистрировано"
+
+msgid "Device registered, waits for approval"
+msgstr "Устройство зарегистрировано, ждёт подтверждения"
+
+msgid "Device removed"
+msgstr "Устройство удалено"
+
+msgid "Find a person, a device or a profile"
+msgstr "Найти человека, устройство или профиль"
+
+msgid "Free place closed"
+msgstr "Свободное место закрыто"
+
+msgid "Journal"
+msgstr "Журнал"
+
+msgid "Link issued"
+msgstr "Выдана ссылка"
+
+msgid "Mail sent"
+msgstr "Письмо отправлено"
+
+msgid "No VPN profile is free to assign."
+msgstr "Свободных VPN-профилей нет."
+
+msgid "Nothing has happened yet."
+msgstr "Пока ничего не происходило."
+
+msgid "People"
+msgstr "Люди"
+
+msgid "People: %d"
+msgstr "Людей: %d"
+
+msgid "Remote access"
+msgstr "Удалённый доступ"
+
+msgid "Service published"
+msgstr "Сервис опубликован"
+
+msgid "Service withdrawn"
+msgstr "Сервис снят с публикации"
+
+msgid "Services for Waypoint"
+msgstr "Сервисы для Waypoint"
+
+msgid "The last actions with remote clients."
+msgstr "Последние действия с удалёнными клиентами."
+
+msgid "VPN profiles assigned"
+msgstr "VPN-профили назначены"
+
+msgid "VPN profiles of this person"
+msgstr "VPN-профили этого человека"
+
+msgid "VPN profiles: %d"
+msgstr "VPN-профилей: %d"
+
+msgid "Waiting for approval"
+msgstr "Ждёт подтверждения"
+
+msgid "Waypoint devices on Windows and macOS reach selected services; VPN profiles are for phones and other devices."
+msgstr "Устройства Waypoint на Windows и macOS ходят к выбранным сервисам; VPN-профили - для телефонов и других устройств."
+
+msgid "Waypoint devices: %d, online: %d"
+msgstr "Устройств Waypoint: %d, в сети: %d"

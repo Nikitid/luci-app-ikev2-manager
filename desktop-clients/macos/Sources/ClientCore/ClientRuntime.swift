@@ -72,6 +72,7 @@ public actor ClientRuntime {
     private var guardInstalled = false
     private var permitted: TunnelObservation?
     private var readyUntil = Date.distantPast
+    private var nextReadinessAt = Date.distantPast
     private var nextPolicyPoll = Date.distantPast
     private var nextEnrollmentStep = Date.distantPast
     private var retryConnectionAt = Date.distantPast
@@ -285,6 +286,10 @@ public actor ClientRuntime {
             connectionError = fault.rawValue; publish("connection_error", now: now); return
         }
         guard let seen else { closePermission(history); publish("connecting", now: now); return }
+        // While access stands confirmed, the tunnel is still looked at every
+        // step, but the router is asked again only every few seconds: each
+        // question costs it a process, and its own admission does not wait.
+        if permitted == seen, now < nextReadinessAt { publish("protected", now: now); return }
         do {
             guard let id = registration.id else { throw DeviceError.invalidResponse }
             let ready = try await transport.readiness(endpoint: registration.endpoint, deviceToken: registration.deviceToken,
@@ -307,7 +312,8 @@ public actor ClientRuntime {
             do { try system.loadPacketFilter(try rules(for: history)) }
             catch { permitted = nil; throw error }
         }
-        readyUntil = now.addingTimeInterval(10)
+        readyUntil = now.addingTimeInterval(20)
+        nextReadinessAt = now.addingTimeInterval(6)
         connectionError = "none"
         publish("protected", now: now)
     }

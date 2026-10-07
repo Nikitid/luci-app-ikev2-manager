@@ -78,12 +78,19 @@ try {
 		print(sprintf('%J\n', { version: 1, initialized: state != null,
 			enabled: option('client_access.enabled') == '1', port: match(port, /^[0-9]{4,5}$/) ? +port : 8443,
 			server_enabled: option('server.enabled') == '1', server_identity: identity(),
-			custom_server: option('server.custom_config') == '1',
+			custom_server: option('server.custom_config') == '1', approve: option('client_access.approve') == '1',
 			virtual_subnet: state?.publication?.virtual_subnet, exit: state?.publication?.exit, tunnels: tunnels() }));
 	} else if (ARGV[0] == 'apply' && length(ARGV) == 1) {
 		let raw = stdin.read(4097);
 		if (type(raw) != 'string' || length(raw) > 4096) die('oversized request');
 		let request = json(raw);
+		// Whether new devices wait for the administrator: optional, off unless said.
+		let approve = false;
+		if (type(request) == 'object' && 'approve' in request) {
+			if (type(request.approve) != 'bool') die('invalid request');
+			approve = request.approve;
+			delete request.approve;
+		}
 		if (type(request) != 'object' || length(keys(request)) != 5 || request.version !== 1 ||
 			type(request.enabled) != 'bool' || type(request.port) != 'int' || request.port < 1024 || request.port > 65535 ||
 			type(request.exit) != 'string' || !match(request.exit, /^[1-7]s?$/) || !private_subnet(request.virtual_subnet))
@@ -116,7 +123,7 @@ try {
 				publish_client_state(directory, desired, state.generation, false);
 			}
 		}
-		print(`enabled=${request.enabled ? 1 : 0}\nport=${request.port}\n`);
+		print(`enabled=${request.enabled ? 1 : 0}\nport=${request.port}\napprove=${approve ? 1 : 0}\n`);
 	} else {
 		warn('usage: client-access-setup.uc show|apply\n');
 		exit(2);

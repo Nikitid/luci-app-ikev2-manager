@@ -130,11 +130,11 @@ async function main() {
  await click(button(modal,'Remove'));
  assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'remove-device', payload:{id:'bob-laptop'}});
  const unavailable = page.render([[{code:1,stdout:''},data()[1]], null]);
- assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT'));
+ assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT' && n.attrs.type !== 'search'), 'nothing to edit while the state is unavailable');
  // First activation: only the setup section is offered, and it stages one request.
  const fresh = { version: 1, initialized: false, enabled: false, port: 8443, server_enabled: true, server_identity: 'vpn.example.com', tunnels: ['1', '2'] };
  const first = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(fresh)}], null]);
- assert(nodes(first).some(n => n.style.display === 'none' && text(n).includes('People and devices')), 'management hidden before setup');
+ assert(nodes(first).some(n => n.style.display === 'none' && text(n).includes('Services for Waypoint')), 'management hidden before setup');
  assert(!text(first).includes('Client configuration is unavailable'));
  const setupInputs = nodes(first).filter(n => n.tagName === 'INPUT');
  const portInput = setupInputs.find(n => n.attrs['aria-label'] === 'Registration port');

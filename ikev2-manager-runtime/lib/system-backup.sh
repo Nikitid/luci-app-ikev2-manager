@@ -22,7 +22,9 @@ globals.server_profile_schema globals.device_schema server.lan_zone
 server.firewall_zone server.outbound_zone dns.saved dns.fallback_verified
 domains.engine domains.paused domains.dns_saved domains.prev_noresolv
 domains.prev_cachesize domains.prev_server'
+backup_client_files='state.json invitations.json labels.json initialized enrollment-initialized'
 backup_files='etc/ikev2-manager/users.db etc/ikev2-manager/client.secret
+etc/ikev2-manager/mail.json
 etc/ikev2-manager/tunnels.secret
 etc/ikev2-manager/inbound.custom.conf etc/ikev2-manager/outbound.custom.conf
 etc/pbr-ikev2-domains.manual.txt etc/pbr-ikev2-addresses.manual.txt
@@ -71,6 +73,20 @@ backup_stage() {
 		[ -f "$path" ] || continue
 		cp "$path" "$dir/services.d/" || return 1
 	done
+	# Remote clients: the published state, the invitation ledger, who each
+	# device belongs to and the record of each device's account. Without them
+	# a restored router knows none of its devices and each must register again.
+	if [ -f "$backup_root_dir/etc/ikev2-manager/clients/state.json" ]; then
+		mkdir -p "$dir/clients/credentials" || return 1
+		for path in $backup_client_files; do
+			[ -f "$backup_root_dir/etc/ikev2-manager/clients/$path" ] || continue
+			cp "$backup_root_dir/etc/ikev2-manager/clients/$path" "$dir/clients/$path" || return 1
+		done
+		for path in "$backup_root_dir"/etc/ikev2-manager/clients/credentials/*.json; do
+			[ -f "$path" ] || continue
+			cp "$path" "$dir/clients/credentials/" || return 1
+		done
+	fi
 	{
 		read -r cert
 		read -r key
@@ -143,6 +159,10 @@ backup_open() {
 			services.d/*/* | *..* ) die 'The backup holds a file it should not' ;;
 			services.d/[a-z0-9_]*.lst | services.d/[a-z0-9_]*.cidrs | services.d/[a-z0-9_]*.name | \
 			services.d/[a-z0-9_]*.origin | services.d/[a-z0-9_]*.mode ) ;;
+			clients/ | clients/credentials/ | clients/state.json | clients/invitations.json | clients/labels.json | \
+			clients/initialized | clients/enrollment-initialized ) ;;
+			clients/credentials/*/* ) die 'The backup holds a file it should not' ;;
+			clients/credentials/[a-z]*.json ) ;;
 			files/*)
 				case " $(printf '%s' "$backup_files" | tr '\n' ' ') " in
 					*" ${entry#./files/} "*) ;;
@@ -220,6 +240,24 @@ backup_install() {
 		cp "$path" "$backup_root_dir/etc/ikev2-manager/services.d/" || return 1
 	done
 	chmod 600 "$backup_root_dir"/etc/ikev2-manager/services.d/* 2>/dev/null || :
+	# Remote clients come back whole or not at all: a backup without them
+	# leaves the router with none.
+	for path in $backup_client_files; do rm -f "$backup_root_dir/etc/ikev2-manager/clients/$path"; done
+	rm -f "$backup_root_dir"/etc/ikev2-manager/clients/credentials/*.json
+	if [ -f "$dir/clients/state.json" ]; then
+		mkdir -p "$backup_root_dir/etc/ikev2-manager/clients/credentials" &&
+			chmod 700 "$backup_root_dir/etc/ikev2-manager/clients" "$backup_root_dir/etc/ikev2-manager/clients/credentials" || return 1
+		for path in $backup_client_files; do
+			[ -f "$dir/clients/$path" ] || continue
+			cp "$dir/clients/$path" "$backup_root_dir/etc/ikev2-manager/clients/$path" || return 1
+		done
+		for path in "$dir"/clients/credentials/*.json; do
+			[ -f "$path" ] || continue
+			cp "$path" "$backup_root_dir/etc/ikev2-manager/clients/credentials/" || return 1
+		done
+		chmod 600 "$backup_root_dir"/etc/ikev2-manager/clients/*.json "$backup_root_dir"/etc/ikev2-manager/clients/initialized \
+			"$backup_root_dir"/etc/ikev2-manager/clients/enrollment-initialized "$backup_root_dir"/etc/ikev2-manager/clients/credentials/*.json 2>/dev/null || :
+	fi
 	if [ -s "$dir/certificate" ] && [ -s "$dir/key" ]; then
 		{
 			read -r cert

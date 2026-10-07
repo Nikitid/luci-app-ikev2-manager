@@ -28,12 +28,14 @@ valid_job() {
 # a failure at any step leaves the listener as it was or closed, never open
 # over a state that was refused.
 apply_setup() {
- local settings enabled port
+ local settings enabled port approve
  settings="$(pkg_run_bounded 60 /bin/sh -c 'exec /usr/bin/ucode "$1/client-access-setup.uc" apply <"$2"' sh "$runtime_lib_dir" "$1" 2>/dev/null)" || return 1
  enabled="$(printf '%s\n' "$settings" | sed -n 's/^enabled=\([01]\)$/\1/p')"
  port="$(printf '%s\n' "$settings" | sed -n 's/^port=\([0-9]\{4,5\}\)$/\1/p')"
  [ -n "$enabled" ] && [ -n "$port" ] || return 1
  uci -q get ikev2-manager.client_access >/dev/null || uci set ikev2-manager.client_access=client_access || return 1
+ approve="$(printf '%s\n' "$settings" | sed -n 's/^approve=\([01]\)$/\1/p')"
+ uci set "ikev2-manager.client_access.approve=${approve:-0}" &&
  uci set "ikev2-manager.client_access.enabled=$enabled" && uci set "ikev2-manager.client_access.port=$port" &&
   uci commit ikev2-manager || return 1
  pkg_run_bounded 120 /usr/libexec/ikev2-manager-system client-api-apply >/dev/null 2>&1 || return 1

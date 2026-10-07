@@ -5,6 +5,8 @@ import { read_client_enrollment, finalize_client_enrollment } from './client-acc
 import { provision_client_credentials } from './client-access-credentials.uc';
 import { read_client_state, publish_client_state } from './client-access-store.uc';
 import { prepare_client_admin } from './client-access-admin.uc';
+import { record_client_event } from './client-access-journal.uc';
+import { popen } from 'fs';
 let directory = '/etc/ikev2-manager/clients';
 try {
 	if (length(ARGV) != 0) die('invalid enrollment worker invocation');
@@ -23,7 +25,13 @@ try {
 	// from the page.
 	let state = read_client_state(directory);
 	let device = filter(state.publication.devices, item => item.id == id)[0];
-	if (device != null && !device.enabled && length(device.selected_services) && index(state.retired_ids, id) < 0) {
+	// The administrator may keep new devices closed until looked at: a link
+	// that reached the wrong hands then lets nobody in by itself.
+	let setting = popen('/sbin/uci -q get ikev2-manager.client_access.approve', 'r');
+	let approve = replace(setting?.read(8) ?? '', /\n$/, '') == '1';
+	setting?.close();
+	record_client_event(approve ? 'registered-waiting' : 'registered', id);
+	if (!approve && device != null && !device.enabled && length(device.selected_services) && index(state.retired_ids, id) < 0) {
 		// The same change the page makes when the administrator opens a device.
 		let prepared = prepare_client_admin(state, { version: 1, expected_generation: state.generation,
 			operation: 'assign-device', payload: { id: id, enabled: true, selected_services: device.selected_services } }, []);

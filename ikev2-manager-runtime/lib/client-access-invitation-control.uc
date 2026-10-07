@@ -3,6 +3,7 @@
 import { stdin } from 'fs';
 import { issue_client_invitation, stage_client_invitation, consume_client_invitation } from './client-access-invitation.uc';
 import { write_client_label } from './client-access-directory.uc';
+import { record_client_event } from './client-access-journal.uc';
 
 if (ARGV[0] == 'take' && length(ARGV) == 2) {
  try { print(sprintf('%J\n', consume_client_invitation(ARGV[1], time()))); }
@@ -23,6 +24,7 @@ else if (ARGV[0] == 'issue' || ARGV[0] == 'issue-job') {
 		}
 		if (ARGV[0] == 'issue-job') stage_client_invitation(request, time(), ARGV[1]);
   else print(sprintf('%J\n', issue_client_invitation('/etc/ikev2-manager/clients', request, time())));
+		record_client_event('link-issued', request.id + ' devices ' + count + ' valid ' + request.lifetime_seconds + 's');
 		if (owner != null)
 			for (let place = 1; place <= count; place++)
 				write_client_label('/etc/ikev2-manager/clients', count > 1 ? request.id + '-' + place : request.id, owner, note ?? '', { email: email });

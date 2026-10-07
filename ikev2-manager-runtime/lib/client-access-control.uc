@@ -5,8 +5,9 @@ import { publish_client_state, read_client_state } from './client-access-store.u
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
 import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
-import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device } from './client-access-directory.uc';
+import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
+import { record_client_event, read_client_events } from './client-access-journal.uc';
 
 let seen_directory = '/var/run/ikev2-client-seen';
 
@@ -39,6 +40,11 @@ try {
   let port_reader = popen('/sbin/uci -q get ikev2-manager.client_access.port', 'r');
   let port_raw = port_reader?.read(32), port_status = port_reader?.close();
   let api_port = port_status == 0 ? replace(port_raw ?? '', /\n$/, '') : '8443';
+  inspected.events = read_client_events(40);
+  inspected.profile_owners = read_profile_owners(directory);
+  let approve_reader = popen('/sbin/uci -q get ikev2-manager.client_access.approve', 'r');
+  inspected.approve = replace(approve_reader?.read(8) ?? '', /\n$/, '') == '1';
+  approve_reader?.close();
   inspected.api_endpoint = match(api_port, /^[1-9][0-9]{3,4}$/) && int(api_port) >= 1024 && int(api_port) <= 65535 ?
    'https://' + inspected.server.address + ':' + api_port + '/client/v1/enroll' : null;
   print(sprintf('%J\n', inspected));
@@ -61,10 +67,20 @@ try {
    let ledger = read_client_enrollment(directory).ledger;
    write_client_enrollment(directory, { version: 1, expected_generation: ledger.generation, operation: 'cancel', payload: { id: payload.id } }, time(), false);
    try { write_client_label(directory, payload.id, '', '', { email: '', open: false }); } catch (error) { }
+   record_client_event('place-closed', payload.id);
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;
   }
-  // Leaving the program from inside this block would be taken for a failure.
+  // Which ordinary VPN profiles belong to a person: a description, kept
+  // beside the labels; the published state knows nothing of it.
+  if (type(request) == 'object' && request.operation == 'assign-profiles') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2) die('invalid profile owner');
+   write_profile_owners(directory, payload.owner, payload.profiles);
+   record_client_event('profiles-set', payload.owner + ' ' + join(',', payload.profiles));
+   print(`generation=${state.generation}\nchanged=1\n`);
+   closed = true;
+  }
   if (!closed) {
   let ids = client_admin_catalog_ids(state, request), catalog = [];
   for (let id in ids) {
@@ -90,6 +106,12 @@ try {
    try { cleanup_client_credentials(directory, request.payload.id, read_client_enrollment(directory).ledger.generation); }
    catch (error) { warn('client-access-control: the removed device kept its account\n'); }
   }
+  if (request.operation == 'assign-devices')
+   record_client_event(request.payload.enabled ? 'access-set' : 'access-closed', join(',', request.payload.ids) + ' services ' + join(',', request.payload.selected_services) +
+    (request.payload.block_without_tunnel === false ? ' not-blocked-without-tunnel' : ''));
+  else if (request.operation == 'assign-device') record_client_event(request.payload.enabled ? 'access-set' : 'access-closed', request.payload.id);
+  else if (request.operation == 'remove-device') record_client_event('device-removed', request.payload.id);
+  else if (request.operation == 'configure-service') record_client_event(request.payload.client_access ? 'service-published' : 'service-withdrawn', request.payload.id);
   print(`generation=${generation}\nchanged=${prepared.changed ? 1 : 0}\n`);
   }
  } else if ((ARGV[0] == 'initialize' || ARGV[0] == 'publish') && length(ARGV) == 1) {

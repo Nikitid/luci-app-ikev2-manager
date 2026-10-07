@@ -99,7 +99,7 @@ for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	# Run without input: a usage error is fine, a compile error is 255.
 	rc=0
 	case "$script" in
-		*/client-access-admin.uc | */client-access-directory.uc | */client-access-device-evidence.uc | */client-access-path-evidence.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
+		*/client-access-admin.uc | */client-access-journal.uc | */client-access-directory.uc | */client-access-device-evidence.uc | */client-access-path-evidence.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
 			ucode -e "import * as module from '$script';" >/dev/null 2>&1 || rc=$? ;;
 		*/client-access-http.uc)
 			ucode -T "$script" >/dev/null 2>&1 || rc=$? ;;
@@ -1107,6 +1107,12 @@ EOF2
 	. /usr/libexec/ikev2-manager.d/system-backup.sh
 	applied=0
 	backup_apply() { applied=$((applied + 1)); [ -z "${fail_apply:-}" ] || [ "$applied" -gt 1 ]; }
+	# Remote clients and the mail settings travel with the backup.
+	mkdir -p /etc/ikev2-manager/clients/credentials
+	printf '{"marker":"published state"}\n' >/etc/ikev2-manager/clients/state.json
+	printf '{"marker":"labels"}\n' >/etc/ikev2-manager/clients/labels.json
+	printf '{"marker":"device account"}\n' >/etc/ikev2-manager/clients/credentials/laptop.json
+	printf '{"marker":"mail"}\n' >/etc/ikev2-manager/mail.json
 	printf 'correct horse battery' >/tmp/ikev2-manager-backup-t1.pass
 	( backup_export t1 ) >/tmp/backup.b64 || fail 'the backup was not made'
 	[ ! -e /tmp/ikev2-manager-backup-t1.pass ] || fail 'the passphrase was left behind'
@@ -1144,6 +1150,8 @@ EOF2
 	grep -q 'passphrase does not open' /tmp/import.err || fail "noise behind valid padding was not named a wrong passphrase: $(cat /tmp/import.err)"
 	grep -q '^bob' /etc/ikev2-manager/users.db || fail 'a refused import changed the router'
 
+	rm -f /etc/ikev2-manager/clients/state.json /etc/ikev2-manager/clients/labels.json /etc/ikev2-manager/clients/credentials/laptop.json /etc/ikev2-manager/mail.json
+	printf '{"marker":"later device"}\n' >/etc/ikev2-manager/clients/credentials/later.json
 	cp /tmp/backup.b64 /tmp/ikev2-manager-backup-t3.in
 	printf 'correct horse battery' >/tmp/ikev2-manager-backup-t3.pass
 	( backup_import t3 ) || fail "the backup did not import: $(cat /tmp/import.err)"
@@ -1152,6 +1160,11 @@ EOF2
 	grep -qx outbound-secret /etc/ikev2-manager/client.secret || fail 'the outbound password was not imported'
 	grep -qx bank.example /etc/ikev2-manager/services.d/banks.lst || fail 'a custom service was not imported'
 	grep -qx routed.example /etc/pbr-ikev2-domains.manual.txt || fail 'a custom list was not imported'
+	grep -q 'published state' /etc/ikev2-manager/clients/state.json && grep -q 'labels' /etc/ikev2-manager/clients/labels.json &&
+		grep -q 'device account' /etc/ikev2-manager/clients/credentials/laptop.json || fail 'the remote clients were not imported'
+	[ ! -e /etc/ikev2-manager/clients/credentials/later.json ] || fail 'a device the backup lacks was left in place'
+	grep -q '"mail"' /etc/ikev2-manager/mail.json || fail 'the mail settings were not imported'
+	[ "$(ls -l /etc/ikev2-manager/clients/state.json | cut -c1-10)" = '-rw-------' ] || fail 'the imported client state is readable by others'
 	[ ! -e /etc/ikev2-manager/inbound.custom.conf ] || fail 'a file the backup lacks was left in place'
 	[ "$(cat /etc/ssl/acme/vpn.example.test.key)" = KEY ] || fail 'the server key was not imported'
 	[ "$(uci -q get acme.ikev2.credentials)" = 'CF_Token=secret-token' ] || fail 'the ACME settings were not imported'

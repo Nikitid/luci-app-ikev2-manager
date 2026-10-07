@@ -60,6 +60,7 @@ install_file 644 ikev2-manager-runtime/lib/client-access-http.uc /usr/libexec/ik
 install_file 644 ikev2-manager-runtime/lib/client-access-api.uc /usr/libexec/ikev2-manager.d/client-access-api.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-setup.uc /usr/libexec/ikev2-manager.d/client-access-setup.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-mail.uc /usr/libexec/ikev2-manager.d/client-access-mail.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-journal.uc /usr/libexec/ikev2-manager.d/client-access-journal.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-directory.uc /usr/libexec/ikev2-manager.d/client-access-directory.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-publication.uc /usr/libexec/ikev2-manager.d/client-access-publication.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-state.uc /usr/libexec/ikev2-manager.d/client-access-state.uc

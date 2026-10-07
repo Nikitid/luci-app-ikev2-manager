@@ -3,6 +3,7 @@
 // what is shown, in process arguments or in a job's status.
 'use strict';
 import { open, lstat, unlink, popen, readfile, access } from 'fs';
+import { record_client_event } from './client-access-journal.uc';
 
 const STORE = '/etc/ikev2-manager/mail.json';
 const TOOL = '/usr/bin/msmtp';
@@ -99,6 +100,7 @@ try {
 		} catch (error) { unlink(config); die('mail was not sent'); }
 		unlink(config);
 		if (status != 0) die('mail was not accepted');
+		record_client_event('mail-sent', request.to);
 	} else {
 		warn('usage: client-access-mail.uc show|save|send JOB\n'); exit(2);
 	}

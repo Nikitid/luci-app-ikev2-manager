@@ -57,6 +57,7 @@ namespace IkeV2Manager.Client
         private DateTime readyUntil;
         private DeviceServices assigned;
         private bool namesApplied = true;
+        private DateTime nextReadinessAt;
         private string release = "";
         private string[] warnings = new string[0];
         // Why the last registration step did not go through. It used to be
@@ -366,6 +367,11 @@ namespace IkeV2Manager.Client
                 // The tunnel and its routes are ours. Permission still waits for
                 // the router: it answers only for an SA it authenticated and
                 // admitted, with its required exit and proxy in effect.
+                // While access stands confirmed, the tunnel and its routes are
+                // still checked every step above, but the router is asked
+                // again only every few seconds: each question costs it a
+                // process, and its own admission does not wait for ours.
+                if (connectionState == "protected" && permittedInterface == observed.InterfaceLuid && DateTime.UtcNow < nextReadinessAt) return;
                 connectionState = "tunnel_connected";
                 var current = store.LoadPolicyHistory().Current;
                 var enrolled = EnrollmentRegistration.Load(store);
@@ -400,7 +406,8 @@ namespace IkeV2Manager.Client
                     guard.AllowInterface(observed.InterfaceLuid);
                     permittedInterface = observed.InterfaceLuid;
                 }
-                readyUntil = DateTime.UtcNow.AddSeconds(10);
+                readyUntil = DateTime.UtcNow.AddSeconds(20);
+                nextReadinessAt = DateTime.UtcNow.AddSeconds(6);
                 connectionError = "none";
                 connectionState = "protected";
             }

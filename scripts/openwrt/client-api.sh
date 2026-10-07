@@ -199,6 +199,22 @@ i=0
 until curl --noproxy '*' -s --cacert "$tls/certificate.pem" --resolve vpn.example.com:19443:127.0.0.1 --max-time 2 https://vpn.example.com:19443/client/v1/policy -o "$work/launcher-body" -w '%{http_code}' | grep -qx 401; do
  i=$((i+1)); [ "$i" -lt 15 ] || { cat "$work/launcher-log" >&2; exit 1; }; sleep 1
 done
+test_step=request-limit
+# One address that opens connections far faster than a client ever does is
+# dropped, and served again once it slows down; the limit goes with the server.
+nft list table inet ikev2_client_api | grep -q 'tcp dport 19443'
+# In a subshell, so that waiting for the flood does not wait for the server.
+(
+ flood=0
+ while [ "$flood" -lt 160 ]; do
+  curl --noproxy '*' -s --cacert "$tls/certificate.pem" --resolve vpn.example.com:19443:127.0.0.1 --connect-timeout 1 --max-time 1 https://vpn.example.com:19443/client/v1/policy -o /dev/null &
+  flood=$((flood + 1))
+ done
+ wait
+) || :
+nft list set inet ikev2_client_api recent4 | grep -q '127.0.0.1'
+sleep 12
+curl --noproxy '*' -s --cacert "$tls/certificate.pem" --resolve vpn.example.com:19443:127.0.0.1 --max-time 3 https://vpn.example.com:19443/client/v1/policy -o /dev/null
 test_step=authenticated
 status="$(curl --noproxy '*' -s --cacert "$tls/certificate.pem" --resolve vpn.example.com:19443:127.0.0.1 --max-time 5 -H "Authorization: Bearer $first" https://vpn.example.com:19443/client/v1/policy -o "$work/launcher-body" -w '%{http_code}')"
 [ "$status" = 200 ]

@@ -46,6 +46,18 @@ export function read_client_labels(directory) {
 	return result;
 };
 
+// Which person an ordinary VPN profile belongs to: account name -> owner.
+export function read_profile_owners(directory) {
+	let raw = private_file(directory + '/labels.json', 262144);
+	if (raw == null) return {};
+	let stored = json(raw)?.profiles, result = {};
+	if (type(stored) != 'object') return {};
+	for (let name, owner in stored)
+		if ((length(name) <= 64 ? match(name, /^[A-Za-z0-9][A-Za-z0-9._@-]*$/) : null) && text(owner, 320) && length(owner))
+			result[name] = owner;
+	return result;
+};
+
 // Who a device belongs to, where its links go, and whether its services stay
 // blocked while the tunnel is down (the default) or go the ordinary way then.
 // A field left out keeps what was stored.
@@ -57,7 +69,21 @@ export function write_client_label(directory, id, owner, note, more) {
 	if (owner == '' && note == '' && email == '' && !open) delete labels[id];
 	else labels[id] = { owner: owner, note: note, email: email, open: open };
 	if (length(keys(labels)) > 1024) die('too many labels');
-	replace_file(directory + '/labels.json', { version: 1, devices: labels });
+	replace_file(directory + '/labels.json', { version: 1, devices: labels, profiles: read_profile_owners(directory) });
+};
+
+// The profiles of one person, all at once: those named become theirs, their
+// others are let go. A profile has one owner.
+export function write_profile_owners(directory, owner, names) {
+	if (!text(owner, 320) || !length(owner) || type(names) != 'array' || length(names) > 64) die('invalid profile owner');
+	let owners = read_profile_owners(directory);
+	for (let name, current in owners) if (current == owner) delete owners[name];
+	for (let name in names) {
+		if (type(name) != 'string' || !(length(name) <= 64 ? match(name, /^[A-Za-z0-9][A-Za-z0-9._@-]*$/) : null)) die('invalid profile name');
+		owners[name] = owner;
+	}
+	if (length(keys(owners)) > 1024) die('too many profile owners');
+	replace_file(directory + '/labels.json', { version: 1, devices: read_client_labels(directory), profiles: owners });
 };
 
 // What a client says about itself with an authenticated request. Each field

@@ -135,12 +135,15 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     router.sync { router.ready = .failure(.pathUnavailable) }
     await runtime.tick(now: now)
     #expect(await runtime.status().protected)
-    now += 11
+    now += 7
+    await runtime.tick(now: now)
+    #expect(await runtime.status().protected, "one unanswered question within the lease changes nothing")
+    now += 21
     await runtime.tick(now: now); now += 2
     #expect(await runtime.status().state == "tunnel_connected" && !machine.rules.contains("pass"))
     // An answer for another address or revision is a refusal, at once.
     router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
-    await runtime.tick(now: now); now += 2
+    await runtime.tick(now: now); now += 7
     #expect(await runtime.status().protected)
     router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.8", revision: 1)) }
     await runtime.tick(now: now); now += 2
