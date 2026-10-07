@@ -107,6 +107,34 @@ struct RealSystem: SystemActions {
         _ = try? Tool.run("/usr/bin/profiles", ["remove", "-identifier", identifier])
     }
 
+    /// Another VPN, a virtual interface or a changed resolver shows here.
+    func describeNetwork() -> [String] {
+        var lines: [String] = []
+        if let route = try? routeInterface("default") { lines.append("default route: " + route) }
+        var name = "", up = false
+        for line in ((try? Tool.run("/sbin/ifconfig", ["-a"]).output) ?? "").split(separator: "\n") {
+            if let first = line.first, first != "\t", first != " " {
+                name = String(line.split(separator: ":").first ?? "")
+                up = line.contains("<UP") || line.contains(",UP")
+                continue
+            }
+            let fields = line.split(separator: " ")
+            guard up, name != "lo0", fields.count >= 2, fields[0] == "inet" || fields[0] == "inet6", !fields[1].hasPrefix("fe80") else { continue }
+            lines.append(name + " " + fields[1])
+        }
+        var resolvers: [String] = []
+        for line in ((try? Tool.run("/usr/sbin/scutil", ["--dns"]).output) ?? "").split(separator: "\n") {
+            let fields = line.split(separator: " ")
+            guard fields.count == 3, fields[0].hasPrefix("nameserver"), !resolvers.contains(String(fields[2])) else { continue }
+            resolvers.append(String(fields[2]))
+        }
+        lines.append("resolvers: " + resolvers.prefix(12).joined(separator: " "))
+        let own = ((try? FileManager.default.contentsOfDirectory(atPath: "/etc/resolver")) ?? []).filter {
+            (try? String(contentsOfFile: "/etc/resolver/" + $0, encoding: .utf8))?.hasPrefix("# IKEv2 Manager Client") == true }
+        lines.append("names held for the tunnel: \(own.count)")
+        return lines.map { String($0.prefix(120)) }
+    }
+
     private func routeInterface(_ destination: String) throws -> String? {
         try Tool.run("/sbin/route", ["-n", "get", destination]).output.split(separator: "\n")
             .first { $0.trimmingCharacters(in: .whitespaces).hasPrefix("interface:") }?

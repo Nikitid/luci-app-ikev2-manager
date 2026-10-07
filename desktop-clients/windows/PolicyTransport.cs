@@ -280,6 +280,80 @@ namespace IkeV2Manager.Client
             catch (IOException) { throw new PolicyFetchException("services_unavailable"); }
         }
 
+        // Whether the administrator asked this device for a report. Any
+        // failure is "no": a report is never owed.
+        public static bool ReportWanted(Uri policyEndpoint, string token)
+        {
+            ValidateEndpoint(policyEndpoint, token);
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = ReportRequest(policyEndpoint, token, "GET");
+            using (var deadline = new Timer(ignored => request.Abort(), null, 5000, Timeout.Infinite))
+            try
+            {
+                using (var response = (HttpWebResponse)request.GetResponse())
+                {
+                    if (response.StatusCode != HttpStatusCode.OK) return false;
+                    using (var stream = response.GetResponseStream())
+                        return ParseReportWanted(ReadBody(stream, response.ContentType, response.ContentLength, 1024, "report_response_invalid"));
+                }
+            }
+            catch (WebException) { return false; }
+            catch (IOException) { return false; }
+            catch (PolicyFetchException) { return false; }
+        }
+
+        internal static bool ParseReportWanted(string json)
+        {
+            try
+            {
+                var data = ClientPolicy.Object(new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 1024, RecursionLimit = 2 }.DeserializeObject(json));
+                return data.ContainsKey("version") && ClientPolicy.Integer(data["version"], 1, 1) == 1 &&
+                    data.ContainsKey("wanted") && data["wanted"] is bool && (bool)data["wanted"];
+            }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+        }
+
+        public const int ReportLimit = 32768;
+
+        // The report goes to the router that asked, over the same verified
+        // connection as everything else, and nowhere else.
+        public static bool SendReport(Uri policyEndpoint, string token, string report)
+        {
+            ValidateEndpoint(policyEndpoint, token);
+            byte[] body = new UTF8Encoding(false).GetBytes(report ?? "");
+            if (body.Length == 0 || body.Length > ReportLimit) return false;
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = ReportRequest(policyEndpoint, token, "POST");
+            request.ContentType = "application/json";
+            request.ContentLength = body.Length;
+            request.ServicePoint.Expect100Continue = false;
+            using (var deadline = new Timer(ignored => request.Abort(), null, 10000, Timeout.Infinite))
+            try
+            {
+                using (var stream = request.GetRequestStream()) stream.Write(body, 0, body.Length);
+                using (var response = (HttpWebResponse)request.GetResponse())
+                    return response.StatusCode == HttpStatusCode.OK;
+            }
+            catch (WebException) { return false; }
+            catch (IOException) { return false; }
+        }
+
+        private static HttpWebRequest ReportRequest(Uri policyEndpoint, string token, string method)
+        {
+            var request = (HttpWebRequest)WebRequest.Create(new UriBuilder(policyEndpoint) { Path = "/client/v1/report" }.Uri);
+            request.Method = method;
+            request.AllowAutoRedirect = false;
+            request.Proxy = null;
+            request.UseDefaultCredentials = false;
+            request.KeepAlive = false;
+            request.Timeout = request.ReadWriteTimeout = method == "POST" ? 10000 : 5000;
+            request.MaximumResponseHeadersLength = 16;
+            request.Accept = "application/json";
+            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            return request;
+        }
+
         internal static System.Collections.Generic.Dictionary<string, string> Describe()
         {
             var result = new System.Collections.Generic.Dictionary<string, string>();

@@ -21,6 +21,12 @@ internal static class PolicyTransportTests
             PolicyTransportClient.ValidateEndpoint(endpoint, token);
             Reject(() => PolicyTransportClient.ValidateEndpoint(endpoint, token + "\n"));
             Reject(() => PolicyTransportClient.ValidateEndpoint(endpoint, "short"));
+            // A report is owed only to a clear request; anything else is "no".
+            if (!PolicyTransportClient.ParseReportWanted("{\"version\":1,\"wanted\":true}")) throw new Exception("Report request not understood");
+            foreach (string answer in new[] { "{\"version\":1,\"wanted\":false}", "{\"version\":2,\"wanted\":true}", "{\"wanted\":true}", "{\"version\":1,\"wanted\":\"true\"}", "[]", "not json" })
+                if (PolicyTransportClient.ParseReportWanted(answer)) throw new Exception("Report sent without a clear request: " + answer);
+            if (PolicyTransportClient.SendReport(endpoint, token, "") || PolicyTransportClient.SendReport(endpoint, token, new string('a', PolicyTransportClient.ReportLimit + 1)))
+                throw new Exception("An empty or oversized report was attempted");
             var serializer = new JavaScriptSerializer();
             var fixtures = (object[])serializer.DeserializeObject(File.ReadAllText(args[0]));
             string json = serializer.Serialize(((Dictionary<string, object>)fixtures[0])["policy"]);

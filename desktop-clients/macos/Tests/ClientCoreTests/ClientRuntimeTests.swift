@@ -53,6 +53,9 @@ private final class Router: DeviceRequests, @unchecked Sendable {
         DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
     }
     func release(endpoint: URL, deviceToken: String) async throws -> String { "2.3.0" }
+    var reportWanted = false, reports: [Data] = []
+    func reportWanted(endpoint: URL, deviceToken: String) async -> Bool { sync { reportWanted } }
+    func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool { sync { reports.append(report); reportWanted = false }; return true }
 }
 
 private func fixture() throws -> (ClientRuntime, Machine, Router, ClientStore) {
@@ -194,6 +197,29 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     #expect(machine.resolving.isEmpty)
     #expect(!machine.installed && machine.log.contains { $0.hasPrefix("io.github.nikitid.ikev2-manager-client.") })
     #expect(!FileManager.default.fileExists(atPath: store.directory.path))
+}
+
+@Test func reportGoesOnlyWhenAskedAndSaysWhatFailed() async throws {
+    var (runtime, _, router, _, now) = try await registered()
+    now += 31
+    await runtime.tick(now: now); now += 2
+    #expect(router.reports.isEmpty, "nothing is sent unasked")
+    // A device the router refuses is the one worth hearing from.
+    router.sync { router.policyFailure = .accessRejected }
+    now += 31
+    await runtime.tick(now: now); now += 2
+    #expect(await runtime.status().state == "access_closed")
+    router.sync { router.reportWanted = true }
+    now += 31
+    await runtime.tick(now: now); now += 2
+    #expect(router.reports.count == 1)
+    let sent = try #require(try JSONSerialization.jsonObject(with: router.reports[0]) as? [String: Any])
+    #expect(sent["platform"] as? String == "macos" && sent["state"] as? String == "access_closed" && sent["access_closed"] as? Bool == true)
+    #expect((sent["faults"] as? [String])?.contains { $0.hasSuffix("access_closed synchronization") } == true)
+    #expect(router.reports[0].count <= DeviceTransport.reportLimit && !String(decoding: router.reports[0], as: UTF8.self).contains(secret))
+    now += 31
+    await runtime.tick(now: now)
+    #expect(router.reports.count == 1, "one request, one report")
 }
 
 @Test func systemTextIsWhatTheSystemAccepts() throws {

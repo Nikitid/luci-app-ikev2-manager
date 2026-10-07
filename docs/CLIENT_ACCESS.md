@@ -610,6 +610,22 @@ router grants; client polling alone cannot terminate existing access. Persistent
 Enrollment and catalog UI integration are still required.
 
 
+### Reports on request
+
+The administrator asks one device for a report from its settings on the Users
+page. The request is a marker in `/var/run/ikev2-client-reports`; the device
+sees it at `GET /client/v1/report` on its next refresh, within half a minute,
+and answers with `POST /client/v1/report`. This is the only request with a
+body: one JSON object of at most 32 KiB, taken only while a request is
+pending and stored once, in memory. A device without services can answer
+too; a revoked one cannot.
+
+The report holds what the client itself knows: its state and last error, its
+journal of failures, mode, service names and counts, and the network adapters
+(Windows) or interfaces, default route and resolvers (macOS). The user of the
+device is not asked and sees nothing. Clients without this endpoint ignore the
+request.
+
 ## Authenticated session evidence
 
 The `sessions` compiler mode reads a local swanmon/VICI snapshot for the inbound

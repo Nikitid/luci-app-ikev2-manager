@@ -5357,3 +5357,45 @@ msgstr "Опубликовать"
 
 msgid "Ports: rarely needed"
 msgstr "Порты: нужно редко"
+
+msgid "Device report"
+msgstr "Отчёт устройства"
+
+msgid "No report from this device yet."
+msgstr "Отчёта от этого устройства ещё нет."
+
+msgid "Could not copy the report."
+msgstr "Не удалось скопировать отчёт."
+
+msgid "Save to file"
+msgstr "Сохранить в файл"
+
+msgid "Waiting for the device..."
+msgstr "Ждём устройство..."
+
+msgid "No answer"
+msgstr "Нет ответа"
+
+msgid "The report could not be requested."
+msgstr "Не удалось запросить отчёт."
+
+msgid "Report received."
+msgstr "Отчёт получен."
+
+msgid "The device has not answered yet. It answers when it next reaches the router; open this window again later."
+msgstr "Устройство пока не ответило. Оно ответит, когда в следующий раз свяжется с роутером; откройте это окно позже."
+
+msgid "Request report"
+msgstr "Запросить отчёт"
+
+msgid "Diagnostics of %s"
+msgstr "Диагностика: %s"
+
+msgid "The device sends its own state, its record of failures and its network adapters. Nothing is asked of its user."
+msgstr "Устройство присылает своё состояние, журнал сбоев и сетевые адаптеры. Пользователя ни о чём не спрашивают."
+
+msgid "Diagnostics..."
+msgstr "Диагностика..."
+
+msgid "Report requested"
+msgstr "Запрошен отчёт"

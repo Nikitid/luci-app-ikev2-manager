@@ -7,6 +7,7 @@ import { readfile } from 'fs';
 import { record_client_seen, read_client_labels } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence } from './client-access-device-evidence.uc';
+import { client_report_wanted, store_client_report, CLIENT_REPORT_LIMIT } from './client-access-report.uc';
 
 function reply(status, error) {
 	return { status: status, body: { error: error } };
@@ -52,18 +53,36 @@ function device_services(publication, device, directory) {
 		selected: sort(selected, by_id), available: sort(available, by_id), block_without_tunnel: block, mode: mode };
 }
 
-export function client_policy_response(env, directory, seen_directory) {
+// The one request that carries a body: the report the administrator asked
+// this device for. Exactly the announced length is read, and no more than the
+// limit.
+function report_body(headers, receive) {
+	let announced = headers['content-length'];
+	if (type(receive) != 'function' || type(announced) != 'string' || !(length(announced) <= 5 ? match(announced, /^[1-9][0-9]*$/) : null) ||
+		int(announced) > CLIENT_REPORT_LIMIT)
+		return null;
+	let wanted = int(announced), text = '';
+	while (length(text) < wanted) {
+		let part = receive(wanted - length(text));
+		if (type(part) != 'string' || !length(part)) return null;
+		text += part;
+	}
+	return length(text) == wanted ? text : null;
+}
+
+export function client_policy_response(env, directory, seen_directory, receive) {
 	if (env.HTTPS != 'on')
 		return reply(403, 'tls_required');
 	let readiness = env.REQUEST_URI == '/client/v1/readiness', services = env.REQUEST_URI == '/client/v1/services';
 	let release = env.REQUEST_URI == '/client/v1/release';
-	if (!readiness && !services && !release && env.REQUEST_URI != '/client/v1/policy')
+	let report = env.REQUEST_URI == '/client/v1/report', sending = report && env.REQUEST_METHOD == 'POST';
+	if (!readiness && !services && !release && !report && env.REQUEST_URI != '/client/v1/policy')
 		return reply(404, 'not_found');
-	if (env.REQUEST_METHOD != 'GET')
-		return reply(405, 'method_not_allowed');
+	if (env.REQUEST_METHOD != 'GET' && !sending)
+		return { status: 405, body: { error: 'method_not_allowed' }, allow: report ? 'GET, POST' : 'GET' };
 	let headers = env.headers ?? {};
 	if (headers['transfer-encoding'] != null ||
-		(headers['content-length'] != null && headers['content-length'] != '0'))
+		(!sending && headers['content-length'] != null && headers['content-length'] != '0'))
 		return reply(400, 'body_not_allowed');
 	let authorization = headers.authorization;
 	if (type(authorization) != 'string' || !(length(authorization) == 71 ? match(authorization, /^Bearer [a-f0-9]+$/) : null))
@@ -89,13 +108,26 @@ export function client_policy_response(env, directory, seen_directory) {
 					selected = device;
 			}
 		}
+		let idle = null;
 		if (matches == 1 && selected == null) {
 			// Known and not switched off, only left without a single service:
 			// the device is told so, and lets go of the names it held.
 			let known = filter(committed.publication?.devices ?? [], device => same_hash(token_hash, device.token_sha256))[0];
 			if (known != null && known.enabled === true && type(known.selected_services) == 'array' && !length(known.selected_services))
-				return reply(409, 'no_services');
+				idle = known;
 		}
+		if (report && matches == 1 && (selected != null || idle != null)) {
+			// A device without a service can still say what is wrong with it.
+			let id = (selected ?? idle).id, now = time();
+			if (!sending) return { status: 200, body: { version: 1, wanted: client_report_wanted(id, now) } };
+			// Nothing is stored that was not asked for.
+			if (!client_report_wanted(id, now)) return reply(409, 'not_wanted');
+			let text = report_body(headers, receive);
+			if (text == null || !store_client_report(id, text, now)) return reply(400, 'invalid_report');
+			return { status: 200, body: { version: 1, stored: true } };
+		}
+		if (idle != null)
+			return reply(409, 'no_services');
 		if (matches != 1 || selected == null)
 			return reply(401, 'unauthorized');
 		if (readiness) {

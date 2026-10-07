@@ -26,7 +26,7 @@ cleanup() {
 	[ -z "$catalog_pid" ] || { kill "$catalog_pid" 2>/dev/null || :; wait "$catalog_pid" 2>/dev/null || :; }
 	rm -f /etc/ikev2-manager/services.d/api.lst /etc/ikev2-manager/services.d/other.lst
 	[ -z "$server_pid" ] || kill "$server_pid" 2>/dev/null || :
-	rm -rf "$work" /etc/ikev2-manager/clients
+	rm -rf "$work" /etc/ikev2-manager/clients /var/run/ikev2-client-reports
 }
 trap cleanup EXIT INT TERM
 mkdir -p "$work/root" /etc/ikev2-manager/clients
@@ -95,6 +95,38 @@ request 401 https://127.0.0.1:18443/client/v1/release
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/release
 [ "$(jsonfilter -i "$work/body" -e '@.release')" = "$(cat /usr/share/ikev2-manager/version)" ]
 [ "$(jsonfilter -i "$work/body" -e '@.version')" = 1 ]
+# A report is taken only from a device the administrator asked, once, whole
+# and within the limit; the administrator then reads exactly what was sent.
+report=https://127.0.0.1:18443/client/v1/report
+request 401 "$report"
+request 401 -H "Authorization: Bearer $second" "$report"
+request 200 -H "Authorization: Bearer $first" "$report"
+[ "$(jsonfilter -i "$work/body" -e '@.wanted')" = false ]
+request 409 -X POST -H 'Content-Type: application/json' -d '{"state":"unasked"}' -H "Authorization: Bearer $first" "$report"
+[ ! -e /var/run/ikev2-client-reports/team.json ]
+if /usr/libexec/ikev2-client-admin client-admin-report-request unknown-device >/dev/null 2>&1; then echo 'client-api: a report was asked of an unknown device' >&2; exit 1; fi
+/usr/libexec/ikev2-client-admin client-admin-report-request team | grep -Fxq 'requested=1'
+ucode /usr/libexec/ikev2-manager.d/client-access-control.uc inspect >"$work/report-inspection"
+ucode -e 'import {readfile} from "fs"; let d=filter(json(readfile(ARGV[0])).devices, d => d.id=="team")[0]; if(d.report_wanted!==true || d.report_seconds!=null) die("A requested report is not shown as awaited");' "$work/report-inspection"
+request 200 -H "Authorization: Bearer $first" "$report"
+[ "$(jsonfilter -i "$work/body" -e '@.wanted')" = true ]
+request 400 -X POST -H 'Content-Type: application/json' -d 'not json' -H "Authorization: Bearer $first" "$report"
+request 400 -X POST -H 'Content-Type: application/json' -d '["a list"]' -H "Authorization: Bearer $first" "$report"
+head -c 40000 /dev/zero | tr '\0' 'a' >"$work/oversized"
+request 400 -X POST -H 'Content-Type: application/json' --data-binary "@$work/oversized" -H "Authorization: Bearer $first" "$report"
+request 401 -X POST -H 'Content-Type: application/json' -d '{"state":"other"}' -H "Authorization: Bearer $second" "$report"
+[ ! -e /var/run/ikev2-client-reports/team.json ]
+ucode -e 'let faults=[]; for (let i=0;i<40;i++) push(faults, "2026-01-01T00:00:00Z tick Fault " + i); print(sprintf("%J", {state:"error", faults:faults, padding: substr(sprintf("%1024s",""),0,1000)}));' >"$work/report-sent"
+request 200 -X POST -H 'Content-Type: application/json' --data-binary "@$work/report-sent" -H "Authorization: Bearer $first" "$report"
+/usr/libexec/ikev2-client-admin client-admin-report team >"$work/report-read"
+ucode -e 'import {readfile} from "fs"; let r=json(readfile(ARGV[0])), sent=json(readfile(ARGV[1])); if(r.id!="team" || r.version!==1 || type(r.received_at)!="int" || sprintf("%J",r.report)!=sprintf("%J",sent)) die("The stored report differs from the one sent");' "$work/report-read" "$work/report-sent"
+[ "$(ls -l /var/run/ikev2-client-reports/team.json | cut -c1-10)" = -rw------- ]
+request 200 -H "Authorization: Bearer $first" "$report"
+[ "$(jsonfilter -i "$work/body" -e '@.wanted')" = false ]
+request 409 -X POST -H 'Content-Type: application/json' -d '{"state":"again"}' -H "Authorization: Bearer $first" "$report"
+ucode /usr/libexec/ikev2-manager.d/client-access-control.uc inspect >"$work/report-inspection"
+ucode -e 'import {readfile} from "fs"; let d=filter(json(readfile(ARGV[0])).devices, d => d.id=="team")[0]; if(d.report_wanted!==false || type(d.report_seconds)!="int") die("A received report is not shown");' "$work/report-inspection"
+printf '%s\n' 'client-api: a report is taken only when asked, whole, and read back unchanged'
 request 401 https://127.0.0.1:18443/client/v1/readiness
 request 400 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/readiness
 request 503 -H "Authorization: Bearer $first" -H 'X-Client-Address: 10.25.0.10' https://127.0.0.1:18443/client/v1/readiness

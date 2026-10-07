@@ -204,6 +204,62 @@ function editDialog(title, form, buildRequest, reload, pageResult, unsaved, then
  ui.showModal(title, [ body ]);
 }
 
+// What the device says about itself. The administrator asks; the device
+// answers on its own the next time it calls the router, within half a minute
+// while it has a connection to it. Its user is not asked anything.
+function reportDialog(device) {
+ var output = common.inlineResult(), ask, copy, save, waiting = null;
+ var text = E('textarea', { 'class': 'cbi-input-textarea ikev2-report', 'readonly': '', 'rows': '18', 'aria-label': _('Device report'), 'spellcheck': 'false' });
+ var when = E('div', { 'class': 'ikev2-muted' }, [ _('No report from this device yet.') ]);
+ function stop() { if (waiting) { window.clearTimeout(waiting); waiting = null; } }
+ function read() {
+  return fs.exec(helper, [ 'client-admin-report', device.id ]).then(function(response) {
+   var stored = response.code === 0 ? JSON.parse(response.stdout) : {};
+   if (typeof stored.received_at !== 'number' || !stored.report) return 0;
+   text.value = JSON.stringify(stored.report, null, 1);
+   when.textContent = _('Received %s').format(new Date(stored.received_at * 1000).toLocaleString());
+   copy.disabled = save.disabled = false;
+   return stored.received_at;
+  });
+ }
+ copy = E('button', { type: 'button', 'class': 'cbi-button', disabled: '', click: function() {
+  return common.runAction({ button: copy, result: output, busy: _('Copying...'), success: _('Copied'), failure: _('Could not copy the report.'), run: function() { return common.copyText(text.value); } });
+ } }, [ _('Copy') ]);
+ save = E('button', { type: 'button', 'class': 'cbi-button', disabled: '', click: function() {
+  var link = E('a', { href: URL.createObjectURL(new Blob([ text.value + '\n' ], { type: 'application/json' })), download: 'waypoint-report-' + device.id + '.json' });
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  window.setTimeout(function() { URL.revokeObjectURL(link.href); }, 1000);
+ } }, [ _('Save to file') ]);
+ ask = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() {
+  return common.runAction({ button: ask, result: output, busy: _('Waiting for the device...'), done: _('Received'), failed: _('No answer'), run: function() {
+   var known = 0, tries = 0;
+   return read().then(function(at) { known = at; return fs.exec(helper, [ 'client-admin-report-request', device.id ]); }).then(function(response) {
+    if (response.code !== 0) throw new Error(_('The report could not be requested.'));
+    return new Promise(function(resolve, reject) {
+     (function poll() {
+      waiting = window.setTimeout(function() {
+       waiting = null;
+       read().then(function(at) {
+        if (at > known) { output.ok(_('Report received.')); resolve(); }
+        else if (++tries >= 30) reject(new Error(_('The device has not answered yet. It answers when it next reaches the router; open this window again later.')));
+        else poll();
+       }, reject);
+      }, 3000);
+     })();
+    });
+   });
+  } });
+ } }, [ _('Request report') ]);
+ ui.showModal(_('Diagnostics of %s').format(device.title || device.host || device.id), [ E('div', { 'class': 'ikev2-page' }, [
+  common.styles(), pageStyles(),
+  E('p', {}, [ _('The device sends its own state, its record of failures and its network adapters. Nothing is asked of its user.') ]),
+  when, text,
+  E('div', { 'class': 'ikev2-actions end', 'style': 'margin-top:1rem' }, [ output.node,
+   E('button', { type: 'button', 'class': 'cbi-button', click: function() { stop(); ui.hideModal(); } }, [ _('Close') ]), save, copy, ask ])
+ ]) ]);
+ read().then(null, function() { });
+}
+
 function serviceDialog(record, current, generation, reload, pageResult, unsaved) {
  current = current || { client_access: false, transports: [ { protocol: 'tcp', ports: [ 443 ] } ] };
  var published = E('input', { 'type': 'checkbox', 'checked': current.client_access ? '' : null, 'aria-label': _('Available to remote clients') });
@@ -417,6 +473,7 @@ function magnifier() { return sign('M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4
 // The page's own layout rules, beside the shared ones.
 function pageStyles() {
  return E('style', {}, [
+  '.ikev2-page .ikev2-report { width: 100%; box-sizing: border-box; margin-top: .5rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; line-height: 1.35; white-space: pre; resize: vertical; }' +
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
   '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem .9rem; }' +
@@ -869,8 +926,9 @@ return view.extend({
       E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [ common.fieldLabel(_('Device name'), _('Empty: the name the computer reported.')), name ]),
       E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services of this device'), _('Usually the same as the person\'s. Tick or clear here for this device alone.')),
        checkList(own.map(function(item) { return { input: item.input, text: labels[item.id] || item.id }; })) ]),
-      device.mode === 'full' ? E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:1rem' }, [
-       E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { ui.hideModal(); actions.rights(device); } }, [ _('Rights on the inbound server...') ]) ]) : ''
+      E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:1rem' }, [
+       E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { ui.hideModal(); reportDialog(device); } }, [ _('Diagnostics...') ]),
+       device.mode === 'full' ? E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { ui.hideModal(); actions.rights(device); } }, [ _('Rights on the inbound server...') ]) : '' ])
      ]), function() {
       describeText(name.value, 80, _('Device name'));
       return { version: 1, expected_generation: state.generation, operation: 'assign-device',
@@ -942,7 +1000,7 @@ return view.extend({
   try { opened = JSON.parse(window.sessionStorage.getItem('ikev2-people-open') || '{}') || {}; } catch (error) { opened = {}; }
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
-   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
+   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'report-requested': _('Report requested'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
   // Put each owned profile's card into its person's card. The panel redraws
   // its list every few seconds and brings fresh cards; a fresh card takes the
   // place of the one shown before. Nothing is ever cleared wholesale, so a

@@ -44,6 +44,15 @@ public protocol DeviceRequests: Sendable {
     func readiness(endpoint: URL, deviceToken: String, tunnelAddress: String) async throws -> DeviceReadiness
     func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices
     func release(endpoint: URL, deviceToken: String) async throws -> String
+    /// Whether the administrator asked this device for a report. Any failure is "no".
+    func reportWanted(endpoint: URL, deviceToken: String) async -> Bool
+    /// Sends the report to the router that asked; whether it was taken.
+    func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool
+}
+
+public extension DeviceRequests {
+    func reportWanted(endpoint: URL, deviceToken: String) async -> Bool { false }
+    func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool { false }
 }
 
 /// Requests of an enrolled or enrolling device. Platform certificate and
@@ -103,7 +112,7 @@ public struct DeviceTransport: DeviceRequests {
         return (try endpoint(url, path: "/client/v1/enroll"), pieces[1])
     }
 
-    private func send(_ url: URL, method: String, headers: [String: String], limit: Int, timeout: TimeInterval)
+    private func send(_ url: URL, method: String, headers: [String: String], limit: Int, timeout: TimeInterval, body: Data? = nil)
         async throws -> (status: Int, data: Data) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
@@ -118,7 +127,8 @@ public struct DeviceTransport: DeviceRequests {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        if method == "POST" { request.httpBody = Data() }
+        if method == "POST" { request.httpBody = body ?? Data() }
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw DeviceError.invalidResponse }
@@ -267,6 +277,29 @@ public struct DeviceTransport: DeviceRequests {
             headers: ["Authorization": "Bearer " + deviceToken], limit: 1024, timeout: 5)
         guard answer.status == 200 else { throw DeviceError.httpRejected }
         return try Self.decodeRelease(answer.data)
+    }
+
+    public static let reportLimit = 32768
+
+    static func decodeReportWanted(_ data: Data) -> Bool {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (root["version"] as? Int) == 1, let wanted = root["wanted"] as? Bool else { return false }
+        return wanted
+    }
+
+    public func reportWanted(endpoint: URL, deviceToken: String) async -> Bool {
+        guard Self.matches(deviceToken, Self.token), let url = try? Self.endpoint(endpoint, path: "/client/v1/report"),
+              let answer = try? await send(url, method: "GET", headers: ["Authorization": "Bearer " + deviceToken], limit: 1024, timeout: 5),
+              answer.status == 200 else { return false }
+        return Self.decodeReportWanted(answer.data)
+    }
+
+    public func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool {
+        guard Self.matches(deviceToken, Self.token), !report.isEmpty, report.count <= Self.reportLimit,
+              let url = try? Self.endpoint(endpoint, path: "/client/v1/report"),
+              let answer = try? await send(url, method: "POST", headers: ["Authorization": "Bearer " + deviceToken], limit: 1024, timeout: 10, body: report)
+        else { return false }
+        return answer.status == 200
     }
 
     public func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {

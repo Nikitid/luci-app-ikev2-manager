@@ -12,9 +12,10 @@ function E(tag, attrs, children) {
  attrs = attrs || {};
  const node = { tagName: String(tag).toUpperCase(), attrs, children: (children || []).filter(Boolean),
   style: {}, dataset: {}, type: attrs.type || '', value: attrs.value || '', checked: attrs.checked != null,
-  disabled: false, textContent: '', className: attrs.class || '', listeners: {},
+  disabled: attrs.disabled != null, textContent: '', className: attrs.class || '', listeners: {},
   classList: { add() {}, remove() {}, toggle() {} },
   addEventListener(name, fn) { this.listeners[name] = fn; },
+  setAttribute(name, value) { this.attrs[name] = value; }, getAttribute(name) { return this.attrs[name] ?? null; }, removeAttribute(name) { delete this.attrs[name]; },
   replaceChildren(...next) { this.children = next; },
   appendChild(child) { this.children.push(child); },
   querySelectorAll(selector) { return nodes(this).slice(1).filter(n => selector.toUpperCase().split(/,\s*/).includes(n.tagName)); }
@@ -25,6 +26,7 @@ const document = { getElementById() { return true; }, createDocumentFragment() {
 const window = { setTimeout(fn, delay) { if (!delay) fn(); }, clearTimeout() {} };
 const L = { resolveDefault(promise, fallback) { return promise.catch(() => fallback); } };
 let modal, hidden = 0, written = [], jobs = [], failWrite = false;
+const reportAsked = [];
 const ui = { showModal(title, body) { modal = E('div', {}, body); }, hideModal() { hidden++; } };
 const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_endpoint: 'https://vpn.example.com:9443/client/v1/enroll', server: {address:"vpn.example.com"},
  services: [{ id: 'example_service', client_access: true, domain_count: 1, transports: [{ protocol: 'tcp', ports: [443] }] }],
@@ -35,7 +37,9 @@ const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_end
  waiting: [{ id: 'alice-2', owner: 'Alice Example', note: 'accounting', selected_services: ['example_service'], expires_seconds: 7200 }] };
 const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, stdout: 'example_service|Example service|builtin|0|0|tunnel\nnew_service|New service|builtin|0|0|tunnel\n' }];
 const backend = {
- exec(file, args) { if(args[0] === 'client-admin-take-invitation') return Promise.resolve({code:0,stdout:JSON.stringify({version:1,id:'new-laptop',invitation:'https://vpn.example.com:9443/client/v1/enroll#'+'c'.repeat(64)})}); return Promise.resolve(args[0] === 'services' ? data()[1] : data()[0]); },
+ exec(file, args) { if(args[0] === 'client-admin-report-request') { reportAsked.push(args[1]); return Promise.resolve({code:0,stdout:'requested=1\n'}); }
+  if(args[0] === 'client-admin-report') return Promise.resolve({code:0,stdout: reportAsked.length ? JSON.stringify({version:1,id:args[1],received_at:1700000000+reportAsked.length,report:{state:'access_closed',faults:['2026-01-01T00:00:00Z policy device_no_services']}}) : '{}\n'});
+  if(args[0] === 'client-admin-take-invitation') return Promise.resolve({code:0,stdout:JSON.stringify({version:1,id:'new-laptop',invitation:'https://vpn.example.com:9443/client/v1/enroll#'+'c'.repeat(64)})}); return Promise.resolve(args[0] === 'services' ? data()[1] : data()[0]); },
  write(file, body, mode) { if (failWrite) return Promise.reject(new Error('write rejected')); written.push({ file, body: JSON.parse(body), mode }); return Promise.resolve(); }
 };
 const extend = { extend(value) { return value; } };
@@ -135,6 +139,20 @@ async function main() {
  assert(text(modal).includes('cannot be used again'));
  await click(button(modal,'Remove'));
  assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'remove-device', payload:{id:'bob-laptop'}});
+ // Diagnostics: the device is asked by its identifier, and what it sent is shown as it came.
+ const gears = nodes(tree).filter(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Device: name and services');
+ assert(gears.length >= 1, 'a device has its own settings');
+ click(gears[0]);
+ click(button(modal,'Diagnostics...'));
+ await new Promise(resolve => setImmediate(resolve));
+ const reportField = nodes(modal).find(n => n.tagName === 'TEXTAREA');
+ assert.strictEqual(reportField.value || '', '', 'nothing is shown before a report came');
+ assert(button(modal,'Copy').disabled && button(modal,'Save to file').disabled && text(modal).includes('No report from this device yet.'));
+ const realTimeout = window.setTimeout; window.setTimeout = (run) => { setImmediate(run); return 1; };
+ await click(button(modal,'Request report'));
+ window.setTimeout = realTimeout;
+ assert.deepStrictEqual(reportAsked, ['alice']);
+ assert(reportField.value.includes('device_no_services') && reportField.value.includes('access_closed') && !button(modal,'Copy').disabled);
  const unavailable = page.render([[{code:1,stdout:''},data()[1]], null]);
  assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT' && n.attrs.type !== 'search'), 'nothing to edit while the state is unavailable');
  // First activation: only the setup section is offered, and it stages one request.

@@ -8,6 +8,7 @@ import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } 
 import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
 import { record_client_event, read_client_events } from './client-access-journal.uc';
+import { request_client_report, read_client_report, describe_client_report, forget_client_report } from './client-access-report.uc';
 
 let seen_directory = '/var/run/ikev2-client-seen';
 
@@ -27,7 +28,7 @@ try {
   let listed = daemon?.read(16777217), listing = daemon?.close();
   if (listing == 0 && type(listed) == 'string' && length(listed) <= 16777216)
    try { sessions = client_device_sessions(json(listed)); } catch (error) { sessions = {}; }
-  for (let device in inspected.devices) describe_client_device(device, labels, seen_directory, sessions, now);
+  for (let device in inspected.devices) describe_client_report(describe_client_device(device, labels, seen_directory, sessions, now), now);
   // Places a link still holds open: the administrator sees who has not
   // registered yet and until when the link works.
   let ledger = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? null : read_client_enrollment(directory).ledger;
@@ -54,6 +55,15 @@ try {
   inspected.api_endpoint = match(api_port, /^[1-9][0-9]{3,4}$/) && int(api_port) >= 1024 && int(api_port) <= 65535 ?
    'https://' + inspected.server.address + ':' + api_port + '/client/v1/enroll' : null;
   print(sprintf('%J\n', inspected));
+ } else if ((ARGV[0] == 'report-request' || ARGV[0] == 'report') && length(ARGV) == 2) {
+  // The device is asked the next time it calls, and answers by itself.
+  let state = read_client_state(directory), id = ARGV[1];
+  if (!length(filter(state.publication.devices, device => device.id == id)) || index(state.retired_ids, id) >= 0) die('unknown device');
+  if (ARGV[0] == 'report-request') {
+   request_client_report(id, time());
+   record_client_event('report-requested', id);
+   print('requested=1\n');
+  } else print(read_client_report(id) ?? '{}\n');
  } else if ((ARGV[0] == 'update' || ARGV[0] == 'refresh') && length(ARGV) == 1) {
   let state = read_client_state(directory), request;
   if (ARGV[0] == 'refresh') request = { version: 1, expected_generation: state.generation,
@@ -143,6 +153,7 @@ try {
    // The account goes with the device; its sessions end with the account.
    // A device registered before this journal existed has no record to clean.
    forget_client_device(directory, seen_directory, request.payload.id);
+   forget_client_report(request.payload.id);
    try { cleanup_client_credentials(directory, request.payload.id, read_client_enrollment(directory).ledger.generation); }
    catch (error) { warn('client-access-control: the removed device kept its account\n'); }
   }

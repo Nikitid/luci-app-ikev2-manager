@@ -59,7 +59,7 @@ let release = ProcessInfo.processInfo.operatingSystemVersion
 let installed = (NSDictionary(contentsOfFile: "/Applications/Waypoint.app/Contents/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
 let about = DeviceTransport.describe(host: ProcessInfo.processInfo.hostName,
     system: "macOS \(release.majorVersion).\(release.minorVersion).\(release.patchVersion)", version: installed)
-let runtime = ClientRuntime(store: store, system: system, transport: DeviceTransport(additionalAnchor: anchor, about: about))
+let runtime = ClientRuntime(store: store, system: system, transport: DeviceTransport(additionalAnchor: anchor, about: about), about: about)
 
 if remove {
     let done = DispatchSemaphore(value: 0)

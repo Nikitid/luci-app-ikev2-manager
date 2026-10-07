@@ -47,7 +47,8 @@
 				"/usr/libexec/ikev2-client-admin client-admin-show": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-settings": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-mail": [ "exec" ],
-				"/usr/libexec/ikev2-client-admin client-admin-status *": [ "exec" ]
+				"/usr/libexec/ikev2-client-admin client-admin-status *": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-report *": [ "exec" ]
 			},
 			"ubus": {
 				"file": [
@@ -129,6 +130,7 @@
 				"/usr/libexec/ikev2-domain-router diagnostic-start *": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-update *": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-refresh": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-report-request *": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-setup *": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-mail-save *": [ "exec" ],
 				"/usr/libexec/ikev2-client-admin client-admin-mail-send *": [ "exec" ],

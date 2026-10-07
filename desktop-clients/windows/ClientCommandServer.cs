@@ -131,6 +131,9 @@ namespace IkeV2Manager.Client
                             else runtime.RefreshPolicy();
                         }
                         catch { }
+                        // Asked in every registered state: a device that cannot
+                        // get its policy is the one worth hearing from.
+                        if (!pending) try { runtime.AnswerReportRequest(); } catch { }
                         if (WaitHandle.WaitAny(new WaitHandle[] {stop,wake}, pending ? 3000 : 30000) == 0) break;
                     }
                 }) { IsBackground = true };

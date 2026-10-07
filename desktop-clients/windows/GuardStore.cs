@@ -346,6 +346,20 @@ namespace IkeV2Manager.Client
             catch { }
         }
 
+        // The journal as written, for the report the administrator asks for.
+        public string[] ReadFaults()
+        {
+            try
+            {
+                CheckOpen();
+                string path = Path.Combine(directory, "faults.log");
+                if (!File.Exists(path)) return new string[0];
+                RejectLink(path);
+                return File.ReadAllLines(path, Encoding.UTF8).Reverse().Take(40).Reverse().ToArray();
+            }
+            catch { return new string[0]; }
+        }
+
         public void PublishStatus(ClientStatus status)
         {
             CheckOpen();

@@ -115,6 +115,14 @@ case "${1:-}" in
   [ "$#" = 1 ] || die
   exec /usr/bin/ucode "$runtime_lib_dir/client-access-mail.uc" show
   ;;
+ client-admin-report-request)
+  [ "$#" = 2 ] && valid_token "$2" || die
+  exec /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" report-request "$2"
+  ;;
+ client-admin-report)
+  [ "$#" = 2 ] && valid_token "$2" || die
+  exec /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" report "$2"
+  ;;
  client-admin-update | client-admin-invite | client-admin-setup | client-admin-refresh | client-admin-mail-save | client-admin-mail-send | _action-run) ;;
  *) die ;;
 esac

@@ -61,6 +61,7 @@ install_file 644 ikev2-manager-runtime/lib/client-access-api.uc /usr/libexec/ike
 install_file 644 ikev2-manager-runtime/lib/client-access-setup.uc /usr/libexec/ikev2-manager.d/client-access-setup.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-mail.uc /usr/libexec/ikev2-manager.d/client-access-mail.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-journal.uc /usr/libexec/ikev2-manager.d/client-access-journal.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-report.uc /usr/libexec/ikev2-manager.d/client-access-report.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-directory.uc /usr/libexec/ikev2-manager.d/client-access-directory.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-publication.uc /usr/libexec/ikev2-manager.d/client-access-publication.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-state.uc /usr/libexec/ikev2-manager.d/client-access-state.uc
@@ -156,7 +157,7 @@ install_file 644 luci-ikev2-manager/setup.js \
 install_file 644 luci-ikev2-manager/users.js \
 	/www/luci-static/resources/ikev2-manager/users-panel-v2.js
 install_file 644 luci-ikev2-manager/remote-clients.js \
-	/www/luci-static/resources/view/ikev2-manager/remote-clients-v17.js
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v18.js
 install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v12.js
 
 # The pages show which build is installed. Stamping it here keeps status cheap:

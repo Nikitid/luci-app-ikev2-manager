@@ -66,6 +66,8 @@ namespace IkeV2Manager.Client
         // published once and overwritten two seconds later, so a registration
         // that could not reach the router looked like one that was waiting.
         private string registrationError = "none";
+        private string publishedState = "starting";
+        private readonly DateTime startedAt = DateTime.UtcNow;
 
         // A configured proxy carries a program's requests by name to the proxy,
         // which then reaches the service from wherever the proxy is: neither
@@ -212,6 +214,87 @@ namespace IkeV2Manager.Client
                     throw;
                 }
             }
+        }
+
+        // The administrator asked this computer what is going on. It answers
+        // by itself: the state this service holds, its journal of failures and
+        // the network adapters as the system lists them. No names of sites,
+        // programs or files, and nothing the user did.
+        public void AnswerReportRequest()
+        {
+            lock (gate)
+            {
+                if (disposed) return;
+                try
+                {
+                    var registration = EnrollmentRegistration.Load(store);
+                    if (registration == null || registration.Policy == null) return;
+                    var endpoint = new UriBuilder(registration.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri;
+                    if (!PolicyTransportClient.ReportWanted(endpoint, registration.DeviceToken)) return;
+                    PolicyTransportClient.SendReport(endpoint, registration.DeviceToken, BuildReport());
+                }
+                catch (Exception fault) { store.RecordFault("report", fault); }
+            }
+        }
+
+        internal string BuildReport()
+        {
+            int domains = 0, revision = 0;
+            try
+            {
+                var history = guard == null ? null : store.LoadPolicyHistory();
+                if (history != null) { domains = history.Current.Resources.Select(r => r.Domain).Distinct().Count(); revision = history.Current.Revision; }
+            }
+            catch (InvalidOperationException) { }
+            var about = PolicyTransportClient.Describe();
+            Func<string, string> told = key => about.ContainsKey(key) ? about[key] : "";
+            var report = new System.Collections.Generic.Dictionary<string, object> {
+                { "version", 1 }, { "platform", "windows" }, { "client", told("X-Client-Version") }, { "system", told("X-Client-System") },
+                { "host", told("X-Client-Host") }, { "created_at", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") },
+                { "service_uptime_seconds", (long)(DateTime.UtcNow - startedAt).TotalSeconds },
+                { "system_uptime_seconds", (long)(Stopwatch.GetTimestamp() / Stopwatch.Frequency) },
+                { "state", publishedState }, { "connection_state", connectionState }, { "connection_error", connectionError },
+                { "registration_error", registrationError }, { "connection_wanted", connectionWanted },
+                { "guard_installed", healthy }, { "tunnel_permitted", permittedInterface != 0 },
+                { "synchronization_failed", synchronizationFailed }, { "access_closed", accessClosed }, { "no_services", noServices },
+                { "mode", assigned != null && assigned.Full ? "full" : "services" }, { "block_without_tunnel", assigned == null || assigned.Block },
+                { "names_applied", namesApplied }, { "warnings", warnings },
+                { "services", assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray() },
+                { "domains", domains }, { "policy_revision", revision }, { "router_release", release },
+                { "faults", store.ReadFaults() }, { "adapters", Adapters() } };
+            string text = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(report);
+            if (System.Text.Encoding.UTF8.GetByteCount(text) > PolicyTransportClient.ReportLimit)
+            {
+                report["adapters"] = new object[0];
+                text = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(report);
+            }
+            return text;
+        }
+
+        // What another VPN, a virtual adapter or a changed resolver looks like
+        // from here: the adapters that are up, as the system names them.
+        private static object[] Adapters()
+        {
+            var found = new System.Collections.Generic.List<object>();
+            try
+            {
+                foreach (var adapter in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (adapter.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback ||
+                        adapter.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                    var properties = adapter.GetIPProperties();
+                    Func<string, string> plain = value => { string kept = System.Text.RegularExpressions.Regex.Replace(value ?? "", @"[^\p{L}\p{N} ._()#-]", ""); return kept.Length > 80 ? kept.Substring(0, 80) : kept; };
+                    found.Add(new System.Collections.Generic.Dictionary<string, object> {
+                        { "name", plain(adapter.Name) }, { "description", plain(adapter.Description) },
+                        { "type", adapter.NetworkInterfaceType.ToString() },
+                        { "addresses", properties.UnicastAddresses.Select(a => a.Address.ToString()).Take(8).ToArray() },
+                        { "default_route", properties.GatewayAddresses.Any(g => !g.Address.Equals(IPAddress.Any) && !g.Address.Equals(IPAddress.IPv6Any)) },
+                        { "dns", properties.DnsAddresses.Select(a => a.ToString()).Take(6).ToArray() } });
+                    if (found.Count == 24) break;
+                }
+            }
+            catch (System.Net.NetworkInformation.NetworkInformationException) { }
+            return found.ToArray();
         }
 
         public bool ContinueEnrollment()
@@ -524,6 +607,7 @@ namespace IkeV2Manager.Client
                 }
             }
             catch (InvalidOperationException) { }
+            publishedState = state;
             store.PublishStatus(new ClientStatus { State = state, GuardInstalled = healthy,
                 Services = assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray(),
                 Available = assigned == null ? new string[0] : assigned.Available.Take(64).ToArray(),

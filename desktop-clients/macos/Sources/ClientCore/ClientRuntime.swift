@@ -36,6 +36,13 @@ public protocol SystemActions: Sendable {
     func observeTunnel(addresses: [String]) throws -> TunnelObservation?
     /// Uninstallation: takes the VPN profile this client asked the owner to install.
     func removeVPNProfile(identifier: String)
+    /// The network as the system shows it, for the report the administrator
+    /// asks for: interfaces that are up, the default route, the resolvers.
+    func describeNetwork() -> [String]
+}
+
+public extension SystemActions {
+    func describeNetwork() -> [String] { [] }
 }
 
 public struct ClientStatusReport: Codable, Sendable, Equatable {
@@ -86,8 +93,57 @@ public actor ClientRuntime {
     private var release = ""
     private var names: DeviceServices?
     private var connectionError = "none"
+    private var nextReportPoll = Date.distantPast
+    private var faults: [String] = []
+    private var lastFault = ""
+    private let startedAt = Date()
+    private let about: [String: String]
 
-    public init(store: ClientStore, system: any SystemActions, transport: any DeviceRequests = DeviceTransport()) {
+    /// What went wrong and when: each change of a failing state, the last forty.
+    private func remember(_ state: String, now: Date) {
+        let failing = ["error", "connection_error", "access_closed", "registration_error"].contains(state) ||
+            (connectionError != "none" && state != "protected")
+        let fault = state + " " + connectionError
+        guard failing else { lastFault = ""; return }
+        guard fault != lastFault else { return }
+        lastFault = fault
+        faults.append(ISO8601DateFormatter().string(from: now) + " " + fault)
+        if faults.count > 40 { faults.removeFirst(faults.count - 40) }
+    }
+
+    /// The administrator asked this computer what is going on. It answers by
+    /// itself: the state this service holds, what failed, and the network as
+    /// the system shows it. No sites, programs or files, nothing the user did.
+    func buildReport(now: Date) -> Data {
+        var body: [String: Any] = [
+            "version": 1, "platform": "macos", "client": about["X-Client-Version"] ?? "", "system": about["X-Client-System"] ?? "",
+            "host": about["X-Client-Host"] ?? "", "created_at": ISO8601DateFormatter().string(from: now),
+            "service_uptime_seconds": Int(now.timeIntervalSince(startedAt)), "system_uptime_seconds": Int(ProcessInfo.processInfo.systemUptime),
+            "state": report.state, "connection_error": report.error, "connection_wanted": report.wanted,
+            "guard_installed": report.guardInstalled, "tunnel_permitted": permitted != nil,
+            "profile_installed": report.profileInstalled, "vpn_connected": system.vpnConnected(),
+            "synchronization_failed": synchronizationFailed, "access_closed": accessClosed, "no_services": noServices,
+            "mode": report.fullTunnel ? "full" : "services", "block_without_tunnel": report.blockWithoutTunnel,
+            "services": report.services, "domains": report.domains, "policy_revision": report.revision, "router_release": release,
+            "faults": faults, "network": Array(system.describeNetwork().prefix(60)),
+        ]
+        if let tunnel = permitted { body["tunnel"] = tunnel.interface + " " + tunnel.address }
+        var data = (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data()
+        if data.count > DeviceTransport.reportLimit {
+            body["network"] = [String]()
+            data = (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data()
+        }
+        return data
+    }
+
+    private func answerReportRequest(_ registration: Registration, now: Date) async {
+        nextReportPoll = now.addingTimeInterval(30)
+        guard await transport.reportWanted(endpoint: registration.endpoint, deviceToken: registration.deviceToken) else { return }
+        _ = await transport.sendReport(endpoint: registration.endpoint, deviceToken: registration.deviceToken, report: buildReport(now: now))
+    }
+
+    public init(store: ClientStore, system: any SystemActions, transport: any DeviceRequests = DeviceTransport(), about: [String: String] = [:]) {
+        self.about = about
         self.store = store
         self.system = system
         self.transport = transport
@@ -99,6 +155,7 @@ public actor ClientRuntime {
     public func status() -> ClientStatusReport { report }
 
     private func publish(_ state: String, now: Date) {
+        remember(state, now: now)
         let history = try? store.loadHistory()
         report = ClientStatusReport(
             state: state, guardInstalled: guardInstalled, protected: state == "protected" && permitted != nil && guardInstalled,
@@ -348,6 +405,9 @@ public actor ClientRuntime {
                 connectionError = "none"; publish("enrollment_required", now: now); return
             }
             guard registration.complete else { await advanceEnrollment(registration, now: now); return }
+            // Asked in every registered state: a device that cannot get its
+            // policy is the one worth hearing from.
+            if now >= nextReportPoll { await answerReportRequest(registration, now: now) }
             var current = try ensureGuard(registration)
             history = current
             if now >= nextPolicyPoll {
