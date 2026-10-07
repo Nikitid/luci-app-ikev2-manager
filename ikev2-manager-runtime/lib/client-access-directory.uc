@@ -17,7 +17,7 @@ function text(value, limit) {
 	}
 	return true;
 }
-function identifier(value) { return type(value) == 'string' && match(value, /^[a-z][a-z0-9-]{0,47}$/) != null; }
+function identifier(value) { return type(value) == 'string' && (length(value) <= 48 ? match(value, /^[a-z][a-z0-9-]*$/) : null) != null; }
 function private_file(path, limit) {
 	let info = lstat(path);
 	if (info == null) return null;
@@ -58,10 +58,10 @@ export function record_client_seen(directory, id, headers, remote, now) {
 	if (info?.type != 'directory' || info.uid != 0 || (info.mode & 0077) != 0) return;
 	let host = headers['x-client-host'], system = headers['x-client-system'], version = headers['x-client-version'];
 	replace_file(directory + '/' + id + '.json', {
-		host: type(host) == 'string' && match(host, /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/) ? host : null,
-		system: type(system) == 'string' && match(system, /^(Windows|macOS) [0-9][0-9.]{0,30}$/) ? system : null,
+		host: type(host) == 'string' && (length(host) <= 63 ? match(host, /^[A-Za-z0-9][A-Za-z0-9._-]*$/) : null) ? host : null,
+		system: type(system) == 'string' && (length(system) <= 40 ? match(system, /^(Windows|macOS) [0-9][0-9.]*$/) : null) ? system : null,
 		client: type(version) == 'string' && match(version, /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/) ? version : null,
-		from: type(remote) == 'string' && match(remote, /^[0-9a-fA-F.:]{2,45}$/) ? remote : null,
+		from: type(remote) == 'string' && (length(remote) <= 45 ? match(remote, /^[0-9a-fA-F.:][0-9a-fA-F.:]+$/) : null) ? remote : null,
 		at: now });
 };
 

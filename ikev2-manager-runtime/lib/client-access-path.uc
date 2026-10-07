@@ -28,7 +28,7 @@ export function compile_client_path(input) {
 	for (let port in [ input.dns_port, input.listen_port ])
 		if (type(port) != 'int' || port < 1 || port > 65535)
 			die('invalid client path port');
-	if (type(input.runtime_dir) != 'string' || !match(input.runtime_dir, /^\/[A-Za-z0-9._\/-]{1,200}$/) || index(input.runtime_dir, '..') >= 0)
+	if (type(input.runtime_dir) != 'string' || !(length(input.runtime_dir) <= 201 ? match(input.runtime_dir, /^\/[A-Za-z0-9._\/-]+$/) : null) || index(input.runtime_dir, '..') >= 0)
 		die('invalid runtime directory');
 	let state = validate_client_state(input.state), publication = state.publication;
 	let selected = map(filter(publication.services, service => service.client_access), service => service.id);

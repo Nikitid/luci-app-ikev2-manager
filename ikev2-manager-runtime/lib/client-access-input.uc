@@ -2,7 +2,7 @@
 'use strict';
 import { lstat, open, unlink } from 'fs';
 try {
- if (length(ARGV) != 2 || !match(ARGV[0], /^[a-z0-9][a-z0-9-]{0,63}$/)) die('invalid request token');
+ if (length(ARGV) != 2 || !(length(ARGV[0]) <= 64 ? match(ARGV[0], /^[a-z0-9][a-z0-9-]*$/) : null)) die('invalid request token');
  let directory = ARGV[1], info = lstat(directory);
  if (info?.type != 'directory' || info.uid != 0 || info.mode != 0700) die('unsafe inbox');
  let source = '/var/run/ikev2-client-admin-' + ARGV[0] + '.in';

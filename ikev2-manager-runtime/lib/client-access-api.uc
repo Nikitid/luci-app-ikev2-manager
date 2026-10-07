@@ -57,7 +57,7 @@ export function client_policy_response(env, directory, seen_directory) {
 		(headers['content-length'] != null && headers['content-length'] != '0'))
 		return reply(400, 'body_not_allowed');
 	let authorization = headers.authorization;
-	if (type(authorization) != 'string' || !match(authorization, /^Bearer [a-f0-9]{64}$/))
+	if (type(authorization) != 'string' || !(length(authorization) == 71 ? match(authorization, /^Bearer [a-f0-9]+$/) : null))
 		return reply(401, 'unauthorized');
 	let token_hash = sha256(substr(authorization, 7));
 	try {
@@ -68,8 +68,8 @@ export function client_policy_response(env, directory, seen_directory) {
 		let ids = {}, hashes = {}, selected = null, matches = 0;
 		for (let device in state.devices) {
 			if (!valid_fields(device, [ 'id', 'token_sha256', 'enabled', 'policy' ]) ||
-				type(device.id) != 'string' || !match(device.id, /^[a-z][a-z0-9-]{0,47}$/) ||
-				type(device.token_sha256) != 'string' || !match(device.token_sha256, /^[a-f0-9]{64}$/) ||
+				type(device.id) != 'string' || !(length(device.id) <= 48 ? match(device.id, /^[a-z][a-z0-9-]*$/) : null) ||
+				type(device.token_sha256) != 'string' || !(length(device.token_sha256) == 64 ? match(device.token_sha256, /^[a-f0-9]+$/) : null) ||
 				type(device.enabled) != 'bool' || ids[device.id] || hashes[device.token_sha256])
 				return reply(503, 'policy_unavailable');
 			ids[device.id] = true;

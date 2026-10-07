@@ -16,12 +16,12 @@ function integer(value, minimum, maximum) {
 }
 
 function hash(value) {
-	if (type(value) != 'string' || !match(value, /^[a-f0-9]{64}$/))
+	if (type(value) != 'string' || !(length(value) == 64 ? match(value, /^[a-f0-9]+$/) : null))
 		die('invalid enrollment digest');
 }
 
 function identity(value) {
-	if (type(value) != 'string' || !match(value, /^[a-z][a-z0-9-]{0,47}$/))
+	if (type(value) != 'string' || !(length(value) <= 48 ? match(value, /^[a-z][a-z0-9-]*$/) : null))
 		die('invalid enrollment identity');
 }
 
@@ -30,7 +30,7 @@ function services(values) {
 		die('invalid enrollment services');
 	let seen = {};
 	for (let value in values) {
-		if (type(value) != 'string' || !match(value, /^[a-z0-9][a-z0-9_-]{0,47}$/) || seen[value])
+		if (type(value) != 'string' || !(length(value) <= 48 ? match(value, /^[a-z0-9][a-z0-9_-]*$/) : null) || seen[value])
 			die('invalid enrollment service identity');
 		seen[value] = true;
 	}

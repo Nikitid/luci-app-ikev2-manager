@@ -23,7 +23,7 @@ function integer(value, minimum, maximum, context) {
 }
 
 function identifier(value, context) {
-	if (type(value) != 'string' || !match(value, /^[a-z][a-z0-9-]{0,47}$/))
+	if (type(value) != 'string' || !(length(value) <= 48 ? match(value, /^[a-z][a-z0-9-]*$/) : null))
 		refuse(`${context}: invalid identifier`);
 	return value;
 }
@@ -32,7 +32,7 @@ function domain(value) {
 	if (type(value) != 'string' || length(value) > 253 || length(split(value, '.')) < 2)
 		refuse('invalid domain');
 	for (let label in split(value, '.'))
-		if (!match(label, /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/))
+		if (!(length(label) <= 63 ? match(label, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/) : null))
 			refuse('invalid domain label');
 	if (match(value, /^[0-9.]+$/))
 		refuse('domain must not be an IP address');
@@ -40,7 +40,7 @@ function domain(value) {
 }
 
 function service_identifier(value) {
- if (type(value) != 'string' || !match(value, /^[a-z0-9][a-z0-9_-]{0,47}$/))
+ if (type(value) != 'string' || !(length(value) <= 48 ? match(value, /^[a-z0-9][a-z0-9_-]*$/) : null))
   refuse('invalid service identifier');
  return value;
 }

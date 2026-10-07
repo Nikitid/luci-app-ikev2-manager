@@ -34,8 +34,8 @@ export function compile_client_publication(input) {
 	let ids = {}, hashes = {}, devices = [];
 	for (let device in proposal.devices) {
 		fields(device, [ 'id', 'token_sha256', 'enabled', 'selected_services', 'previous_policy' ]);
-		if (type(device.id) != 'string' || !match(device.id, /^[a-z][a-z0-9-]{0,47}$/) || ids[device.id] ||
-			type(device.token_sha256) != 'string' || !match(device.token_sha256, /^[a-f0-9]{64}$/) || hashes[device.token_sha256] ||
+		if (type(device.id) != 'string' || !(length(device.id) <= 48 ? match(device.id, /^[a-z][a-z0-9-]*$/) : null) || ids[device.id] ||
+			type(device.token_sha256) != 'string' || !(length(device.token_sha256) == 64 ? match(device.token_sha256, /^[a-f0-9]+$/) : null) || hashes[device.token_sha256] ||
 			type(device.enabled) != 'bool' || type(device.selected_services) != 'array')
 			die('invalid or duplicate publication device');
 		ids[device.id] = true;

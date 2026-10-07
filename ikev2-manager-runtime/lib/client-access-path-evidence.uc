@@ -27,8 +27,8 @@ export function require_current_client_path(directory, plan, fingerprint) {
 		proof.generation !== plan.generation || proof.exit !== plan.exit ||
 		type(proof.proxy_pid) != 'int' || proof.proxy_pid < 2 || proof.proxy_pid > 2147483647 ||
 		type(proof.proxy_start) != 'string' || !match(proof.proxy_start, /^[0-9]+$/) ||
-		type(proof.config_sha256) != 'string' || !match(proof.config_sha256, /^[a-f0-9]{64}$/) ||
-		type(proof.nft_sha256) != 'string' || !match(proof.nft_sha256, /^[a-f0-9]{64}$/) ||
+		type(proof.config_sha256) != 'string' || !(length(proof.config_sha256) == 64 ? match(proof.config_sha256, /^[a-f0-9]+$/) : null) ||
+		type(proof.nft_sha256) != 'string' || !(length(proof.nft_sha256) == 64 ? match(proof.nft_sha256, /^[a-f0-9]+$/) : null) ||
 		proof.nft_sha256 != fingerprint) die('stale readiness proof');
 	let config_path = directory + '/proxy.json';
 	if (sha256(protected_file(config_path, 16777216)) != proof.config_sha256)

@@ -69,7 +69,7 @@ function tunnels() {
 function initialized() { return lstat(directory + '/initialized') != null; }
 function identity() {
 	let name = option('server.identity');
-	return match(name, /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/) && index(name, '.') > 0 && !match(name, /^[0-9.]+$/) ? name : null;
+	return (length(name) <= 253 ? match(name, /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/) : null) && index(name, '.') > 0 && !match(name, /^[0-9.]+$/) ? name : null;
 }
 
 try {

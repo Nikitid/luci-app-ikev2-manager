@@ -21,7 +21,7 @@ function policy_digest(device) { return sha256(sprintf('%J', compile_client_poli
 export function build_client_device_evidence(state, plan, fingerprint, now) {
  if (plan.generation !== state.generation || plan.exit !== state.publication.exit || plan.mode != 'ready' ||
   type(plan.sessions) != 'array' || length(plan.sessions) > 4096 || type(now) != 'int' || now < 1 ||
-  type(fingerprint) != 'string' || !match(fingerprint, /^[a-f0-9]{64}$/)) die('stale device evidence');
+  type(fingerprint) != 'string' || !(length(fingerprint) == 64 ? match(fingerprint, /^[a-f0-9]+$/) : null)) die('stale device evidence');
  let devices = [], seen = {};
  for (let session in plan.sessions) {
   let device = filter(state.api.devices, item => item.id == session.identity && item.enabled)[0];
@@ -38,16 +38,16 @@ export function select_client_device_evidence(state, evidence, id, address, now)
  fields(evidence, [ 'version', 'generation', 'exit', 'updated_at', 'path_nft_sha256', 'devices' ]);
  if (evidence.version !== 1 || evidence.generation !== state.generation || evidence.exit !== state.publication.exit ||
   type(now) != 'int' || type(evidence.updated_at) != 'int' || evidence.updated_at > now || now - evidence.updated_at > 3 ||
-  type(evidence.path_nft_sha256) != 'string' || !match(evidence.path_nft_sha256, /^[a-f0-9]{64}$/) ||
+  type(evidence.path_nft_sha256) != 'string' || !(length(evidence.path_nft_sha256) == 64 ? match(evidence.path_nft_sha256, /^[a-f0-9]+$/) : null) ||
   type(evidence.devices) != 'array' || length(evidence.devices) > 4096 || !ipv4(address)) die('expired device evidence');
  let assigned = filter(state.api.devices, device => device.id == id && device.enabled);
  if (length(assigned) != 1) die('revoked device evidence');
  let selected = null, owners = {}, keys_seen = {};
  for (let item in evidence.devices) {
   fields(item, [ 'id', 'revision', 'policy_sha256', 'address' ]);
-  if (type(item.id) != 'string' || !match(item.id, /^[a-z][a-z0-9-]{0,47}$/) || !ipv4(item.address) ||
+  if (type(item.id) != 'string' || !(length(item.id) <= 48 ? match(item.id, /^[a-z][a-z0-9-]*$/) : null) || !ipv4(item.address) ||
    type(item.revision) != 'int' || item.revision < 1 || type(item.policy_sha256) != 'string' ||
-   !match(item.policy_sha256, /^[a-f0-9]{64}$/)) die('invalid device binding');
+   !(length(item.policy_sha256) == 64 ? match(item.policy_sha256, /^[a-f0-9]+$/) : null)) die('invalid device binding');
   let key = `${item.id}|${item.address}`;
   if (keys_seen[key] || (owners[item.address] != null && owners[item.address] != item.id)) die('ambiguous device binding');
   keys_seen[key] = true; owners[item.address] = item.id;

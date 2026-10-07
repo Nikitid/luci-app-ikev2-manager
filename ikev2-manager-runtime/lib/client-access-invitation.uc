@@ -72,10 +72,11 @@ export function consume_client_invitation(job, now) {
   if (type(raw) != 'string' || length(raw) > 4096) die('invalid invitation delivery size');
   let result = json(raw);
   if (type(result) != 'object' || length(keys(result)) != 5 || result.version !== 1 ||
-   type(result.id) != 'string' || !match(result.id, /^[a-z][a-z0-9-]{0,47}$/) ||
+   type(result.id) != 'string' || !(length(result.id) <= 48 ? match(result.id, /^[a-z][a-z0-9-]*$/) : null) ||
    type(result.generation) != 'int' || result.generation < 1 ||
    type(result.expires_at) != 'int' || type(result.invitation) != 'string' ||
-   !match(result.invitation, /^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?\/client\/v1\/enroll#[a-f0-9]{64}$/))
+   length(result.invitation) > 2048 || length(split(result.invitation, '#')[1] ?? '') != 64 ||
+   !match(result.invitation, /^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?\/client\/v1\/enroll#[a-f0-9]+$/))
    die('invalid invitation delivery');
   // Consume before returning: a lost RPC response cannot reveal it twice.
   if (!unlink(path)) die('unable to consume invitation delivery');

@@ -109,7 +109,7 @@ try {
 		let plan = json(protected_read(ARGV[2], 33554432));
 		if (type(plan.sources) != 'object') die('missing sources');
 		for (let service, addresses in plan.sources) {
-			if (!match(service, /^[a-z0-9][a-z0-9_-]{0,47}$/) || type(addresses) != 'array') die('invalid sources');
+			if (!(length(service) <= 48 ? match(service, /^[a-z0-9][a-z0-9_-]*$/) : null) || type(addresses) != 'array') die('invalid sources');
 			for (let address in addresses)
 				if (!match(address, /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/)) die('invalid source address');
 			let wanted = { version: 3, rules: length(addresses) ? [ { ip_cidr: map(sort(addresses), address => address + '/32') } ] : [] };
@@ -135,7 +135,7 @@ try {
 		let directory = ARGV[1]; safe_directory(directory);
 		let plan = json(protected_read(ARGV[3], 33554432)), state = read_client_state(ARGV[2]);
 		if (plan.generation !== state.generation || plan.exit !== state.publication.exit ||
-			!match(ARGV[4], /^[a-f0-9]{64}$/)) die('stale activation');
+			!(length(ARGV[4]) == 64 ? match(ARGV[4], /^[a-f0-9]+$/) : null)) die('stale activation');
 		let raw = protected_read(directory + '/proxy.json', 16777216);
 		if (raw != sprintf('%J\n', plan.config)) die('different activation config');
 		let owner = json(protected_read(directory + '/proxy-owner.json', 4096));

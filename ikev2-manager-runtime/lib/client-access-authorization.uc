@@ -32,7 +32,7 @@ function address(value) {
 }
 
 function identity(value) {
-	if (type(value) != 'string' || !match(value, /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$/))
+	if (type(value) != 'string' || !(length(value) <= 128 ? match(value, /^[A-Za-z0-9][A-Za-z0-9_.@-]*$/) : null))
 		refuse();
 	return value;
 }
@@ -227,8 +227,8 @@ export function reconcile_client_authorization(input) {
 	let policies = {}, documents = [], ids = {}, hashes = {}, users = [];
 	for (let device in input.api.devices) {
 		fields(device, [ 'id', 'token_sha256', 'enabled', 'policy' ]);
-		if (type(device.id) != 'string' || !match(device.id, /^[a-z][a-z0-9-]{0,47}$/) || ids[device.id] ||
-			type(device.token_sha256) != 'string' || !match(device.token_sha256, /^[a-f0-9]{64}$/) || hashes[device.token_sha256] ||
+		if (type(device.id) != 'string' || !(length(device.id) <= 48 ? match(device.id, /^[a-z][a-z0-9-]*$/) : null) || ids[device.id] ||
+			type(device.token_sha256) != 'string' || !(length(device.token_sha256) == 64 ? match(device.token_sha256, /^[a-f0-9]+$/) : null) || hashes[device.token_sha256] ||
 			type(device.enabled) != 'bool') refuse();
 		ids[device.id] = true;
 		hashes[device.token_sha256] = true;

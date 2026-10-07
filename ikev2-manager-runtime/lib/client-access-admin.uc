@@ -7,10 +7,10 @@ function fields(value, names) {
  for (let name in names) if (!(name in value)) die('missing administrative field');
 }
 function identifier(value) {
- if (type(value) != 'string' || !match(value, /^[a-z][a-z0-9-]{0,47}$/)) die('invalid administrative identity');
+ if (type(value) != 'string' || !(length(value) <= 48 ? match(value, /^[a-z][a-z0-9-]*$/) : null)) die('invalid administrative identity');
 }
 function service_id(value) {
- if (type(value) != 'string' || !match(value, /^[a-z0-9][a-z0-9_-]{0,47}$/)) die('invalid catalog identity');
+ if (type(value) != 'string' || !(length(value) <= 48 ? match(value, /^[a-z0-9][a-z0-9_-]*$/) : null)) die('invalid catalog identity');
 }
 function desired_state(state) {
  let desired = json(sprintf('%J', state.publication));

@@ -13,7 +13,7 @@ function safe(path, kind, mode) {
 	return info;
 }
 function identity(id) {
-	if (type(id) != 'string' || !match(id, /^[a-z][a-z0-9-]{0,47}$/)) die('invalid credential identity');
+	if (type(id) != 'string' || !(length(id) <= 48 ? match(id, /^[a-z][a-z0-9-]*$/) : null)) die('invalid credential identity');
 }
 function random_secret() {
 	let source = open('/dev/urandom', 're');
@@ -36,8 +36,8 @@ function read_record(path) {
 	if (type(raw) != 'string' || length(raw) > 1024) die('invalid credential record size');
 	let record = json(raw);
 	if (type(record) != 'object' || length(keys(record)) != 4 || record.version !== 1 ||
-		type(record.token_sha256) != 'string' || !match(record.token_sha256, /^[a-f0-9]{64}$/) ||
-		type(record.password) != 'string' || !match(record.password, /^[a-f0-9]{64}$/))
+		type(record.token_sha256) != 'string' || !(length(record.token_sha256) == 64 ? match(record.token_sha256, /^[a-f0-9]+$/) : null) ||
+		type(record.password) != 'string' || !(length(record.password) == 64 ? match(record.password, /^[a-f0-9]+$/) : null))
 		die('invalid credential record');
 	identity(record.id);
 	return record;

@@ -16,6 +16,7 @@ export PATH
 ./scripts/check-actions-pinned.sh
 ./scripts/check-apk-feed.sh
 ./scripts/check-busybox-compat.sh
+./scripts/check-ucode-regex.sh
 ./scripts/check-shell-locals.sh
 ./scripts/check-shellcheck.sh
 ./scripts/check-luci-view-names.sh

@@ -660,7 +660,7 @@ function stale(path) {
 				break;
 			}
 		// The controller is not trusted with what is put on a command line.
-		if (owner != routed[2] && match(connection?.id ?? '', /^[0-9a-fA-F-]{36}$/))
+		if (owner != routed[2] && length(connection?.id ?? '') == 36 && match(connection.id, /^[0-9a-fA-F-]+$/))
 			push(ids, connection.id);
 	}
 	return ids;

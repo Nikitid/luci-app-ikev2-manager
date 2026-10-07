@@ -12,7 +12,7 @@ function same_hash(a, b) {
 	for (let i = 0; i < 64; i++) difference |= ord(substr(a, i, 1)) ^ ord(substr(b, i, 1));
 	return difference == 0;
 }
-function token(value) { return type(value) == 'string' && match(value, /^[a-f0-9]{64}$/) != null; }
+function token(value) { return type(value) == 'string' && (length(value) == 64 ? match(value, /^[a-f0-9]+$/) : null) != null; }
 function pending(id) { return { status: 202, body: { version: 1, state: 'pending', id: id } }; }
 
 export function client_enrollment_response(env, directory) {
@@ -25,7 +25,7 @@ export function client_enrollment_response(env, directory) {
 	if (headers['transfer-encoding'] != null || (headers['content-length'] != null && headers['content-length'] != '0'))
 		return reply(400, 'body_not_allowed');
 	let authorization = headers.authorization;
-	if (type(authorization) != 'string' || !match(authorization, /^Bearer [a-f0-9]{64}$/)) return reply(401, 'unauthorized');
+	if (type(authorization) != 'string' || !(length(authorization) == 71 ? match(authorization, /^Bearer [a-f0-9]+$/) : null)) return reply(401, 'unauthorized');
 	let digest = sha256(substr(authorization, 7));
 	try {
 		let journal = read_client_enrollment(directory), now = time();

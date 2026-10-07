@@ -27,7 +27,7 @@ export function authenticated_client_sessions(snapshot) {
 		// remote-id. An explicit different EAP identity always takes precedence.
 		let identity = index(keys(sa), 'remote-eap-id') >= 0 ? sa['remote-eap-id'] : sa['remote-id'];
 		if (sa.version != '2' || index([ 'ESTABLISHED', 'REKEYING', 'REKEYED' ], sa.state) < 0 ||
-			type(identity) != 'string' || !match(identity, /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$/) ||
+			type(identity) != 'string' || !(length(identity) <= 128 ? match(identity, /^[A-Za-z0-9][A-Za-z0-9_.@-]*$/) : null) ||
 			type(sa['remote-vips']) != 'array' || length(sa['remote-vips']) != 1 ||
 			!ipv4(sa['remote-vips'][0]) || type(sa['child-sas']) != 'object') continue;
 		let address = sa['remote-vips'][0];

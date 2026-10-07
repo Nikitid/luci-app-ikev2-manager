@@ -494,3 +494,21 @@ The rule: a loop must not depend on a helper to wake it. The watcher now waits
 with `read -t`, runs its periodic pass by the clock and checks the event source
 for life every time the wait runs out. `scripts/test-user-policy.sh` ends the
 source with a signal and requires the watcher to exit.
+
+## A counted repetition in a ucode pattern costs milliseconds on a router
+
+Registration on a router with ten remote devices began to fail with 502, and
+only from one of two machines. The device API ran out of the web server's five
+seconds per request. The time went into validating names: ucode compiles a
+regular expression each time it is evaluated, and the router's regex library
+expands a counted repetition state by state. `/^[a-z][a-z0-9-]{0,47}$/` took
+2.3 ms per match, `/…{0,127}$/` 22 ms; the same pattern with `*` took 0.06 ms.
+A registration validates the whole state several times, every name in it.
+
+What made this expensive: it passed for hours and then failed every time, with
+no change to the code - only the number of devices in the state had grown. On
+a development machine the same patterns cost microseconds, so no test showed
+it, and the client reported nothing because the reason was overwritten.
+
+The rule: bound the length with `length()` and write the repetition as `*` or
+`+`. `scripts/check-ucode-regex.sh` refuses a count of 16 or more.
