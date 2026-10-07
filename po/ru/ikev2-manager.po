@@ -4910,3 +4910,15 @@ msgstr "Опубликовать..."
 
 msgid "No service is published yet."
 msgstr "Пока не опубликован ни один сервис."
+
+msgid "New link"
+msgstr "Новая ссылка"
+
+msgid "New link for %s"
+msgstr "Новая ссылка: %s"
+
+msgid "The previous link stops working."
+msgstr "Прежняя ссылка перестанет работать."
+
+msgid "The link is shown once. A new one replaces it."
+msgstr "Ссылка показывается один раз. Новая заменяет её."

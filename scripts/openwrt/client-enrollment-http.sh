@@ -119,9 +119,20 @@ request 401 -X POST -H "Authorization: Bearer $shared" -H "X-Device-Token: 33333
 shown="$(ucode "$control" inspect)"
 [ "$(printf '%s' "$shown" | jsonfilter -e '@.devices[@.owner="One Person"].id' | sort | tr '\n' ' ')" = 'family-1 family-2 ' ]
 [ -z "$(printf '%s' "$shown" | jsonfilter -e '@.waiting[@.owner="One Person"].id')" ]
+# A lost link is replaced: the place it still held is closed and the old link
+# registers nobody, the new one does.
+generation="$(ucode "$control" inspect | jsonfilter -e '@.enrollment_generation')"
+lost="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"spare","selected_services":["%s"],"lifetime_seconds":3600,"owner":"One Person","note":""}' \
+	"$generation" "$address" "$service" | ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue | jsonfilter -e '@.invitation')"
+generation="$(ucode "$control" inspect | jsonfilter -e '@.enrollment_generation')"
+fresh="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"spare-2","selected_services":["%s"],"lifetime_seconds":3600,"cancel":["spare"],"owner":"One Person","note":""}' \
+	"$generation" "$address" "$service" | ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue | jsonfilter -e '@.invitation')"
+[ "$(ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | tr '\n' ' ')" = 'spare-2 ' ]
+request 401 -X POST -H "Authorization: Bearer ${lost##*#}" -H "X-Device-Token: 4444444444444444444444444444444444444444444444444444444444444444" "$claim"
+request 202 -X POST -H "Authorization: Bearer ${fresh##*#}" -H "X-Device-Token: 4444444444444444444444444444444444444444444444444444444444444444" "$claim"
 # One decision for all of a person's devices.
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":false,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \
 	"$(printf '%s' "$shown" | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
 shown="$(ucode "$control" inspect)"
 [ "$(printf '%s' "$shown" | jsonfilter -e '@.devices[@.note="both"].enabled' | sort -u)" = false ]
-printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a shared decision, background credentials, protected storage, opening on registration, clock and expiry PASS'
+printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a shared decision, background credentials, protected storage, opening on registration, clock and expiry PASS'

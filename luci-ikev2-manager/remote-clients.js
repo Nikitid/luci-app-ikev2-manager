@@ -200,6 +200,8 @@ function personCard(person, labels, actions) {
   E('div', { 'class': 'ikev2-user-actions' }, [
    person.devices.some(function(device) { return !device.waiting; }) ?
     E('button', { 'class': 'cbi-button', 'type': 'button', 'click': function() { actions.edit(person); } }, [ _('Edit') ]) : '',
+   person.devices.some(function(device) { return device.waiting; }) ?
+    E('button', { 'class': 'cbi-button', 'type': 'button', 'title': _('The link is shown once. A new one replaces it.'), 'click': function() { actions.relink(person); } }, [ _('New link') ]) : '',
    E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() { actions.add(person); } }, [ _('Add device') ])
   ])
  ]);
@@ -262,7 +264,7 @@ function personDialog(person, state, labels, reload, pageResult) {
  }, reload, pageResult);
 }
 
-function invitationDialog(state, labels, reload, person) {
+function invitationDialog(state, labels, reload, person, replace) {
  var result = common.inlineResult(), create, tracker;
  var generation = state.enrollment_generation;
  var taken = {};
@@ -274,6 +276,7 @@ function invitationDialog(state, labels, reload, person) {
   return base;
  }
  var known = person && person.devices[0];
+ replace = replace || [];
  var id = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Device identifier'),
   value: known ? free(suggestId(person.owner) || known.id.replace(/-[0-9]+$/, '')) : '' });
  var endpoint = state.api_endpoint || 'https://' + state.server.address + ':8443/client/v1/enroll';
@@ -285,7 +288,7 @@ function invitationDialog(state, labels, reload, person) {
  var owner = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Who uses it'), value: known ? known.owner || '' : '' });
  var note = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), value: known ? known.note || '' : '' });
  var count = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Devices') }, [ 1, 2, 3, 4, 5 ].map(function(n) {
-  return E('option', { value: String(n) }, [ String(n) ]);
+  return E('option', { value: String(n), selected: n === replace.length ? '' : null }, [ String(n) ]);
  }));
  var lifetime = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Link is valid for') }, [ [ 3600, _('1 hour') ], [ 86400, _('1 day') ], [ 604800, _('7 days') ] ].map(function(item) {
   return E('option', { value: String(item[0]), selected: item[0] === 86400 ? '' : null }, [ item[1] ]);
@@ -302,6 +305,7 @@ function invitationDialog(state, labels, reload, person) {
    common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens. Cannot be changed or used again.')), id,
    common.fieldLabel(_('Link is valid for')), lifetime
   ]),
+  replace.length ? E('p', { 'class': 'ikev2-note' }, [ _('The previous link stops working.') ]) : '',
   E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services')) ].concat(choices.map(function(choice) { return common.toggleRow(choice.input, labels[choice.id] || choice.id); })))
  ]);
  function showLink(link) {
@@ -329,6 +333,7 @@ function invitationDialog(state, labels, reload, person) {
     endpoint: endpoint, id: id.value, selected_services: selected, lifetime_seconds: Number(lifetime.value) || 86400,
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')) };
    if (Number(count.value) > 1) request.count = Number(count.value);
+   if (replace.length) request.cancel = replace.map(function(item) { return item.id; });
   } catch (error) { result.err(error.message); return; }
   return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
    return common.runJob({ button: create, result: result, busy: _('Creating invitation...'), success: _('Invitation created.'), failure: _('Could not create invitation.'),
@@ -347,7 +352,7 @@ function invitationDialog(state, labels, reload, person) {
   }, function() { result.err(_('Could not stage invitation.')); });
  } }, [ _('Create invitation') ]);
  tracker = common.trackChanges(create, [ form ]);
- ui.showModal(person ? _('Add device for %s').format(person.name) : _('Add person'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
+ ui.showModal(replace.length ? _('New link for %s').format(person.name) : person ? _('Add device for %s').format(person.name) : _('Add person'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
    E('button', { type: 'button', 'class': 'cbi-button', click: ui.hideModal }, [ _('Cancel') ]), create ]) ]) ]);
 }
@@ -427,6 +432,7 @@ return view.extend({
    var actions = {
     edit: function(person) { personDialog(person, state, labels, reload, result); },
     add: function(person) { invitationDialog(state, labels, reload, person); },
+    relink: function(person) { invitationDialog(state, labels, reload, person, person.devices.filter(function(device) { return device.waiting; })); },
     remove: function(device) { removeDialog(device, state, reload, result); }
    };
    devices.replaceChildren(state.devices.length || (state.waiting || []).length ? E('div', { 'class': 'ikev2-user-list' }, people(state.devices, state.waiting).map(function(person) {

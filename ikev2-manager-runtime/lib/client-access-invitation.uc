@@ -21,6 +21,13 @@ export function issue_client_invitation(directory, request, now) {
 	let count = request.count ?? 1, base = request.id, state = read_client_state(directory);
 	if (type(count) != 'int' || count < 1 || count > 5) die('invalid invitation device count');
 	delete request.count;
+	// A new link may take the place of one that was lost: the places still
+	// waiting under the old link are closed first, so it stops working.
+	let cancel = request.cancel ?? [];
+	delete request.cancel;
+	if (type(cancel) != 'array' || length(cancel) > 5) die('invalid invitation replacement');
+	for (let id in cancel)
+		if (type(id) != 'string' || !(length(id) <= 48 ? match(id, /^[a-z][a-z0-9-]*$/) : null)) die('invalid invitation replacement');
 	let places = [];
 	for (let place = 1; place <= count; place++) {
 		let one = json(sprintf('%J', request));
@@ -30,6 +37,10 @@ export function issue_client_invitation(directory, request, now) {
 	// Refuse the whole link before any place is written.
 	for (let place in places) prepare_client_invitation(state, place.request, place.digest);
 	let journal = null;
+	for (let id in cancel) {
+		journal = write_client_enrollment(directory, { version: 1, expected_generation: journal?.ledger?.generation ?? request.expected_generation,
+			operation: 'cancel', payload: { id: id } }, now, false);
+	}
 	for (let place in places) {
 		let initialize = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null;
 		if (journal != null) place.request.expected_generation = journal.ledger.generation;
