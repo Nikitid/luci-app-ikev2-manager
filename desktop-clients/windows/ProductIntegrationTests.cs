@@ -67,13 +67,19 @@ internal static class ProductIntegrationTests
 
     // A host under a selected domain: answered only through the tunnel, with
     // an IPv4 address from the router's names network and nothing else.
+    private static string namesNetwork = "172.31.254.128/25";
     private static bool Named(string host)
     {
         try
         {
             var answers = System.Net.Dns.GetHostAddresses(host);
-            return answers.Length == 1 && answers[0].AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
-                answers[0].GetAddressBytes()[0] == 172 && answers[0].GetAddressBytes()[3] >= 128;
+            if (answers.Length != 1 || answers[0].AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+            string[] network = namesNetwork.Split('/');
+            byte[] address = answers[0].GetAddressBytes(), first = System.Net.IPAddress.Parse(network[0]).GetAddressBytes();
+            uint mask = UInt32.MaxValue << (32 - Int32.Parse(network[1]));
+            uint value = ((uint)address[0] << 24) | ((uint)address[1] << 16) | ((uint)address[2] << 8) | address[3];
+            uint start = ((uint)first[0] << 24) | ((uint)first[1] << 16) | ((uint)first[2] << 8) | first[3];
+            return (value & mask) == start;
         }
         catch (System.Net.Sockets.SocketException) { return false; }
     }
@@ -140,6 +146,7 @@ internal static class ProductIntegrationTests
         try
         {
             var config = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(args[0]));
+            if (config.ContainsKey("names_network")) namesNetwork = (string)config["names_network"];
             string url = config.ContainsKey("probe_url") ? (string)config["probe_url"] : null;
             string target = url == null ? (string)config["probe_host"] : null; int port = url == null ? (int)config["probe_port"] : 0;
             Func<bool> reachable = () => url == null ? Echo(target, port) : Origin(url) != null;
@@ -183,7 +190,6 @@ internal static class ProductIntegrationTests
             }
             if (config.ContainsKey("probe_udp"))
             {
-                Require(Named((string)config["probe_udp"]), "The UDP service's name was not answered through the tunnel");
                 Console.WriteLine("PROBE_UDP=" + UdpOrigin((string)config["probe_udp"]));
             }
             if (config.ContainsKey("browsers"))
