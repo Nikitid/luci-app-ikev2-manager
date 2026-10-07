@@ -565,6 +565,8 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
   }, function() { result.err(_('Could not stage invitation.')); });
  } }, [ _('Create invitation') ]);
  tracker = common.trackChanges(create, [ form ]);
+ // For a known person the form is already filled in and can be sent as it is.
+ if (person) create.disabled = false;
  ui.showModal(replace.length ? _('New link for %s').format(person.name) : person ? _('Add device for %s').format(person.name) : _('Add person'), [ E('div', { 'class': 'ikev2-page' }, [ common.styles(), form,
   E('div', { 'class': 'ikev2-actions end' }, [ result.node,
    E('button', { type: 'button', 'class': 'cbi-button', click: ui.hideModal }, [ _('Cancel') ]), create ]) ]) ]);
