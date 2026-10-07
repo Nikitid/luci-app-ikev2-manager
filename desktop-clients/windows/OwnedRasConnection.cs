@@ -110,17 +110,21 @@ namespace IkeV2Manager.Client
             Progress ignored; Calls.TryRemove(key, out ignored);
             if (handle == IntPtr.Zero) return;
             IntPtr owned = handle;
-            uint error = Native.RasHangUpW(owned);
-            if (error != 0 && error != 6) throw new InvalidOperationException("Owned IKEv2 connection could not close");
-            // RAS cleanup is asynchronous. Wait for invalid handle, bounded.
+            Native.RasHangUpW(owned);
+            // RAS cleanup is asynchronous, and after a sleep or a restart of
+            // the system's own service the handle may answer with any error.
+            // What decides is whether the managed entry is still connected;
+            // whatever is left on it is ended by what the system lists.
             var deadline = Stopwatch.StartNew();
             do
             {
                 var status = new Native.Status { Size = (uint)Marshal.SizeOf(typeof(Native.Status)) };
-                if (Native.RasGetConnectStatusW(owned, ref status) == 6) { handle = IntPtr.Zero; return; }
+                if (Native.RasGetConnectStatusW(owned, ref status) != 0 && !RasTunnel.Exists(profile.EntryId, profile.Phonebook))
+                { handle = IntPtr.Zero; return; }
                 Thread.Sleep(25);
             } while (deadline.ElapsedMilliseconds < 5000);
-            throw new InvalidOperationException("Owned IKEv2 cleanup timed out");
+            RasTunnel.Release(profile.EntryId, profile.Phonebook);
+            handle = IntPtr.Zero;
         }
 
         private static class Native

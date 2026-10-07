@@ -54,3 +54,4 @@ signing/
 *.har
 auth-state*.json
 cookies*.txt
+desktop-clients/macos/.build/

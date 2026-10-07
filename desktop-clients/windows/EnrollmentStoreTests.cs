@@ -57,6 +57,15 @@ internal static class EnrollmentStoreTests
                 Reject(() => EnrollmentRegistration.Accept(restarted, new EnrollmentResult(policy.Id, null, null)));
                 Reject(() => EnrollmentRegistration.Accept(restarted, new EnrollmentResult(policy.Id, policy, invite)));
                 restarted.PublishStatus(new ClientStatus { State = "registration_complete" });
+                // The journal of faults: a repeat is one entry, a foreign
+                // message is reduced to its code, the secret never appears.
+                for (int i = 0; i < 3; i++) restarted.RecordFault("tick", new InvalidOperationException("Owned cleanup: timed/out " + password));
+                try { File.ReadAllText(Path.Combine(directory, "no", "such", "file")); }
+                catch (Exception foreign) { restarted.RecordFault("policy", foreign); }
+                string[] faults = File.ReadAllLines(Path.Combine(directory, "faults.log"));
+                if (faults.Length != 2 || !faults[0].Contains(" tick InvalidOperationException 0x") || faults[0].Contains(password) ||
+                    !faults[1].Contains(" policy DirectoryNotFoundException 0x") || faults[1].Contains("such"))
+                    throw new Exception("Fault journal is wrong: " + faults.Length);
                 RestrictedAccessTests.Run(directory, "enrollment.json", "enrollment-initialized");
                 var security = File.GetAccessControl(path);
                 var unsafeSecurity = File.GetAccessControl(path);

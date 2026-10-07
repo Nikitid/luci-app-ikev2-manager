@@ -192,6 +192,7 @@ namespace IkeV2Manager.Client
                 catch (Exception refusal)
                 {
                     synchronizationFailed = true;
+                    store.RecordFault("policy", refusal);
                     var named = refusal as PolicyFetchException;
                     accessClosed = named != null && named.Code == "device_access_revoked";
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
@@ -282,7 +283,10 @@ namespace IkeV2Manager.Client
         {
             permittedInterface = 0;
             if (routes != null) { routes.Dispose(); routes = null; }
-            if (connection != null) { connection.Dispose(); connection = null; }
+            // Let go even when closing fails: the next attempt starts by
+            // ending whatever is still connected on the managed entry.
+            var closing = connection; connection = null;
+            if (closing != null) closing.Dispose();
         }
 
         private void AdvanceConnection()
@@ -389,10 +393,11 @@ namespace IkeV2Manager.Client
                     error.Message == "IKEv2 interface cannot be identified uniquely" ? "interface_missing" :
                     error.Message == "Selected route does not use the owned tunnel" ? connectionError :
                     error.Message == "Native IKEv2 connection lost" ? "projection_missing" : "route_or_identity";
-                ClosePermission();
-                CloseConnection();
+                store.RecordFault("connection", error);
                 connectionState = "connection_error";
                 retryConnectionAt = DateTime.UtcNow.AddSeconds(30);
+                ClosePermission();
+                CloseConnection();
             }
         }
 
@@ -452,9 +457,10 @@ namespace IkeV2Manager.Client
                     AdvanceConnection();
                     Publish(synchronizationFailed ? (accessClosed ? "access_closed" : "error") : guard == null ? (registration == null ? "enrollment_required" : "registration_pending") : connectionState);
                 }
-                catch
+                catch (Exception fault)
                 {
                     healthy = false;
+                    store.RecordFault("tick", fault);
                     // A future permission owner must also close before publishing
                     // an error; failure to close cannot leave a live process.
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
@@ -497,7 +503,11 @@ namespace IkeV2Manager.Client
                 try
                 {
                     ClosePermission();
-                    CloseConnection();
+                    // A connection that will not close must not keep the
+                    // service from stopping: permission is already withdrawn,
+                    // and the next start ends whatever the entry still holds.
+                    try { CloseConnection(); }
+                    catch (Exception fault) { if (store != null) store.RecordFault("stop", fault); }
                     if (guard != null) guard.Dispose();
                     if (store != null) Publish("stopped");
                 }

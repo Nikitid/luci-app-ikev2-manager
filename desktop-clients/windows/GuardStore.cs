@@ -311,17 +311,57 @@ namespace IkeV2Manager.Client
             finally { Array.Clear(plain, 0, plain.Length); }
         }
 
+        private string lastFault = "";
+        private DateTime lastFaultAt;
+
+        // What went wrong, for the report a user hands to the administrator:
+        // when, where, the kind of failure and its code. Messages are kept
+        // only for failures this program names itself, so no path, address or
+        // secret of the system's own wording gets in. Never throws.
+        public void RecordFault(string where, Exception error)
+        {
+            try
+            {
+                var native = error as Win32Exception;
+                var connection = error as NativeConnectionException;
+                var named = error as PolicyFetchException;
+                bool own = error.TargetSite != null && error.TargetSite.Module.Assembly == typeof(GuardStore).Assembly;
+                string detail = connection != null ? "code " + connection.Code : native != null ? "code " + native.NativeErrorCode :
+                    named != null ? named.Code : own ? System.Text.RegularExpressions.Regex.Replace(error.Message ?? "", @"[^A-Za-z0-9 ._-]", "") :
+                    "0x" + error.HResult.ToString("x8");
+                if (detail.Length > 100) detail = detail.Substring(0, 100);
+                string fault = where + " " + error.GetType().Name + " " + detail;
+                // A failure that repeats every two seconds is one entry an hour.
+                if (fault == lastFault && DateTime.UtcNow - lastFaultAt < TimeSpan.FromHours(1)) return;
+                lastFault = fault; lastFaultAt = DateTime.UtcNow;
+                CheckOpen();
+                VerifyDirectory();
+                string path = Path.Combine(directory, "faults.log");
+                var lines = new System.Collections.Generic.List<string>();
+                if (File.Exists(path)) { RejectLink(path); lines.AddRange(File.ReadAllLines(path, Encoding.UTF8)); }
+                lines.Add(DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") + " " + fault);
+                if (lines.Count > 40) lines.RemoveRange(0, lines.Count - 40);
+                WriteShared(path, new UTF8Encoding(false, true).GetBytes(String.Join("\n", lines) + "\n"), "faults");
+            }
+            catch { }
+        }
+
         public void PublishStatus(ClientStatus status)
         {
             CheckOpen();
             VerifyDirectory();
             string path = Path.Combine(directory, "status.json");
             if (File.Exists(path)) RejectLink(path);
-            string temporary = Path.Combine(directory, "status-" + Guid.NewGuid().ToString("N") + ".tmp");
+            WriteShared(path, new UTF8Encoding(false, true).GetBytes(new JavaScriptSerializer().Serialize(status)), "status");
+        }
+
+        // Written by the service alone, readable by the window of any user.
+        private void WriteShared(string path, byte[] data, string kind)
+        {
+            string temporary = Path.Combine(directory, kind + "-" + Guid.NewGuid().ToString("N") + ".tmp");
             var security = FileSecurity();
             security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
                 FileSystemRights.Read, AccessControlType.Allow));
-            byte[] data = new UTF8Encoding(false, true).GetBytes(new JavaScriptSerializer().Serialize(status));
             try
             {
                 using (var stream = new FileStream(temporary, FileMode.CreateNew, FileSystemRights.Write, FileShare.None,

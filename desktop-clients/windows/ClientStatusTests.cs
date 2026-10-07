@@ -91,7 +91,7 @@ internal static class ClientStatusTests
         var view = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), pid, now);
         if (view.State != expected || view.Protected) throw new Exception("Client status check failed: " + expected);
         var report = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(view.Report());
-        if (report.Count != 14 || report.ContainsKey("ProcessId") || report.ContainsKey("PrivateKey"))
+        if (report.Count != 15 || report.ContainsKey("ProcessId") || report.ContainsKey("PrivateKey"))
             throw new Exception("Diagnostic report contains unexpected data");
     }
 }

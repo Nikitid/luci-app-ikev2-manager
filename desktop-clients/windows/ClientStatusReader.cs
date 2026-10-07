@@ -35,6 +35,8 @@ namespace IkeV2Manager.Client
         public string[] Available { get; private set; }
         public string Release { get; internal set; }
         public string[] Warnings { get; internal set; }
+        // The service's own journal of what went wrong; empty when unreadable.
+        public string[] Faults { get; internal set; }
 
         // Whether the router runs a newer release than this program.
         public static bool Newer(string release, Version own)
@@ -48,7 +50,7 @@ namespace IkeV2Manager.Client
         {
             return new JavaScriptSerializer().Serialize(new { Version = 3, State = State,
                 GuardInstalled = GuardInstalled, Protected = Protected, Routed = Routed, ConnectionWanted = Wanted,
-                ConnectionError = ConnectionError, RouterRelease = Release ?? "", Warnings = Warnings ?? new string[0], Services = Services, AvailableServices = Available, Domains = Domains, PolicyRevision = Revision, CreatedAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) });
+                ConnectionError = ConnectionError, RouterRelease = Release ?? "", Warnings = Warnings ?? new string[0], Faults = Faults ?? new string[0], Services = Services, AvailableServices = Available, Domains = Domains, PolicyRevision = Revision, CreatedAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) });
         }
     }
 
@@ -78,7 +80,11 @@ namespace IkeV2Manager.Client
                 {
                     if (file.Length == 0 || file.Length > 8192) return new ClientView("status_invalid");
                     using (var reader = new StreamReader(file, new UTF8Encoding(false, true), false))
-                        return Evaluate(reader.ReadToEnd(), status.Process, DateTime.UtcNow);
+                    {
+                        var view = Evaluate(reader.ReadToEnd(), status.Process, DateTime.UtcNow);
+                        view.Faults = ReadFaults(Path.Combine(Path.GetDirectoryName(path), "faults.log"));
+                        return view;
+                    }
                 }
             }
             catch (UnauthorizedAccessException) { return new ClientView("status_untrusted"); }
@@ -150,6 +156,21 @@ namespace IkeV2Manager.Client
             }
             catch (ArgumentException) { return new ClientView("status_invalid"); }
             catch (InvalidOperationException) { return new ClientView("status_invalid"); }
+        }
+
+        // Lines the service wrote, taken only in the shape it writes them.
+        private static string[] ReadFaults(string path)
+        {
+            try
+            {
+                if (!File.Exists(path) || !TrustedFile(path) || new FileInfo(path).Length > 16384) return new string[0];
+                return File.ReadAllLines(path, new UTF8Encoding(false, true))
+                    .Where(line => Regex.IsMatch(line, @"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z [a-z]{1,16} [A-Za-z0-9]{1,64} [A-Za-z0-9 ._-]{0,100}\z"))
+                    .Reverse().Take(40).Reverse().ToArray();
+            }
+            catch (IOException) { return new string[0]; }
+            catch (UnauthorizedAccessException) { return new string[0]; }
+            catch (ArgumentException) { return new string[0]; }
         }
 
         private static bool TrustedFile(string path)
