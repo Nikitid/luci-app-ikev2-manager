@@ -139,6 +139,8 @@ async function main() {
  assert.deepStrictEqual(jobs[jobs.length-1].startArgs.slice(0,1), ['client-admin-setup']);
  const blocked = page.render([{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {server_identity:null, tunnels:[]}))}]);
  assert(button(blocked,'Set up remote clients').attrs.disabled != null, 'setup needs the inbound server and a tunnel');
+ const custom = page.render([data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, custom_server:true}))}]);
+ assert(text(custom).includes('ikev2-in-managed'), 'an administrator with an own server configuration is told what to add');
  const running = page.render([data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}]);
  assert(nodes(running).find(n => n.attrs['aria-label'] === 'Virtual subnet').attrs.disabled != null, 'the subnet of enrolled devices is fixed');
  assert(text(running).includes('alice') && text(running).includes('https://vpn.example.com:8443'));

@@ -63,6 +63,8 @@ function setupSection(settings, reload) {
  var notes = [];
  if (!settings.server_enabled || !settings.server_identity)
   notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('Enable the inbound server with a DNS name first: remote clients register and connect through it.') ]));
+ if (settings.custom_server)
+  notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('The inbound server runs your own configuration, which this page does not change. For macOS devices add to it a connection named ikev2-in-managed that answers the identity *@managed.ikev2-manager and offers only the virtual subnet; without it a Mac refuses the tunnel, because it would carry all of its traffic.') ]));
  if (!settings.tunnels.length)
   notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('Enable an outbound tunnel first: selected services leave through it.') ]));
  save = E('button', { 'class': 'cbi-button cbi-button-positive', 'type': 'button',

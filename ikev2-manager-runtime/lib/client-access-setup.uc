@@ -78,6 +78,7 @@ try {
 		print(sprintf('%J\n', { version: 1, initialized: state != null,
 			enabled: option('client_access.enabled') == '1', port: match(port, /^[0-9]{4,5}$/) ? +port : 8443,
 			server_enabled: option('server.enabled') == '1', server_identity: identity(),
+			custom_server: option('server.custom_config') == '1',
 			virtual_subnet: state?.publication?.virtual_subnet, exit: state?.publication?.exit, tunnels: tunnels() }));
 	} else if (ARGV[0] == 'apply' && length(ARGV) == 1) {
 		let raw = stdin.read(4097);

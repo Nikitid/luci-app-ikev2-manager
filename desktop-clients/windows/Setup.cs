@@ -21,6 +21,61 @@ internal static class Setup
     private static readonly string AppPath = Path.Combine(Destination, "IKEv2ManagerClient.exe");
     private static readonly string Shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), Title + ".lnk");
 
+    // A browser that resolves names over its own encrypted channel never asks
+    // the system, so it would reach a selected service by its public address,
+    // around the tunnel. Browsers have a setting for exactly this, meant to be
+    // set by whoever manages the computer; it is set here and nowhere else is
+    // touched. Only values this setup wrote are recorded, and only those are
+    // removed again.
+    private const string OwnedKey = @"Software\IKEv2ManagerClient";
+    private static readonly string[][] BrowserPolicies = {
+        new[] { @"SOFTWARE\Policies\Google\Chrome", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\Microsoft\Edge", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\BraveSoftware\Brave", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\YandexBrowser", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS", "Enabled", "0" },
+        new[] { @"SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS", "Locked", "1" }
+    };
+
+    private static void ApplyBrowserPolicies()
+    {
+        var owned = new System.Collections.Generic.List<string>();
+        using (var record = Registry.LocalMachine.CreateSubKey(OwnedKey))
+        {
+            var previous = record.GetValue("BrowserPolicies") as string[];
+            if (previous != null) owned.AddRange(previous);
+            foreach (var policy in BrowserPolicies)
+            {
+                string identity = policy[0] + "|" + policy[1];
+                using (var key = Registry.LocalMachine.CreateSubKey(policy[0]))
+                {
+                    // Somebody else's setting stays theirs.
+                    if (key.GetValue(policy[1]) != null && !owned.Contains(identity)) continue;
+                    if (policy[2] == "off") key.SetValue(policy[1], policy[2], RegistryValueKind.String);
+                    else key.SetValue(policy[1], Int32.Parse(policy[2]), RegistryValueKind.DWord);
+                    if (!owned.Contains(identity)) owned.Add(identity);
+                }
+            }
+            record.SetValue("BrowserPolicies", owned.ToArray(), RegistryValueKind.MultiString);
+        }
+    }
+
+    private static void RemoveBrowserPolicies()
+    {
+        using (var record = Registry.LocalMachine.OpenSubKey(OwnedKey))
+        {
+            var owned = record == null ? null : record.GetValue("BrowserPolicies") as string[];
+            foreach (string identity in owned ?? new string[0])
+            {
+                string[] parts = identity.Split('|');
+                if (parts.Length != 2) continue;
+                using (var key = Registry.LocalMachine.OpenSubKey(parts[0], true))
+                    if (key != null) key.DeleteValue(parts[1], false);
+            }
+        }
+        Registry.LocalMachine.DeleteSubKeyTree(OwnedKey, false);
+    }
+
     private sealed class Refusal : Exception { internal Refusal(string message) : base(message) { } }
 
     [STAThread]
@@ -94,6 +149,7 @@ internal static class Setup
         link.GetType().InvokeMember("TargetPath", BindingFlags.SetProperty, null, link, new object[] { AppPath });
         link.GetType().InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, link, new object[] { Destination });
         link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
+        ApplyBrowserPolicies();
         using (var key = Registry.LocalMachine.CreateSubKey(UninstallKey))
         {
             key.SetValue("DisplayName", Title);
@@ -120,6 +176,7 @@ internal static class Setup
         else if (Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Name)))
             throw new Refusal("Файлы клиента повреждены: сначала установите клиент заново, затем удалите его.");
         if (ServiceExists()) Run("sc.exe", "delete " + Name);
+        RemoveBrowserPolicies();
         if (File.Exists(Shortcut)) File.Delete(Shortcut);
         Registry.LocalMachine.DeleteSubKeyTree(UninstallKey, false);
         foreach (var process in Process.GetProcessesByName("IKEv2ManagerClient"))

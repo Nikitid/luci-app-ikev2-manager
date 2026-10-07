@@ -4793,3 +4793,6 @@ msgstr "Компьютер"
 
 msgid "State"
 msgstr "Состояние"
+
+msgid "The inbound server runs your own configuration, which this page does not change. For macOS devices add to it a connection named ikev2-in-managed that answers the identity *@managed.ikev2-manager and offers only the virtual subnet; without it a Mac refuses the tunnel, because it would carry all of its traffic."
+msgstr "Входящий сервер работает на вашей собственной конфигурации, эта страница её не меняет. Для устройств на macOS добавьте в неё соединение ikev2-in-managed, которое отвечает на идентификатор *@managed.ikev2-manager и предлагает только виртуальную подсеть; без него Mac откажется от туннеля, потому что в туннель пошёл бы весь его трафик."
