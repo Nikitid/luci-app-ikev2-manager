@@ -376,7 +376,7 @@ out-of-pool and bootstrap allocations.
 ## Windows enforcement implementation
 
 `desktop-clients/windows/build.ps1 -Version X.Y.Z` builds the service, the
-window and `PrivateLaneSetup.exe`, which carries both. Setup requires
+window and `WaypointSetup.exe`, which carries both. Setup requires
 elevation, installs an automatic SYSTEM service under a protected Program Files
 folder with service recovery, a Start menu shortcut and an uninstall entry, and
 opens the window. Running it again updates the binaries and keeps the
@@ -740,10 +740,10 @@ connected. A device is opened as soon as its registration completes; removal
 closes its sessions, deletes its credentials and forgets its record
 (`client-admin.sh`).
 
-## Private Lane: names and supported systems
+## Waypoint: names and supported systems
 
-The desktop client is called Private Lane on both systems: the program, its
-window, the installer (`PrivateLaneSetup.exe`, `PrivateLane-X.Y.Z.pkg`) and the
+The desktop client is called Waypoint on both systems: the program, its
+window, the installer (`WaypointSetup.exe`, `Waypoint-X.Y.Z.pkg`) and the
 VPN entry the system shows. Identifiers a user does not see (service name,
 state directory, launchd label, markers in the hosts file) keep their earlier
 form. The icon is drawn by `desktop-clients/assets/make-icon.py`; its results
@@ -788,8 +788,8 @@ reasoning except where a test is named:
 
 ## Client installers in a release
 
-The release workflow builds `PrivateLaneSetup.exe` on a Windows runner
-and `PrivateLane-X.Y.Z.pkg` on a macOS runner after the router package
+The release workflow builds `WaypointSetup.exe` on a Windows runner
+and `Waypoint-X.Y.Z.pkg` on a macOS runner after the router package
 is published, and attaches both to the release. Neither is signed with a
 publisher identity, so Windows shows its unknown-publisher warning and macOS
 needs "Open" from the context menu. These jobs have not run yet.
@@ -870,13 +870,14 @@ default route, the daemon stops it and reports `tunnel_takes_everything`. A
 router with a custom inbound configuration has to define that connection
 itself.
 
-The profile connects on demand, so the system itself brings the tunnel up and
-keeps it; the daemon neither starts nor stops it. On current macOS a
-profile-installed IKEv2 configuration is not listed by `scutil --nc`, so the
-daemon learns that the profile is installed from `profiles list -all` and that
-the tunnel is up from the routes of the virtual subnet. Switching access off
-closes the packet filter and leaves the system's connection alone: it routes
-the virtual subnet only, and nothing may use it.
+On current macOS a profile-installed IKEv2 configuration is not listed by
+`scutil --nc` and a program cannot start it, so the user switches the
+connection on in the system's VPN settings; the window says so and opens them.
+The daemon learns that the profile is installed from `profiles list -all` and
+that the tunnel is up from the routes of the virtual subnet. Connecting on
+demand would bring the tunnel up by itself but keeps it up against the user's
+switch, and was left out. Switching access off in the window closes the packet
+filter and leaves the system's connection alone.
 
 `IKEv2ManagerClient` is the window. Both windows are built the same way: a
 status with one sign and colour, three checks (denial outside the tunnel,

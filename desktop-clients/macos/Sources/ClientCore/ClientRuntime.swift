@@ -251,10 +251,11 @@ public actor ClientRuntime {
         guard system.vpnInstalled() else {
             closePermission(history); connectionError = "none"; publish("profile_required", now: now); return
         }
-        // The system keeps the tunnel up by itself (the profile connects on
-        // demand); it routes the virtual subnet alone, and the packet filter
-        // decides whether anything may use it. Switching access off closes
-        // the filter and leaves the system's connection alone.
+        // The tunnel is the system's: the user switches it on in the VPN
+        // settings, since current macOS gives a program no way to start a
+        // connection installed by a profile. It routes the virtual subnet
+        // alone, and the packet filter decides whether anything may use it.
+        // Switching access off closes the filter and leaves the connection.
         guard try store.loadIntent() else {
             closePermission(history)
             connectionError = "none"; publish("blocked", now: now); return

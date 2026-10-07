@@ -4878,8 +4878,8 @@ msgstr "Порты"
 msgid "Publish a service below, then add the first device."
 msgstr "Опубликуйте сервис ниже, затем добавьте первое устройство."
 
-msgid "Selected services for Windows and macOS devices running Private Lane."
-msgstr "Выбранные сервисы для устройств Windows и macOS с Private Lane."
+msgid "Selected services for Windows and macOS devices running Waypoint."
+msgstr "Выбранные сервисы для устройств Windows и macOS с Waypoint."
 
 msgid "Selected services leave through it."
 msgstr "Через него выходят выбранные сервисы."
@@ -4887,8 +4887,8 @@ msgstr "Через него выходят выбранные сервисы."
 msgid "Settings"
 msgstr "Настройки"
 
-msgid "Shown only once. Send it privately: the owner installs Private Lane on each device and pastes the link there."
-msgstr "Показывается один раз. Передайте лично: владелец ставит Private Lane на каждое устройство и вставляет туда ссылку."
+msgid "Shown only once. Send it privately: the owner installs Waypoint on each device and pastes the link there."
+msgstr "Показывается один раз. Передайте лично: владелец ставит Waypoint на каждое устройство и вставляет туда ссылку."
 
 msgid "The device loses access and its connection ends. Its identifier cannot be used again."
 msgstr "Устройство теряет доступ, его соединение завершается. Идентификатор нельзя использовать повторно."

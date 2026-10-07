@@ -22,7 +22,7 @@ internal static class ManagedVpnProfileTests
     }
     private static int Main(string[] args)
     {
-        var owner = Guid.NewGuid(); string name = "Private Lane " + owner.ToString("N");
+        var owner = Guid.NewGuid(); string name = "Waypoint " + owner.ToString("N");
         string step = "initial profile";
         string snapshot = "$p=@(Get-VpnConnection -AllUserConnection | Where-Object Name -NE '"+name+"' | Sort-Object Name | Select-Object Name,Guid,ServerAddress,SplitTunneling,Routes);$j=ConvertTo-Json -InputObject $p -Depth 8 -Compress;[Console]::Out.Write($j)";
         string before = PowerShell(snapshot);

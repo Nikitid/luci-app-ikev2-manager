@@ -34,7 +34,7 @@ namespace IkeV2Manager.Client
         private Color Soft { get { return dark ? Color.FromArgb(160, 160, 166) : Color.FromArgb(110, 110, 115); } }
         private Color Line { get { return dark ? Color.FromArgb(70, 70, 74) : Color.FromArgb(217, 217, 222); } }
         private readonly List<Button> plain = new List<Button>();
-        private const string Preferences = @"Software\PrivateLane";
+        private const string Preferences = @"Software\Waypoint";
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 
@@ -95,7 +95,7 @@ namespace IkeV2Manager.Client
 
         internal ClientWindow()
         {
-            Text = "Private Lane";
+            Text = "Waypoint";
             ClientSize = new Size(560, 470);
             AutoScaleMode = AutoScaleMode.Dpi;
             FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -129,7 +129,7 @@ namespace IkeV2Manager.Client
             update.Click += (sender, args) =>
             {
                 if (!ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version)) return;
-                try { System.Diagnostics.Process.Start(Downloads + current.Release + "/PrivateLaneSetup.exe"); }
+                try { System.Diagnostics.Process.Start(Downloads + current.Release + "/WaypointSetup.exe"); }
                 catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Не удалось открыть браузер.", "Обновление"); }
             };
             // The next thing to do stands first and stands out.

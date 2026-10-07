@@ -76,7 +76,7 @@ final class ClientModel: ObservableObject {
                 return
             }
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ikev2-manager-client-" + UUID().uuidString)
-            let file = directory.appendingPathComponent("Private Lane.mobileconfig")
+            let file = directory.appendingPathComponent("Waypoint.mobileconfig")
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
@@ -86,7 +86,7 @@ final class ClientModel: ObservableObject {
             connectAfterRegistration = true
             NSWorkspace.shared.open(file)
             if let settings = URL(string: "x-apple.systempreferences:com.apple.Profiles-Settings.extension") { NSWorkspace.shared.open(settings) }
-            message = "«Системные настройки» → «Основные» → «Управление устройством» → «Private Lane» → «Установить»."
+            message = "«Системные настройки» → «Основные» → «Управление устройством» → «Waypoint» → «Установить»."
         }
     }
 
@@ -117,7 +117,7 @@ final class ClientModel: ObservableObject {
         case "registration_pending": return "Ожидается ответ сервера."
         case "registration_error": return "Настройки не получены. Повторите регистрацию."
         case "profile_required": return "Установите профиль в «Системных настройках»."
-        case "connecting": return "Устанавливается туннель."
+        case "connecting": return "Включите «Waypoint» в настройках VPN."
         case "tunnel_connected":
             switch status.error {
             case "path_connectionFailed": return "Нет связи с сервером."
@@ -138,7 +138,7 @@ final class ClientModel: ObservableObject {
     var update: (version: String, url: URL)? {
         let own = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         guard let release = status?.release, ClientStatusReport.newer(release, than: own),
-              let url = URL(string: "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v\(release)/PrivateLane-\(release).pkg")
+              let url = URL(string: "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v\(release)/Waypoint-\(release).pkg")
         else { return nil }
         return (release, url)
     }
@@ -332,6 +332,11 @@ struct ClientView: View {
             Button("Регистрация…") { registering = true }.buttonStyle(.borderedProminent).fixedSize()
         } else if status?.state == "profile_required" {
             Button("Установить профиль…") { model.installProfile() }.buttonStyle(.borderedProminent).fixedSize()
+        } else if status?.state == "connecting" {
+            Button("Настройки VPN…") {
+                if let settings = URL(string: "x-apple.systempreferences:com.apple.NetworkExtensionSettingsUI.NESettingsUIExtension") { NSWorkspace.shared.open(settings) }
+            }.buttonStyle(.borderedProminent).fixedSize()
+            Button("Отключить") { model.command("disconnect") }
         } else if let status, status.guardInstalled, status.profileInstalled {
             if status.wanted { Button("Отключить") { model.command("disconnect") } }
             else { Button("Включить") { model.command("connect") }.buttonStyle(.borderedProminent) }
@@ -342,6 +347,6 @@ struct ClientView: View {
 @main
 struct ClientApplication: App {
     var body: some Scene {
-        WindowGroup("Private Lane") { ClientView() }.windowResizability(.contentSize)
+        WindowGroup("Waypoint") { ClientView() }.windowResizability(.contentSize)
     }
 }

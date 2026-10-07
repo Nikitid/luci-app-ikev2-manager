@@ -13,7 +13,7 @@ using Microsoft.Win32;
 // the installed denials; only uninstallation removes them.
 internal static class Setup
 {
-    private const string Name = "IKEv2ManagerClient", Title = "Private Lane";
+    private const string Name = "IKEv2ManagerClient", Title = "Waypoint";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + Name;
     private static readonly string System32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
     private static readonly string Destination = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Title);
@@ -153,7 +153,7 @@ internal static class Setup
         {
             key.SetValue("DisplayName", Title);
             key.SetValue("DisplayVersion", Assembly.GetExecutingAssembly().GetName().Version.ToString(3));
-            key.SetValue("Publisher", "Private Lane");
+            key.SetValue("Publisher", "Waypoint");
             key.SetValue("InstallLocation", Destination);
             key.SetValue("DisplayIcon", AppPath);
             key.SetValue("UninstallString", "\"" + self + "\" /uninstall");

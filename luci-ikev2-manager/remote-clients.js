@@ -309,7 +309,7 @@ function invitationDialog(state, labels, reload, person) {
   field.value = link;
   var output = common.inlineResult(), copy;
   ui.showModal(_('Invitation link'), [ E('div', { 'class': 'ikev2-page' }, [
-   common.styles(), E('p', {}, [ _('Shown only once. Send it privately: the owner installs Private Lane on each device and pastes the link there.') ]), field,
+   common.styles(), E('p', {}, [ _('Shown only once. Send it privately: the owner installs Waypoint on each device and pastes the link there.') ]), field,
    E('div', { 'class': 'ikev2-actions end' }, [ output.node,
     E('button', { type: 'button', 'class': 'cbi-button', click: function() { field.value = ''; ui.hideModal(); } }, [ _('Close') ]),
     (copy = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() {
@@ -442,7 +442,7 @@ return view.extend({
   invite = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() { invitationDialog(state, labels, reload); } }, [ _('Add person') ]);
   setData(data);
   return E([ common.styles(), E('div', { 'class': 'ikev2-page' }, [
-   common.header(_('Remote clients'), _('Selected services for Windows and macOS devices running Private Lane.')),
+   common.header(_('Remote clients'), _('Selected services for Windows and macOS devices running Waypoint.')),
    availability, fresh,
    (managed.replaceChildren(
     common.section(_('People and devices'), null, E('div', {}, [ devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), invite),

@@ -5,7 +5,7 @@ try {
     $inputDocument = [Console]::In.ReadToEnd() | ConvertFrom-Json
     $owner = [Guid]::ParseExact($inputDocument.owner, 'N')
     if ($owner -eq [Guid]::Empty) { throw 'Invalid owner' }
-    $name = 'Private Lane ' + $owner.ToString('N')
+    $name = 'Waypoint ' + $owner.ToString('N')
     Import-Module (Join-Path $PSHOME 'Modules\VpnClient') -ErrorAction Stop
     if ($inputDocument.operation -eq 'remove') {
         $entry = [Guid]::Parse($inputDocument.entry_id)

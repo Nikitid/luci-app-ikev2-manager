@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draws the Private Lane icon and writes icon.png, PrivateLane.icns and PrivateLane.ico.
+"""Draws the Waypoint icon and writes icon.png, Waypoint.icns and Waypoint.ico.
 
 Three lanes, one of them taken. Needs Pillow; the .icns is assembled by the
 macOS iconutil. Run from anywhere; the results are committed.
@@ -38,12 +38,12 @@ def draw():
 
 master = draw().resize((1024, 1024), Image.LANCZOS)
 master.save(here / 'icon.png')
-master.save(here / 'PrivateLane.ico', sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
+master.save(here / 'Waypoint.ico', sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
 with tempfile.TemporaryDirectory() as work:
-    iconset = pathlib.Path(work) / 'PrivateLane.iconset'
+    iconset = pathlib.Path(work) / 'Waypoint.iconset'
     iconset.mkdir()
     for n in (16, 32, 128, 256, 512):
         master.resize((n, n), Image.LANCZOS).save(iconset / f'icon_{n}x{n}.png')
         master.resize((n * 2, n * 2), Image.LANCZOS).save(iconset / f'icon_{n}x{n}@2x.png')
     if shutil.which('iconutil'):
-        subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(here / 'PrivateLane.icns')], check=True)
+        subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(here / 'Waypoint.icns')], check=True)
