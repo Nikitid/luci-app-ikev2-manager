@@ -146,6 +146,14 @@ printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/clien
 ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -qx extra
 printf '{"version":1,"expected_generation":%s,"operation":"close-place","payload":{"id":"extra"}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
 ! ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -qx extra
+# A whole link is withdrawn at once: both places close and the link registers nobody.
+generation="$(ucode "$control" inspect | jsonfilter -e '@.enrollment_generation')"
+pair="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"pair","selected_services":["%s"],"lifetime_seconds":3600,"count":2,"owner":"One Person","note":""}' \
+	"$generation" "$address" "$service" | ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue | jsonfilter -e '@.invitation')"
+[ "$(ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -c '^pair-[12]$')" = 2 ]
+printf '{"version":1,"expected_generation":%s,"operation":"close-places","payload":{"ids":["pair-1","pair-2"]}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
+! ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -q '^pair-'
+request 401 -X POST -H "Authorization: Bearer ${pair##*#}" -H "X-Device-Token: 5555555555555555555555555555555555555555555555555555555555555555" "$claim"
 # One decision for all of a person's devices.
 shown="$(ucode "$control" inspect)"
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":false,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \

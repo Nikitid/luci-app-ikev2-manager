@@ -5432,3 +5432,21 @@ msgstr "Пока никого нет. Добавьте человека, что�
 
 msgid "Number of devices set"
 msgstr "Задано число устройств"
+
+msgid "Active links: %d"
+msgstr "Активные ссылки: %d"
+
+msgid "Person"
+msgstr "Человек"
+
+msgid "Places left"
+msgstr "Осталось мест"
+
+msgid "Valid for"
+msgstr "Действует ещё"
+
+msgid "Link withdrawn"
+msgstr "Ссылка отозвана"
+
+msgid "Revoke"
+msgstr "Отозвать"

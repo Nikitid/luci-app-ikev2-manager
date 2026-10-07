@@ -136,6 +136,10 @@ async function main() {
  assert(linkField && linkField.value.endsWith('#'+'c'.repeat(64)));
  assert(!JSON.stringify(jobs.map(j=>j.success)).includes('cccccccc'), 'no invitation secret in job status');
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
+ // Links that still wait are listed with their person, places and time, and one is withdrawn whole.
+ assert(text(tree).includes('Active links: 1') && text(tree).includes('Places left'), 'links out are accounted for');
+ await click(button(tree,'Revoke'));
+ assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'close-places', payload:{ids:['alice-2']}});
  // A person who still has a link out: the new link replaces it, covers the
  // places left under her own limit, and takes an identifier nothing used.
  snapshot.person_limits = { 'Alice Example': 3 };

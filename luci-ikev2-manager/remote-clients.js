@@ -402,6 +402,30 @@ function modeSelect(device, onMode) {
  }));
 }
 
+// The links that still wait for devices: whose, how many places are left and
+// until when. A link itself is shown once and kept nowhere, so it can be
+// withdrawn or replaced here, not shown again.
+function activeLinks(everyone, actions) {
+ var rows = [];
+ everyone.forEach(function(person) {
+  var waiting = person.devices.filter(function(device) { return device.waiting; });
+  if (!waiting.length) return;
+  var withdraw = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-remove', 'click': function() { return actions.withdraw(person, waiting, withdraw); } }, [ _('Revoke') ]);
+  rows.push(E('tr', { 'class': 'tr' }, [
+   E('td', { 'class': 'td' }, [ person.name ]),
+   E('td', { 'class': 'td' }, [ String(waiting.length) ]),
+   E('td', { 'class': 'td' }, [ span(Math.max.apply(null, waiting.map(function(item) { return item.expires_seconds || 0; }))) ]),
+   E('td', { 'class': 'td', 'style': 'text-align:right;white-space:nowrap' }, [
+    E('button', { 'type': 'button', 'class': 'cbi-button', 'style': 'margin-right:.4rem', 'click': function() { actions.link(person); } }, [ _('New link') ]), withdraw ])
+  ]));
+ });
+ if (!rows.length) return '';
+ return E('details', { 'class': 'ikev2-fold', 'open': '', 'style': 'margin-bottom:.9rem' }, [ E('summary', {}, [ _('Active links: %d').format(rows.length) ]),
+  E('table', { 'class': 'table cbi-section-table' }, [
+   E('tr', { 'class': 'tr' }, [ _('Person'), _('Places left'), _('Valid for'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+  ].concat(rows)) ]);
+}
+
 // A person and their devices. Devices without a named owner stand alone.
 function personCard(person, labels, actions) {
  var first = person.devices[0] || { selected_services: [], note: '' }, services = first.selected_services;
@@ -982,7 +1006,11 @@ return view.extend({
      return saveRequest(select, result, { version: 1, expected_generation: state.generation, operation: 'set-device-mode', payload: { id: device.id, mode: mode } }, reload);
     },
     relink: function(person) { invitationDialog(state, labels, reload, person, person.devices.filter(function(device) { return device.waiting; })); },
-    remove: function(device) { removeDialog(device, state, reload, result); }
+    remove: function(device) { removeDialog(device, state, reload, result); },
+    withdraw: function(person, waiting, button) {
+     return saveRequest(button, result, { version: 1, expected_generation: state.generation, operation: 'close-places',
+      payload: { ids: waiting.map(function(item) { return item.id; }) } }, reload);
+    }
    };
    // Ordinary profiles only: the accounts of Waypoint devices are not offered.
    var taken = {};
@@ -998,7 +1026,7 @@ return view.extend({
    var everyone = people(state.devices, state.waiting, state.shown_owners);
    everyoneCount = everyone.length;
    everyoneNames = everyone.map(function(person) { return person.name; });
-   devices.replaceChildren(everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
+   devices.replaceChildren(activeLinks(everyone, actions), everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
     return personCard(person, labels, actions);
    })) : E('div', { 'class': 'ikev2-empty' }, [ _('Nobody yet. Add a person to get their link.') ]));
    var online = state.devices.filter(function(device) { return device.online; }).length;
@@ -1028,7 +1056,7 @@ return view.extend({
   var opened = {}, everyoneCount = 0, lastData = null, everyoneNames = [];
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
-   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'report-requested': _('Report requested'), 'devices-limit': _('Number of devices set'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
+   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'report-requested': _('Report requested'), 'devices-limit': _('Number of devices set'), 'link-withdrawn': _('Link withdrawn'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
   // Put each owned profile's card into its person's card. The panel redraws
   // its list every few seconds and brings fresh cards; a fresh card takes the
   // place of the one shown before. Nothing is ever cleared wholesale, so a

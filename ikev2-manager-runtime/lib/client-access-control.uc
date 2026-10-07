@@ -88,6 +88,22 @@ try {
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;
   }
+  // A whole link withdrawn at once: every place it still holds open.
+  if (type(request) == 'object' && request.operation == 'close-places') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 1 || type(payload.ids) != 'array' ||
+    !length(payload.ids) || length(payload.ids) > 5) die('invalid places');
+   for (let id in payload.ids)
+    if (type(id) != 'string' || !(length(id) <= 48 ? match(id, /^[a-z][a-z0-9-]*$/) : null)) die('invalid place');
+   for (let id in payload.ids) {
+    let ledger = read_client_enrollment(directory).ledger;
+    write_client_enrollment(directory, { version: 1, expected_generation: ledger.generation, operation: 'cancel', payload: { id: id } }, time(), false);
+    try { write_client_label(directory, id, '', '', { email: '', open: false }); } catch (error) { }
+   }
+   record_client_event('link-withdrawn', join(',', payload.ids));
+   print(`generation=${state.generation}\nchanged=1\n`);
+   closed = true;
+  }
   // One device's mode: its services alone, or everything into the tunnel.
   if (type(request) == 'object' && request.operation == 'set-device-mode') {
    let payload = request.payload;
