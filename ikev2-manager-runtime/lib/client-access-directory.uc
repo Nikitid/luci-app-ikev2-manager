@@ -42,7 +42,8 @@ export function read_client_labels(directory) {
 	for (let id, label in labels.devices)
 		if (identifier(id) && type(label) == 'object' && text(label.owner, 320) && text(label.note, 640))
 			result[id] = { owner: label.owner, note: label.note,
-				email: type(label.email) == 'string' && mail(label.email) ? label.email : '', open: label.open === true, full: label.full === true };
+				email: type(label.email) == 'string' && mail(label.email) ? label.email : '', open: label.open === true, full: label.full === true,
+				title: type(label.title) == 'string' && text(label.title, 320) ? label.title : '' };
 	return result;
 };
 
@@ -79,9 +80,12 @@ export function write_client_label(directory, id, owner, note, more) {
 	if (!identifier(id) || !text(owner, 320) || !text(note, 640)) die('invalid label');
 	let labels = read_client_labels(directory), before = labels[id];
 	let email = more?.email ?? before?.email ?? '', open = more?.open ?? before?.open ?? false, full = more?.full ?? before?.full ?? false;
-	if (type(email) != 'string' || !mail(email) || type(open) != 'bool' || type(full) != 'bool') die('invalid label');
-	if (owner == '' && note == '' && email == '' && !open && !full) delete labels[id];
-	else labels[id] = { owner: owner, note: note, email: email, open: open, full: full };
+	// The name the administrator gave the device; without one the page shows
+	// the computer's own name.
+	let title = more?.title ?? before?.title ?? '';
+	if (type(email) != 'string' || !mail(email) || type(open) != 'bool' || type(full) != 'bool' || !text(title, 320)) die('invalid label');
+	if (owner == '' && note == '' && email == '' && !open && !full && title == '') delete labels[id];
+	else labels[id] = { owner: owner, note: note, email: email, open: open, full: full, title: title };
 	if (length(keys(labels)) > 1024) die('too many labels');
 	replace_file(directory + '/labels.json', { version: 1, devices: labels, profiles: read_profile_owners(directory) });
 };
@@ -148,6 +152,7 @@ export function describe_client_device(device, labels, seen_directory, sessions,
 	device.email = label?.email ?? '';
 	device.block_without_tunnel = !(label?.open ?? false);
 	device.mode = (label?.full ?? false) ? 'full' : 'services';
+	device.title = label?.title ?? '';
 	device.host = seen?.host;
 	device.system = seen?.system;
 	device.client = seen?.client;

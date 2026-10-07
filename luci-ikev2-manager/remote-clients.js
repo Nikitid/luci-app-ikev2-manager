@@ -248,10 +248,11 @@ function mailText(value) {
 }
 
 // One device of a person: what it is, how it is doing, what to do with it.
-function deviceRow(device, onRemove, onMode, onRights) {
+function deviceRow(device, onRemove, onMode, onRights, onRename) {
  // A dot before the name says whether the device is on; words are kept for
  // what a dot cannot say.
- function named(tone, title) { return E('span', { 'class': 'ikev2-session-address' }, [ E('span', { 'class': 'ikev2-dot ' + tone, 'title': title }), device.host || device.id ]); }
+ function named(tone, title) { return E('span', { 'class': 'ikev2-session-address' }, [ E('span', { 'class': 'ikev2-dot ' + tone, 'title': title }),
+  E('span', { 'title': device.id }, [ device.title || device.host || (device.waiting ? _('Free place') : device.id) ]) ]); }
  function meta(parts) { return E('div', { 'class': 'ikev2-session-meta' }, parts.filter(Boolean).map(function(text) { return E('span', {}, [ text ]); })); }
  if (device.waiting)
   return E('div', { 'class': 'ikev2-device' }, [ E('div', { 'class': 'ikev2-session-main' }, [
@@ -270,9 +271,11 @@ function deviceRow(device, onRemove, onMode, onRights) {
  else { tone = 'info'; title = said = _('Not connected yet'); }
  var computer = [ device.system, device.client ? _('client %s').format(device.client) : '' ].filter(Boolean).join(' \u00b7 ');
  return E('div', { 'class': 'ikev2-device' }, [
-  E('div', { 'class': 'ikev2-session-main' }, [ named(tone, title), meta([ device.host ? device.id : '', computer, said ]) ]),
+  E('div', { 'class': 'ikev2-session-main' }, [ named(tone, title), meta([ device.title && device.host ? device.host : '', computer, said ]) ]),
   E('span', { 'class': 'ikev2-user-actions' }, [ modeSelect(device, onMode),
-   device.mode === 'full' && onRights ? signButton('settings', _('Rights on the inbound server'), 'cbi-button-edit', function() { onRights(device); }) : '',
+   onRename ? signButton('pencil', _('Name the device'), 'cbi-button-edit', function() { onRename(device); }) : '',
+   signButton('settings', device.mode === 'full' ? _('Rights on the inbound server') : _('Rights apply when everything goes into the tunnel'), 'cbi-button-edit ikev2-settle',
+    function() { if (device.mode === 'full' && onRights) onRights(device); }),
    trashButton(_('Remove'), onRemove) ])
  ]);
 }
@@ -327,7 +330,7 @@ function personCard(person, labels, actions) {
    ])
   ]),
   E('div', { 'class': 'ikev2-person-body' }, [
-   person.devices.length ? E('div', { 'class': 'ikev2-person-devices' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }, actions.mode, actions.rights); })) : '',
+   person.devices.length ? E('div', { 'class': 'ikev2-person-devices' }, person.devices.map(function(device) { return deviceRow(device, function() { actions.remove(device); }, actions.mode, actions.rights, actions.rename); })) : '',
    // The person's ordinary VPN profiles are put here once the panel has drawn them.
    E('div', { 'class': 'ikev2-person-profiles', 'data-owner': person.name })
   ])
@@ -353,6 +356,7 @@ function sign(path) {
 }
 var signs = {
  plus: 'M12 5v14M5 12h14',
+ pencil: 'M4 20h4L19 9l-4-4L4 16v4Zm10-14 4 4',
  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
  give: 'M12 3v12m-4-4 4 4 4-4M5 21h14'
 };
@@ -391,6 +395,17 @@ function pageStyles() {
   '.ikev2-page .ikev2-section > .ikev2-windows-app { margin-top: 1.1rem; margin-bottom: 0; }' +
   '.ikev2-page .ikev2-person-profiles { display: grid; gap: .5rem; } .ikev2-page .ikev2-person-profiles:empty { display: none; }' +
   '.ikev2-page .ikev2-user-list:empty { display: none; }' +
+  // Waypoint devices on a faint green, ordinary profiles on a faint blue: told apart at a glance.
+  '.ikev2-page .ikev2-device { padding: .45rem .7rem; border-radius: var(--ikev2-radius-sm); background: color-mix(in srgb, var(--ikev2-good) 9%, transparent); }' +
+  '.ikev2-page .ikev2-person.is-open .ikev2-person-body { padding-left: .5rem; }' +
+  // The same order of signs in every row: what the row offers, then a line, then settings and removal.
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-actions { flex-wrap: nowrap; gap: .25rem; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-actions > .ikev2-give { order: 1; } .ikev2-page .ikev2-person-profiles .ikev2-user-actions > .ikev2-profile-actions { order: 2; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-actions > button:nth-of-type(3) { order: 3; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-actions > button:nth-of-type(2), .ikev2-page .ikev2-device .ikev2-user-actions > .ikev2-settle { order: 4; margin-left: .55rem; position: relative; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-actions > button:nth-of-type(2)::before, .ikev2-page .ikev2-device .ikev2-user-actions > .ikev2-settle::before { content: ""; position: absolute; left: -.45rem; top: 15%; height: 70%; border-left: 1px solid var(--ikev2-border); }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-actions > button:nth-of-type(4), .ikev2-page .ikev2-device .ikev2-user-actions > .cbi-button-remove { order: 5; }' +
+  '.ikev2-page .ikev2-device .ikev2-user-actions { flex-wrap: nowrap; gap: .25rem; } .ikev2-page .ikev2-mode { padding-right: 0; border-right: 0; }' +
   '.ikev2-page .ikev2-person { gap: 0; padding: .7rem 1rem; }' +
   '.ikev2-page .ikev2-person-body { display: none; padding-top: .7rem; margin-top: .7rem; border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person.is-open .ikev2-person-body { display: grid; gap: .55rem; padding-left: 1.15rem; }' +
@@ -404,7 +419,7 @@ function pageStyles() {
   '.ikev2-page .ikev2-person-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; min-width: 0; cursor: pointer; }' +
   '.ikev2-page .ikev2-person-toggle::before { content: ""; width: .45rem; height: .45rem; border-right: 2px solid var(--ikev2-muted); border-bottom: 2px solid var(--ikev2-muted); transform: rotate(-45deg); transition: transform .12s; }' +
   '.ikev2-page .ikev2-person.is-open .ikev2-person-toggle::before { transform: rotate(45deg); }' +
-  '.ikev2-page .ikev2-person-profiles .ikev2-user-card { grid-template-columns: minmax(0, 1fr) auto; gap: .6rem .8rem; padding: 0; border: 0; border-radius: 0; background: transparent; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-card { grid-template-columns: minmax(0, 1fr) auto; gap: .6rem .8rem; padding: .45rem .7rem; border: 0; border-radius: var(--ikev2-radius-sm); background: color-mix(in srgb, var(--ikev2-info) 10%, transparent); }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-avatar { display: none; }' +
   // The middle column lists sessions; without one it only says so, which a row does not need.
   '.ikev2-page .ikev2-person-profiles .ikev2-user-card > :nth-child(2):not(:has(.ikev2-session)) { display: none !important; }' +
@@ -586,11 +601,14 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  // A known person brings name, mail and note; a device is added one at a time.
  var rows = person ? [] : [ common.fieldLabel(_('Who uses it')), owner, common.fieldLabel(_('E-mail')), email, common.fieldLabel(_('Note')), note ];
  rows.push(common.fieldLabel(_('Kind of device')), kind);
- if (!person || replace.length) rows.push(common.fieldLabel(_('Devices'), _('One link registers this many devices of the person.')), count);
- rows.push(common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens. Cannot be changed or used again.')), id,
-  common.fieldLabel(_('Link is valid for')), lifetime);
+ rows.push(common.fieldLabel(_('Devices'), _('How many devices may register with this link. Each appears by itself under the name of its computer.')), count);
+ rows.push(common.fieldLabel(_('Link is valid for')), lifetime);
+ // The identifier is made from the person's name; it is internal and rarely matters.
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, rows),
+  E('details', { 'style': 'margin-top:.6rem' }, [ E('summary', { 'style': 'cursor:pointer;color:var(--ikev2-muted)' }, [ _('Identifier') ]),
+   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact', 'style': 'margin-top:.5rem' }, [
+    common.fieldLabel(_('Device identifier'), _('Latin letters, digits and hyphens. Cannot be changed or used again.')), id ]) ]),
   replace.length ? E('p', { 'class': 'ikev2-note' }, [ _('The previous link stops working.') ]) : '',
   E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) ])
  ]);
@@ -763,6 +781,13 @@ return view.extend({
     },
     edit: function(person) { personDialog(person, state, labels, reload, result, profileNames, everyoneNames); },
     add: function(person) { invitationDialog(state, labels, reload, person, null, newProfileFor); },
+    rename: function(device) {
+     var name = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Device name'), 'value': device.title || '', 'placeholder': device.host || device.id });
+     editDialog(device.title || device.host || device.id, E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
+      common.fieldLabel(_('Device name'), _('Empty: the name the computer reported.')), name ]), function() {
+      return { version: 1, expected_generation: state.generation, operation: 'rename-device', payload: { id: device.id, name: describeText(name.value, 80, _('Device name')) } };
+     }, reload, result);
+    },
     rights: function(device) {
      if (!vpnUsers.accessPolicy || !vpnUsers.accessPolicy(device.id)) result.err(_('The rights of this device are not available.'));
     },
@@ -816,7 +841,7 @@ return view.extend({
   var opened = {}, everyoneCount = 0, lastData = null, everyoneNames = [];
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
-   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
+   'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
   // Put each owned profile's card into its person's card. The panel redraws
   // its list every few seconds and brings fresh cards; a fresh card takes the
   // place of the one shown before. Nothing is ever cleared wholesale, so a

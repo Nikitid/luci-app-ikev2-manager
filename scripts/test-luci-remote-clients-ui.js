@@ -50,7 +50,7 @@ function click(node) { return node.attrs.click(); }
 async function main() {
  const tree = page.render(await page.load());
  assert(text(tree).includes('VPN profiles panel'), 'ordinary VPN profiles are managed on the same page');
- assert(text(tree).includes('Example service')); assert(text(tree).includes('alice'));
+ assert(text(tree).includes('Example service')); assert(text(tree).includes('ALICE-PC'), 'a device is shown under the name of its computer');
  // Who is behind each device, what it runs and where it is now.
  for (const shown of ['Alice Example', 'accounting', 'ALICE-PC', 'Windows 10.0.26100 \u00b7 client 2.3.0', 'Online for 2 h, from 203.0.113.9, tunnel address 10.20.0.7',
   'last seen 1 d ago from 198.51.100.4', 'Access off', 'Waiting for registration', 'link valid for 2 h more'])
@@ -155,7 +155,7 @@ async function main() {
  assert(text(custom).includes('ikev2-in-managed'), 'an administrator with an own server configuration is told what to add');
  const running = page.render([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}], null]);
  assert(nodes(running).find(n => n.attrs['aria-label'] === 'Virtual subnet').attrs.disabled != null, 'the subnet of enrolled devices is fixed');
- assert(text(running).includes('alice') && text(running).includes('https://vpn.example.com:8443'));
+ assert(text(running).includes('ALICE-PC') && text(running).includes('https://vpn.example.com:8443'));
  console.log('remote clients UI: render, forms, validation, queued requests, generations, setup and unavailable state OK');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

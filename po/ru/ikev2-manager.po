@@ -5234,3 +5234,24 @@ msgstr "Выдать профиль: файл или QR-код"
 
 msgid "Type the name of a person already on the list to put these profiles under them."
 msgstr "Введите имя человека из списка, чтобы перенести эти профили к нему."
+
+msgid "Free place"
+msgstr "Свободное место"
+
+msgid "Name the device"
+msgstr "Назвать устройство"
+
+msgid "Device name"
+msgstr "Имя устройства"
+
+msgid "Empty: the name the computer reported."
+msgstr "Пусто: имя, которое сообщил компьютер."
+
+msgid "How many devices may register with this link. Each appears by itself under the name of its computer."
+msgstr "Сколько устройств может зарегистрироваться по этой ссылке. Каждое появится само под именем своего компьютера."
+
+msgid "Device named"
+msgstr "Устройство названо"
+
+msgid "Rights apply when everything goes into the tunnel"
+msgstr "Права действуют, когда в туннель идёт весь трафик"

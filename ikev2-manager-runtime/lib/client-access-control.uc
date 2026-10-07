@@ -93,6 +93,17 @@ try {
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;
   }
+  // The name the administrator gives a device, or none to show the computer's own.
+  if (type(request) == 'object' && request.operation == 'rename-device') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2 || type(payload.name) != 'string' ||
+    !length(filter(state.publication.devices, device => device.id == payload.id)) || index(state.retired_ids, payload.id) >= 0) die('invalid device name');
+   let label = read_client_labels(directory)[payload.id];
+   write_client_label(directory, payload.id, label?.owner ?? '', label?.note ?? '', { title: payload.name });
+   record_client_event('device-renamed', payload.id);
+   print(`generation=${state.generation}\nchanged=1\n`);
+   closed = true;
+  }
   // Which ordinary VPN profiles belong to a person: a description, kept
   // beside the labels; the published state knows nothing of it.
   if (type(request) == 'object' && request.operation == 'assign-profiles') {
