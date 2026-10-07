@@ -135,6 +135,15 @@ final class ClientModel: ObservableObject {
         }
     }
 
+    /// The one place downloads come from; the router supplies only a number.
+    var update: (version: String, url: URL)? {
+        let own = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        guard let release = status?.release, ClientStatusReport.newer(release, than: own),
+              let url = URL(string: "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v\(release)/IKEv2ManagerClient-\(release).pkg")
+        else { return nil }
+        return (release, url)
+    }
+
     var report: String {
         guard let status, let data = try? JSONEncoder.pretty.encode(status) else { return "{\n  \"state\" : \"service_unavailable\"\n}" }
         return String(data: data, encoding: .utf8) ?? ""
@@ -166,6 +175,12 @@ struct ClientView: View {
             Text("Туннель и маршруты выбранных сервисов: " + (status?.routed == true ? "подтверждены" : status?.state == "connecting" ? "устанавливаются" : "нет"))
             Text("Путь на роутере: " + (status?.protected == true ? "подтверждён" : "не подтверждён"))
             Text(servicesLine(status)).fixedSize(horizontal: false, vertical: true)
+            if let update = model.update {
+                HStack {
+                    Text("Доступна версия \(update.version). Скачайте пакет и установите его: регистрация сохранится.").foregroundStyle(.secondary)
+                    Button("Скачать обновление") { NSWorkspace.shared.open(update.url) }
+                }
+            }
             if !model.message.isEmpty { Text(model.message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 4)
             HStack {

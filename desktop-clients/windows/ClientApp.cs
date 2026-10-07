@@ -23,6 +23,10 @@ namespace IkeV2Manager.Client
         private readonly Button resume = new Button { Text = "Продолжить регистрацию", AutoSize = true };
         private readonly Button connect = new Button { Text = "Подключить", AutoSize = true };
         private readonly Button disconnect = new Button { Text = "Отключить", AutoSize = true };
+        private readonly Button update = new Button { Text = "Скачать обновление", AutoSize = true, Visible = false };
+        // The one place downloads come from. The router supplies a version
+        // number and nothing else.
+        private const string Downloads = "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v";
         // Set by a registration started in this window: the first thing a newly
         // registered device wants is its connection.
         private bool connectAfterRegistration;
@@ -62,6 +66,13 @@ namespace IkeV2Manager.Client
             connect.Click += (sender, args) => SubmitCommand("connect");
             disconnect.Click += (sender, args) => SubmitCommand("disconnect");
             buttons.Controls.Add(connect); buttons.Controls.Add(disconnect);
+            update.Click += (sender, args) =>
+            {
+                if (!ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version)) return;
+                try { System.Diagnostics.Process.Start(Downloads + current.Release + "/IKEv2ManagerClientSetup.exe"); }
+                catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Не удалось открыть браузер.", "Обновление"); }
+            };
+            buttons.Controls.Add(update);
             buttons.WrapContents = true;
             layout.Controls.Add(buttons);
             Controls.Add(layout);
@@ -188,12 +199,15 @@ namespace IkeV2Manager.Client
             resume.Visible = current.State == "registration_pending" || current.State == "registration_error";
             connect.Visible = registered && !current.Wanted;
             disconnect.Visible = registered && current.Wanted;
+            bool newer = ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
+            update.Visible = newer;
             if (connectAfterRegistration && registered && current.State == "blocked" && !current.Wanted && !commandBusy)
             {
                 connectAfterRegistration = false;
                 SubmitCommand("connect");
             }
-            updated.Text = "Проверено: " + DateTime.Now.ToString("HH:mm:ss");
+            updated.Text = "Проверено: " + DateTime.Now.ToString("HH:mm:ss") +
+                (update.Visible ? "\r\nДоступна версия " + current.Release + ". Скачайте установщик и запустите его: регистрация сохранится." : "");
         }
 
         private static string PathText(string code)

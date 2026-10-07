@@ -3,6 +3,7 @@
 'use strict';
 import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
+import { readfile } from 'fs';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence } from './client-access-device-evidence.uc';
 
@@ -45,7 +46,8 @@ export function client_policy_response(env, directory) {
 	if (env.HTTPS != 'on')
 		return reply(403, 'tls_required');
 	let readiness = env.REQUEST_URI == '/client/v1/readiness', services = env.REQUEST_URI == '/client/v1/services';
-	if (!readiness && !services && env.REQUEST_URI != '/client/v1/policy')
+	let release = env.REQUEST_URI == '/client/v1/release';
+	if (!readiness && !services && !release && env.REQUEST_URI != '/client/v1/policy')
 		return reply(404, 'not_found');
 	if (env.REQUEST_METHOD != 'GET')
 		return reply(405, 'method_not_allowed');
@@ -86,6 +88,14 @@ export function client_policy_response(env, directory) {
 		}
 		if (services)
 			return { status: 200, body: device_services(committed.publication, selected) };
+		if (release) {
+			// The clients are released with this package under the same
+			// version. Only the number leaves the router; a client builds
+			// the download address itself.
+			let installed = replace(readfile('/usr/share/ikev2-manager/version') ?? '', /\s+$/, '');
+			if (!match(installed, /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/)) return reply(503, 'release_unavailable');
+			return { status: 200, body: { version: 1, release: installed } };
+		}
 		// Validation rejects unknown fields before returning any policy content.
 		let compiled = compile_client_policy(selected.policy);
 		if (length(sprintf('%J', compiled.policy)) > 1048576)

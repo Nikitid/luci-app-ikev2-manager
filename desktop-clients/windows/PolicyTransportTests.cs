@@ -56,6 +56,9 @@ internal static class PolicyTransportTests
             Reject(() => DeviceServices.Parse(offered.Replace("\"mail\"", "\"api\""), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"wiki\"", "\"../wiki\""), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"domains\":9", "\"domains\":9,\"address\":\"10.0.0.1\""), "office-pc"), "services_response_invalid");
+            if (PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\"}") != "2.3.0") throw new Exception("Release was not read");
+            Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\",\"url\":\"https://example.com\"}"), "release_response_invalid");
+            Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"../2.3\"}"), "release_response_invalid");
             Console.WriteLine("Policy transport checks passed: endpoint restrictions, bounded body, UTF-8, schema, readiness and safe errors");
             return 0;
         }

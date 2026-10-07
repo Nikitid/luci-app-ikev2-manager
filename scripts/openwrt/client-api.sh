@@ -90,6 +90,10 @@ request 401 https://127.0.0.1:18443/client/v1/services
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 ucode -e "import {readfile} from 'fs'; let s=json(readfile('$work/body')); if(length(keys(s))!=5 || s.version!==1 || s.id!='team' || s.revision!=1 || type(s.available)!='array' || length(s.selected)<1 || type(s.selected[0].id)!='string' || s.selected[0].domains<1 || length(keys(s.selected[0]))!=2) die('Device service list is wrong');"
 ! grep -q 'example.com' "$work/body"
+request 401 https://127.0.0.1:18443/client/v1/release
+request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/release
+[ "$(jsonfilter -i "$work/body" -e '@.release')" = "$(cat /usr/share/ikev2-manager/version)" ]
+[ "$(jsonfilter -i "$work/body" -e '@.version')" = 1 ]
 request 401 https://127.0.0.1:18443/client/v1/readiness
 request 400 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/readiness
 request 503 -H "Authorization: Bearer $first" -H 'X-Client-Address: 10.25.0.10' https://127.0.0.1:18443/client/v1/readiness

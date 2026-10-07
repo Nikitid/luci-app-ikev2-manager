@@ -689,6 +689,19 @@ is published, and attaches both to the release. Neither is signed with a
 publisher identity, so Windows shows its unknown-publisher warning and macOS
 needs "Open" from the context menu. These jobs have not run yet.
 
+`GET /client/v1/release` tells an enrolled device the version of the router's
+package, as a number and nothing else. A client whose own version is older
+shows it and offers a download button; the address is built in the client from
+the project's release page, so the router cannot point a user elsewhere. The
+program never installs anything by itself: the user runs the downloaded
+installer, which keeps the registration.
+
+A published service may carry host names under its domains (the "Host names
+for clients" field, kept by the catalog helper in
+`/etc/ikev2-manager/client-hosts.d`): clients reach exact names only, so
+`api.example.com` has to be listed beside `example.com`. A name outside the
+service's domains is refused.
+
 A device registered from an invitation is known to the router but not let in
 until an administrator enables it under Device assignments; until then, and
 after revocation, the client reports `access_closed`.

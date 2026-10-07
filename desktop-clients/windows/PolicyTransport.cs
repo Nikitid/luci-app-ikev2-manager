@@ -177,6 +177,50 @@ namespace IkeV2Manager.Client
             catch (IOException) { throw new PolicyFetchException("path_connection_failed"); }
         }
 
+        // The version of the router's package, which the clients are released
+        // with. Only a number: where to download is the client's own knowledge.
+        public static string FetchRelease(Uri policyEndpoint, string token)
+        {
+            ValidateEndpoint(policyEndpoint, token);
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = (HttpWebRequest)WebRequest.Create(new UriBuilder(policyEndpoint) { Path = "/client/v1/release" }.Uri);
+            request.Method = "GET";
+            request.AllowAutoRedirect = false;
+            request.Proxy = null;
+            request.UseDefaultCredentials = false;
+            request.KeepAlive = false;
+            request.Timeout = request.ReadWriteTimeout = 5000;
+            request.MaximumResponseHeadersLength = 16;
+            request.Accept = "application/json";
+            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            using (var deadline = new Timer(ignored => request.Abort(), null, 5000, Timeout.Infinite))
+            try
+            {
+                using (var response = (HttpWebResponse)request.GetResponse())
+                {
+                    if (response.StatusCode != HttpStatusCode.OK) throw new PolicyFetchException("release_unavailable");
+                    using (var stream = response.GetResponseStream())
+                        return ParseRelease(ReadBody(stream, response.ContentType, response.ContentLength, 1024, "release_response_invalid"));
+                }
+            }
+            catch (WebException) { throw new PolicyFetchException("release_unavailable"); }
+            catch (IOException) { throw new PolicyFetchException("release_unavailable"); }
+        }
+
+        internal static string ParseRelease(string json)
+        {
+            try
+            {
+                var data = ClientPolicy.Object(new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = 1024, RecursionLimit = 2 }.DeserializeObject(json));
+                ClientPolicy.Fields(data, "version", "release");
+                string release = ClientPolicy.Text(data["release"]);
+                if (ClientPolicy.Integer(data["version"], 1, 1) != 1 || !Regex.IsMatch(release, @"\A[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}\z")) throw new ArgumentException();
+                return release;
+            }
+            catch (ArgumentException) { throw new PolicyFetchException("release_response_invalid"); }
+            catch (InvalidOperationException) { throw new PolicyFetchException("release_response_invalid"); }
+        }
+
         public static DeviceServices FetchServices(Uri policyEndpoint, string token, string id)
         {
             ValidateEndpoint(policyEndpoint, token);

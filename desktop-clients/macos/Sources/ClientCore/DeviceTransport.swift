@@ -38,6 +38,7 @@ public protocol DeviceRequests: Sendable {
     func policy(endpoint: URL, deviceToken: String) async throws -> Data
     func readiness(endpoint: URL, deviceToken: String, tunnelAddress: String) async throws -> DeviceReadiness
     func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices
+    func release(endpoint: URL, deviceToken: String) async throws -> String
 }
 
 /// Requests of an enrolled or enrolling device. Platform certificate and
@@ -64,7 +65,7 @@ public struct DeviceTransport: DeviceRequests {
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
               base.absoluteString.count <= 2048,
               ["/client/v1/enroll", "/client/v1/enrollment", "/client/v1/policy",
-               "/client/v1/readiness", "/client/v1/services"].contains(parts.percentEncodedPath),
+               "/client/v1/readiness", "/client/v1/services", "/client/v1/release"].contains(parts.percentEncodedPath),
               path.hasPrefix("/client/v1/")
         else { throw DeviceError.invalidEndpoint }
         parts.percentEncodedPath = path
@@ -213,6 +214,23 @@ public struct DeviceTransport: DeviceRequests {
             lists.append(names)
         }
         return DeviceServices(selected: lists[0], available: lists[1], domains: domains)
+    }
+
+    static func decodeRelease(_ data: Data) throws -> String {
+        let root = try object(data, keys: ["version", "release"])
+        guard try integer(root["version"], 1...1) == 1, let release = root["release"] as? String,
+              matches(release, #"\A[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}\z"#) else { throw DeviceError.invalidResponse }
+        return release
+    }
+
+    /// The version of the router's package, which the clients are released
+    /// with. A number only: where to download is the client's own knowledge.
+    public func release(endpoint: URL, deviceToken: String) async throws -> String {
+        guard Self.matches(deviceToken, Self.token) else { throw DeviceError.invalidEndpoint }
+        let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/release"), method: "GET",
+            headers: ["Authorization": "Bearer " + deviceToken], limit: 1024, timeout: 5)
+        guard answer.status == 200 else { throw DeviceError.httpRejected }
+        return try Self.decodeRelease(answer.data)
     }
 
     public func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {

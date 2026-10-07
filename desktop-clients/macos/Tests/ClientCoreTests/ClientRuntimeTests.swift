@@ -50,6 +50,7 @@ private final class Router: DeviceRequests, @unchecked Sendable {
     func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {
         DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
     }
+    func release(endpoint: URL, deviceToken: String) async throws -> String { "2.3.0" }
 }
 
 private func fixture() throws -> (ClientRuntime, Machine, Router, ClientStore) {
@@ -80,6 +81,10 @@ private let invitation = "https://vpn.example.com:8443/client/v1/enroll#" + Stri
     await runtime.tick(now: now)
     let status = await runtime.status()
     #expect(status.state == "blocked" && status.guardInstalled && !status.protected && status.services == ["api"] && status.available == ["wiki"])
+    #expect(status.release == "2.3.0" && ClientStatusReport.newer("2.3.0", than: "2.2.9") && ClientStatusReport.newer("2.10.0", than: "2.9.9"))
+    #expect(!ClientStatusReport.newer("2.3.0", than: "2.3.0") && !ClientStatusReport.newer("2.2.0", than: "2.3.0") && !ClientStatusReport.newer("", than: "1.0.0"))
+    #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeRelease(Data(#"{"version":1,"release":"2.3.0","url":"https://example.com"}"#.utf8)) }
+    #expect(try DeviceTransport.decodeRelease(Data(#"{"version":1,"release":"2.3.0"}"#.utf8)) == "2.3.0")
     #expect(machine.rules == "block drop out quick inet from any to 172.31.254.0/24\n")
     #expect(machine.hosts.contains("172.31.254.1 api.example.com"))
     #expect(machine.log.firstIndex(of: "filter")! < machine.log.firstIndex(of: "hosts")!)

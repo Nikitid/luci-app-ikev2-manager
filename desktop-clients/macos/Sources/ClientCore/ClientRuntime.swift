@@ -46,7 +46,16 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var available: [String]
     public var domains: Int
     public var revision: Int
+    /// The router's release, or empty while unknown.
+    public var release: String
     public var updatedAt: Int
+
+    /// Whether `release` is newer than the running program's own version.
+    public static func newer(_ release: String, than own: String) -> Bool {
+        let offered = release.split(separator: ".").compactMap { Int($0) }, running = own.split(separator: ".").compactMap { Int($0) }
+        guard offered.count == 3, running.count == 3 else { return false }
+        return offered.lexicographicallyPrecedes(running) == false && offered != running
+    }
 }
 
 /// The device's state machine. One instance, one caller at a time.
@@ -63,6 +72,7 @@ public actor ClientRuntime {
     private var retryConnectionAt = Date.distantPast
     private var synchronizationFailed = false
     private var accessClosed = false
+    private var release = ""
     private var names: DeviceServices?
     private var connectionError = "none"
 
@@ -72,7 +82,7 @@ public actor ClientRuntime {
         self.transport = transport
         report = ClientStatusReport(state: "starting", guardInstalled: false, protected: false, routed: false, wanted: false,
                                     profileInstalled: false, error: "none", services: [], available: [], domains: 0,
-                                    revision: 0, updatedAt: 0)
+                                    revision: 0, release: "", updatedAt: 0)
     }
 
     public func status() -> ClientStatusReport { report }
@@ -85,7 +95,7 @@ public actor ClientRuntime {
             profileInstalled: system.vpnInstalled(), error: connectionError,
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
-            revision: history?.current.revision ?? 0, updatedAt: Int(now.timeIntervalSince1970))
+            revision: history?.current.revision ?? 0, release: release, updatedAt: Int(now.timeIntervalSince1970))
     }
 
     // MARK: registration
@@ -201,6 +211,7 @@ public actor ClientRuntime {
             }
             synchronizationFailed = false
             accessClosed = false
+            release = (try? await transport.release(endpoint: registration.endpoint, deviceToken: registration.deviceToken)) ?? release
             if let id = registration.id {
                 names = (try? await transport.services(endpoint: registration.endpoint, deviceToken: registration.deviceToken, id: id)) ?? names
             }

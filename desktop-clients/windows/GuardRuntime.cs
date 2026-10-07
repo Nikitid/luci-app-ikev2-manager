@@ -24,6 +24,8 @@ namespace IkeV2Manager.Client
         public int Revision { get; internal set; }
         public bool Wanted { get; internal set; }
         public string[] Available { get; internal set; }
+        // The router's release, or empty while unknown.
+        public string Release { get; internal set; }
     }
 
     public sealed class GuardRuntime : IDisposable
@@ -50,6 +52,7 @@ namespace IkeV2Manager.Client
         private ulong permittedInterface;
         private DateTime readyUntil;
         private DeviceServices assigned;
+        private string release = "";
 
         public GuardRuntime(string storeName, bool enableSystemIntegration = false)
         {
@@ -135,6 +138,8 @@ namespace IkeV2Manager.Client
                         return;
                     }
                     try { assigned = PolicyTransportClient.FetchServices(endpoint, registration.DeviceToken, registration.Id); }
+                    catch (PolicyFetchException) { }
+                    try { release = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
                     catch (PolicyFetchException) { }
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
                     else EnsureProfile(next);
@@ -417,7 +422,7 @@ namespace IkeV2Manager.Client
             store.PublishStatus(new ClientStatus { State = state, GuardInstalled = healthy,
                 Services = assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray(),
                 Available = assigned == null ? new string[0] : assigned.Available.Take(64).ToArray(),
-                Domains = domains, Revision = revision, Wanted = connectionWanted,
+                Domains = domains, Revision = revision, Wanted = connectionWanted, Release = release,
                 Protected = healthy && state == "protected" && permittedInterface != 0,
                 ConnectionError = connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
