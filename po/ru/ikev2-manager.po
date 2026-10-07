@@ -5201,3 +5201,12 @@ msgstr "VPN-профили недоступны."
 
 msgid "Enter the name of the person."
 msgstr "Введите имя человека."
+
+msgid "Waypoint: %d"
+msgstr "Waypoint: %d"
+
+msgid "free places: %d"
+msgstr "свободных мест: %d"
+
+msgid "online: %d"
+msgstr "в сети: %d"
