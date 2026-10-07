@@ -84,21 +84,38 @@ namespace IkeV2Manager.Client
             FormClosed += (sender, args) => timer.Dispose();
         }
 
-        // Long texts are sized by measuring them for the width the window has,
-        // with the same word wrapping they are drawn with.
+        // Long texts are broken into lines here, word by word, for the width the
+        // window has. Left to the label, a line was cut in the middle of a word.
         private void FitText()
         {
-            var layout = Controls.Count == 0 ? null : Controls[0];
+            var layout = Controls.Count == 0 ? null : Controls[0] as TableLayoutPanel;
             if (layout == null) return;
-            int width = Math.Max(200, layout.ClientSize.Width - layout.Padding.Horizontal);
+            int width = Math.Max(200, layout.ClientSize.Width - layout.Padding.Horizontal - 8);
             foreach (var label in new[] { description, services, updated })
             {
-                label.AutoSize = false;
+                string original = label.Tag as string ?? label.Text;
+                var lines = new List<string>();
+                foreach (string paragraph in original.Replace("\r\n", "\n").Split('\n'))
+                {
+                    string line = "";
+                    foreach (string word in paragraph.Split(' '))
+                    {
+                        string longer = line.Length == 0 ? word : line + " " + word;
+                        if (line.Length != 0 && TextRenderer.MeasureText(longer, label.Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width > width)
+                        { lines.Add(line); line = word; }
+                        else line = longer;
+                    }
+                    lines.Add(line);
+                }
+                label.Tag = original;
                 label.MaximumSize = Size.Empty;
-                label.Size = new Size(width, TextRenderer.MeasureText(label.Text.Length == 0 ? " " : label.Text, label.Font,
-                    new Size(width, Int32.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl).Height + 2);
+                label.AutoSize = true;
+                label.Text = String.Join("\r\n", lines);
             }
         }
+
+        // The text a label is asked to show, before it is broken into lines.
+        private static void Say(Label label, string text) { label.Tag = text; label.Text = text; }
 
         private void BeginRegistration()
         {
@@ -156,73 +173,72 @@ namespace IkeV2Manager.Client
             {
                 case "blocked":
                     heading.Text = "Доступ закрыт";
-                    description.Text = "Нет подтверждённого подключения к офису. Выбранные адреса остаются заблокированы.";
+                    Say(description, "Нет подтверждённого подключения к офису. Выбранные адреса остаются заблокированы.");
                     break;
                 case "enrollment_required":
                     heading.Text = "Требуется настройка доступа";
-                    description.Text = "Клиент ещё не получил политику доступа организации.";
+                    Say(description, "Клиент ещё не получил политику доступа организации.");
                     break;
                 case "registration_pending":
                     heading.Text = "Регистрация не завершена";
-                    description.Text = current.ConnectionError == "enrollment_connection_failed" ? "Нет связи с роутером по адресу из приглашения. Проверьте интернет; попытка повторяется автоматически." :
+                    Say(description, current.ConnectionError == "enrollment_connection_failed" ? "Нет связи с роутером по адресу из приглашения. Проверьте интернет; попытка повторяется автоматически." :
                         current.ConnectionError == "enrollment_access_rejected" ? "Роутер не принял приглашение: оно истекло, уже использовано или отменено. Попросите у администратора новое." :
                         current.ConnectionError != "none" ? "Роутер ответил не так, как ожидалось (" + current.ConnectionError + "). Попытка повторяется автоматически." :
-                        "Ожидается выдача настроек сервера. Подключение VPN и защита выбранных сервисов ещё не подтверждены.";
+                        "Ожидается выдача настроек сервера. Подключение VPN и защита выбранных сервисов ещё не подтверждены.");
                     break;
                 case "registration_error":
                     heading.Text = "Ошибка регистрации";
-                    description.Text = "Не удалось получить или сохранить настройки. VPN не активирован. Подробности состояния доступны в отчёте.";
+                    Say(description, "Не удалось получить или сохранить настройки. VPN не активирован. Подробности состояния доступны в отчёте.");
                     break;
                 case "connecting":
                     heading.Text = "Подключение к VPN";
-                    description.Text = "Служба устанавливает IKEv2-соединение. Доступ к закреплённым адресам остаётся заблокирован.";
+                    Say(description, "Служба устанавливает IKEv2-соединение. Доступ к закреплённым адресам остаётся заблокирован.");
                     break;
                 case "protected":
                     heading.Text = "Доступ открыт";
-                    description.Text = "Выбранные сервисы идут через офис: туннель, маршруты и путь на роутере подтверждены. Остальной трафик идёт как обычно.";
+                    Say(description, "Выбранные сервисы идут через офис: туннель, маршруты и путь на роутере подтверждены. Остальной трафик идёт как обычно.");
                     break;
                 case "tunnel_connected":
                     heading.Text = "Туннель установлен";
-                    description.Text = PathText(current.ConnectionError);
+                    Say(description, PathText(current.ConnectionError));
                     break;
                 case "connection_error":
                     heading.Text = "Не удалось подключить VPN";
-                    description.Text = "Служба не подтвердила нужный туннель или маршруты. Доступ к закреплённым адресам остаётся заблокирован; попытка повторится автоматически.";
+                    Say(description, "Служба не подтвердила нужный туннель или маршруты. Доступ к закреплённым адресам остаётся заблокирован; попытка повторится автоматически.");
                     break;
                 case "access_closed":
                     heading.Text = "Доступ не включён";
-                    description.Text = "Роутер знает это устройство, но доступ для него не включён администратором или отозван. Выбранные сервисы остаются заблокированы; проверка повторяется автоматически.";
+                    Say(description, "Роутер знает это устройство, но доступ для него не включён администратором или отозван. Выбранные сервисы остаются заблокированы; проверка повторяется автоматически.");
                     break;
                 case "error":
                     heading.Text = "Ошибка системной службы";
-                    description.Text = "Служба не смогла подтвердить защиту или обновить настройки с сервера. Доступ не подтверждён; повторная синхронизация выполняется автоматически.";
+                    Say(description, "Служба не смогла подтвердить защиту или обновить настройки с сервера. Доступ не подтверждён; повторная синхронизация выполняется автоматически.");
                     break;
                 case "service_missing":
                     heading.Text = "Служба не установлена";
-                    description.Text = "Системный компонент клиента отсутствует. Защита ещё не настроена.";
+                    Say(description, "Системный компонент клиента отсутствует. Защита ещё не настроена.");
                     break;
                 case "service_stopped":
                     heading.Text = "Служба остановлена";
-                    description.Text = "Блокировки могут оставаться включены. Их текущее состояние не подтверждено.";
+                    Say(description, "Блокировки могут оставаться включены. Их текущее состояние не подтверждено.");
                     break;
                 default:
                     heading.Text = "Состояние не подтверждено";
-                    description.Text = "Проверка службы или её статуса не прошла. Код состояния доступен в отчёте.";
+                    Say(description, "Проверка службы или её статуса не прошла. Код состояния доступен в отчёте.");
                     break;
             }
             guard.Text = "Блокировка вне туннеля: " + (current.GuardInstalled ? "включена и проверена" : "не подтверждена");
             tunnel.Text = "Туннель и маршруты выбранных сервисов: " + (current.Routed ? "подтверждены" : current.State == "connecting" ? "устанавливаются" : "нет");
             path.Text = "Путь на роутере: " + (current.Protected ? "подтверждён" : "не подтверждён");
-            services.Text = (current.Services.Length == 0 ? (current.Domains == 0 ? "Назначенные сервисы: нет" : "Назначенные сервисы: доменов " + current.Domains + ", названия уточняются") :
+            Say(services, (current.Services.Length == 0 ? (current.Domains == 0 ? "Назначенные сервисы: нет" : "Назначенные сервисы: доменов " + current.Domains + ", названия уточняются") :
                 "Назначенные сервисы (доменов: " + current.Domains + ", версия настроек " + current.Revision + "): " + String.Join(", ", current.Services)) +
-                (current.Available.Length == 0 ? "" : "\r\nДоступны по запросу у администратора: " + String.Join(", ", current.Available));
+                (current.Available.Length == 0 ? "" : "\r\nДоступны по запросу у администратора: " + String.Join(", ", current.Available)) +
+                (current.Warnings != null && current.Warnings.Contains("proxy") ? "\r\nВнимание: на этом компьютере включён прокси. Программы, которые ходят через него, обращаются к выбранным сервисам в обход туннеля." : ""));
             bool registered = current.GuardInstalled && current.State != "registration_pending" && current.State != "registration_error";
             register.Visible = current.State == "enrollment_required" || current.State == "registration_error";
             resume.Visible = current.State == "registration_pending" || current.State == "registration_error";
             connect.Visible = registered && !current.Wanted;
             disconnect.Visible = registered && current.Wanted;
-            if (current.Warnings != null && current.Warnings.Contains("proxy"))
-                services.Text += "\r\nВнимание: на этом компьютере включён прокси. Программы, которые ходят через него, обращаются к выбранным сервисам в обход туннеля.";
             bool newer = ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
             update.Visible = newer;
             if (connectAfterRegistration && registered && current.State == "blocked" && !current.Wanted && !commandBusy)
@@ -230,8 +246,8 @@ namespace IkeV2Manager.Client
                 connectAfterRegistration = false;
                 SubmitCommand("connect");
             }
-            updated.Text = "Проверено: " + DateTime.Now.ToString("HH:mm:ss") +
-                (update.Visible ? "\r\nДоступна версия " + current.Release + ". Скачайте установщик и запустите его: регистрация сохранится." : "");
+            Say(updated, "Проверено: " + DateTime.Now.ToString("HH:mm:ss") +
+                (update.Visible ? "\r\nДоступна версия " + current.Release + ". Скачайте установщик и запустите его: регистрация сохранится." : ""));
             FitText();
         }
 
