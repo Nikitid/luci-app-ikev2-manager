@@ -110,7 +110,14 @@ public struct ClientStore: Sendable {
         try write("connection.json", Data(#"{"version":1,"wanted":\#(wanted)}"#.utf8))
     }
 
-    /// Uninstallation only: forget the device.
+    /// After a reset the same program registers again: an empty store.
+    public func prepare() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try verifyDirectory()
+    }
+
+    /// Uninstallation and reset: forget the device.
     public func erase() throws {
         try verifyDirectory()
         try FileManager.default.removeItem(at: directory)

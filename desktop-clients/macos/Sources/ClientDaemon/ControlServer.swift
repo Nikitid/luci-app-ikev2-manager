@@ -63,6 +63,9 @@ final class ControlServer: @unchecked Sendable {
                 guard privileged else { return Control.Response(result: "administrator_required") }
                 guard let invitation = request.invitation else { return Control.Response(result: "refused") }
                 try await runtime.begin(invitation: invitation)
+            case "reset":
+                guard privileged else { return Control.Response(result: "administrator_required") }
+                try await runtime.reset()
             case "profile":
                 guard privileged else { return Control.Response(result: "administrator_required") }
                 return Control.Response(result: "ok", profile: try await runtime.profile().base64EncodedString())

@@ -429,6 +429,19 @@ public actor ClientRuntime {
         }
     }
 
+    /// Everything this program set up on the machine goes - the VPN profile,
+    /// the blocking rules, the names, the registration - and the program
+    /// stays, ready to register again with a new link.
+    public func reset(now: Date = Date()) throws {
+        try remove()
+        try store.prepare()
+        guardInstalled = false; readyUntil = .distantPast; nextReadinessAt = .distantPast
+        noServices = false; synchronizationFailed = false; accessClosed = false
+        nextPolicyPoll = .distantPast; nextEnrollmentStep = .distantPast; retryConnectionAt = .distantPast
+        names = nil; release = ""; connectionError = "none"
+        publish("enrollment_required", now: now)
+    }
+
     /// Uninstallation: names and rules go, then the stored device.
     public func remove() throws {
         permitted = nil

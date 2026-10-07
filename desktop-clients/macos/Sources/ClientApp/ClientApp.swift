@@ -59,19 +59,6 @@ final class ClientModel: ObservableObject {
         }
     }
 
-    /// Runs the installed removal with the administrator's consent: the
-    /// system asks for the password, this program never sees it.
-    func uninstall() {
-        let script = "do shell script \"/Library/PrivilegedHelperTools/io.github.nikitid.ikev2-manager-client.uninstall\" with administrator privileges"
-        Task.detached {
-            var failure: NSDictionary?
-            NSAppleScript(source: script)?.executeAndReturnError(&failure)
-            await MainActor.run {
-                if failure == nil { NSApp.terminate(nil) } else { self.message = "Удаление не выполнено." }
-            }
-        }
-    }
-
     func register(_ invitation: String) {
         connectAfterRegistration = true
         command("begin", invitation: invitation)
@@ -306,7 +293,8 @@ struct ClientView: View {
                 Spacer()
                 Button("Проверить") { model.refresh() }
                 Button("Отчёт…") { reporting = true }
-                Button("Удалить…") { removing = true }.buttonStyle(.borderedProminent).tint(Tone.attention.color)
+                Button("Сбросить…") { removing = true }.buttonStyle(.borderedProminent).tint(Tone.attention.color)
+                    .disabled(status == nil || status?.state == "enrollment_required")
             }.fixedSize(horizontal: false, vertical: true).disabled(model.busy)
             Text("Проверено " + model.checked.formatted(date: .omitted, time: .standard) + " · " + model.version)
                 .foregroundStyle(.secondary).font(.caption)
@@ -331,11 +319,11 @@ struct ClientView: View {
                 }
             }.padding(20)
         }
-        .confirmationDialog("Удалить Waypoint с этого Mac?", isPresented: $removing) {
-            Button("Удалить", role: .destructive) { model.uninstall() }
+        .confirmationDialog("Сбросить Waypoint на этом Mac?", isPresented: $removing) {
+            Button("Сбросить", role: .destructive) { model.command("reset") }
             Button("Отмена", role: .cancel) { }
         } message: {
-            Text("Будут удалены: профиль VPN, блокировки, записи имён сервисов и регистрация устройства. Чтобы вернуть доступ, понадобится новая ссылка от администратора.")
+            Text("Будут удалены: профиль VPN, блокировки, записи имён сервисов и регистрация устройства. Программа останется; чтобы вернуть доступ, понадобится новая ссылка от администратора.")
         }
         .sheet(isPresented: $reporting) {
             VStack(alignment: .leading, spacing: 12) {

@@ -35,6 +35,7 @@ namespace IkeV2Manager.Client
         private Color Line { get { return dark ? Color.FromArgb(70, 70, 74) : Color.FromArgb(217, 217, 222); } }
         private readonly List<Button> plain = new List<Button>();
         private Button themeSign;
+        private Label checkedSign;
         private const string Preferences = @"Software\Waypoint";
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
@@ -54,6 +55,7 @@ namespace IkeV2Manager.Client
             dark = theme == "dark" || (theme == "system" && systemDark);
             BackColor = Back;
             foreach (var button in plain) { button.BackColor = Sheet; button.ForeColor = Ink; button.FlatAppearance.BorderColor = Line; }
+            if (checkedSign != null) { checkedSign.ForeColor = Soft; checkedSign.BackColor = Back; }
             if (themeSign != null) { themeSign.BackColor = Back; themeSign.ForeColor = Ink; themeSign.FlatAppearance.MouseOverBackColor = Sheet; }
             if (IsHandleCreated) { int on = dark ? 1 : 0; DwmSetWindowAttribute(Handle, 20, ref on, 4); }
             surface.Invalidate();
@@ -117,7 +119,16 @@ namespace IkeV2Manager.Client
             catch (ArgumentException) { }
             catch (IOException) { }
             StartPosition = FormStartPosition.CenterScreen;
-            var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(20, 8, 20, 16), WrapContents = true };
+            // The same order as on macOS: what to do next on the left, the rest
+            // on the right, and under them when the state was last checked.
+            var buttons = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Bottom,
+                Padding = new Padding(20, 4, 20, 12), ColumnCount = 2, RowCount = 2 };
+            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var first = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty, Anchor = AnchorStyles.Left };
+            var rest = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = Padding.Empty, Anchor = AnchorStyles.Right };
+            checkedSign = new Label { AutoSize = true, Margin = new Padding(4, 6, 4, 0), Font = new Font(Font.FontFamily, Font.Size * 0.85f) };
+            buttons.Controls.Add(first, 0, 0); buttons.Controls.Add(rest, 1, 0); buttons.Controls.Add(checkedSign, 0, 1);
+            buttons.SetColumnSpan(checkedSign, 2);
             var refresh = new Button { Text = "Проверить", AutoSize = true };
             var report = new Button { Text = "Отчёт…", AutoSize = true };
             // The look of the window: a small sign in the corner, away from the actions.
@@ -127,18 +138,23 @@ namespace IkeV2Manager.Client
             new ToolTip().SetToolTip(look, "Тема");
             themeSign = look;
             // Everything the program put on this computer goes with one action.
-            var remove = new Button { Text = "Удалить…", AutoSize = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(199, 51, 46), ForeColor = Color.White };
+            var remove = new Button { Text = "Сбросить…", AutoSize = true, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(199, 51, 46), ForeColor = Color.White };
             remove.FlatAppearance.BorderSize = 0;
             remove.Click += (sender, args) =>
             {
-                if (MessageBox.Show(this, "Удалить Waypoint с этого компьютера?\n\nБудут удалены: VPN-подключение, блокировки, записи имён сервисов и регистрация устройства. " +
-                    "Чтобы вернуть доступ, понадобится новая ссылка от администратора.", "Удаление Waypoint", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+                if (MessageBox.Show(this, "Сбросить Waypoint на этом компьютере?\n\nБудут удалены: VPN-подключение, блокировки, записи имён сервисов и регистрация устройства. " +
+                    "Программа останется; чтобы вернуть доступ, понадобится новая ссылка от администратора.", "Сброс Waypoint", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
                 try
                 {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "Setup.exe"), "/uninstall /quiet") { UseShellExecute = true, Verb = "runas" });
-                    Close();
+                    // The system asks for an administrator; this window never holds the right itself.
+                    using (var setup = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "Setup.exe"), "/reset /quiet") { UseShellExecute = true, Verb = "runas" }))
+                    {
+                        setup.WaitForExit(90000);
+                        if (!setup.HasExited || setup.ExitCode != 0) MessageBox.Show(this, "Сброс не завершён. Повторите его.", "Сброс Waypoint");
+                    }
+                    RefreshStatus();
                 }
-                catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Удаление не запущено: нужны права администратора.", "Удаление Waypoint"); }
+                catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Сброс не запущен: нужны права администратора.", "Сброс Waypoint"); }
             };
             look.Click += (sender, args) => ChooseTheme(look);
             refresh.Click += (sender, args) => RefreshStatus();
@@ -166,7 +182,7 @@ namespace IkeV2Manager.Client
                 {
                     button.FlatStyle = FlatStyle.Flat; plain.Add(button);
                 }
-                buttons.Controls.Add(button);
+                (button == refresh || button == report || button == remove ? rest : first).Controls.Add(button);
             }
             surface.Paint += (sender, args) => Draw(args.Graphics, true);
             surface.Resize += (sender, args) => look.Location = new Point(surface.ClientSize.Width - 44, 12);
@@ -269,8 +285,6 @@ namespace IkeV2Manager.Client
                     }
                     y += said.Height + 20 * k + 12 * k;
                 }
-                if (paint) g.DrawString(checkedLine, small, softBrush, left, y);
-                y += g.MeasureString(checkedLine, small).Height + 4 * k;
             }
             return (int)Math.Ceiling(y);
         }
@@ -450,7 +464,7 @@ namespace IkeV2Manager.Client
                 (current.Warnings != null && current.Warnings.Contains("proxy") ? (newer ? "\r\n" : "") +
                     "Включён системный прокси: трафик через него идёт в обход туннеля." : "");
             var own = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-            checkedLine = "Проверено " + DateTime.Now.ToString("HH:mm:ss") + " \u00B7 v" + own.Major + "." + own.Minor + "." + Math.Max(own.Build, 0);
+            checkedSign.Text = checkedLine = "Проверено " + DateTime.Now.ToString("HH:mm:ss") + " \u00B7 v" + own.Major + "." + own.Minor + "." + Math.Max(own.Build, 0);
             FitWindow();
         }
 

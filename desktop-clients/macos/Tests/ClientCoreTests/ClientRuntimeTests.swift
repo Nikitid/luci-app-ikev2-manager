@@ -222,6 +222,30 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     #expect(router.reports.count == 1, "one request, one report")
 }
 
+@Test func resetTakesEverythingBackAndRegistersAgain() async throws {
+    var (runtime, machine, router, store, now) = try await registered()
+    try await runtime.setWanted(true)
+    machine.sync { machine.connected = true; machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
+    router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
+    await runtime.tick(now: now); now += 2
+    #expect(await runtime.status().protected)
+    try await runtime.reset(now: now)
+    #expect(machine.rules.isEmpty && !machine.hosts.contains("api.example.com") && machine.resolving.isEmpty && !machine.installed && machine.stopped == 1)
+    let after = await runtime.status()
+    #expect(after.state == "enrollment_required" && !after.protected && !after.guardInstalled && after.services.isEmpty)
+    #expect(try store.loadRegistration() == nil, "the device is forgotten")
+    // The program stays and takes a new link.
+    await runtime.tick(now: now); now += 2
+    #expect(await runtime.status().state == "enrollment_required")
+    router.sync { router.claimed = false; router.enrolled = false }
+    try await runtime.begin(invitation: invitation)
+    router.sync { router.enrolled = true }
+    await runtime.tick(now: now); now += 4
+    await runtime.tick(now: now); now += 2
+    await runtime.tick(now: now)
+    #expect(machine.rules.contains("block drop") && machine.hosts.contains("api.example.com"), "a new registration installs the denial again")
+}
+
 @Test func systemTextIsWhatTheSystemAccepts() throws {
     let policy = try ClientPolicy(data: Data(policyText.utf8))
     #expect(throws: (any Error).self) { try SystemPlan.packetFilter(subnet: "172.31.254.0/24", permit: "en0; pass all") }

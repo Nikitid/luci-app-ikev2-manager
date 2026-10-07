@@ -98,14 +98,16 @@ internal static class Setup
 
     private static int Main(string[] args)
     {
-        bool quiet = Array.IndexOf(args, "/quiet") >= 0, remove = Array.IndexOf(args, "/uninstall") >= 0;
+        bool quiet = Array.IndexOf(args, "/quiet") >= 0, remove = Array.IndexOf(args, "/uninstall") >= 0, reset = Array.IndexOf(args, "/reset") >= 0;
         foreach (string argument in args)
-            if (argument != "/quiet" && argument != "/uninstall") return 2;
+            if (argument != "/quiet" && argument != "/uninstall" && argument != "/reset") return 2;
+        if (remove && reset) return 2;
         try
         {
             if (!Environment.Is64BitOperatingSystem || !Environment.Is64BitProcess) throw new Refusal("Нужна 64-разрядная Windows.");
             if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
                 throw new Refusal("Запустите установку с правами администратора.");
+            if (reset) { Reset(); return 0; }
             if (remove)
             {
                 if (!quiet && MessageBox.Show("Удалить " + Title + "?\n\nРегистрация устройства будет удалена.", Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return 0;
@@ -181,6 +183,26 @@ internal static class Setup
             key.SetValue("QuietUninstallString", "\"" + self + "\" /uninstall /quiet");
             key.SetValue("NoModify", 1, RegistryValueKind.DWord);
             key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+        }
+    }
+
+    // Everything the program set up on this computer goes - the VPN
+    // connection, the blocking, the names, the registration - and the program
+    // stays, ready to register again. The same removal uninstallation runs,
+    // done by the service's own binary while the service is stopped.
+    private static void Reset()
+    {
+        if (!ServiceExists() || !File.Exists(ServicePath)) throw new Refusal("Программа не установлена.");
+        if (!OwnService()) throw new Refusal("Служба с именем клиента принадлежит другой программе.");
+        StopService();
+        try { Run(ServicePath, "--remove"); }
+        finally
+        {
+            using (var service = new ServiceController(Name))
+            {
+                service.Start();
+                service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+            }
         }
     }
 
