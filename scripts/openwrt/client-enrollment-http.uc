@@ -13,8 +13,8 @@ if (ARGV[0] == 'seed') {
 	let record = json(readfile(directory + '/credentials/http-laptop.json'));
 	if (bundle.version !== 1 || bundle.state != 'enrolled' || bundle.policy.id != 'http-laptop' ||
 		bundle.credentials.username != 'http-laptop' || bundle.credentials.password != record.password ||
-		filter(state.api.devices, device => device.id == 'http-laptop')[0].enabled)
-		die('wrong enrollment bundle or premature admission');
+		!filter(state.api.devices, device => device.id == 'http-laptop')[0].enabled)
+		die('wrong enrollment bundle, or registration did not open the device');
 } else if (ARGV[0] == 'enable' || ARGV[0] == 'disable') {
 	let state = read_client_state(directory), desired = state.publication;
 	delete desired.allocations;

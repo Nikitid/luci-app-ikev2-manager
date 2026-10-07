@@ -81,12 +81,15 @@ cp /etc/ikev2-manager/clients/invitations.json "$work/invitations"
 ucode /src/scripts/openwrt/client-enrollment-http.uc future-clock
 request 503 -H "Authorization: Bearer $device" "$poll"
 cp "$work/invitations" /etc/ikev2-manager/clients/invitations.json
-ucode /src/scripts/openwrt/client-enrollment-http.uc enable
-request 401 -H "Authorization: Bearer $device" "$poll"
+# Registration opened the device: its policy is served at once, and its bundle
+# stays retrievable by its own key until the invitation ends, open or closed.
+request 200 -H "Authorization: Bearer $device" https://localhost:18443/client/v1/policy
 ucode /src/scripts/openwrt/client-enrollment-http.uc disable
+request 401 -H "Authorization: Bearer $device" https://localhost:18443/client/v1/policy
+request 200 -H "Authorization: Bearer $device" "$poll"
+ucode /src/scripts/openwrt/client-enrollment-http.uc enable
 request 200 -H "Authorization: Bearer $device" "$poll"
 request 401 -X POST -H "Authorization: Bearer $invite" -H "X-Device-Token: $other" "$claim"
-request 401 -H "Authorization: Bearer $device" https://localhost:18443/client/v1/policy
 ucode /src/scripts/openwrt/client-enrollment-http.uc expire
 request 401 -H "Authorization: Bearer $device" "$poll"
-printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, background credentials, protected storage, disabled admission, clock and expiry PASS'
+printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, background credentials, protected storage, opening on registration, clock and expiry PASS'

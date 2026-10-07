@@ -55,7 +55,10 @@ export function client_enrollment_response(env, directory) {
 		}
 		let state = read_client_state(directory), selected = null;
 		for (let device in state.publication.devices) if (same_hash(digest, device.token_sha256)) selected = device;
-		if (selected == null || selected.enabled || !length(selected.selected_services) || index(state.retired_ids, selected.id) >= 0)
+		// The device is opened as soon as it is registered, so the bundle stays
+		// retrievable by its own key for the life of the invitation: a lost
+		// answer can be asked for again.
+		if (selected == null || !length(selected.selected_services) || index(state.retired_ids, selected.id) >= 0)
 			return reply(401, 'unauthorized');
 		let invitation = filter(journal.ledger.invitations, item => item.id == selected.id && item.status == 'completed')[0];
 		if (invitation == null || now >= invitation.expires_at) return reply(401, 'unauthorized');
