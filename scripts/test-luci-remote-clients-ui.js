@@ -58,7 +58,7 @@ async function main() {
  assert(!text(tree).includes('token_sha256'));
  const edits = nodes(tree).filter(n => n.tagName === 'BUTTON' && (text(n).trim() === 'Edit' || n.attrs['aria-label'] === 'Edit'));
  // People come first on the page, then the services.
- click(nodes(tree).find(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Ports'));
+ click(nodes(tree).find(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Ports: rarely needed'));
  const save = button(modal,'Save'); assert(save.disabled, 'unchanged service cannot save');
  const inputs = nodes(modal).filter(n => n.tagName === 'INPUT');
  inputs.find(n=>n.type==='checkbox').checked = false;
@@ -69,10 +69,11 @@ async function main() {
  assert(written[0].file.startsWith('/var/run/ikev2-client-admin-')); assert.strictEqual(written[0].mode,384);
  assert.strictEqual(jobs[0].startArgs[0],'client-admin-update'); assert.deepStrictEqual(jobs[0].statusArgs,['client-admin-status']);
  await jobs[0].onSuccess(); assert.strictEqual(hidden,1);
- // Another service is published from the picker; its proposal can be saved at once.
- click(button(tree,'Publish...'));
- const serviceSave = button(modal,'Save'); assert(!serviceSave.disabled, 'a service offered for publication can be saved as proposed');
+ // Ports are a rare case behind the gear; a wrong one cannot be staged.
+ click(nodes(tree).find(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Ports: rarely needed'));
+ const serviceSave = button(modal,'Save');
  nodes(modal).filter(n=>n.tagName==='INPUT' && n.type==='text')[0].value = '70000';
+ nodes(modal).find(n=>n.listeners.change).listeners.change();
  await click(serviceSave);
  assert.strictEqual(written.length,1, 'invalid ports cannot stage a request');
  assert(text(modal).includes('1 to 65535'));
@@ -98,6 +99,9 @@ async function main() {
  failWrite = false;
  await click(button(tree,'Update service lists'));
  assert.deepStrictEqual(jobs[3].startArgs,['client-admin-refresh']);
+ // Another service is published from the picker with nothing asked: the web's ports.
+ await click(button(tree,'Publish'));
+ assert.deepStrictEqual(written[written.length-1].body.payload, {id:'new_service',client_access:true,transports:[{protocol:'tcp',ports:[80,443]},{protocol:'udp',ports:[443]}]});
  click(button(tree,'Add person'));
  const invitationCreate = button(modal,'Create invitation');
  await click(invitationCreate);

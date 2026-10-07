@@ -267,7 +267,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-manager
 	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v13.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/ikev2-manager/users-panel-v2.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v16.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v17.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/view/ikev2-manager/settings-v10.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/view/ikev2-manager/client-v13.js
 

@@ -808,12 +808,11 @@ return view.extend({
     var holders = state.devices.filter(function(device) { return device.selected_services.indexOf(record.id) >= 0; }).length;
     return E('tr', { 'class': 'tr' }, [
      E('td', { 'class': 'td' }, [ E('strong', {}, [ record.label ]) ]),
-     E('td', { 'class': 'td' }, [ portsText(service) ]),
      E('td', { 'class': 'td' }, [ String(service.domain_count) ]),
      E('td', { 'class': 'td' }, [ _('%d of %d').format(holders, state.devices.length) ]),
      E('td', { 'class': 'td' }, [ E('span', { 'class': 'ikev2-user-actions ikev2-row-signs' }, [
       signButton('people', _('Who has this service'), 'cbi-button-action', function() { serviceHoldersDialog(record, state, reload, serviceResult); }),
-      signButton('settings', _('Ports'), 'cbi-button-edit ikev2-settle', function() { serviceDialog(record, service, state.generation, reload, serviceResult); }),
+      signButton('settings', _('Ports: rarely needed'), 'cbi-button-edit ikev2-settle', function() { serviceDialog(record, service, state.generation, reload, serviceResult); }),
       trashButton(_('Withdraw the service'), function() { withdrawDialog(record, service, state, reload, serviceResult); })
      ]) ])
     ]);
@@ -822,13 +821,19 @@ return view.extend({
    var pick = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Service to publish') }, others.map(function(record) {
     return E('option', { 'value': record.id }, [ record.label ]);
    }));
+   // Publishing asks nothing: the web's ports, which is what a service
+   // needs almost always. Other ports are a rare case behind the gear.
    var publish = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'click': function() {
     var record = others.filter(function(item) { return item.id === pick.value; })[0] || others[0];
-    if (record) serviceDialog(record, Object.assign({ transports: [ { protocol: 'tcp', ports: [ 443 ] } ] }, current(record) || {}, { client_access: true }), state.generation, reload, serviceResult, true);
-   } }, [ _('Publish...') ]);
+    if (!record) return;
+    var kept = current(record);
+    return saveRequest(publish, serviceResult, { version: 1, expected_generation: state.generation, operation: 'configure-service',
+     payload: { id: record.id, client_access: true, transports: kept && kept.transports ? kept.transports :
+      [ { protocol: 'tcp', ports: [ 80, 443 ] }, { protocol: 'udp', ports: [ 443 ] } ] } }, reload);
+   } }, [ _('Publish') ]);
    services.replaceChildren(
     shown.length ? E('table', { 'class': 'table cbi-section-table' }, [
-     E('tr', { 'class': 'tr' }, [ _('Published service'), _('Ports'), _('Domains'), _('Devices'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+     E('tr', { 'class': 'tr' }, [ _('Published service'), _('Domains'), _('Devices'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
     ].concat(serviceRows)) : E('div', { 'class': 'ikev2-empty' }, [ _('No service is published yet.') ]),
     others.length ? E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:.9rem' }, [ pick, publish ]) : '');
    // New devices that wait for the administrator are told apart from those

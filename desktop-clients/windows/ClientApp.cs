@@ -342,7 +342,8 @@ namespace IkeV2Manager.Client
         internal void Present(ClientView view)
         {
             current = view;
-            tone = current.State == "protected" ? Tone.Open :
+            bool unassigned = current.State == "access_closed" && current.Warnings != null && current.Warnings.Contains("idle");
+            tone = unassigned ? Tone.Off : current.State == "protected" ? Tone.Open :
                 current.State == "connecting" || current.State == "tunnel_connected" || current.State == "registration_pending" ? Tone.Working :
                 current.State == "blocked" || current.State == "enrollment_required" ? Tone.Off : Tone.Attention;
             string code = current.ConnectionError;
@@ -411,21 +412,22 @@ namespace IkeV2Manager.Client
             }
             bool fresh = current.State == "enrollment_required";
             bool relaxed = current.Warnings != null && current.Warnings.Contains("open");
-            checkValues[0] = relaxed ? "выключена администратором" : current.GuardInstalled ? "включена" : fresh ? "после регистрации" : "не подтверждена";
-            checkTones[0] = relaxed ? Tone.Off : current.GuardInstalled ? Tone.Open : fresh ? Tone.Off : Tone.Attention;
+            checkValues[0] = unassigned ? "не нужна" : relaxed ? "выключена администратором" : current.GuardInstalled ? "включена" : fresh ? "после регистрации" : "не подтверждена";
+            checkTones[0] = unassigned || relaxed ? Tone.Off : current.GuardInstalled ? Tone.Open : fresh ? Tone.Off : Tone.Attention;
             checkValues[1] = current.Routed ? "подключён" : current.State == "connecting" ? "подключается" : "нет";
             checkTones[1] = current.Routed ? Tone.Open : current.State == "connecting" ? Tone.Working : Tone.Off;
             checkValues[2] = current.Protected ? "получено" : "нет";
             checkTones[2] = current.Protected ? Tone.Open : current.Routed ? Tone.Working : Tone.Off;
-            servicesLine = current.Services.Length != 0 ? String.Join(" \u00B7 ", current.Services) :
+            servicesLine = unassigned ? "Не назначены" : current.Services.Length != 0 ? String.Join(" \u00B7 ", current.Services) :
                 current.Domains == 0 ? "Не назначены" : "Доменов: " + current.Domains;
             servicesNote = current.Services.Length == 0 ? "" : "Доменов: " + current.Domains;
             availableLine = current.Available.Length == 0 ? "" : "По запросу: " + String.Join(", ", current.Available);
             bool registered = current.GuardInstalled && current.State != "registration_pending" && current.State != "registration_error";
             register.Visible = current.State == "enrollment_required" || current.State == "registration_error";
             resume.Visible = current.State == "registration_pending" || current.State == "registration_error";
-            connect.Visible = registered && !current.Wanted;
-            disconnect.Visible = registered && current.Wanted;
+            // Nothing to switch on until the administrator assigns a service or opens access.
+            connect.Visible = registered && !current.Wanted && current.State != "access_closed";
+            disconnect.Visible = registered && current.Wanted && current.State != "access_closed";
             bool newer = ClientView.Newer(current.Release, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
             update.Visible = newer;
             if (connectAfterRegistration && registered && current.State == "blocked" && !current.Wanted && !commandBusy)

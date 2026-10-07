@@ -5351,3 +5351,9 @@ msgstr "Приложение для Windows"
 
 msgid "For ordinary VPN profiles on Windows: download once, then open a profile in it."
 msgstr "Для обычных VPN-профилей на Windows: скачайте один раз, затем откройте в нём профиль."
+
+msgid "Publish"
+msgstr "Опубликовать"
+
+msgid "Ports: rarely needed"
+msgstr "Порты: нужно редко"

@@ -197,6 +197,8 @@ enum Tone {
 extension ClientModel {
     var tone: Tone {
         guard let status else { return .attention }
+        // Nothing is wrong when the device simply has no service yet.
+        if status.state == "access_closed", status.error == "no_services" { return .off }
         switch status.state {
         case "protected": return .open
         case "connecting", "tunnel_connected", "registration_pending", "profile_required", "starting": return .working
@@ -259,8 +261,9 @@ struct ClientView: View {
             Card(title: "Проверки") {
                 let fresh = status?.state == "enrollment_required"
                 let relaxed = status?.blockWithoutTunnel == false
-                CheckRow(label: "Блокировка вне туннеля", value: relaxed ? "выключена администратором" : status?.guardInstalled == true ? "включена" : fresh ? "после регистрации" : "не подтверждена",
-                         tone: relaxed ? .off : status?.guardInstalled == true ? .open : fresh ? .off : .attention)
+                let idle = status?.state == "access_closed" && status?.error == "no_services"
+                CheckRow(label: "Блокировка вне туннеля", value: idle ? "не нужна" : relaxed ? "выключена администратором" : status?.guardInstalled == true ? "включена" : fresh ? "после регистрации" : "не подтверждена",
+                         tone: idle || relaxed ? .off : status?.guardInstalled == true ? .open : fresh ? .off : .attention)
                 CheckRow(label: "Туннель", value: status?.routed == true ? "подключён" : status?.state == "connecting" ? "подключается" : "нет",
                          tone: status?.routed == true ? .open : status?.state == "connecting" ? .working : .off)
                 CheckRow(label: "Подтверждение сервера", value: status?.protected == true ? "получено" : "нет",
@@ -271,7 +274,7 @@ struct ClientView: View {
                     Text(status.services.joined(separator: " · ")).bold().fixedSize(horizontal: false, vertical: true)
                     Text("Доменов: \(status.domains)").font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text(status == nil ? "Нет данных" : status?.domains == 0 ? "Не назначены" : "Доменов: \(status?.domains ?? 0)")
+                    Text(status == nil ? "Нет данных" : status?.domains == 0 || (status?.state == "access_closed" && status?.error == "no_services") ? "Не назначены" : "Доменов: \(status?.domains ?? 0)")
                         .foregroundStyle(.secondary)
                 }
                 if let status, !status.available.isEmpty {
@@ -295,7 +298,7 @@ struct ClientView: View {
                 Spacer()
                 Button("Проверить") { model.refresh() }
                 Button("Отчёт…") { reporting = true }
-                Button("Удалить…", role: .destructive) { removing = true }
+                Button { removing = true } label: { Text("Удалить…").foregroundStyle(Tone.attention.color) }
                 Picker("Тема", selection: $theme) {
                     Text("Системная").tag("system"); Text("Светлая").tag("light"); Text("Тёмная").tag("dark")
                 }.labelsHidden().fixedSize()
@@ -357,6 +360,9 @@ struct ClientView: View {
             Button("Установить профиль…") { model.installProfile() }.buttonStyle(.borderedProminent).fixedSize()
         } else if status?.state == "connecting" {
             Button("Отключить") { model.command("disconnect") }
+        } else if status?.state == "access_closed" {
+            // Nothing to switch on until the administrator assigns a service or opens access.
+            EmptyView()
         } else if let status, status.guardInstalled, status.profileInstalled {
             if status.wanted { Button("Отключить") { model.command("disconnect") } }
             else { Button("Включить") { model.command("connect") }.buttonStyle(.borderedProminent) }
