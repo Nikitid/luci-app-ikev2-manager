@@ -45,6 +45,17 @@ class ReconciliationTests(unittest.TestCase):
         value['snapshot']['data'][0]['ikev2-in']['remote-eap-id'] = 'unknown'
         self.assertEqual(self.reconcile(value)['tcp_out'], [])
 
+    def test_closed_device_with_an_older_exit_does_not_stop_the_open_ones(self):
+        # A removed device keeps the policy it last had; the administrator has
+        # since chosen another exit. The open device must still be admitted.
+        value = fixture()
+        old = copy.deepcopy(value['api']['devices'][0])
+        old.update({'id': 'gone', 'token_sha256': 'b' * 64, 'enabled': False})
+        old['policy'] = copy.deepcopy(old['policy'])
+        old['policy'].update({'id': 'gone', 'exit': '2' if value['api']['devices'][0]['policy']['exit'] != '2' else '1'})
+        value['api']['devices'].append(old)
+        self.assertEqual(len(self.reconcile(value)['tcp_in']), 1)
+
     def test_incomplete_sa_and_ambiguous_owners_never_receive_a_grant(self):
         value = fixture()
         value['snapshot']['data'][0]['ikev2-in']['state'] = 'CONNECTING'

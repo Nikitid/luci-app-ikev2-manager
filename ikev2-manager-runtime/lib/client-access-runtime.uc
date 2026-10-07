@@ -13,7 +13,8 @@ try {
 		exit(0);
 	}
 	let compiled, mode = 'closed';
-	if (ARGV[0] == 'close' || !length(state.api.devices)) {
+	// Nobody to admit: no device at all, or none that is open.
+	if (ARGV[0] == 'close' || !length(filter(state.api.devices, device => device.enabled))) {
 		compiled = compile_client_denial(state.publication.virtual_subnet);
 	} else {
 		let pool = split(ARGV[2], '-');

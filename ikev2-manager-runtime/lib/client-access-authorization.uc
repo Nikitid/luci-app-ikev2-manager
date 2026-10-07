@@ -232,6 +232,10 @@ export function reconcile_client_authorization(input) {
 			type(device.enabled) != 'bool') refuse();
 		ids[device.id] = true;
 		hashes[device.token_sha256] = true;
+		// A closed or removed device keeps the policy it last had. It admits
+		// nobody, and it may name an exit the administrator has since
+		// changed, so it takes no part in what is authorized now.
+		if (!device.enabled) continue;
 		let policy = compile_client_policy(device.policy).policy;
 		let serialized = sprintf('%J', policy);
 		if (policies[policy.id] != null && policies[policy.id] != serialized) refuse();
@@ -239,6 +243,10 @@ export function reconcile_client_authorization(input) {
 		policies[policy.id] = serialized;
 		if (device.enabled) push(users, { identity: device.id, policy: policy.id });
 	}
+	// With every device closed there is still a subnet to keep shut; any one
+	// stored policy names it.
+	if (!length(documents) && length(input.api.devices))
+		push(documents, compile_client_policy(input.api.devices[0].policy).policy);
 	return compile_client_authorization({ version: 1, pool: input.pool,
 		policies: documents, users: users, sessions: authenticated_client_sessions(input.snapshot),
 		lease_seconds: input.lease_seconds });
