@@ -117,7 +117,7 @@ final class ClientModel: ObservableObject {
         case "registration_pending": return "Ожидается ответ сервера."
         case "registration_error": return "Настройки не получены. Повторите регистрацию."
         case "profile_required": return "Установите профиль в «Системных настройках»."
-        case "connecting": return "Включите «Waypoint» в настройках VPN."
+        case "connecting": return "Устанавливается туннель."
         case "tunnel_connected":
             switch status.error {
             case "path_connectionFailed": return "Нет связи с сервером."
@@ -334,10 +334,10 @@ struct ClientView: View {
         } else if status?.state == "profile_required" {
             Button("Установить профиль…") { model.installProfile() }.buttonStyle(.borderedProminent).fixedSize()
         } else if status?.state == "connecting" {
+            Button("Отключить") { model.command("disconnect") }
             Button("Настройки VPN…") {
                 if let settings = URL(string: "x-apple.systempreferences:com.apple.NetworkExtensionSettingsUI.NESettingsUIExtension") { NSWorkspace.shared.open(settings) }
-            }.buttonStyle(.borderedProminent).fixedSize()
-            Button("Отключить") { model.command("disconnect") }
+            }
         } else if let status, status.guardInstalled, status.profileInstalled {
             if status.wanted { Button("Отключить") { model.command("disconnect") } }
             else { Button("Включить") { model.command("connect") }.buttonStyle(.borderedProminent) }

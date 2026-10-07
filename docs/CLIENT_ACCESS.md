@@ -871,13 +871,13 @@ router with a custom inbound configuration has to define that connection
 itself.
 
 On current macOS a profile-installed IKEv2 configuration is not listed by
-`scutil --nc` and a program cannot start it, so the user switches the
-connection on in the system's VPN settings; the window says so and opens them.
-The daemon learns that the profile is installed from `profiles list -all` and
-that the tunnel is up from the routes of the virtual subnet. Connecting on
-demand would bring the tunnel up by itself but keeps it up against the user's
-switch, and was left out. Switching access off in the window closes the packet
-filter and leaves the system's connection alone.
+`scutil --nc` and a program cannot start it. The profile therefore connects on
+demand: the system brings the tunnel up and keeps it, with no step for the
+user. The daemon learns that the profile is installed from `profiles list
+-all` and that the tunnel is up from the routes of the virtual subnet.
+Switching access off in the window closes the packet filter and leaves the
+system's connection alone; the tunnel routes the virtual subnet only. A user
+who switches the VPN off in the system's settings sees it come back.
 
 `IKEv2ManagerClient` is the window. Both windows are built the same way: a
 status with one sign and colour, three checks (denial outside the tunnel,
