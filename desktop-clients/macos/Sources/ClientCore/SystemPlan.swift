@@ -50,31 +50,6 @@ public enum SystemPlan {
         return rules
     }
 
-    /// A browser that resolves names over its own encrypted channel never
-    /// asks the system and would reach a selected service around the tunnel.
-    /// Each browser has a managed setting for this; the profile carries it.
-    static func browserPayloads(_ profile: String) -> String {
-        let chromium = ["com.google.Chrome", "com.microsoft.Edge", "com.brave.Browser", "ru.yandex.desktop.yandex-browser"]
-        var text = ""
-        for (index, domain) in (chromium + ["org.mozilla.firefox"]).enumerated() {
-            let settings = domain == "org.mozilla.firefox"
-                ? "<key>EnterprisePoliciesEnabled</key><true/><key>DNSOverHTTPS</key><dict><key>Enabled</key><false/><key>Locked</key><true/></dict>"
-                : "<key>DnsOverHttpsMode</key><string>off</string>"
-            text += """
-                    <dict>
-                        <key>PayloadType</key><string>\(domain)</string>
-                        <key>PayloadVersion</key><integer>1</integer>
-                        <key>PayloadIdentifier</key><string>io.github.nikitid.ikev2-manager-client.\(profile).browser\(index)</string>
-                        <key>PayloadUUID</key><string>\(UUID().uuidString)</string>
-                        <key>PayloadDisplayName</key><string>Name resolution through the system</string>
-                        \(settings)
-                    </dict>
-
-            """
-        }
-        return text
-    }
-
     static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
@@ -111,7 +86,6 @@ public enum SystemPlan {
             <key>PayloadDescription</key><string>Sends the services assigned to this device through \(escape(policy.serverAddress)).</string>
             <key>PayloadContent</key>
             <array>
-        \(browserPayloads(id))
                 <dict>
                     <key>PayloadType</key><string>com.apple.vpn.managed</string>
                     <key>PayloadVersion</key><integer>1</integer>

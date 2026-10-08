@@ -257,8 +257,8 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     let root = try #require(try PropertyListSerialization.propertyList(from: profile, format: nil) as? [String: Any])
     let payloads = try #require(root["PayloadContent"] as? [[String: Any]])
     let payload = try #require(payloads.first { $0["PayloadType"] as? String == "com.apple.vpn.managed" })
-    #expect(payloads.first { $0["PayloadType"] as? String == "com.google.Chrome" }?["DnsOverHttpsMode"] as? String == "off")
-    #expect(((payloads.first { $0["PayloadType"] as? String == "org.mozilla.firefox" }?["DNSOverHTTPS"]) as? [String: Any])?["Enabled"] as? Bool == false)
+    // The profile carries the VPN and nothing else: no setting of any other program.
+    #expect(payloads.count == 1)
     let settings = try #require(payload["IKEv2"] as? [String: Any])
     #expect(payload["VPNType"] as? String == "IKEv2" && payload["UserDefinedName"] as? String == SystemPlan.serviceName)
     #expect(settings["RemoteAddress"] as? String == "vpn.example.com" && settings["AuthName"] as? String == "office-mac")

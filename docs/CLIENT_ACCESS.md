@@ -798,11 +798,14 @@ cover the whole subnet, so the resolver and the names range are closed outside
 the tunnel like the fixed addresses.
 
 Because no AAAA record is ever returned for a managed name, a machine with
-working IPv6 has no IPv6 destination for it. Browsers are told by policy to
-resolve through the system (the installers set the Chromium-family and Firefox
-policies and remove only what they set); a browser with its own encrypted
-resolver would otherwise never ask the tunnel. A system proxy takes browser
-traffic before any route does; the Windows client reports it as a warning.
+working IPv6 has no IPv6 destination for it. The clients set nothing in any
+browser: a setting of another program is outside what they were let do, and
+what earlier builds wrote there is taken back on update. Chrome and Edge on
+Windows ask the system by themselves once name rules exist, also with a public
+system resolver they could encrypt to; that was measured. Firefox, and every
+browser on macOS, was not: a browser that resolves over its own encrypted
+channel never asks the tunnel. A system proxy takes browser traffic before any
+route does; both clients report it as a warning.
 
 On the router the DNS enforcement redirect leaves questions arriving from the
 inbound tunnel for the virtual subnet alone, and the firewall admits marked
@@ -857,10 +860,9 @@ reasoning except where a test is named:
   virtual subnet with that in mind; it cannot change after the first device.
 - A full-tunnel VPN beside it: closed while that VPN blocks other traffic,
   back when it is gone (tested with WireGuard on Windows).
-- A system proxy: traffic sent to the proxy bypasses the tunnel; the Windows
-  window warns, the macOS one does not yet.
-- A program with its own encrypted resolver, other than the browsers the
-  installer configures, reaches a service directly and not through the tunnel.
+- A system proxy: traffic sent to the proxy bypasses the tunnel; both windows warn.
+- A program with its own encrypted resolver reaches a service directly and
+  not through the tunnel. No program is configured against it.
 - Captive portals, IPv6-only access networks and small path MTU are
   unverified.
 
