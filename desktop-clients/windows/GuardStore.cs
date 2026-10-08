@@ -125,6 +125,39 @@ namespace IkeV2Manager.Client
                 64, File.Exists(Path.Combine(directory, "connection.json")));
         }
 
+        // The server's real addresses, as last resolved while nothing answered
+        // names in its place. Not a secret and decides nothing by itself.
+        public string[] LoadServerAddresses()
+        {
+            try
+            {
+                CheckOpen(); VerifyDirectory();
+                string path = Path.Combine(directory, "server.json");
+                if (!File.Exists(path)) return new string[0];
+                VerifyFile(path);
+                string text = File.ReadAllText(path, new UTF8Encoding(false, true));
+                if (text.Length > 256) return new string[0];
+                var fields = ClientPolicy.Object(new JavaScriptSerializer().DeserializeObject(text));
+                ClientPolicy.Fields(fields, "version", "addresses");
+                ClientPolicy.Integer(fields["version"], 1, 1);
+                return ClientPolicy.ArrayValue(fields["addresses"], 0, 4).Select(item => {
+                    System.Net.IPAddress parsed; string text4 = ClientPolicy.Text(item);
+                    if (!System.Net.IPAddress.TryParse(text4, out parsed) || parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || parsed.ToString() != text4)
+                        throw new ArgumentException("Invalid server address");
+                    return text4; }).ToArray();
+            }
+            catch (ArgumentException) { return new string[0]; }
+            catch (InvalidOperationException) { return new string[0]; }
+            catch (IOException) { return new string[0]; }
+        }
+
+        public void SaveServerAddresses(string[] addresses)
+        {
+            CheckOpen(); VerifyDirectory();
+            WriteProtectedJson("server.json", new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "version", 1 }, { "addresses", addresses } }),
+                256, File.Exists(Path.Combine(directory, "server.json")));
+        }
+
         public GuardReceipt LoadPlan()
         {
             CheckOpen();

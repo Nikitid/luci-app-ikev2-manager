@@ -652,6 +652,17 @@ things make the two coexist, each owned and each removed with the rest:
   dialing the server gets a host route through the physical network, with a
   lifetime after which Windows drops it by itself. When that does not reach
   the server the next attempt dials the way Windows chooses, and so in turn.
+- The server's real address. Such a VPN often answers every name with an
+  address of its own making; dialing the server by one builds the tunnel
+  inside that VPN or nowhere. The client remembers the server's real address
+  whenever it sees one and, while another VPN answers in its place, holds the
+  name to it in its own hosts block. The route above is kept for as long as
+  the connection lives, with a short lifetime renewed by the service, so it
+  goes by itself when the service does.
+- A tunnel that carries nothing. The router's word that a device is admitted
+  comes over the Internet. While names over HTTPS are on, the client also
+  reaches the resolver inside the tunnel; three misses in a row end the
+  connection and it is dialed again.
 - No interruption. The half-minute check of the profile, its routes and the
   name rules first looks without changing anything, and takes the tunnel's
   permission away only when something has to be put right. Before, it took the

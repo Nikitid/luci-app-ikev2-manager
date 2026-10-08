@@ -218,12 +218,15 @@ namespace IkeV2Manager.Client
             return new PolicyHistory(policy, history);
         }
 
-        public string ReconcileHosts(string original)
+        // `server` is the client's own server held to its real address while
+        // another VPN answers names with addresses of its own, or null.
+        public string ReconcileHosts(string original, HostEntry server = null)
         {
             // Revocation retains the reserved mapping. Deleting it would allow
             // the system resolver to expose the public destination again.
             var entries = allocations.OrderBy(p => p.Key, StringComparer.Ordinal)
                 .Select(p => new HostEntry { domain = p.Key, address = p.Value }).ToList();
+            if (server != null) entries.Add(server);
             return ManagedHosts.Reconcile(original, entries);
         }
 

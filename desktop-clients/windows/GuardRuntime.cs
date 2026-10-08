@@ -60,7 +60,10 @@ namespace IkeV2Manager.Client
         private DateTime nextReadinessAt;
         private bool appliedFull;
         private ServerPath serverPath;
-        private bool dialPlain, dialedThroughPath;
+        private bool dialPlain, dialedThroughPath, dialSucceeded;
+        private int pathMisses;
+        // The server held to its real address in this program's hosts block.
+        private HostEntry serverHeld;
         private bool noServices;
         private string release = "";
         private string[] warnings = new string[0];
@@ -388,6 +391,7 @@ namespace IkeV2Manager.Client
             if (!systemIntegration) return;
             if (guard == null) throw new InvalidOperationException("Guard required before VPN provisioning");
             guard.VerifyProtection();
+            HoldServer(policy.ServerAddress);
             bool full = assigned != null && assigned.Full;
             // This runs every half-minute. While the profile, its routes and the
             // name rules are what they should be there is nothing to put right,
@@ -403,6 +407,60 @@ namespace IkeV2Manager.Client
             store.SaveVpnEntry(profile.EntryId);
         }
 
+        private static bool Reaches(string address, int port)
+        {
+            try
+            {
+                using (var client = new System.Net.Sockets.TcpClient())
+                {
+                    var pending = client.BeginConnect(address, port, null, null);
+                    return pending.AsyncWaitHandle.WaitOne(1500) && client.Connected;
+                }
+            }
+            catch (System.Net.Sockets.SocketException) { return false; }
+            catch (ObjectDisposedException) { return false; }
+        }
+
+        // Another VPN often answers every name with an address of its own
+        // making. Dialing the server by such an address builds the tunnel
+        // inside that VPN, or nowhere. So the server's real address is
+        // remembered whenever it is seen, and while another VPN answers in its
+        // place the name is held to that address in this program's own hosts
+        // block - only then, and not on the attempts that go the plain way.
+        private void HoldServer(string server)
+        {
+            HostEntry wanted = null;
+            try
+            {
+                IPAddress[] seen;
+                try { seen = Dns.GetHostAddresses(server).Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork).ToArray(); }
+                catch (System.Net.Sockets.SocketException) { seen = new IPAddress[0]; }
+                string[] known = store.LoadServerAddresses();
+                bool own = serverHeld != null && seen.Length == 1 && seen[0].ToString() == serverHeld.address;
+                if (!own && seen.Length != 0 && seen.All(ServerPath.Public))
+                {
+                    var fresh = seen.Select(a => a.ToString()).OrderBy(a => a, StringComparer.Ordinal).Take(4).ToArray();
+                    if (!fresh.SequenceEqual(known)) { store.SaveServerAddresses(fresh); known = fresh; }
+                }
+                else if (!dialPlain && known.Length != 0 && AnotherTunnelCarriesTheInternet() && (own || !seen.Any(ServerPath.Public)))
+                    wanted = new HostEntry { address = known[0], domain = server };
+            }
+            catch (InvalidOperationException) { wanted = null; }
+            catch (ArgumentException) { wanted = null; }
+            catch (System.IO.IOException) { wanted = null; }
+            if ((wanted == null) == (serverHeld == null) && (wanted == null || wanted.address == serverHeld.address)) return;
+            var previous = serverHeld; serverHeld = wanted;
+            try
+            {
+                if (namesApplied) SystemHosts.Apply(store, store.LoadPolicyHistory(), serverHeld); else SystemHosts.Keep(store, serverHeld);
+            }
+            // A hosts file that cannot take the entry leaves things as they were.
+            catch (InvalidOperationException) { serverHeld = previous; }
+            catch (ArgumentException) { serverHeld = previous; }
+            catch (System.IO.IOException) { serverHeld = previous; }
+            catch (UnauthorizedAccessException) { serverHeld = previous; }
+        }
+
         // Looks, changes nothing. Any doubt is "no": the caller then closes the
         // permission and puts everything right the long way.
         private bool InPlace(ClientPolicy policy, bool full)
@@ -415,9 +473,9 @@ namespace IkeV2Manager.Client
                 if (entry == Guid.Empty) return false;
                 string https = assigned != null && assigned.NamesHttps ? policy.ServerAddress : null;
                 bool names = want
-                    ? SystemHosts.InPlace(store, store.LoadPolicyHistory()) && ManagedVpnProfile.NamesInPlace(owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
+                    ? SystemHosts.InPlace(store, store.LoadPolicyHistory(), serverHeld) && ManagedVpnProfile.NamesInPlace(owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
                         store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain), https)
-                    : SystemHosts.InPlace(store, null) && ManagedVpnProfile.NamesAbsent(owner);
+                    : SystemHosts.InPlace(store, null, serverHeld) && ManagedVpnProfile.NamesAbsent(owner);
                 return names && ManagedVpnProfile.InPlace(policy, owner, entry, full);
             }
             catch (InvalidOperationException) { return false; }
@@ -436,7 +494,7 @@ namespace IkeV2Manager.Client
             bool want = WantNames();
             if (want)
             {
-                SystemHosts.Apply(store, store.LoadPolicyHistory());
+                SystemHosts.Apply(store, store.LoadPolicyHistory(), serverHeld);
                 // Every name under a selected domain is asked through the tunnel;
                 // the denials already hold the address that answers.
                 ManagedVpnProfile.ApplyNames(store.LoadPlan().Owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
@@ -445,7 +503,7 @@ namespace IkeV2Manager.Client
             }
             else
             {
-                SystemHosts.Remove(store);
+                SystemHosts.Keep(store, serverHeld);
                 ManagedVpnProfile.RemoveNames(store.LoadPlan().Owner);
             }
             namesApplied = want;
@@ -509,11 +567,15 @@ namespace IkeV2Manager.Client
                     // the physical network. Should that not reach it, the next
                     // attempt goes the way Windows chooses, and so on in turn.
                     if (serverPath != null) { serverPath.Dispose(); serverPath = null; }
+                    HoldServer(store.LoadPolicyHistory().Current.ServerAddress);
                     if (!dialPlain) serverPath = ServerPath.Pin(store.LoadPolicyHistory().Current.ServerAddress);
-                    dialedThroughPath = serverPath != null;
+                    dialedThroughPath = serverPath != null || serverHeld != null;
+                    dialSucceeded = false; pathMisses = 0;
                     connection = OwnedRasConnection.Begin(profile, registration.Id, registration.Password);
                     routeDeadline = DateTime.MinValue;
                 }
+                // Every two seconds, well inside the route's lifetime.
+                if (serverPath != null) serverPath.Renew();
                 var observed = connection.Observe();
                 if (observed == null) { ClosePermission(); connectionState = "connecting"; return; }
                 // The fixed address of each selected domain, the address that
@@ -584,6 +646,20 @@ namespace IkeV2Manager.Client
                 }
                 readyUntil = DateTime.UtcNow.AddSeconds(20);
                 nextReadinessAt = DateTime.UtcNow.AddSeconds(6);
+                // The router's word says the tunnel is admitted; it is given
+                // over the Internet and does not say that the tunnel still
+                // carries anything. A tunnel whose outer path is gone - built
+                // through another VPN that has since been switched off - would
+                // stand "protected" and dead until the router gave up on it.
+                // So the resolver inside the tunnel is reached as well; three
+                // misses in a row end this connection and the next one is dialed.
+                if (assigned != null && assigned.NamesHttps)
+                {
+                    string resolver = PolicyHistory.NamesResolver(current.VirtualSubnet);
+                    if (Reaches(resolver, 443) || Reaches(resolver, 53)) pathMisses = 0;
+                    else if (++pathMisses >= 3) { pathMisses = 0; throw new InvalidOperationException("Tunnel carries nothing"); }
+                }
+                dialSucceeded = true;
                 connectionError = "none";
                 connectionState = "protected";
             }
@@ -597,11 +673,14 @@ namespace IkeV2Manager.Client
                     system != null && system.NativeErrorCode >= 0 && system.NativeErrorCode <= 65535 ? "native_" + system.NativeErrorCode :
                     error.Message == "IKEv2 interface cannot be identified uniquely" ? "interface_missing" :
                     error.Message == "Selected route does not use the owned tunnel" ? connectionError :
-                    error.Message == "Native IKEv2 connection lost" ? "projection_missing" : "route_or_identity";
+                    error.Message == "Native IKEv2 connection lost" ? "projection_missing" :
+                    error.Message == "Tunnel carries nothing" ? "path_stalled" : "route_or_identity";
                 store.RecordFault("connection", error);
                 connectionState = "connection_error";
                 retryConnectionAt = DateTime.UtcNow.AddSeconds(30);
-                dialPlain = dialedThroughPath && !dialPlain;
+                // A dial that never got through goes the other way next time; a
+                // connection that worked and was lost later is dialed the same way.
+                dialPlain = !dialSucceeded && dialedThroughPath;
                 ClosePermission();
                 CloseConnection();
             }

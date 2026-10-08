@@ -12,7 +12,10 @@ namespace IkeV2Manager.Client
     // another VPN's adapter, the tunnel would be built inside that VPN, which
     // often does not carry it at all. So for the length of dialing the server
     // gets a route through the physical network - the one route every VPN
-    // client keeps for its own server. The route expires by itself.
+    // client keeps for its own server. Windows adds none of its own beside it,
+    // so it has to stay for as long as the connection does: its lifetime is
+    // short and is renewed while the service lives, and without the service
+    // the route goes by itself.
     public sealed class ServerPath : IDisposable
     {
         private readonly System.Collections.Generic.List<RouteObservation.Native.Route> rows = new System.Collections.Generic.List<RouteObservation.Native.Route>();
@@ -36,7 +39,7 @@ namespace IkeV2Manager.Client
             }
         }
 
-        private static bool Public(IPAddress address)
+        public static bool Public(IPAddress address)
         {
             byte[] b = address.GetAddressBytes();
             // Not private, shared, loopback, link-local, the ranges some VPN
@@ -48,7 +51,7 @@ namespace IkeV2Manager.Client
         // Null when nothing stands between this computer and the server, or
         // when there is no physical network to go through: dialing then goes
         // the way it always did.
-        public static ServerPath Pin(string server, uint seconds = 90)
+        public static ServerPath Pin(string server, uint seconds = 120)
         {
             var made = new ServerPath();
             try
@@ -94,6 +97,21 @@ namespace IkeV2Manager.Client
             catch (InvalidOperationException) { return null; }
             catch (ArgumentException) { return null; }
             finally { if (made != null) made.Dispose(); }
+        }
+
+        // Gives the routes their full lifetime again. False when one is gone
+        // or can no longer be kept: the connection that relies on it is then
+        // on its own, and its loss is handled like any other.
+        public bool Renew(uint seconds = 120)
+        {
+            bool kept = rows.Count != 0;
+            for (int item = 0; item < rows.Count; item++)
+            {
+                var row = rows[item];
+                row.ValidLifetime = row.PreferredLifetime = seconds;
+                if (RouteObservation.Native.SetIpForwardEntry2(ref row) != 0) kept = false;
+            }
+            return kept;
         }
 
         public void Dispose()
@@ -169,6 +187,7 @@ namespace IkeV2Manager.Client
             [DllImport("iphlpapi.dll")] internal static extern uint CreateIpForwardEntry2(ref Route route);
             [DllImport("iphlpapi.dll")] internal static extern uint GetIpForwardEntry2(ref Route route);
             [DllImport("iphlpapi.dll")] internal static extern uint DeleteIpForwardEntry2(ref Route route);
+            [DllImport("iphlpapi.dll")] internal static extern uint SetIpForwardEntry2(ref Route route);
         }
     }
 }
