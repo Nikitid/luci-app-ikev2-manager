@@ -701,7 +701,7 @@ ignores cache freshness and prints its `action_id`.
 
 ## Inbound user access
 
-Inbound Server access settings are global defaults. The VPN Users page can
+Inbound Server access settings are global defaults. The Users page can
 override each managed EAP user:
 
 - router access: inherit, allow or deny;
@@ -764,7 +764,7 @@ device is bypassed in both directions without changing any Zapret strategy. The
 Unmanaged preset combines direct WAN with both flags; the runtime refuses to
 install it if neither integration mark can be validated.
 
-The VPN Users page can generate Apple mobileconfig, a `.sswan` profile for the
+The Users page can generate Apple mobileconfig, a `.sswan` profile for the
 strongSwan Android app and a separate Windows VPNv2 XML for each user. Apple
 and Android output contains the current password (the strongSwan app reads it
 from `shared_secret` since version 2.5.3) and must be deleted after use.
