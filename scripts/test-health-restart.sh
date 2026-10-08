@@ -211,3 +211,24 @@ for source in Makefile scripts/stage-package.sh; do
 done
 
 printf 'health watcher restart tests OK\n'
+
+# Remote client access: the same rule, in both packaging paths. A running
+# service is restarted and says so; one that is not running, or was never
+# installed, is left alone.
+for source in Makefile scripts/stage-package.sh; do
+	sed -n '/# client-access-restart begin/,/# client-access-restart end/p' "$root/$source" >"$tmp/client"
+	[ -s "$tmp/client" ] || { printf 'no client-access-restart block in %s\n' "$source" >&2; exit 1; }
+	case "$source" in Makefile) sed 's/\$\$/$/g' "$tmp/client" >"$tmp/client.sh" ;; *) cp "$tmp/client" "$tmp/client.sh" ;; esac
+	sh -n "$tmp/client.sh"
+	: >"$tmp/init.log"
+	INIT_LOG="$tmp/init.log" INIT_RUNNING_RC=0 INIT_RESTART_RC=0 IKEV2_CLIENT_ACCESS_INIT="$tmp/init" sh "$tmp/client.sh" >"$tmp/out" 2>&1
+	grep -qx 'restart' "$tmp/init.log" && grep -Fq 'Restarted remote client access' "$tmp/out" ||
+		{ printf '%s did not restart running remote client access\n' "$source" >&2; exit 1; }
+	: >"$tmp/init.log"
+	INIT_LOG="$tmp/init.log" INIT_RUNNING_RC=1 INIT_RESTART_RC=0 IKEV2_CLIENT_ACCESS_INIT="$tmp/init" sh "$tmp/client.sh" >"$tmp/out" 2>&1
+	if grep -qx 'restart' "$tmp/init.log"; then printf '%s started remote client access that was not running\n' "$source" >&2; exit 1; fi
+	: >"$tmp/init.log"
+	INIT_LOG="$tmp/init.log" IKEV2_CLIENT_ACCESS_INIT="$tmp/absent" sh "$tmp/client.sh" >"$tmp/out" 2>&1
+	[ ! -s "$tmp/init.log" ] && [ ! -s "$tmp/out" ] || { printf '%s touched remote client access that is not installed\n' "$source" >&2; exit 1; }
+done
+printf '%s\n' 'remote client access restart on upgrade OK'

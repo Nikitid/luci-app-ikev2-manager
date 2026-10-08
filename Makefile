@@ -452,6 +452,20 @@ if [ "$$ikev2_health_running" = 1 ]; then
 	fi
 fi
 # health-restart end
+# client-access-restart begin
+# The same holds for remote clients: the controller is a shell script and the
+# device API keeps the modules it loaded, so both go on running the previous
+# version after an upgrade - an old controller over new modules. Restart the
+# service only when it was running; one that was never set up stays untouched.
+ikev2_client_init="$${IKEV2_CLIENT_ACCESS_INIT:-/etc/init.d/ikev2-client-access}"
+if [ -x "$$ikev2_client_init" ] && "$$ikev2_client_init" running >/dev/null 2>&1; then
+	if "$$ikev2_client_init" restart >/dev/null 2>&1; then
+		echo "Restarted remote client access so it runs the installed version."
+	else
+		echo "Could not restart remote client access; run '$$ikev2_client_init restart'." >&2
+	fi
+fi
+# client-access-restart end
 # inbound-policy-watcher begin
 # Keep inbound admission independent from the slower general health loop. A
 # HUP makes an existing watcher exec the newly installed script without
