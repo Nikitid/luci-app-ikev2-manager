@@ -42,7 +42,13 @@ export function compile_client_publication(input) {
 		hashes[device.token_sha256] = true;
 		let previous = device.previous_policy;
 		if (previous != null) {
-			compile_client_policy(previous);
+			// The policy a device last had was compiled when it was made. It is
+			// compiled again only for a device that is let in: a closed or
+			// removed one admits nobody and is never served, and every removed
+			// device stays in the state for good - compiling all of them made
+			// each save slower with each device ever removed.
+			if (device.enabled) compile_client_policy(previous);
+			if (type(previous) != 'object' || type(previous.server) != 'object' || type(previous.resources) != 'array') die('invalid retained policy');
 			if (previous.id != device.id || previous.virtual_subnet != proposal.virtual_subnet ||
 				previous.server.address != proposal.server?.address || previous.server.remote_id != proposal.server?.remote_id)
 				die('publication changes enrolled identity or address pool');

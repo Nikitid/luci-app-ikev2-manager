@@ -21,11 +21,46 @@ internal static class Setup
     private static readonly string AppPath = Path.Combine(Destination, "IKEv2ManagerClient.exe");
     private static readonly string Shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), Title + ".lnk");
 
-    // Earlier builds switched the browsers' own encrypted DNS off by policy.
-    // That reaches beyond this program's services and is no longer done; what
-    // such a build wrote is recorded here and is taken back on update and on
-    // removal. Nothing new is written.
+    // A browser set to resolve names over its own encrypted channel reaches a
+    // service around the tunnel. Each browser has a setting, meant for whoever
+    // manages the computer, to ask the system instead. Setting it reaches
+    // beyond this program's services, so it is never done by installing: only
+    // when the person at the window asks for it, and it is taken back there
+    // too, on removal, and for what earlier builds set on their own. Only
+    // values this setup wrote are recorded, and only those are removed.
     private const string OwnedKey = @"Software\IKEv2ManagerClient";
+    private static readonly string[][] BrowserPolicies = {
+        new[] { @"SOFTWARE\Policies\Google\Chrome", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\Microsoft\Edge", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\BraveSoftware\Brave", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\YandexBrowser", "DnsOverHttpsMode", "off" },
+        new[] { @"SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS", "Enabled", "0" },
+        new[] { @"SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS", "Locked", "1" }
+    };
+
+    private static void ApplyBrowserPolicies()
+    {
+        var owned = new System.Collections.Generic.List<string>();
+        using (var record = Registry.LocalMachine.CreateSubKey(OwnedKey))
+        {
+            var previous = record.GetValue("BrowserPolicies") as string[];
+            if (previous != null) owned.AddRange(previous);
+            foreach (var policy in BrowserPolicies)
+            {
+                string identity = policy[0] + "|" + policy[1];
+                using (var key = Registry.LocalMachine.CreateSubKey(policy[0]))
+                {
+                    // Somebody else's setting stays theirs.
+                    if (key.GetValue(policy[1]) != null && !owned.Contains(identity)) continue;
+                    if (policy[2] == "off") key.SetValue(policy[1], policy[2], RegistryValueKind.String);
+                    else key.SetValue(policy[1], Int32.Parse(policy[2]), RegistryValueKind.DWord);
+                    if (!owned.Contains(identity)) owned.Add(identity);
+                }
+            }
+            record.SetValue("BrowserPolicies", owned.ToArray(), RegistryValueKind.MultiString);
+        }
+    }
+
     // `everything` also drops this program's whole record, at removal.
     private static void RemoveBrowserPolicies(bool everything)
     {
@@ -67,15 +102,19 @@ internal static class Setup
     private static int Main(string[] args)
     {
         bool quiet = Array.IndexOf(args, "/quiet") >= 0, remove = Array.IndexOf(args, "/uninstall") >= 0, reset = Array.IndexOf(args, "/reset") >= 0;
+        bool browsersOn = Array.IndexOf(args, "/browsers-on") >= 0, browsersOff = Array.IndexOf(args, "/browsers-off") >= 0;
         foreach (string argument in args)
-            if (argument != "/quiet" && argument != "/uninstall" && argument != "/reset") return 2;
-        if (remove && reset) return 2;
+            if (argument != "/quiet" && argument != "/uninstall" && argument != "/reset" && argument != "/browsers-on" && argument != "/browsers-off") return 2;
+        if ((remove ? 1 : 0) + (reset ? 1 : 0) + (browsersOn ? 1 : 0) + (browsersOff ? 1 : 0) > 1) return 2;
         try
         {
             if (!Environment.Is64BitOperatingSystem || !Environment.Is64BitProcess) throw new Refusal("Нужна 64-разрядная Windows.");
             if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
                 throw new Refusal("Запустите установку с правами администратора.");
             if (reset) { Reset(); return 0; }
+            // Asked for by the person at the window, never done by installing.
+            if (browsersOn) { ApplyBrowserPolicies(); return 0; }
+            if (browsersOff) { RemoveBrowserPolicies(false); return 0; }
             if (remove)
             {
                 if (!quiet && MessageBox.Show("Удалить " + Title + "?\n\nРегистрация устройства будет удалена.", Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return 0;
@@ -139,7 +178,6 @@ internal static class Setup
         link.GetType().InvokeMember("TargetPath", BindingFlags.SetProperty, null, link, new object[] { AppPath });
         link.GetType().InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, link, new object[] { Destination });
         link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
-        RemoveBrowserPolicies(false);
         using (var key = Registry.LocalMachine.CreateSubKey(UninstallKey))
         {
             key.SetValue("DisplayName", Title);

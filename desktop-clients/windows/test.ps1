@@ -109,6 +109,15 @@ $appExecutable = Join-Path $output 'IKEv2ManagerClient.exe'
     (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
     (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Client application failed to compile' }
+$browserExecutable = Join-Path $output 'BrowserNamesTests.exe'
+& $compiler /nologo /platform:x64 /main:BrowserNamesTests "/out:$browserExecutable" /r:System.Web.Extensions.dll `
+    /r:System.Windows.Forms.dll /r:System.Drawing.dll `
+    (Join-Path $PSScriptRoot 'ClientStatusReader.cs') (Join-Path $PSScriptRoot 'ClientApp.cs') `
+    (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'BrowserNamesTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Browser names test failed to compile' }
+& $browserExecutable
+if ($LASTEXITCODE -ne 0) { throw 'Browser names test failed' }
 # Drives an installed product; compiled here, run only by the integration fixture.
 & $compiler /nologo /platform:x64 "/out:$(Join-Path $output 'ProductIntegrationTests.exe')" /r:System.Web.Extensions.dll /r:System.ServiceProcess.dll `
     (Join-Path $PSScriptRoot 'ClientStatusReader.cs') (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `

@@ -459,6 +459,8 @@ public actor ClientRuntime {
         if let registration = try? store.loadRegistration() {
             system.removeVPNProfile(identifier: SystemPlan.profileIdentifier(registration.profile))
         }
+        // The browsers get their own setting back with everything else.
+        system.removeVPNProfile(identifier: SystemPlan.browserProfileIdentifier)
         let hosts = try system.readHosts(), cleared = try ManagedHosts.reconcile(hosts, entries: [])
         if cleared != hosts { try system.writeHosts(cleared) }
         try system.setNameResolution(domains: [], resolver: "")

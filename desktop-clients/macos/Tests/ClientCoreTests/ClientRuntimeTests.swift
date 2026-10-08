@@ -246,6 +246,43 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     #expect(machine.rules.contains("block drop") && machine.hosts.contains("api.example.com"), "a new registration installs the denial again")
 }
 
+@Test func browsersThatResolveByThemselvesAreNamed() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("waypoint-browsers-" + UUID().uuidString)
+    let support = root.appendingPathComponent("support"), managed = root.appendingPathComponent("managed")
+    defer { try? FileManager.default.removeItem(at: root) }
+    func put(_ path: String, _ text: String, under base: URL) throws {
+        let file = base.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: file, atomically: true, encoding: .utf8)
+    }
+    try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: managed, withIntermediateDirectories: true)
+    #expect(SystemPlan.selfResolvingBrowsers(support: support, managed: managed).isEmpty)
+    // Automatic is the default and asks the system; a provider chosen by hand does not.
+    try put("Google/Chrome/Local State", #"{"dns_over_https":{"mode":"automatic"}}"#, under: support)
+    try put("Microsoft Edge/Local State", #"{"dns_over_https":{"mode":"off"}}"#, under: support)
+    try put("Firefox/Profiles/a.default/prefs.js", "user_pref(\"network.trr.mode\", 5);\n", under: support)
+    #expect(SystemPlan.selfResolvingBrowsers(support: support, managed: managed).isEmpty)
+    try put("Google/Chrome/Local State", #"{"dns_over_https":{"mode":"secure","templates":"https://dns.example/dns-query"}}"#, under: support)
+    try put("Firefox/Profiles/b.work/prefs.js", "user_pref(\"network.trr.mode\", 3);\n", under: support)
+    #expect(SystemPlan.selfResolvingBrowsers(support: support, managed: managed) == ["Chrome", "Firefox"])
+    try put("Google/Chrome/Local State", "{ not json", under: support)
+    #expect(SystemPlan.selfResolvingBrowsers(support: support, managed: managed) == ["Firefox"], "a broken file accuses nobody")
+    try put("Google/Chrome/Local State", #"{"dns_over_https":{"mode":"secure"}}"#, under: support)
+    // The profile made on request tells exactly these browsers, and a browser that was told is no longer named.
+    #expect(!SystemPlan.browsersTold(managed: managed))
+    let profile = try #require(try PropertyListSerialization.propertyList(from: SystemPlan.browserProfile(), format: nil) as? [String: Any])
+    let payloads = try #require(profile["PayloadContent"] as? [[String: Any]])
+    #expect(profile["PayloadIdentifier"] as? String == SystemPlan.browserProfileIdentifier && payloads.compactMap { $0["PayloadType"] as? String } == SystemPlan.browserDomains)
+    #expect(!payloads.contains { $0["PayloadType"] as? String == "com.apple.vpn.managed" })
+    for payload in payloads {
+        guard let domain = payload["PayloadType"] as? String else { continue }
+        var settings = payload; for key in ["PayloadType", "PayloadVersion", "PayloadIdentifier", "PayloadUUID", "PayloadDisplayName"] { settings.removeValue(forKey: key) }
+        try PropertyListSerialization.data(fromPropertyList: settings, format: .xml, options: 0).write(to: managed.appendingPathComponent(domain + ".plist"))
+    }
+    #expect(SystemPlan.browsersTold(managed: managed) && SystemPlan.selfResolvingBrowsers(support: support, managed: managed).isEmpty)
+}
+
 @Test func systemTextIsWhatTheSystemAccepts() throws {
     let policy = try ClientPolicy(data: Data(policyText.utf8))
     #expect(throws: (any Error).self) { try SystemPlan.packetFilter(subnet: "172.31.254.0/24", permit: "en0; pass all") }

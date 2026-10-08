@@ -55,6 +55,98 @@ public enum SystemPlan {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
+    public static let browserProfileIdentifier = "io.github.nikitid.ikev2-manager-client.browsers"
+
+    /// The browsers this program knows how to tell, by the name of their settings.
+    public static let browserDomains = ["com.google.Chrome", "com.microsoft.Edge", "com.brave.Browser", "ru.yandex.desktop.yandex-browser", "org.mozilla.firefox"]
+
+    /// A browser set to resolve names over its own encrypted channel never
+    /// asks the system and reaches a service around the tunnel. Each browser
+    /// has a managed setting to ask the system instead. It reaches beyond this
+    /// program's services, so it is its own profile, made only when the person
+    /// at the window asks for it and installed by them; removing the profile
+    /// takes the setting back.
+    public static func browserProfile() -> Data {
+        var payloads = ""
+        for (index, domain) in browserDomains.enumerated() {
+            let settings = domain == "org.mozilla.firefox"
+                ? "<key>EnterprisePoliciesEnabled</key><true/><key>DNSOverHTTPS</key><dict><key>Enabled</key><false/><key>Locked</key><true/></dict>"
+                : "<key>DnsOverHttpsMode</key><string>off</string>"
+            payloads += """
+                    <dict>
+                        <key>PayloadType</key><string>\(domain)</string>
+                        <key>PayloadVersion</key><integer>1</integer>
+                        <key>PayloadIdentifier</key><string>\(browserProfileIdentifier).\(index)</string>
+                        <key>PayloadUUID</key><string>\(UUID().uuidString)</string>
+                        <key>PayloadDisplayName</key><string>Name resolution through the system</string>
+                        \(settings)
+                    </dict>
+
+            """
+        }
+        let text = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>PayloadType</key><string>Configuration</string>
+            <key>PayloadVersion</key><integer>1</integer>
+            <key>PayloadScope</key><string>System</string>
+            <key>PayloadIdentifier</key><string>\(browserProfileIdentifier)</string>
+            <key>PayloadUUID</key><string>\(UUID().uuidString)</string>
+            <key>PayloadDisplayName</key><string>\(serviceName): browsers</string>
+            <key>PayloadDescription</key><string>Tells Chrome, Edge, Brave, Yandex Browser and Firefox to resolve names through the system, so the services of \(serviceName) go through its tunnel. Remove this profile to give the browsers their own setting back.</string>
+            <key>PayloadContent</key>
+            <array>
+        \(payloads)
+            </array>
+        </dict>
+        </plist>
+
+        """
+        return Data(text.utf8)
+    }
+
+    /// Which of the given browsers resolve names by themselves, from the
+    /// settings of the person at the window: `support` is their Application
+    /// Support folder, `managed` where the system keeps settings a profile
+    /// set. Read, never written. "Automatic" is not such a setting.
+    public static func selfResolvingBrowsers(support: URL, managed: URL) -> [String] {
+        let chromium: [(String, String, String)] = [("Chrome", "Google/Chrome", "com.google.Chrome"), ("Edge", "Microsoft Edge", "com.microsoft.Edge"),
+            ("Brave", "BraveSoftware/Brave-Browser", "com.brave.Browser"), ("Яндекс Браузер", "Yandex/YandexBrowser", "ru.yandex.desktop.yandex-browser")]
+        func told(_ domain: String) -> [String: Any]? {
+            guard let data = try? Data(contentsOf: managed.appendingPathComponent(domain + ".plist")) else { return nil }
+            return (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
+        }
+        var found: [String] = []
+        for (name, folder, domain) in chromium {
+            if told(domain)?["DnsOverHttpsMode"] as? String == "off" { continue }
+            let file = support.appendingPathComponent(folder).appendingPathComponent("Local State")
+            guard let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 8_388_608,
+                  let data = try? Data(contentsOf: file), let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let settings = root["dns_over_https"] as? [String: Any], settings["mode"] as? String == "secure" else { continue }
+            found.append(name)
+        }
+        if (told("org.mozilla.firefox")?["DNSOverHTTPS"] as? [String: Any])?["Enabled"] as? Bool != false {
+            let profiles = support.appendingPathComponent("Firefox/Profiles")
+            for profile in (try? FileManager.default.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil)) ?? [] {
+                let file = profile.appendingPathComponent("prefs.js")
+                guard let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 8_388_608,
+                      let text = try? String(contentsOf: file, encoding: .utf8),
+                      text.range(of: #"user_pref\("network\.trr\.mode",\s*[23]\)"#, options: .regularExpression) != nil else { continue }
+                found.append("Firefox"); break
+            }
+        }
+        return found
+    }
+
+    /// Whether the browsers were told by this program's profile.
+    public static func browsersTold(managed: URL) -> Bool {
+        guard let data = try? Data(contentsOf: managed.appendingPathComponent("com.google.Chrome.plist")),
+              let settings = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else { return false }
+        return settings["DnsOverHttpsMode"] as? String == "off"
+    }
+
     /// A configuration profile with one IKEv2 service for this device. The
     /// device names itself in the managed domain, so the server offers it the
     /// virtual subnet alone and the system routes nothing else into the tunnel.

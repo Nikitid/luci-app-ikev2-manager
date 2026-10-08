@@ -89,7 +89,8 @@ export function publish_client_state(directory, desired, expected_generation, in
 		} else {
 			regular_safe(marker);
 			// Missing or invalid committed history must never allocate anew.
-			previous = read_client_state(directory);
+			// It is checked in full once, where the new state is prepared.
+			previous = committed(directory);
 		}
 		let snapshot = prepare_client_state({ version: 1, expected_generation: expected_generation,
 			previous: previous, desired: desired });

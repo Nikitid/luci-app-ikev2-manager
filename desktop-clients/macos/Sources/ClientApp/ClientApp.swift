@@ -90,6 +90,36 @@ final class ClientModel: ObservableObject {
         }
     }
 
+    /// What the browsers of the person at this window are set to.
+    @Published var selfResolving: [String] = []
+    @Published var browsersTold = false
+
+    func lookAtBrowsers() {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")
+        let managed = URL(fileURLWithPath: "/Library/Managed Preferences")
+        selfResolving = SystemPlan.selfResolvingBrowsers(support: support, managed: managed)
+        browsersTold = SystemPlan.browsersTold(managed: managed)
+    }
+
+    /// Hands the system a profile that tells the browsers to ask it for names.
+    /// The person installs it themselves, and removes it the same way.
+    func offerBrowserProfile() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("waypoint-browsers-" + UUID().uuidString)
+        let file = directory.appendingPathComponent("Waypoint-browsers.mobileconfig")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            guard FileManager.default.createFile(atPath: file.path, contents: SystemPlan.browserProfile(), attributes: [.posixPermissions: 0o600])
+            else { throw CocoaError(.fileWriteUnknown) }
+        } catch { message = "Профиль не сохранён."; return }
+        NSWorkspace.shared.open(file)
+        openProfileSettings()
+        message = "«Системные настройки» → «Основные» → «Управление устройством» → «Waypoint: browsers» → «Установить». Затем перезапустите браузеры."
+    }
+
+    func openProfileSettings() {
+        if let settings = URL(string: "x-apple.systempreferences:com.apple.Profiles-Settings.extension") { NSWorkspace.shared.open(settings) }
+    }
+
     var heading: String {
         guard let status else { return "Служба не отвечает" }
         switch status.state {
@@ -228,6 +258,7 @@ struct ClientView: View {
     @State private var invitation = ""
     @State private var registering = false
     @State private var reporting = false
+    @State private var browsing = false
     @State private var removing = false
     /// "system", "light" or "dark": the look the user chose for this window.
     @AppStorage("theme") private var theme = "system"
@@ -263,6 +294,9 @@ struct ClientView: View {
                          tone: status?.routed == true ? .open : status?.state == "connecting" ? .working : .off)
                 CheckRow(label: "Подтверждение сервера", value: status?.protected == true ? "получено" : "нет",
                          tone: status?.protected == true ? .open : status?.routed == true ? .working : .off)
+                CheckRow(label: "Имена в браузерах",
+                         value: !model.selfResolving.isEmpty ? model.selfResolving.joined(separator: ", ") + ": в обход туннеля" : model.browsersTold ? "через систему, задано Waypoint" : "через систему",
+                         tone: !model.selfResolving.isEmpty ? .attention : fresh ? .off : .open)
             }
             Card(title: "Сервисы") {
                 if let status, !status.services.isEmpty {
@@ -299,7 +333,8 @@ struct ClientView: View {
             HStack {
                 primaryAction(status)
                 Spacer()
-                Button("Проверить") { model.refresh() }
+                if !model.selfResolving.isEmpty || model.browsersTold { Button("Браузеры…") { browsing = true } }
+                Button("Проверить") { model.refresh(); model.lookAtBrowsers() }
                 Button("Отчёт…") { reporting = true }
                 Button("Сбросить…") { removing = true }.buttonStyle(.borderedProminent).tint(Tone.attention.color)
                     .disabled(status == nil || status?.state == "enrollment_required")
@@ -310,7 +345,7 @@ struct ClientView: View {
         .padding(22)
         .frame(width: 540)
         .frame(minHeight: 420)
-        .onAppear { applyTheme(); model.start() }
+        .onAppear { applyTheme(); model.start(); model.lookAtBrowsers() }
         .onChange(of: theme) { applyTheme() }
         .sheet(isPresented: $registering) {
             VStack(alignment: .leading, spacing: 12) {
@@ -332,6 +367,18 @@ struct ClientView: View {
             Button("Отмена", role: .cancel) { }
         } message: {
             Text("Будут удалены: профиль VPN, блокировки, записи имён сервисов и регистрация устройства. Программа останется; чтобы вернуть доступ, понадобится новая ссылка от администратора.")
+        }
+        .confirmationDialog("Имена в браузерах", isPresented: $browsing) {
+            if model.browsersTold {
+                Button("Открыть «Управление устройством»") { model.openProfileSettings() }
+            } else {
+                Button("Подготовить профиль") { model.offerBrowserProfile() }
+            }
+            Button("Отмена", role: .cancel) { }
+        } message: {
+            Text(model.browsersTold
+                 ? "Waypoint задал браузерам настройку «спрашивать имена у системы» отдельным профилем. Чтобы вернуть браузерам их собственную настройку, удалите профиль «Waypoint: browsers» в «Управлении устройством»."
+                 : "Браузер, который спрашивает имена сам по шифрованному каналу" + (model.selfResolving.isEmpty ? "" : " (" + model.selfResolving.joined(separator: ", ") + ")") + ", открывает сервисы в обход туннеля. Waypoint может подготовить профиль, который задаёт Chrome, Edge, Brave, Яндекс Браузеру и Firefox настройку «спрашивать имена у системы». Она действует для всех сайтов; установить и удалить профиль можете только вы.")
         }
         .sheet(isPresented: $reporting) {
             VStack(alignment: .leading, spacing: 12) {

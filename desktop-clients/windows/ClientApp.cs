@@ -79,9 +79,103 @@ namespace IkeV2Manager.Client
             }
             menu.Show(anchor, new Point(0, anchor.Height));
         }
-        private readonly string[] checkLabels = { "Блокировка вне туннеля", "Туннель", "Подтверждение сервера" };
-        private readonly string[] checkValues = { "", "", "" };
-        private readonly Tone[] checkTones = { Tone.Off, Tone.Off, Tone.Off };
+        private readonly string[] checkLabels = { "Блокировка вне туннеля", "Туннель", "Подтверждение сервера", "Имена в браузерах" };
+        private readonly string[] checkValues = { "", "", "", "" };
+        private readonly Tone[] checkTones = { Tone.Off, Tone.Off, Tone.Off, Tone.Off };
+        private readonly Button browsers = new Button { Text = "Браузеры…", AutoSize = true, Visible = false };
+        private string[] selfResolving = new string[0];
+
+        // A browser told to resolve names over its own encrypted channel never
+        // asks the system, and reaches a service around the tunnel. This looks
+        // at the settings of the browsers of the person at this window - their
+        // own files, read and never written - and names those set that way.
+        // "Automatic" in Chrome and its kin is not such a setting: with name
+        // rules in place they ask the system. A browser already told by policy
+        // to ask the system is not named.
+        internal static string[] SelfResolvingBrowsers()
+        {
+            return SelfResolvingBrowsers(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), true);
+        }
+
+        // `policies` off leaves the computer's own settings out, for a test.
+        internal static string[] SelfResolvingBrowsers(string local, string roaming, bool policies)
+        {
+            var found = new List<string>();
+            var chromium = new[] {
+                new[] { "Chrome", @"Google\Chrome\User Data", @"SOFTWARE\Policies\Google\Chrome" },
+                new[] { "Edge", @"Microsoft\Edge\User Data", @"SOFTWARE\Policies\Microsoft\Edge" },
+                new[] { "Brave", @"BraveSoftware\Brave-Browser\User Data", @"SOFTWARE\Policies\BraveSoftware\Brave" },
+                new[] { "Яндекс Браузер", @"Yandex\YandexBrowser\User Data", @"SOFTWARE\Policies\YandexBrowser" } };
+            foreach (var browser in chromium)
+            {
+                try
+                {
+                    string state = Path.Combine(local, browser[1], "Local State");
+                    if (!File.Exists(state) || new FileInfo(state).Length > 8388608) continue;
+                    if (policies) using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(browser[2]))
+                        if (key != null && (key.GetValue("DnsOverHttpsMode") as string) == "off") continue;
+                    var root = new JavaScriptSerializer { MaxJsonLength = 8388608 }.DeserializeObject(File.ReadAllText(state)) as Dictionary<string, object>;
+                    object section;
+                    if (root == null || !root.TryGetValue("dns_over_https", out section)) continue;
+                    var settings = section as Dictionary<string, object>; object mode;
+                    if (settings != null && settings.TryGetValue("mode", out mode) && (mode as string) == "secure") found.Add(browser[0]);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                catch (ArgumentException) { }
+                catch (InvalidOperationException) { }
+                catch (System.Security.SecurityException) { }
+            }
+            try
+            {
+                bool told = false;
+                if (policies) using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS"))
+                    told = key != null && (key.GetValue("Enabled") as int?) == 0;
+                string profiles = Path.Combine(roaming, @"Mozilla\Firefox\Profiles");
+                if (!told && Directory.Exists(profiles))
+                    foreach (string profile in Directory.GetDirectories(profiles))
+                    {
+                        string prefs = Path.Combine(profile, "prefs.js");
+                        if (!File.Exists(prefs) || new FileInfo(prefs).Length > 8388608) continue;
+                        if (System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(prefs), @"user_pref\(""network\.trr\.mode"",\s*[23]\)")) { found.Add("Firefox"); break; }
+                    }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (System.Security.SecurityException) { }
+            return found.ToArray();
+        }
+
+        // Whether this program has told the browsers to ask the system - at the user's request, through setup.
+        internal static bool BrowsersTold()
+        {
+            try { using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"Software\IKEv2ManagerClient")) return key != null && key.GetValue("BrowserPolicies") is string[]; }
+            catch (System.Security.SecurityException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
+        private void OfferBrowsers()
+        {
+            bool told = BrowsersTold();
+            string question = told
+                ? "Waypoint задал браузерам на этом компьютере настройку «спрашивать имена у системы».\n\nВернуть браузерам их собственную настройку?"
+                : "Браузер, который спрашивает имена сам по шифрованному каналу" + (selfResolving.Length == 0 ? "" : " (" + String.Join(", ", selfResolving) + ")") +
+                  ", открывает сервисы в обход туннеля.\n\nWaypoint может задать Chrome, Edge, Brave, Яндекс Браузеру и Firefox системную настройку «спрашивать имена у системы». " +
+                  "Она действует для всех сайтов и всех пользователей этого компьютера; вернуть её можно здесь же.\n\nЗадать настройку?";
+            if (MessageBox.Show(this, question, "Имена в браузерах", MessageBoxButtons.OKCancel, told ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.OK) return;
+            try
+            {
+                using (var setup = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "Setup.exe"), (told ? "/browsers-off" : "/browsers-on") + " /quiet") { UseShellExecute = true, Verb = "runas" }))
+                {
+                    setup.WaitForExit(60000);
+                    if (!setup.HasExited || setup.ExitCode != 0) MessageBox.Show(this, "Настройка не изменена. Повторите.", "Имена в браузерах");
+                    else if (!told) MessageBox.Show(this, "Готово. Перезапустите браузеры, чтобы настройка вступила в силу.", "Имена в браузерах");
+                }
+                RefreshStatus();
+            }
+            catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Нужны права администратора.", "Имена в браузерах"); }
+        }
         private readonly Button register = new Button { Text = "Регистрация…", AutoSize = true };
         private readonly Button resume = new Button { Text = "Продолжить", AutoSize = true };
         private readonly Button connect = new Button { Text = "Включить", AutoSize = true };
@@ -157,6 +251,7 @@ namespace IkeV2Manager.Client
                 catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Сброс не запущен: нужны права администратора.", "Сброс Waypoint"); }
             };
             look.Click += (sender, args) => ChooseTheme(look);
+            browsers.Click += (sender, args) => OfferBrowsers();
             refresh.Click += (sender, args) => RefreshStatus();
             report.Click += (sender, args) => PreviewReport();
             register.Click += (sender, args) => BeginRegistration();
@@ -175,14 +270,14 @@ namespace IkeV2Manager.Client
                 primary.FlatStyle = FlatStyle.Flat; primary.FlatAppearance.BorderSize = 0;
                 primary.BackColor = Color.FromArgb(0, 103, 192); primary.ForeColor = Color.White;
             }
-            foreach (var button in new[] { register, resume, connect, disconnect, refresh, report, update, remove })
+            foreach (var button in new[] { register, resume, connect, disconnect, browsers, refresh, report, update, remove })
             {
                 button.Margin = new Padding(4, 4, 4, 4); button.Padding = new Padding(4, 2, 4, 2);
                 if (button.FlatStyle != FlatStyle.Flat)
                 {
                     button.FlatStyle = FlatStyle.Flat; plain.Add(button);
                 }
-                (button == refresh || button == report || button == remove ? rest : first).Controls.Add(button);
+                (button == refresh || button == report || button == remove || button == browsers ? rest : first).Controls.Add(button);
             }
             surface.Paint += (sender, args) => Draw(args.Graphics, true);
             surface.Resize += (sender, args) => look.Location = new Point(surface.ClientSize.Width - 44, 12);
@@ -239,12 +334,12 @@ namespace IkeV2Manager.Client
 
                 // Checks.
                 float pad = 14 * k, row = 26 * k, caption = 20 * k;
-                float cardHeight = pad + caption + row * 3 + pad - 6 * k;
+                float cardHeight = pad + caption + row * 4 + pad - 6 * k;
                 if (paint)
                 {
                     Card(g, left, y, width, cardHeight, linePen, 10 * k);
                     g.DrawString("ПРОВЕРКИ", small, softBrush, left + pad, y + pad - 2 * k);
-                    for (int i = 0; i < 3; i++)
+                    for (int i = 0; i < 4; i++)
                     {
                         float top = y + pad + caption + row * i;
                         using (var dot = new SolidBrush(Shade(checkTones[i]))) g.FillEllipse(dot, left + pad, top + row / 2 - 4 * k, 8 * k, 8 * k);
@@ -451,6 +546,11 @@ namespace IkeV2Manager.Client
             checkTones[1] = current.Routed ? Tone.Open : current.State == "connecting" ? Tone.Working : Tone.Off;
             checkValues[2] = current.Protected ? "получено" : "нет";
             checkTones[2] = current.Protected ? Tone.Open : current.Routed ? Tone.Working : Tone.Off;
+            selfResolving = SelfResolvingBrowsers();
+            bool told = BrowsersTold();
+            checkValues[3] = selfResolving.Length != 0 ? String.Join(", ", selfResolving) + ": в обход туннеля" : told ? "через систему, задано Waypoint" : "через систему";
+            checkTones[3] = selfResolving.Length != 0 ? Tone.Attention : fresh ? Tone.Off : Tone.Open;
+            browsers.Visible = selfResolving.Length != 0 || told;
             servicesLine = unassigned ? "Не назначены" : current.Services.Length != 0 ? String.Join(" \u00B7 ", current.Services) :
                 current.Domains == 0 ? "Не назначены" : "Доменов: " + current.Domains;
             servicesNote = current.Services.Length == 0 ? "" : "Доменов: " + current.Domains;

@@ -64,6 +64,8 @@ namespace IkeV2Manager.Client
         private int pathMisses;
         // The server held to its real address in this program's hosts block.
         private HostEntry serverHeld;
+        private string lookedFor;
+        private DateTime lookAgainAt;
         private bool noServices;
         private string release = "";
         private string[] warnings = new string[0];
@@ -469,6 +471,13 @@ namespace IkeV2Manager.Client
             {
                 bool want = WantNames();
                 if (want != namesApplied || full != appliedFull) return false;
+                // What was asked for is the same as when everything was last
+                // found in place: the system itself is then looked at only
+                // every five minutes. Looking costs two PowerShell processes,
+                // which every half-minute is a steady load on a laptop.
+                string asked = policy.Canonical + "|" + full + "|" + want + "|" + (assigned != null && assigned.NamesHttps) + "|" + (serverHeld == null ? "" : serverHeld.address);
+                if (asked == lookedFor && DateTime.UtcNow < lookAgainAt) return true;
+                lookedFor = null;
                 Guid owner = store.LoadPlan().Owner, entry = store.LoadVpnEntry();
                 if (entry == Guid.Empty) return false;
                 string https = assigned != null && assigned.NamesHttps ? policy.ServerAddress : null;
@@ -476,7 +485,9 @@ namespace IkeV2Manager.Client
                     ? SystemHosts.InPlace(store, store.LoadPolicyHistory(), serverHeld) && ManagedVpnProfile.NamesInPlace(owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
                         store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain), https)
                     : SystemHosts.InPlace(store, null, serverHeld) && ManagedVpnProfile.NamesAbsent(owner);
-                return names && ManagedVpnProfile.InPlace(policy, owner, entry, full);
+                if (!(names && ManagedVpnProfile.InPlace(policy, owner, entry, full))) return false;
+                lookedFor = asked; lookAgainAt = DateTime.UtcNow.AddMinutes(5);
+                return true;
             }
             catch (InvalidOperationException) { return false; }
             catch (ArgumentException) { return false; }
