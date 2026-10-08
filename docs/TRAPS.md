@@ -512,3 +512,17 @@ it, and the client reported nothing because the reason was overwritten.
 
 The rule: bound the length with `length()` and write the repetition as `*` or
 `+`. `scripts/check-ucode-regex.sh` refuses a count of 16 or more.
+
+## Reading the client state must not cost more with every device
+
+The published client state was compiled and compared again on every read: by
+the device API on each request, by the controller three times every two
+seconds, by the page on each load. Compiling checked every domain of every
+service once per device, so the cost grew with devices times domains. With
+three services it took 0.6 s on a four-core router; a synthetic office of 60
+devices and 300 domains took 38 s per read, which no test showed because every
+fixture has two devices. Only whoever changes the state compiles it in full
+now. Readers take the per-device views written at publication
+(`lib/client-access-view.uc`), which stand only for the exact state file they
+were made from; anything else falls back to the full check. When a path runs
+per request or per loop, measure it with a state the size of a real site.

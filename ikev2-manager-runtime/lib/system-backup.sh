@@ -244,6 +244,8 @@ backup_install() {
 	# leaves the router with none.
 	for path in $backup_client_files; do rm -f "$backup_root_dir/etc/ikev2-manager/clients/$path"; done
 	rm -f "$backup_root_dir"/etc/ikev2-manager/clients/credentials/*.json
+	# What devices are answered with is made again from the restored state.
+	rm -rf "$backup_root_dir"/etc/ikev2-manager/clients/views "$backup_root_dir"/etc/ikev2-manager/clients/views-* "$backup_root_dir"/etc/ikev2-manager/clients/views.new
 	if [ -f "$dir/clients/state.json" ]; then
 		mkdir -p "$backup_root_dir/etc/ikev2-manager/clients/credentials" &&
 			chmod 700 "$backup_root_dir/etc/ikev2-manager/clients" "$backup_root_dir/etc/ikev2-manager/clients/credentials" || return 1

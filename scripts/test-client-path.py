@@ -97,8 +97,13 @@ class PathTests(unittest.TestCase):
             result = state_tests.run(candidate, 'path')
             self.assertNotEqual(result.returncode, 0, field)
             self.assertEqual(result.stdout, '')
-        initial['state']['api']['devices'][0]['enabled'] = False
-        self.assertNotEqual(state_tests.run(initial, 'path').returncode, 0)
+        # The path is compiled every two seconds from the snapshot the publisher
+        # committed; the snapshot is compiled and compared where it is changed,
+        # not here. What has no publication, or a broken catalog, is still refused.
+        broken = copy.deepcopy(initial); del broken['state']['publication']
+        self.assertNotEqual(state_tests.run(broken, 'path').returncode, 0)
+        broken = copy.deepcopy(initial); broken['state']['publication']['services'][0]['domains'].append('not a domain')
+        self.assertNotEqual(state_tests.run(broken, 'path').returncode, 0)
 
 
 if __name__ == '__main__':

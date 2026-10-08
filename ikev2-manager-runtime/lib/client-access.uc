@@ -195,14 +195,17 @@ export function compile_client_policy(policy) {
 
 // Allocation history is append-only, including removed domains. A stale
 // client must never reach a different service through a recycled address.
-export function allocate_client_catalog(catalog) {
+//
+// The catalog is checked and its addresses are allocated once; what one
+// device was assigned is then picked out of it. A publication with many
+// devices used to check every domain of every service again for each device.
+export function prepare_client_catalog(catalog) {
 	fields(catalog, [ 'version', 'virtual_subnet', 'services', 'allocations', 'selected_services' ], 'catalog');
 	integer(catalog.version, 1, 1, 'catalog version');
 	let subnet = subnet_range(catalog.virtual_subnet), names = client_names_plan(catalog.virtual_subnet);
-	if (type(catalog.services) != 'array' || type(catalog.allocations) != 'array' ||
-		type(catalog.selected_services) != 'array')
+	if (type(catalog.services) != 'array' || type(catalog.allocations) != 'array')
 		refuse('catalog arrays required');
-	let allocated = {}, used = {}, service_ids = {}, selected = {}, wanted = {};
+	let allocated = {}, used = {}, service_ids = {};
 	for (let item in catalog.allocations) {
 		fields(item, [ 'domain', 'address' ], 'allocation');
 		domain(item.domain);
@@ -212,12 +215,6 @@ export function allocate_client_catalog(catalog) {
 		allocated[item.domain] = item.address;
 		used[item.address] = true;
 	}
-	for (let id in catalog.selected_services) {
-		service_identifier(id);
-		if (selected[id])
-			refuse('duplicate selected service');
-		selected[id] = true;
-	}
 	let next = subnet.first + 1;
 	for (let service in catalog.services) {
 		fields(service, [ 'id', 'client_access', 'domains', 'transports' ], 'service');
@@ -226,46 +223,67 @@ export function allocate_client_catalog(catalog) {
 		if (service_ids[service.id] || type(service.client_access) != 'bool' || type(service.domains) != 'array')
 			refuse('invalid or duplicate service');
 		service_ids[service.id] = true;
-		if (selected[service.id] && !service.client_access)
-			refuse('selected service is not published to clients');
 		for (let name in service.domains) {
 			domain(name);
-			if (!service.client_access)
+			if (!service.client_access || allocated[name])
 				continue;
-			if (!allocated[name]) {
-				while (next < names.resolver_number && used[address_text(next)])
-					next++;
-				if (next >= names.resolver_number)
-					refuse('virtual subnet exhausted');
-				let address = address_text(next++);
-				allocated[name] = address;
-				used[address] = true;
-				push(catalog.allocations, { domain: name, address: address });
-			}
-			if (selected[service.id]) {
-				if (!wanted[name])
-					wanted[name] = {};
-				for (let transport in service.transports) {
-					if (!wanted[name][transport.protocol])
-						wanted[name][transport.protocol] = [];
-					for (let port in transport.ports)
-						if (index(wanted[name][transport.protocol], port) < 0)
-							push(wanted[name][transport.protocol], port);
-				}
-			}
+			while (next < names.resolver_number && used[address_text(next)])
+				next++;
+			if (next >= names.resolver_number)
+				refuse('virtual subnet exhausted');
+			let address = address_text(next++);
+			allocated[name] = address;
+			used[address] = true;
+			push(catalog.allocations, { domain: name, address: address });
 		}
 	}
-	for (let id in keys(selected))
-		if (!service_ids[id])
-			refuse('unknown selected service');
-	let resources = map(sort(keys(wanted)), name => ({
-		id: `host-${address_number(ipv4(allocated[name])) - subnet.first}`,
-		domain: name, address: allocated[name],
-		transports: map(sort(keys(wanted[name])), protocol => ({
-			protocol: protocol, ports: sort(wanted[name][protocol])
-		}))
-	}));
-	if (length(resources) > 4096)
-		refuse('too many selected resources');
-	return { allocations: catalog.allocations, resources: resources };
+	return {
+		allocations: catalog.allocations,
+		// The resources of the services one device was assigned.
+		select: function(chosen) {
+			if (type(chosen) != 'array')
+				refuse('catalog arrays required');
+			let selected = {}, wanted = {};
+			for (let id in chosen) {
+				service_identifier(id);
+				if (selected[id])
+					refuse('duplicate selected service');
+				if (!service_ids[id])
+					refuse('unknown selected service');
+				selected[id] = true;
+			}
+			for (let service in catalog.services) {
+				if (!selected[service.id])
+					continue;
+				if (!service.client_access)
+					refuse('selected service is not published to clients');
+				for (let name in service.domains) {
+					if (!wanted[name])
+						wanted[name] = {};
+					for (let transport in service.transports) {
+						if (!wanted[name][transport.protocol])
+							wanted[name][transport.protocol] = [];
+						for (let port in transport.ports)
+							if (index(wanted[name][transport.protocol], port) < 0)
+								push(wanted[name][transport.protocol], port);
+					}
+				}
+			}
+			let resources = map(sort(keys(wanted)), name => ({
+				id: `host-${address_number(ipv4(allocated[name])) - subnet.first}`,
+				domain: name, address: allocated[name],
+				transports: map(sort(keys(wanted[name])), protocol => ({
+					protocol: protocol, ports: sort(wanted[name][protocol])
+				}))
+			}));
+			if (length(resources) > 4096)
+				refuse('too many selected resources');
+			return resources;
+		}
+	};
+};
+
+export function allocate_client_catalog(catalog) {
+	let prepared = prepare_client_catalog(catalog);
+	return { allocations: prepared.allocations, resources: prepared.select(catalog.selected_services) };
 };

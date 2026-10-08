@@ -52,7 +52,16 @@ SETTINGS
  endpoint="${endpoint%% *}"
  address="${endpoint%:*}"; port="${endpoint##*:}"
  [ "$address" != "$endpoint" ] || return 1
- client_path_control prepare "$state_dir" "$tunnel_link" "$address" "$port" 17896 "$runtime_dir" >"$work/path-plan.json" || return 1
+ # The plan follows from the published generation, the exit link and the
+ # resolver; it is compiled again only when one of them changed, not every
+ # two seconds.
+ local planned
+ planned="$(jsonfilter -i "$work/plan.json" -e '@.generation')|$tunnel_link|$address|$port"
+ if [ "$planned" != "${path_planned:-}" ] || [ ! -s "$work/path-plan.json" ]; then
+  path_planned=''
+  client_path_control prepare "$state_dir" "$tunnel_link" "$address" "$port" 17896 "$runtime_dir" >"$work/path-plan.json" || return 1
+  path_planned="$planned"
+ fi
  # The proxy reads these at start and whenever they change.
  client_path_control sources "$runtime_dir" "$work/plan.json" || return 1
  "$ucode_bin" -e 'import {readfile} from "fs"; let p=json(readfile(ARGV[0])); print(sprintf("%J\n",p.config));' "$work/path-plan.json" >"$work/proxy.next.json" || return 1

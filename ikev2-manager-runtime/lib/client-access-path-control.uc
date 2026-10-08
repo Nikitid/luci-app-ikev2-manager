@@ -2,7 +2,7 @@
 'use strict';
 import { lstat, open, readfile, readlink, lsdir, writefile, chmod, rename } from 'fs';
 import { sha256 } from 'digest';
-import { read_client_state } from './client-access-store.uc';
+import { read_committed_client_state } from './client-access-store.uc';
 import { validate_client_subnet } from './client-access.uc';
 import { compile_client_path, client_sources_file } from './client-access-path.uc';
 
@@ -100,7 +100,7 @@ function route_slots(directory, plan, rules, routes) {
 try {
 	let mode = ARGV[0];
 	if (mode == 'prepare' && length(ARGV) == 7) {
-		print(sprintf('%J\n', compile_client_path({ version: 1, state: read_client_state(ARGV[1]),
+		print(sprintf('%J\n', compile_client_path({ version: 1, state: read_committed_client_state(ARGV[1]),
 			exit_link: ARGV[2], dns_address: ARGV[3], dns_port: +ARGV[4], listen_port: +ARGV[5], runtime_dir: ARGV[6] })));
 	} else if (mode == 'sources' && length(ARGV) == 3) {
 		// Which tunnel addresses belong, right now, to devices assigned each
@@ -133,7 +133,7 @@ try {
 		atomic_write(ARGV[1] + '/proxy-owner.json', owner);
 	} else if (mode == 'stamp' && length(ARGV) == 5) {
 		let directory = ARGV[1]; safe_directory(directory);
-		let plan = json(protected_read(ARGV[3], 33554432)), state = read_client_state(ARGV[2]);
+		let plan = json(protected_read(ARGV[3], 33554432)), state = read_committed_client_state(ARGV[2]);
 		if (plan.generation !== state.generation || plan.exit !== state.publication.exit ||
 			!(length(ARGV[4]) == 64 ? match(ARGV[4], /^[a-f0-9]+$/) : null)) die('stale activation');
 		let raw = protected_read(directory + '/proxy.json', 16777216);

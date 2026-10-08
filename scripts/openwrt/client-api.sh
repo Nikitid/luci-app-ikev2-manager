@@ -83,6 +83,12 @@ request 200 -H "Authorization: Bearer $first" "$url"
 grep -qi '^Cache-Control: no-store' "$work/headers"
 ucode -e "import {readfile} from 'fs'; let p=json(readfile('$work/body')); if(p.id!='team' || p.revision!=1) die('Wrong device policy');"
 request 404 -H "Authorization: Bearer $first" "$url?device=second"
+# The answer came from the caller's own view: one file named by the digest of
+# its key, made with the state and standing for that very state file.
+views="$(readlink /etc/ikev2-manager/clients/views)"
+[ "$views" = views-1 ] && [ -s "/etc/ikev2-manager/clients/$views/t-$(printf %s "$first" | sha256sum | cut -c1-64).json" ]
+[ "$(ucode /usr/libexec/ikev2-manager.d/client-access-control.uc views)" = generation=1 ]
+[ "$(ls -ld "/etc/ikev2-manager/clients/$views" | cut -c1-10)" = drwx------ ]
 request 405 -X POST -H "Authorization: Bearer $first" "$url"
 request 400 -X GET -d '{}' -H "Authorization: Bearer $first" "$url"
 request 404 https://127.0.0.1:18443/ubus
@@ -95,6 +101,24 @@ request 401 https://127.0.0.1:18443/client/v1/release
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/release
 [ "$(jsonfilter -i "$work/body" -e '@.release')" = "$(cat /usr/share/ikev2-manager/version)" ]
 [ "$(jsonfilter -i "$work/body" -e '@.version')" = 1 ]
+# A person who opens their link in a browser is offered the program for the
+# computer in front of them; the page loads nothing from elsewhere and the
+# programs' own POST to the same address is untouched.
+page=https://127.0.0.1:18443/client/v1/enroll
+version="$(cat /usr/share/ikev2-manager/version)"
+request 200 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' -H 'Accept-Language: ru-RU,ru;q=0.9' "$page"
+grep -qi '^Content-Type: text/html' "$work/headers"; grep -qi "^Content-Security-Policy: default-src 'none'" "$work/headers"
+grep -q "class=\"main\" href=\"https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v$version/WaypointSetup.exe\"" "$work/body"
+grep -q "class=\"plain\" href=\"[^\"]*/Waypoint-$version.pkg\"" "$work/body"; grep -q 'Скачать для Windows' "$work/body"
+request 200 -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15' "$page"
+grep -q "class=\"main\" href=\"[^\"]*/Waypoint-$version.pkg\"" "$work/body"; grep -q 'Download for macOS' "$work/body"
+request 200 -A 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15' "$page"
+! grep -q 'href=' "$work/body"; grep -q 'VPN profile' "$work/body"
+request 200 -A 'curl/8' "$page"
+[ "$(grep -o 'class="main"' "$work/body" | wc -l)" = 2 ]
+! grep -qi '<script\|src=' "$work/body"
+request 401 -X POST "$page"
+printf '%s\n' 'client-api: the link opened in a browser offers the program for that computer'
 # A report is taken only from a device the administrator asked, once, whole
 # and within the limit; the administrator then reads exactly what was sent.
 report=https://127.0.0.1:18443/client/v1/report

@@ -96,7 +96,9 @@ Names under a service are `client_names_plan` in `lib/client-access.uc`, the
 proxy rules in `lib/client-access-path.uc` and the per-service source sets
 written by `client-access-path-control.uc sources`; the device directory is
 `lib/client-access-directory.uc`. Reports a device sends on the
-administrator's request are `lib/client-access-report.uc`. `scripts/check-ucode-regex.sh` forbids the
+administrator's request are `lib/client-access-report.uc`. What each device is answered with
+is laid out per device by `lib/client-access-view.uc`; the page a link shows in a
+browser is `lib/client-access-download.uc`. `scripts/check-ucode-regex.sh` forbids the
 counted repetitions that made registration slow on a router.
 
 ## LuCI pages

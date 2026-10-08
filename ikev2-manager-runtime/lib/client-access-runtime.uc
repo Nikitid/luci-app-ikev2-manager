@@ -1,13 +1,14 @@
 // Local controller bridge. Files and SA evidence are never supplied by HTTP.
 'use strict';
 import { open } from 'fs';
-import { read_client_state } from './client-access-store.uc';
+import { read_committed_client_state } from './client-access-store.uc';
 import { compile_client_denial, reconcile_client_authorization } from './client-access-authorization.uc';
+import { authenticated_client_sessions } from './client-access-sessions.uc';
 
 try {
 	if (length(ARGV) != 4 || (ARGV[0] != 'close' && ARGV[0] != 'live' && ARGV[0] != 'subnet'))
 		die('invalid controller arguments');
-	let state = read_client_state(ARGV[1]);
+	let state = read_committed_client_state(ARGV[1]);
 	if (ARGV[0] == 'subnet') {
 		print(state.publication.virtual_subnet);
 		exit(0);
@@ -27,9 +28,21 @@ try {
 		file.close();
 		if (type(raw) != 'string' || length(raw) > 16777216)
 			die('invalid session snapshot size');
+		// Only a device that is connected can be admitted, so only the policies
+		// of connected devices are compiled: every two seconds this used to
+		// compile the policy of every device there is. A closed device is kept
+		// as it is - it admits nobody - and when nobody is connected one of
+		// them still names the subnet to keep shut.
+		let snapshot = json(raw), present = {};
+		for (let session in authenticated_client_sessions(snapshot)) present[session.identity] = true;
+		let considered = filter(state.api.devices, device => !device.enabled || present[device.id]);
+		if (!length(filter(considered, device => device.enabled)) && !length(considered)) {
+			let any = state.api.devices[0];
+			push(considered, { id: any.id, token_sha256: any.token_sha256, enabled: false, policy: any.policy });
+		}
 		compiled = reconcile_client_authorization({ version: 1,
-			pool: { first: pool[0], last: pool[1] }, api: state.api,
-			snapshot: json(raw), lease_seconds: 15 });
+			pool: { first: pool[0], last: pool[1] }, api: { version: 1, devices: considered },
+			snapshot: snapshot, lease_seconds: 15 });
 		mode = 'ready';
 	}
 	// For every service published to clients, the tunnel addresses of the

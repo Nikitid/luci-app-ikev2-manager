@@ -6,7 +6,8 @@ import { sha256 } from 'digest';
 import { readfile } from 'fs';
 import { record_client_seen, read_client_labels } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
-import { read_client_device_evidence } from './client-access-device-evidence.uc';
+import { read_client_device_evidence, read_client_device_evidence_for } from './client-access-device-evidence.uc';
+import { client_views_generation, read_client_view_by_token } from './client-access-view.uc';
 import { client_report_wanted, store_client_report, CLIENT_REPORT_LIMIT } from './client-access-report.uc';
 
 function reply(status, error) {
@@ -88,6 +89,53 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 	if (type(authorization) != 'string' || !(length(authorization) == 71 ? match(authorization, /^Bearer [a-f0-9]+$/) : null))
 		return reply(401, 'unauthorized');
 	let token_hash = sha256(substr(authorization, 7));
+	// The usual way: the caller's own view, one small file named by the digest
+	// of its key. Without views that stand for the state file now in place -
+	// before the first publication of this version, or after the file was
+	// replaced by anything but the publisher - the answer comes from the state
+	// below, checked in full, as it always did.
+	try {
+		if (client_views_generation(directory) != null) {
+			let device = read_client_view_by_token(directory, token_hash);
+			if (device == null) return reply(401, 'unauthorized');
+			if (report && (device.enabled || device.idle)) {
+				let now = time();
+				if (!sending) return { status: 200, body: { version: 1, wanted: client_report_wanted(device.id, now) } };
+				if (!client_report_wanted(device.id, now)) return reply(409, 'not_wanted');
+				let text = report_body(headers, receive);
+				if (text == null || !store_client_report(device.id, text, now)) return reply(400, 'invalid_report');
+				return { status: 200, body: { version: 1, stored: true } };
+			}
+			if (!device.enabled) return device.idle ? reply(409, 'no_services') : reply(401, 'unauthorized');
+			if (readiness) {
+				if (type(headers['x-client-address']) != 'string') return reply(400, 'invalid_client_address');
+				return { status: 200, body: read_client_device_evidence_for('/var/run/ikev2-client-access', device, headers['x-client-address'], time()) };
+			}
+			if (services) {
+				let block = true, mode = 'services';
+				try {
+					let label = read_client_labels(directory)[device.id];
+					block = !(label?.open ?? false);
+					if (label?.full === true) mode = 'full';
+				} catch (error) { }
+				return { status: 200, body: { version: 1, id: device.id, revision: device.revision,
+					selected: device.selected, available: device.available, block_without_tunnel: block, mode: mode } };
+			}
+			if (release) {
+				let installed = replace(readfile('/usr/share/ikev2-manager/version') ?? '', /\s+$/, '');
+				if (!match(installed, /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/)) return reply(503, 'release_unavailable');
+				return { status: 200, body: { version: 1, release: installed } };
+			}
+			let compiled = compile_client_policy(device.policy);
+			if (length(sprintf('%J', compiled.policy)) > 1048576)
+				return reply(503, 'policy_unavailable');
+			if (seen_directory != null)
+				try { record_client_seen(seen_directory, device.id, headers, env.REMOTE_ADDR, time()); } catch (error) { };
+			return { status: 200, body: compiled.policy };
+		}
+	} catch (error) {
+		return reply(503, readiness ? 'path_unavailable' : services ? 'services_unavailable' : 'policy_unavailable');
+	};
 	try {
 		let committed = read_client_state(directory), state = committed.api;
 		if (!valid_fields(state, [ 'version', 'devices' ]) || state.version !== 1 ||

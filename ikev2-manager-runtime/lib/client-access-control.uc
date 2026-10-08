@@ -1,13 +1,14 @@
 // Local administrative entry point. The device HTTP API is read-only.
 'use strict';
 import { stdin, lstat, mkdir, chmod, popen, open } from 'fs';
-import { publish_client_state, read_client_state } from './client-access-store.uc';
+import { publish_client_state, read_client_state, read_committed_client_state } from './client-access-store.uc';
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
 import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
 import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights, read_person_limits, write_person_limit } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
 import { record_client_event, read_client_events } from './client-access-journal.uc';
+import { client_views_generation, write_client_views } from './client-access-view.uc';
 import { request_client_report, read_client_report, describe_client_report, forget_client_report } from './client-access-report.uc';
 
 let seen_directory = '/var/run/ikev2-client-seen';
@@ -15,14 +16,15 @@ let seen_directory = '/var/run/ikev2-client-seen';
 let directory = '/etc/ikev2-manager/clients';
 try {
 	if (ARGV[0] == 'status' && length(ARGV) == 1) {
-		let state = read_client_state(directory);
+		let state = read_committed_client_state(directory);
 		print(`generation=${state.generation}\n`);
 		print(`devices=${length(state.api.devices)}\n`);
 		print(`enabled=${length(filter(state.api.devices, device => device.enabled))}\n`);
 		print(`retired=${length(state.retired_ids)}\n`);
 		print(`allocations=${length(state.publication.allocations)}\n`);
 	} else if (ARGV[0] == 'inspect' && length(ARGV) == 1) {
-  let inspected = inspect_client_admin(read_client_state(directory));
+  let state_now = read_committed_client_state(directory);
+  let inspected = inspect_client_admin(state_now);
   let labels = read_client_labels(directory), sessions = {}, now = time();
   let daemon = popen('/usr/sbin/swanmon list-sas 2>/dev/null', 'r');
   let listed = daemon?.read(16777217), listing = daemon?.close();
@@ -43,7 +45,7 @@ try {
   let api_port = port_status == 0 ? replace(port_raw ?? '', /\n$/, '') : '8443';
   // Identifiers that can never be given again: removed devices and every
   // place a link ever held. The page refuses them before asking.
-  let state_now = read_client_state(directory), used = {};
+  let used = {};
   for (let id in state_now.retired_ids) used[id] = true;
   for (let item in (ledger?.invitations ?? [])) used[item.id] = true;
   inspected.used_ids = keys(used);
@@ -56,9 +58,24 @@ try {
   inspected.api_endpoint = match(api_port, /^[1-9][0-9]{3,4}$/) && int(api_port) >= 1024 && int(api_port) <= 65535 ?
    'https://' + inspected.server.address + ':' + api_port + '/client/v1/enroll' : null;
   print(sprintf('%J\n', inspected));
+ } else if (ARGV[0] == 'views' && length(ARGV) == 1) {
+  // Asked for by the controller: the views are made again when they are
+  // missing or older than the state - after an upgrade, a restored backup or
+  // an interrupted publication.
+  // Views that stand for the state file in place are left alone, and the
+  // state is not even opened. Otherwise the state is checked in full before
+  // new views are made from it; a state that does not hold together fails
+  // here, and the controller closes.
+  let standing = client_views_generation(directory);
+  if (standing == null) {
+   let state = read_client_state(directory);
+   write_client_views(directory, state);
+   standing = state.generation;
+  }
+  print(`generation=${standing}\n`);
  } else if ((ARGV[0] == 'report-request' || ARGV[0] == 'report') && length(ARGV) == 2) {
   // The device is asked the next time it calls, and answers by itself.
-  let state = read_client_state(directory), id = ARGV[1];
+  let state = read_committed_client_state(directory), id = ARGV[1];
   if (!length(filter(state.publication.devices, device => device.id == id)) || index(state.retired_ids, id) >= 0) die('unknown device');
   if (ARGV[0] == 'report-request') {
    request_client_report(id, time());

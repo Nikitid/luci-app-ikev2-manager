@@ -610,6 +610,27 @@ router grants; client polling alone cannot terminate existing access. Persistent
 Enrollment and catalog UI integration are still required.
 
 
+### Views
+
+Publishing the state also writes one small file per device under
+`clients/views-<generation>/`, reached through the `views` link: the policy,
+its digest and the service lists the device is answered with. A request opens
+the file named by the digest of the presented key and nothing else; the
+controller opens the files of connected devices. The views record the inode,
+size and time of the state file they were made from. When the state file in
+place is not that file - before the first publication of a new version, after
+a restore, after anything but the publisher touched it - the device API falls
+back to the state, compiled and compared in full, and the controller checks
+the state in full before it admits anybody and then writes fresh views.
+
+### The link in a browser
+
+`GET /client/v1/enroll` answers a person who opened their link in a browser:
+a page without scripts that offers the installer for the system the browser
+reports - Windows or macOS - and says to paste the page's own address into
+Waypoint. The secret part of a link is a fragment and never reaches the
+router. The installers are release assets of the router's own version.
+
 ### Reports on request
 
 The administrator asks one device for a report from its settings on the Users

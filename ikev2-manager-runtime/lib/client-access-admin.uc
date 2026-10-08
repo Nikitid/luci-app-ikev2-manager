@@ -159,8 +159,8 @@ export function prepare_client_admin(state, request, catalog) {
  return { changed: sprintf('%J', desired) != sprintf('%J', desired_state(state)), desired: desired };
 };
 
+// Of a snapshot the publisher committed; nothing here is compiled again.
 export function inspect_client_admin(state) {
- validate_client_state(state);
  return { version: 1, generation: state.generation, server: state.publication.server,
   virtual_subnet: state.publication.virtual_subnet, exit: state.publication.exit,
   services: map(state.publication.services, service => ({ id: service.id, client_access: service.client_access,

@@ -1,6 +1,5 @@
 // Dedicated managed-service proxy: no ordinary traffic or direct fallback.
 'use strict';
-import { validate_client_state } from './client-access-state.uc';
 import { allocate_client_catalog, compile_client_policy, client_names_plan } from './client-access.uc';
 
 // The file a service's current devices are listed in. The controller rewrites
@@ -30,7 +29,10 @@ export function compile_client_path(input) {
 			die('invalid client path port');
 	if (type(input.runtime_dir) != 'string' || !(length(input.runtime_dir) <= 201 ? match(input.runtime_dir, /^\/[A-Za-z0-9._\/-]+$/) : null) || index(input.runtime_dir, '..') >= 0)
 		die('invalid runtime directory');
-	let state = validate_client_state(input.state), publication = state.publication;
+	// A snapshot the publisher committed: its services are checked below once
+	// more as they are compiled; its devices are not compiled again every two seconds.
+	let state = input.state, publication = state?.publication;
+	if (type(publication) != 'object' || type(state.generation) != 'int') die('invalid client path state');
 	let selected = map(filter(publication.services, service => service.client_access), service => service.id);
 	let catalog = allocate_client_catalog({ version: 1, virtual_subnet: publication.virtual_subnet,
 		services: publication.services, allocations: publication.allocations, selected_services: selected });

@@ -1,7 +1,7 @@
 // Compile server-owned service assignments into device-specific API policies.
 // The state store commits allocation history and API output in one snapshot.
 'use strict';
-import { allocate_client_catalog, compile_client_policy, validate_client_base } from './client-access.uc';
+import { prepare_client_catalog, compile_client_policy, validate_client_base } from './client-access.uc';
 
 function fields(value, expected) {
 	if (type(value) != 'object' || length(keys(value)) != length(expected))
@@ -28,7 +28,7 @@ export function compile_client_publication(input) {
 	validate_client_base(proposal.server, proposal.virtual_subnet, proposal.exit);
 	let catalog = { version: 1, virtual_subnet: proposal.virtual_subnet,
 		services: proposal.services, allocations: proposal.allocations, selected_services: [] };
-	let assigned = allocate_client_catalog(catalog), allocations = {};
+	let assigned = prepare_client_catalog(catalog), allocations = {};
 	for (let allocation in assigned.allocations)
 		allocations[allocation.domain] = allocation.address;
 	let ids = {}, hashes = {}, devices = [];
@@ -50,8 +50,7 @@ export function compile_client_publication(input) {
 				if (allocations[resource.domain] != resource.address)
 					die('publication lost or changed an existing allocation');
 		}
-		catalog.selected_services = device.selected_services;
-		let selected = allocate_client_catalog(catalog);
+		let selected = { resources: assigned.select(device.selected_services) };
 		let enabled = device.enabled && length(selected.resources) > 0;
 		let policy;
 		if (!length(selected.resources)) {

@@ -34,14 +34,15 @@ export function build_client_device_evidence(state, plan, fingerprint, now) {
  return { version: 1, generation: state.generation, exit: plan.exit, updated_at: now, path_nft_sha256: fingerprint, devices: devices };
 };
 
-export function select_client_device_evidence(state, evidence, id, address, now) {
+// `device` is what the publication says of the caller: its generation and
+// exit, whether it is let in, its revision and the digest of its policy.
+function select_evidence(device, evidence, id, address, now) {
  fields(evidence, [ 'version', 'generation', 'exit', 'updated_at', 'path_nft_sha256', 'devices' ]);
- if (evidence.version !== 1 || evidence.generation !== state.generation || evidence.exit !== state.publication.exit ||
+ if (evidence.version !== 1 || evidence.generation !== device.generation || evidence.exit !== device.exit ||
   type(now) != 'int' || type(evidence.updated_at) != 'int' || evidence.updated_at > now || now - evidence.updated_at > 3 ||
   type(evidence.path_nft_sha256) != 'string' || !(length(evidence.path_nft_sha256) == 64 ? match(evidence.path_nft_sha256, /^[a-f0-9]+$/) : null) ||
   type(evidence.devices) != 'array' || length(evidence.devices) > 4096 || !ipv4(address)) die('expired device evidence');
- let assigned = filter(state.api.devices, device => device.id == id && device.enabled);
- if (length(assigned) != 1) die('revoked device evidence');
+ if (device.id !== id || device.enabled !== true || type(device.revision) != 'int' || type(device.policy_sha256) != 'string') die('revoked device evidence');
  let selected = null, owners = {}, keys_seen = {};
  for (let item in evidence.devices) {
   fields(item, [ 'id', 'revision', 'policy_sha256', 'address' ]);
@@ -53,17 +54,60 @@ export function select_client_device_evidence(state, evidence, id, address, now)
   keys_seen[key] = true; owners[item.address] = item.id;
   if (item.id == id && item.address == address) selected = item;
  }
- if (selected == null || selected.revision !== assigned[0].policy.revision || selected.policy_sha256 != policy_digest(assigned[0]))
+ if (selected == null || selected.revision !== device.revision || selected.policy_sha256 != device.policy_sha256)
   die('different device policy');
  return { version: 1, state: 'ready', id: id, revision: selected.revision, policy_sha256: selected.policy_sha256,
   address: address, generation: evidence.generation, expires_at: evidence.updated_at + 5 };
+}
+
+function described(state, id) {
+ let assigned = filter(state.api.devices, device => device.id == id && device.enabled);
+ if (length(assigned) != 1) die('revoked device evidence');
+ return { generation: state.generation, exit: state.publication.exit, id: id, enabled: true,
+  revision: assigned[0].policy.revision, policy_sha256: policy_digest(assigned[0]) };
+}
+
+export function select_client_device_evidence(state, evidence, id, address, now) {
+ return select_evidence(described(state, id), evidence, id, address, now);
 };
 
-export function stamp_client_device_evidence(directory, state, plan, fingerprint, now) {
+// The same answer from the caller's own view, without the state.
+export function read_client_device_evidence_for(directory, device, address, now) {
+ let info = lstat(directory);
+ if (info?.type != 'directory' || info.uid != 0 || info.mode != 0700) die('unsafe device evidence directory');
+ let evidence = json(protected_file(directory + '/device-ready.json', 1048576));
+ let selected = select_evidence(device, evidence, device.id, address, now);
+ require_current_client_path(directory, { generation: device.generation, exit: device.exit }, evidence.path_nft_sha256);
+ return selected;
+};
+
+// The same evidence from the views of the devices that are connected: `lookup`
+// gives the view of one device by its identifier.
+export function build_client_device_evidence_from(lookup, plan, fingerprint, now) {
+ if (plan.mode != 'ready' || type(plan.generation) != 'int' ||
+  type(plan.sessions) != 'array' || length(plan.sessions) > 4096 || type(now) != 'int' || now < 1 ||
+  type(fingerprint) != 'string' || !(length(fingerprint) == 64 ? match(fingerprint, /^[a-f0-9]+$/) : null)) die('stale device evidence');
+ let devices = [], seen = {}, known = {};
+ for (let session in plan.sessions) {
+  if (!(session.identity in known)) known[session.identity] = lookup(session.identity);
+  let device = known[session.identity];
+  if (device == null || device.enabled !== true || device.generation !== plan.generation || device.exit !== plan.exit ||
+   type(device.policy_sha256) != 'string' || !ipv4(session.address)) die('unassigned device evidence');
+  let key = `${device.id}|${session.address}`;
+  if (seen[key]) continue;
+  seen[key] = true;
+  push(devices, { id: device.id, revision: device.revision, policy_sha256: device.policy_sha256, address: session.address });
+ }
+ return { version: 1, generation: plan.generation, exit: plan.exit, updated_at: now, path_nft_sha256: fingerprint, devices: devices };
+};
+
+// `source` is the committed state, or a function giving one device's view.
+export function stamp_client_device_evidence(directory, source, plan, fingerprint, now) {
  let info = lstat(directory);
  if (info?.type != 'directory' || info.uid != 0 || info.mode != 0700) die('unsafe device evidence directory');
  require_current_client_path(directory, plan, fingerprint);
- let evidence = build_client_device_evidence(state, plan, fingerprint, now);
+ let evidence = type(source) == 'function' ? build_client_device_evidence_from(source, plan, fingerprint, now) :
+  build_client_device_evidence(source, plan, fingerprint, now);
  let path = directory + '/device-ready.json';
  let previous = lstat(path + '.new');
  if (previous != null) {

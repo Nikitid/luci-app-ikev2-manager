@@ -2,6 +2,7 @@
 'use strict';
 import { open, lstat, rename, unlink } from 'fs';
 import { prepare_client_state, validate_client_state } from './client-access-state.uc';
+import { write_client_views } from './client-access-view.uc';
 
 function directory_safe(directory) {
 	let info = lstat(directory);
@@ -23,7 +24,7 @@ function durable() {
 		die('unable to synchronize client state');
 }
 
-export function read_client_state(directory) {
+function committed(directory) {
 	directory_safe(directory);
 	let path = directory + '/state.json', info = regular_safe(path);
 	if (info.size < 1 || info.size > 16777216)
@@ -35,7 +36,31 @@ export function read_client_state(directory) {
 	file.close();
 	if (type(raw) != 'string' || length(raw) > 16777216)
 		die('unable to read client state');
-	return validate_client_state(json(raw));
+	return json(raw);
+}
+
+// For whoever is about to change the state: everything in it is compiled
+// again and compared, so a change is never built on a snapshot that does not
+// hold together.
+export function read_client_state(directory) {
+	return validate_client_state(committed(directory));
+};
+
+// For whoever only reads: the device API on every request, the controller
+// every two seconds, the administrator's page. The file can only have been
+// put there by the publisher, whole and already checked - the directory and
+// the file belong to root alone and are replaced by rename - so its shape is
+// confirmed and its content is not compiled again. Compiling it on every read
+// cost the router more with each device and each domain.
+export function read_committed_client_state(directory) {
+	let snapshot = committed(directory);
+	if (type(snapshot) != 'object' || snapshot.version !== 1 || type(snapshot.generation) != 'int' || snapshot.generation < 1 ||
+		type(snapshot.retired_ids) != 'array' || type(snapshot.publication) != 'object' || type(snapshot.api) != 'object' ||
+		type(snapshot.publication.devices) != 'array' || type(snapshot.publication.services) != 'array' ||
+		type(snapshot.publication.allocations) != 'array' || type(snapshot.api.devices) != 'array' ||
+		length(snapshot.api.devices) != length(snapshot.publication.devices))
+		die('invalid client snapshot');
+	return snapshot;
 };
 
 export function publish_client_state(directory, desired, expected_generation, initialize) {
@@ -93,6 +118,10 @@ export function publish_client_state(directory, desired, expected_generation, in
 		if (!rename(temporary, directory + '/state.json'))
 			die('unable to commit client state');
 		durable();
+		// What each device is answered with follows the state at once. Should
+		// this step be interrupted, the controller notices the older views and
+		// makes them again; the state itself is already committed.
+		try { write_client_views(directory, snapshot); } catch (error) { warn('client-access-store: device views were not refreshed\n'); }
 		lock.close();
 		return snapshot.generation;
 	} catch (error) {
