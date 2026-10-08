@@ -126,7 +126,7 @@ jobs:
 
   macos-client:
     needs: release
-    runs-on: macos-26
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:

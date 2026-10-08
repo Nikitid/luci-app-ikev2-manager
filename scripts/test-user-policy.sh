@@ -653,6 +653,15 @@ for action in running stop disable; do grep -Fxq "$action" "$tmp/policy-init.log
 cat >"$tmp/sa.json" <<'EOF'
 {"errors":[],"data":[{"ikev2-in":{"uniqueid":"20","state":"ESTABLISHED","remote-eap-id":"alice","remote-vips":["10.20.30.20"],"child-sas":{"net-1":{"name":"net","state":"INSTALLED"}}}}]}
 EOF
+# The watcher bounds its wait with `read -t`, which the router's shell has and
+# a strictly POSIX one (dash, the `sh` of CI) does not. It is run here by a
+# shell that has it, as on a router.
+watch_sh=sh
+timed_read=0
+sh -c 'read -t 1 probe </dev/null' 2>/dev/null || timed_read=$?
+if [ "$timed_read" = 2 ]; then
+	if command -v busybox >/dev/null 2>&1; then watch_sh='busybox sh'; else watch_sh=bash; fi
+fi
 mkfifo "$tmp/event-input"
 exec 9<>"$tmp/event-input"
 : >"$tmp/swanmon.reads"
@@ -667,7 +676,7 @@ IKEV2_USER_POLICY_EVENT_SOURCE="$tmp/bin/event-source" \
 TEST_EVENT_FIFO="$tmp/event-input" \
 IKEV2_USER_POLICY_REFRESH_INTERVAL=30 \
 IKEV2_HEALTH_LOCK="$tmp/health.lock" \
-	sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch &
+	$watch_sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch &
 watch_pid=$!
 watch_cleanup() {
 	kill "$watch_pid" >/dev/null 2>&1 || true
@@ -955,7 +964,7 @@ PATH="$tmp/bin:$PATH" \
 	IKEV2_USER_POLICY_FAILURE_LIMIT=2 \
 	IKEV2_USER_POLICY_REFRESH_INTERVAL=1 \
 	TEST_EVENT_FIFO="$tmp/event-failure" \
-	sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch \
+	$watch_sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch \
 		>"$tmp/failed-watch.stdout" 2>"$tmp/failed-watch.stderr" &
 failure_pid=$!
 attempt=0
@@ -1005,7 +1014,7 @@ PATH="$tmp/bin:$PATH" \
 	IKEV2_USER_POLICY_EVENT_SOURCE="$tmp/bin/event-source" \
 	IKEV2_USER_POLICY_REFRESH_INTERVAL=1 \
 	TEST_EVENT_FIFO="$tmp/event-silent" \
-	sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch \
+	$watch_sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" watch \
 		>"$tmp/silent-watch.stdout" 2>"$tmp/silent-watch.stderr" &
 silent_pid=$!
 sleep 3
