@@ -6,6 +6,11 @@ try {
     $owner = [Guid]::ParseExact($inputDocument.owner, 'N')
     if ($owner -eq [Guid]::Empty) { throw 'Invalid owner' }
     $name = 'Waypoint ' + $owner.ToString('N')
+    # With "check" nothing is changed: the script stops at the first thing it
+    # would have changed and says so, or runs to its end and reports what is in
+    # place. The service asks this way every half-minute and takes the tunnel's
+    # permission away only when something really has to be put right.
+    function Change { if ($inputDocument.check -eq $true) { [Console]::Out.Write('differs'); exit 0 } }
     Import-Module (Join-Path $PSHOME 'Modules\VpnClient') -ErrorAction Stop
     if ($inputDocument.operation -eq 'remove') {
         $entry = [Guid]::Parse($inputDocument.entry_id)
@@ -38,6 +43,7 @@ try {
         $current = @($owned | ForEach-Object { $_.Namespace } | Sort-Object -Unique)
         $servers = @($owned | ForEach-Object { $_.NameServers } | Sort-Object -Unique)
         if (($current -join ' ') -cne ($wanted -join ' ') -or ($wanted.Count -and ($servers -join ' ') -cne [string]$inputDocument.resolver)) {
+            Change
             foreach ($rule in $owned) { Remove-DnsClientNrptRule -Name $rule.Name -Force }
             for ($index = 0; $index -lt $wanted.Count; $index += 200) {
                 $last = [Math]::Min($index + 199, $wanted.Count - 1)
@@ -47,6 +53,45 @@ try {
         }
         $applied = @(Get-DnsClientNrptRule | Where-Object Comment -CEQ $name | ForEach-Object { $_.Namespace } | Sort-Object -Unique)
         if (($applied -join ' ') -cne ($wanted -join ' ')) { throw 'Name policy incomplete' }
+        # Names over HTTPS. Where the router offers it and this Windows can, the
+        # resolver is asked on port 443 with the server's own certificate: a
+        # second VPN that blocks every plain DNS query but its own lets that
+        # through. Windows keeps asking on port 53 when HTTPS does not answer.
+        # The one entry this program made is recorded, and only that entry is
+        # ever changed or removed.
+        $record = 'HKLM:\SOFTWARE\IKEv2ManagerClient'
+        $made = (Get-ItemProperty -Path $record -Name NamesHttps -ErrorAction SilentlyContinue).NamesHttps
+        $able = [bool](Get-Command Add-DnsClientDohServerAddress -ErrorAction SilentlyContinue)
+        $template = $null
+        if ($able -and $wanted.Count -and $inputDocument.https) {
+            $server = [string]$inputDocument.https
+            if ($server -cnotmatch '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$' -or $server.Length -gt 253) { throw 'Invalid names server' }
+            $template = 'https://' + $server + '/dns-query'
+        }
+        if ($able -and $made -and ($template -eq $null -or $made -cne [string]$inputDocument.resolver)) {
+            Change
+            Remove-DnsClientDohServerAddress -ServerAddress $made -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path $record -Name NamesHttps -ErrorAction SilentlyContinue
+            Clear-DnsClientCache
+        }
+        if ($template -ne $null) {
+            $address = [string]$inputDocument.resolver
+            $entry = Get-DnsClientDohServerAddress -ServerAddress $address -ErrorAction SilentlyContinue
+            if (-not $entry) {
+                Change
+                Add-DnsClientDohServerAddress -ServerAddress $address -DohTemplate $template -AllowFallbackToUdp $true -AutoUpgrade $true | Out-Null
+                Clear-DnsClientCache
+            } elseif ($entry.DohTemplate -cne $template -or -not $entry.AutoUpgrade -or -not $entry.AllowFallbackToUdp) {
+                Change
+                Set-DnsClientDohServerAddress -ServerAddress $address -DohTemplate $template -AllowFallbackToUdp $true -AutoUpgrade $true | Out-Null
+                Clear-DnsClientCache
+            }
+            if ($made -cne $address) {
+                Change
+                if (-not (Test-Path $record)) { New-Item -Path $record -Force | Out-Null }
+                Set-ItemProperty -Path $record -Name NamesHttps -Value $address
+            }
+        }
         [Console]::Out.Write('names-applied')
         exit 0
     }
@@ -70,6 +115,7 @@ try {
     if ($existing.Count -gt 1) { throw 'Ambiguous owner' }
     if ($existing.Count -eq 0) {
         if ($inputDocument.entry_id) { throw 'Owned profile missing' }
+        Change
         $eap = New-EapConfiguration
         Add-VpnConnection -Name $name -ServerAddress $server -TunnelType Ikev2 -EncryptionLevel Maximum `
             -AuthenticationMethod Eap -EapConfigXmlStream $eap.EapConfigXmlStream -SplitTunneling `
@@ -80,6 +126,7 @@ try {
     if (-not $inputDocument.entry_id -and $profile.EncryptionLevel -eq 'Maximum' -and
         $profile.ServerAddress -ceq $server -and $profile.TunnelType -eq 'Ikev2' -and $profile.SplitTunneling) {
         # Recover an interrupted first creation before the GUID was journaled.
+        Change
         Set-VpnConnectionIPsecConfiguration -ConnectionName $name -AllUserConnection `
             -AuthenticationTransformConstants SHA256128 -CipherTransformConstants AES256 `
             -EncryptionMethod AES256 -IntegrityCheckMethod SHA256 -DHGroup Group14 -PfsGroup PFS2048 -Force | Out-Null
@@ -89,6 +136,7 @@ try {
     # brought to what the router said, then checked against it.
     $full = $inputDocument.full -eq $true
     if ([bool]$profile.SplitTunneling -eq $full) {
+        Change
         Set-VpnConnection -Name $name -AllUserConnection -SplitTunneling (-not $full) -Force | Out-Null
         $profile = Get-VpnConnection -Name $name -AllUserConnection
     }
@@ -103,11 +151,13 @@ try {
     $routes = @($profile.Routes)
     foreach ($route in $routes) {
         if ($route.DestinationPrefix -notin $prefixes) {
+            Change
             Remove-VpnConnectionRoute -ConnectionName $name -AllUserConnection -DestinationPrefix $route.DestinationPrefix -Confirm:$false | Out-Null
         }
     }
     foreach ($prefix in $prefixes) {
         if (-not ($routes | Where-Object DestinationPrefix -EQ $prefix)) {
+            Change
             Add-VpnConnectionRoute -ConnectionName $name -AllUserConnection -DestinationPrefix $prefix -RouteMetric 1 | Out-Null
         }
     }

@@ -3,7 +3,7 @@
 'use strict';
 import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
-import { readfile } from 'fs';
+import { readfile, lstat } from 'fs';
 import { record_client_seen, read_client_labels } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence, read_client_device_evidence_for } from './client-access-device-evidence.uc';
@@ -24,6 +24,13 @@ function same_hash(a, b) {
 function valid_fields(value, expected) {
 	return type(value) == 'object' && length(keys(value)) == length(expected) &&
 		length(filter(expected, key => value[key] == null)) == 0;
+}
+
+// Whether this router answers names over HTTPS at the resolver address: the
+// front runs only where dnsproxy is installed. A device that is told so may
+// ask that way, and still falls back to port 53.
+function names_over_https() {
+	return lstat('/usr/bin/dnsproxy')?.type == 'file';
 }
 
 // What the device shows its user: the services it was assigned and the other
@@ -51,7 +58,8 @@ function device_services(publication, device, directory) {
 		if (label?.full === true) mode = 'full';
 	} catch (error) { }
 	return { version: 1, id: device.id, revision: device.policy.revision,
-		selected: sort(selected, by_id), available: sort(available, by_id), block_without_tunnel: block, mode: mode };
+		selected: sort(selected, by_id), available: sort(available, by_id), block_without_tunnel: block, mode: mode,
+		names_https: names_over_https() };
 }
 
 // The one request that carries a body: the report the administrator asked
@@ -119,7 +127,8 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 					if (label?.full === true) mode = 'full';
 				} catch (error) { }
 				return { status: 200, body: { version: 1, id: device.id, revision: device.revision,
-					selected: device.selected, available: device.available, block_without_tunnel: block, mode: mode } };
+					selected: device.selected, available: device.available, block_without_tunnel: block, mode: mode,
+					names_https: names_over_https() } };
 			}
 			if (release) {
 				let installed = replace(readfile('/usr/share/ikev2-manager/version') ?? '', /\s+$/, '');

@@ -7,12 +7,16 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 unset TMPDIR
 for ikev2_override in $(env | sed -n 's/^\(IKEV2_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$ikev2_override"; done
-[ "$#" = 1 ] && [ "$1" = serve ] || exit 2
-work="$(mktemp -d /var/run/ikev2-client-api.XXXXXX)" || exit 1
+# serve: the device API. names: the front that answers names over HTTPS to
+# devices inside their tunnel, with the same certificate.
+[ "$#" = 1 ] || exit 2
+case "$1" in serve | names) mode="$1" ;; *) exit 2 ;; esac
+[ "$mode" = serve ] || [ -x /usr/bin/dnsproxy ] || exit 0
+work="$(mktemp -d "/var/run/ikev2-client-$([ "$mode" = serve ] && echo api || echo names).XXXXXX")" || exit 1
 server_pid=''
 cleanup() {
  [ -z "$server_pid" ] || { kill "$server_pid" 2>/dev/null || :; wait "$server_pid" 2>/dev/null || :; }
- nft delete table inet ikev2_client_api 2>/dev/null || :
+ [ "$mode" != serve ] || nft delete table inet ikev2_client_api 2>/dev/null || :
  rm -rf "$work"
 }
 # The port is open to the internet. A token cannot be guessed, but every
@@ -49,6 +53,15 @@ openssl x509 -in "$work/certificate.pem" -pubkey -noout 2>/dev/null |
  openssl pkey -pubin -outform DER >"$work/certificate.pub" 2>/dev/null || refuse
 openssl pkey -in "$work/key.pem" -passin pass: -pubout -outform DER >"$work/key.pub" 2>/dev/null || refuse
 cmp -s "$work/certificate.pub" "$work/key.pub" || refuse
+if [ "$mode" = names ]; then
+ # Loopback only: devices reach it through their tunnel and the proxy, never
+ # from the network. It asks the proxy, which answers the names of published
+ # services and refuses everything else; nothing is cached or sent elsewhere.
+ /usr/bin/dnsproxy --listen=127.0.0.1 --port=0 --https-port=17898 \
+  --tls-crt="$work/certificate.pem" --tls-key="$work/key.pem" \
+  --upstream=127.0.0.1:17897 --timeout=3s --refuse-any >/dev/null 2>&1 &
+ server_pid=$!
+else
 mkdir "$work/www" || refuse
 case "$port" in *[!0-9]* | '') refuse ;; esac
 limit_requests "$port" || refuse
@@ -56,6 +69,7 @@ limit_requests "$port" || refuse
  -C "$work/certificate.pem" -K "$work/key.pem" -n 4 -N 8 -t 5 -T 5 -k 0 \
  -o /client/v1 -O /usr/libexec/ikev2-manager.d/client-access-http.uc >/dev/null 2>&1 &
 server_pid=$!
+fi
 wait "$server_pid"
 rc=$?
 server_pid=''

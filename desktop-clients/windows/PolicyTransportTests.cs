@@ -59,6 +59,9 @@ internal static class PolicyTransportTests
             string offered = "{\"version\":1,\"id\":\"office-pc\",\"revision\":4,\"selected\":[{\"id\":\"api\",\"domains\":3},{\"id\":\"mail\",\"domains\":2}],\"available\":[{\"id\":\"wiki\",\"domains\":9}]}";
             var names = DeviceServices.Parse(offered, "office-pc");
             if (names.Selected.Length != 2 || names.Available.Length != 1 || names.Available[0] != "wiki" || names.Domains != 5) throw new Exception("Service names were not read");
+            if (names.NamesHttps || !DeviceServices.Parse(offered.Replace("\"revision\":4", "\"revision\":4,\"names_https\":true"), "office-pc").NamesHttps)
+                throw new Exception("Names over HTTPS were not read as offered");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"revision\":4", "\"revision\":4,\"names_https\":\"yes\""), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered, "other-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"mail\"", "\"api\""), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"wiki\"", "\"../wiki\""), "office-pc"), "services_response_invalid");

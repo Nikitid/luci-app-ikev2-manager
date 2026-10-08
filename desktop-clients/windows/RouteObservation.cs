@@ -1,10 +1,108 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 
 namespace IkeV2Manager.Client
 {
+    // The way to this client's own server while another VPN carries everything
+    // else. Windows gives a VPN connection a route to its server through
+    // whatever carries the Internet at the moment of dialing; when that is
+    // another VPN's adapter, the tunnel would be built inside that VPN, which
+    // often does not carry it at all. So for the length of dialing the server
+    // gets a route through the physical network - the one route every VPN
+    // client keeps for its own server. The route expires by itself.
+    public sealed class ServerPath : IDisposable
+    {
+        private readonly System.Collections.Generic.List<RouteObservation.Native.Route> rows = new System.Collections.Generic.List<RouteObservation.Native.Route>();
+
+        // A wired, wireless or mobile adapter that is not another VPN's virtual one.
+        public static bool Physical(System.Net.NetworkInformation.NetworkInterface adapter)
+        {
+            switch (adapter.NetworkInterfaceType)
+            {
+                case System.Net.NetworkInformation.NetworkInterfaceType.Ethernet:
+                case System.Net.NetworkInformation.NetworkInterfaceType.Ethernet3Megabit:
+                case System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetT:
+                case System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetFx:
+                case System.Net.NetworkInformation.NetworkInterfaceType.GigabitEthernet:
+                case System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211:
+                case System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp:
+                case System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp2:
+                    return !System.Text.RegularExpressions.Regex.IsMatch(adapter.Description ?? "",
+                        @"Wintun|WireGuard|TAP-Windows|TAP Adapter|TUN|OpenVPN|sing-|AdGuard|VPN|Tailscale|ZeroTier", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                default: return false;
+            }
+        }
+
+        private static bool Public(IPAddress address)
+        {
+            byte[] b = address.GetAddressBytes();
+            // Not private, shared, loopback, link-local, the ranges some VPN
+            // clients answer names from, multicast or reserved.
+            return b.Length == 4 && !(b[0] == 0 || b[0] == 10 || b[0] == 127 || b[0] >= 224 || (b[0] == 100 && b[1] >= 64 && b[1] <= 127) ||
+                (b[0] == 169 && b[1] == 254) || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168) || (b[0] == 198 && (b[1] == 18 || b[1] == 19)));
+        }
+
+        // Null when nothing stands between this computer and the server, or
+        // when there is no physical network to go through: dialing then goes
+        // the way it always did.
+        public static ServerPath Pin(string server, uint seconds = 90)
+        {
+            var made = new ServerPath();
+            try
+            {
+                var addresses = Dns.GetHostAddresses(server).Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && Public(a)).Take(4).ToArray();
+                if (addresses.Length == 0) return null;
+                var adapters = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(a => a.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up).ToArray();
+                var chosen = RouteObservation.Read(addresses[0]);
+                var carrier = adapters.FirstOrDefault(a => a.GetIPProperties().UnicastAddresses.Any(u => u.Address.Equals(chosen.Source)));
+                if (chosen.IsLoopback || carrier == null || Physical(carrier)) return null;
+                // The physical adapter with a gateway whose route to the server costs least.
+                bool found = false; var best = new RouteObservation.Native.Route();
+                foreach (var adapter in adapters.Where(Physical))
+                {
+                    var properties = adapter.GetIPProperties();
+                    if (!properties.GatewayAddresses.Any(g => g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any))) continue;
+                    var destination = RouteObservation.Native.Address.From(addresses[0]);
+                    RouteObservation.Native.Route route; RouteObservation.Native.Address source;
+                    if (RouteObservation.Native.GetBestRoute2(IntPtr.Zero, (uint)properties.GetIPv4Properties().Index, IntPtr.Zero, ref destination, 0, out route, out source) != 0) continue;
+                    if (route.NextHop.Family != 2 || route.NextHop.IPv4 == 0 || route.Loopback != 0) continue;
+                    if (!found || route.Metric < best.Metric) { best = route; found = true; }
+                }
+                if (!found) return null;
+                foreach (var address in addresses)
+                {
+                    RouteObservation.Native.Route row;
+                    RouteObservation.Native.InitializeIpForwardEntry(out row);
+                    row.Luid = best.Luid; row.Index = best.Index;
+                    row.Destination = new RouteObservation.Native.Prefix { Address = RouteObservation.Native.Address.From(address), Length = 32 };
+                    row.NextHop = best.NextHop;
+                    row.Metric = 0; row.Protocol = 3; // MIB_IPPROTO_NETMGMT.
+                    row.ValidLifetime = row.PreferredLifetime = seconds;
+                    row.Autoconfigure = 0; row.Immortal = 0; row.Publish = 0; row.Loopback = 0;
+                    // A route somebody already keeps for this address stays theirs.
+                    if (RouteObservation.Native.CreateIpForwardEntry2(ref row) == 0) made.rows.Add(row);
+                }
+                if (made.rows.Count == 0) return null;
+                var result = made; made = null; return result;
+            }
+            catch (System.Net.Sockets.SocketException) { return null; }
+            catch (Win32Exception) { return null; }
+            catch (InvalidOperationException) { return null; }
+            catch (ArgumentException) { return null; }
+            finally { if (made != null) made.Dispose(); }
+        }
+
+        public void Dispose()
+        {
+            foreach (var row in rows) { var copy = row; RouteObservation.Native.DeleteIpForwardEntry2(ref copy); }
+            rows.Clear();
+        }
+    }
+
     public sealed class RouteObservation
     {
         public ulong InterfaceLuid { get; private set; }

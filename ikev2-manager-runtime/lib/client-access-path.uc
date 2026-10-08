@@ -8,6 +8,11 @@ export function client_sources_file(directory, service) {
 	return `${directory}/src-${service}.json`;
 };
 
+// Loopback ports of the names-over-HTTPS path: where the proxy answers the
+// front, and where the front listens with the server's certificate.
+export const CLIENT_NAMES_LOCAL_PORT = 17897;
+export const CLIENT_NAMES_HTTPS_PORT = 17898;
+
 export function compile_client_path(input) {
 	let names = [ 'version', 'state', 'exit_link', 'dns_address', 'dns_port', 'listen_port', 'runtime_dir' ];
 	if (type(input) != 'object' || length(keys(input)) != length(names))
@@ -69,8 +74,24 @@ export function compile_client_path(input) {
 				network: [ transport.protocol ], port: transport.ports, action: 'route', outbound: 'managed-exit' });
 	}
 	push(dns_rules, { inbound: [ 'tproxy-client-access-in' ], action: 'predefined', rcode: 'REFUSED' });
+	// Names over HTTPS. A device may ask the same resolver address on port 443
+	// instead: another VPN on the device that blocks every plain DNS query but
+	// its own lets this through. The connection is handed to the front that
+	// holds the server's certificate, and the front asks here. Who asked is no
+	// longer known at that point, so a published name is answered to any
+	// admitted device; whether that device may then reach it is decided, as
+	// before, when its connection arrives.
+	for (let service in published) {
+		let suffixes = map(service.domains, name => '.' + name);
+		push(dns_rules, { inbound: [ 'names-local-in' ], domain: service.domains, domain_suffix: suffixes, query_type: [ 'A' ], action: 'route', server: 'managed-names' });
+		push(dns_rules, { inbound: [ 'names-local-in' ], domain: service.domains, domain_suffix: suffixes, action: 'predefined', rcode: 'NOERROR' });
+	}
+	push(dns_rules, { inbound: [ 'names-local-in' ], action: 'predefined', rcode: 'REFUSED' });
 	let closing = pop(rules);
 	rules = [ { inbound: [ 'tproxy-client-access-in' ], ip_cidr: [ layout.resolver + '/32' ], port: [ 53 ], action: 'hijack-dns' },
+		{ inbound: [ 'names-local-in' ], action: 'hijack-dns' },
+		{ inbound: [ 'tproxy-client-access-in' ], ip_cidr: [ layout.resolver + '/32' ], network: [ 'tcp' ], port: [ 443 ], action: 'route',
+			outbound: 'names-front', override_address: '127.0.0.1', override_port: CLIENT_NAMES_HTTPS_PORT },
 		...rules, ...named, closing ];
 	// Admission (-165) precedes interception (-154). A missing local route or
 	// listener cannot forward virtual destinations through an unrelated route.
@@ -106,9 +127,13 @@ export function compile_client_path(input) {
 				{ type: 'fakeip', tag: 'managed-names', inet4_range: layout.range } ],
 				rules: dns_rules, final: 'managed-dns', strategy: 'ipv4_only' },
 			inbounds: [ { type: 'tproxy', tag: 'tproxy-client-access-in',
-				listen: '127.0.0.1', listen_port: input.listen_port } ],
+				listen: '127.0.0.1', listen_port: input.listen_port },
+				{ type: 'direct', tag: 'names-local-in', listen: '127.0.0.1', listen_port: CLIENT_NAMES_LOCAL_PORT } ],
 			outbounds: [ { type: 'direct', tag: 'managed-exit', bind_interface: input.exit_link,
-				domain_resolver: { server: 'managed-dns', strategy: 'ipv4_only' } } ],
+				domain_resolver: { server: 'managed-dns', strategy: 'ipv4_only' } },
+				// It is only ever given a literal loopback address; the proxy asks
+				// every outbound to name its resolver all the same.
+				{ type: 'direct', tag: 'names-front', domain_resolver: { server: 'managed-dns', strategy: 'ipv4_only' } } ],
 			route: { rule_set: sets, rules: rules, final: 'managed-exit' },
 			// The names handed out survive a restart of the proxy, so an
 			// address a device still holds keeps meaning the same name.

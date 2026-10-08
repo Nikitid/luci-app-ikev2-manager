@@ -53,8 +53,10 @@ namespace IkeV2Manager.Client
         public readonly bool Block;
         // Whether everything goes into the tunnel, or the services alone.
         public readonly bool Full;
+        // Whether the router answers names over HTTPS at the resolver address.
+        public readonly bool NamesHttps;
 
-        private DeviceServices(string[] selected, string[] available, int domains, bool block, bool full) { Selected = selected; Available = available; Domains = domains; Block = block; Full = full; }
+        private DeviceServices(string[] selected, string[] available, int domains, bool block, bool full, bool namesHttps) { Selected = selected; Available = available; Domains = domains; Block = block; Full = full; NamesHttps = namesHttps; }
 
         internal static DeviceServices Parse(string json, string id)
         {
@@ -79,6 +81,12 @@ namespace IkeV2Manager.Client
                     if (mode != "services" && mode != "full") throw new ArgumentException();
                     full = mode == "full";
                 }
+                bool namesHttps = false;
+                if (data.ContainsKey("names_https"))
+                {
+                    if (!(data["names_https"] is bool)) throw new ArgumentException();
+                    namesHttps = (bool)data["names_https"];
+                }
                 if (ClientPolicy.Integer(data["version"], 1, 1) != 1 || ClientPolicy.Text(data["id"]) != id) throw new ArgumentException();
                 ClientPolicy.Integer(data["revision"], 1, Int32.MaxValue);
                 int domains = 0;
@@ -98,7 +106,7 @@ namespace IkeV2Manager.Client
                     }
                     lists.Add(names.ToArray());
                 }
-                return new DeviceServices(lists[0], lists[1], domains, block, full);
+                return new DeviceServices(lists[0], lists[1], domains, block, full, namesHttps);
             }
             catch (ArgumentException) { throw new PolicyFetchException("services_response_invalid"); }
             catch (InvalidOperationException) { throw new PolicyFetchException("services_response_invalid"); }

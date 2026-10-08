@@ -526,3 +526,15 @@ now. Readers take the per-device views written at publication
 (`lib/client-access-view.uc`), which stand only for the exact state file they
 were made from; anything else falls back to the full check. When a path runs
 per request or per loop, measure it with a state the size of a real site.
+
+## A periodic check must look before it touches
+
+The Windows client checked its VPN profile, routes and name rules every half
+minute, and to be safe closed the tunnel's permission first. Nothing ever
+needed changing, so every half-minute the services stopped for about a second:
+new connections failed, a name asked over HTTPS in that second waited twelve.
+No test saw it, because every test looked at the published state, which stayed
+"protected". Found by opening a connection five times a second for a minute.
+A check that runs on a timer asks first (`check` in `ManagedVpnProfile.ps1`)
+and disturbs the data path only when it has something to put right. Measure an
+"always on" path with a probe faster than its own timers.

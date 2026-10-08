@@ -26,6 +26,15 @@ namespace IkeV2Manager.Client
             Replace(store, text => policy.ReconcileHosts(text));
         }
 
+        // Whether the hosts file already holds exactly these mappings (or, with
+        // no policy, none of this program's). Reads, changes nothing.
+        public static bool InPlace(GuardStore store, PolicyHistory policy)
+        {
+            if (store == null) throw new ArgumentNullException();
+            string text = Bytes.GetString(Read(PathName));
+            return (policy == null ? ManagedHosts.Reconcile(text, new HostEntry[0]) : policy.ReconcileHosts(text)) == text;
+        }
+
         // Explicit privileged removal only; ordinary disconnect retains mappings.
         public static void Remove(GuardStore store)
         { Replace(store, text => ManagedHosts.Reconcile(text, new HostEntry[0])); }

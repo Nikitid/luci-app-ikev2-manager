@@ -631,6 +631,36 @@ reports - Windows or macOS - and says to paste the page's own address into
 Waypoint. The secret part of a link is a fragment and never reaches the
 router. The installers are release assets of the router's own version.
 
+### Beside another VPN
+
+A second VPN on a device that takes every route and blocks every plain DNS
+query but its own (the TUN mode of sing-box and Xray clients with strict
+routing) left the tunnel and its routes alone and broke only names. Three
+things make the two coexist, each owned and each removed with the rest:
+
+- Names over HTTPS. The router answers names at the resolver address on port
+  443 as well, through a loopback front (`dnsproxy`, started by
+  `ikev2-client-api names`) that holds the server's certificate and asks the
+  proxy on a loopback port. Who asked is not known there, so a published name
+  is answered to any admitted device; whether the device may reach it is still
+  decided when its connection arrives. The device API says `names_https` when
+  the front exists. Windows 11 then registers the resolver address for DNS
+  over HTTPS with the server's name and keeps the same name rules; plain
+  port 53 remains the fallback and the only way on older systems.
+- The server's own route. With another VPN's adapter carrying the route to the
+  Internet, Windows would build the tunnel inside that VPN. For the length of
+  dialing the server gets a host route through the physical network, with a
+  lifetime after which Windows drops it by itself. When that does not reach
+  the server the next attempt dials the way Windows chooses, and so in turn.
+- No interruption. The half-minute check of the profile, its routes and the
+  name rules first looks without changing anything, and takes the tunnel's
+  permission away only when something has to be put right. Before, it took the
+  permission away every time, which stopped the services for about a second
+  every half-minute.
+
+A VPN that intercepts traffic below the routing table (a filter driver) is not
+covered by any of this; it needs an exclusion in that VPN.
+
 ### Reports on request
 
 The administrator asks one device for a report from its settings on the Users

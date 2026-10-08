@@ -30,10 +30,18 @@ class PathTests(unittest.TestCase):
         value = self.input()
         result = self.compile(value)
         config = result['config']
-        self.assertEqual([r['override_address'] for r in config['route']['rules'] if 'override_address' in r],
+        self.assertEqual([r['override_address'] for r in config['route']['rules'] if r.get('outbound') == 'managed-exit' and 'override_address' in r],
                          ['api.example.com', 'chat.example.com'])
+        # The only way out to the Internet is the required interface; the other
+        # outbound is the loopback front for names over HTTPS and is reached
+        # by one rule alone.
         self.assertEqual(config['outbounds'], [{'type': 'direct', 'tag': 'managed-exit',
-            'bind_interface': 'ipsec-out', 'domain_resolver': {'server': 'managed-dns', 'strategy': 'ipv4_only'}}])
+            'bind_interface': 'ipsec-out', 'domain_resolver': {'server': 'managed-dns', 'strategy': 'ipv4_only'}},
+            {'type': 'direct', 'tag': 'names-front', 'domain_resolver': {'server': 'managed-dns', 'strategy': 'ipv4_only'}}])
+        self.assertEqual([r for r in config['route']['rules'] if r.get('outbound') == 'names-front'],
+                         [{'inbound': ['tproxy-client-access-in'], 'ip_cidr': ['172.31.254.127/32'], 'network': ['tcp'], 'port': [443],
+                           'action': 'route', 'outbound': 'names-front', 'override_address': '127.0.0.1', 'override_port': 17898}])
+        self.assertEqual(config['route']['final'], 'managed-exit')
         self.assertEqual(config['dns']['servers'], [{'type': 'tcp', 'tag': 'managed-dns',
             'server': '192.0.2.53', 'server_port': 53, 'bind_interface': 'ipsec-out'},
             {'type': 'fakeip', 'tag': 'managed-names', 'inet4_range': '172.31.254.128/25'}])
@@ -64,7 +72,7 @@ class PathTests(unittest.TestCase):
         sets = {item['tag']: item for item in config['route']['rule_set']}
         self.assertTrue(sets and all(item['type'] == 'local' and item['path'] ==
                         '/var/run/ikev2-client-access/' + tag + '.json' for tag, item in sets.items()))
-        answers = [r for r in config['dns']['rules'] if r.get('server') == 'managed-names']
+        answers = [r for r in config['dns']['rules'] if r.get('server') == 'managed-names' and r['inbound'] == ['tproxy-client-access-in']]
         self.assertEqual(len(answers), len(sets))
         for rule in answers:
             # Only A, only from the service's own devices, only the domain
@@ -72,8 +80,19 @@ class PathTests(unittest.TestCase):
             self.assertEqual(rule['query_type'], ['A'])
             self.assertTrue(rule['rule_set_ip_cidr_match_source'] and rule['rule_set'][0] in sets)
             self.assertEqual(rule['domain_suffix'], ['.' + name for name in rule['domain']])
-        self.assertEqual(config['dns']['rules'][-1],
-                         {'inbound': ['tproxy-client-access-in'], 'action': 'predefined', 'rcode': 'REFUSED'})
+        plain = [r for r in config['dns']['rules'] if r['inbound'] == ['tproxy-client-access-in']]
+        self.assertEqual(plain[-1], {'inbound': ['tproxy-client-access-in'], 'action': 'predefined', 'rcode': 'REFUSED'})
+        # Names over HTTPS come from the loopback front: the same names get an
+        # address, every other record type is empty, anything else is refused,
+        # and nothing asked there ever reaches the resolver of the exit.
+        front = [r for r in config['dns']['rules'] if r['inbound'] == ['names-local-in']]
+        self.assertEqual(sorted(sum((r['domain'] for r in front if r.get('server') == 'managed-names'), [])),
+                         sorted(sum((r['domain'] for r in answers), [])))
+        self.assertTrue(all(r['query_type'] == ['A'] for r in front if r.get('server') == 'managed-names'))
+        self.assertEqual(front[-1], {'inbound': ['names-local-in'], 'action': 'predefined', 'rcode': 'REFUSED'})
+        self.assertEqual(config['dns']['rules'][-1], front[-1])
+        self.assertIn({'inbound': ['names-local-in'], 'action': 'hijack-dns'}, config['route']['rules'])
+        self.assertIn({'type': 'direct', 'tag': 'names-local-in', 'listen': '127.0.0.1', 'listen_port': 17897}, config['inbounds'])
         named = [r for r in config['route']['rules'] if r.get('rule_set')]
         self.assertTrue(named)
         for rule in named:

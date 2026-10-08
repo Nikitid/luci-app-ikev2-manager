@@ -164,7 +164,8 @@ export function compile_client_authorization(input) {
 	for (let protocol in [ 'tcp', 'udp' ]) {
 		nft += `    meta l4proto ${protocol} ip saddr . ip daddr . ${protocol} dport @allow_${protocol} meta mark set 0x00800000 counter accept\n`;
 		nft += `    ip daddr ${layout.range} meta l4proto ${protocol} ip saddr . ${protocol} dport @names_${protocol} meta mark set 0x00800000 counter accept\n`;
-		nft += `    ip daddr ${layout.resolver} ${protocol} dport 53 ip saddr @names_clients meta mark set 0x00800000 counter accept\n`;
+		// Names: plain on port 53, and over HTTPS on 443 for a device whose other VPN blocks plain queries.
+		nft += `    ip daddr ${layout.resolver} ${protocol} dport ${protocol == 'tcp' ? '{ 53, 443 }' : '53'} ip saddr @names_clients meta mark set 0x00800000 counter accept\n`;
 	}
 	nft += '    counter drop\n  }\n';
 	// Replies are closed before XFRM and checked against the outbound SA after
@@ -175,7 +176,7 @@ export function compile_client_authorization(input) {
 	for (let protocol in [ 'tcp', 'udp' ]) {
 		nft += `    meta l4proto ${protocol} ip daddr . ip saddr . ${protocol} sport @allow_${protocol} meta mark set 0x00800000 counter accept\n`;
 		nft += `    ip saddr ${layout.range} meta l4proto ${protocol} ip daddr . ${protocol} sport @names_${protocol} meta mark set 0x00800000 counter accept\n`;
-		nft += `    ip saddr ${layout.resolver} ${protocol} sport 53 ip daddr @names_clients meta mark set 0x00800000 counter accept\n`;
+		nft += `    ip saddr ${layout.resolver} ${protocol} sport ${protocol == 'tcp' ? '{ 53, 443 }' : '53'} ip daddr @names_clients meta mark set 0x00800000 counter accept\n`;
 	}
 	nft += '    counter drop\n  }\n';
 	nft += '  chain postrouting {\n    type filter hook postrouting priority 0; policy accept;\n';
@@ -190,7 +191,7 @@ export function compile_client_authorization(input) {
 	for (let protocol in [ 'tcp', 'udp' ]) {
 		nft += `    meta l4proto ${protocol} ip daddr . ip saddr . ${protocol} sport @allow_${protocol} meta mark set 0x00800000 counter accept\n`;
 		nft += `    ip saddr ${layout.range} meta l4proto ${protocol} ip daddr . ${protocol} sport @names_${protocol} meta mark set 0x00800000 counter accept\n`;
-		nft += `    ip saddr ${layout.resolver} ${protocol} sport 53 ip daddr @names_clients meta mark set 0x00800000 counter accept\n`;
+		nft += `    ip saddr ${layout.resolver} ${protocol} sport ${protocol == 'tcp' ? '{ 53, 443 }' : '53'} ip daddr @names_clients meta mark set 0x00800000 counter accept\n`;
 	}
 	nft += '    counter drop\n  }\n}\n';
 	return { version: 1, virtual_subnet: subnet, tcp: sort(keys(tuples.tcp)), udp: sort(keys(tuples.udp)),

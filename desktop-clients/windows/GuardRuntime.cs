@@ -59,6 +59,8 @@ namespace IkeV2Manager.Client
         private bool namesApplied = true;
         private DateTime nextReadinessAt;
         private bool appliedFull;
+        private ServerPath serverPath;
+        private bool dialPlain, dialedThroughPath;
         private bool noServices;
         private string release = "";
         private string[] warnings = new string[0];
@@ -102,6 +104,21 @@ namespace IkeV2Manager.Client
             return found.ToArray();
         }
 
+        // Windows 11 and later ask a name server over HTTPS when told to.
+        private static bool EncryptedNames()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                {
+                    int build;
+                    return key != null && Int32.TryParse(key.GetValue("CurrentBuild") as string, out build) && build >= 22000;
+                }
+            }
+            catch (System.Security.SecurityException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
         // Another VPN that took the route to the Internet also takes the
         // names: this client's services then fail to open rather than go
         // around, and the user is told why. Seen as Windows sees it - the
@@ -117,21 +134,7 @@ namespace IkeV2Manager.Client
                 {
                     if (!adapter.GetIPProperties().UnicastAddresses.Any(address => address.Address.Equals(chosen.Source))) continue;
                     if (adapter.Name.StartsWith("Waypoint", StringComparison.Ordinal)) return false;
-                    switch (adapter.NetworkInterfaceType)
-                    {
-                        case System.Net.NetworkInformation.NetworkInterfaceType.Ethernet:
-                        case System.Net.NetworkInformation.NetworkInterfaceType.Ethernet3Megabit:
-                        case System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetT:
-                        case System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetFx:
-                        case System.Net.NetworkInformation.NetworkInterfaceType.GigabitEthernet:
-                        case System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211:
-                        case System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp:
-                        case System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp2:
-                            // A virtual adapter of another VPN often calls itself Ethernet.
-                            return System.Text.RegularExpressions.Regex.IsMatch(adapter.Description ?? "",
-                                @"Wintun|WireGuard|TAP-Windows|TAP Adapter|TUN|OpenVPN|sing-|AdGuard|VPN|Tailscale|ZeroTier", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                        default: return true;
-                    }
+                    return !ServerPath.Physical(adapter);
                 }
             }
             catch (System.ComponentModel.Win32Exception) { }
@@ -227,6 +230,9 @@ namespace IkeV2Manager.Client
                     try { release = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
                     catch (PolicyFetchException) { }
                     warnings = Observe();
+                    // Another VPN is worth a word only where it can still get in
+                    // the way: with names asked over HTTPS it does not.
+                    if (assigned != null && assigned.NamesHttps && EncryptedNames()) warnings = warnings.Where(w => w != "vpn").ToArray();
                     if (assigned != null && !assigned.Block) warnings = warnings.Concat(new[] { "open" }).ToArray();
                     if (assigned != null && assigned.Full) warnings = warnings.Concat(new[] { "full" }).ToArray();
                     if (next.Canonical != previous.Current.Canonical) StagePolicy(next);
@@ -297,7 +303,7 @@ namespace IkeV2Manager.Client
                 { "guard_installed", healthy }, { "tunnel_permitted", permittedInterface != 0 },
                 { "synchronization_failed", synchronizationFailed }, { "access_closed", accessClosed }, { "no_services", noServices },
                 { "mode", assigned != null && assigned.Full ? "full" : "services" }, { "block_without_tunnel", assigned == null || assigned.Block },
-                { "names_applied", namesApplied }, { "warnings", warnings },
+                { "names_applied", namesApplied }, { "names_https", assigned != null && assigned.NamesHttps }, { "warnings", warnings },
                 { "services", assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray() },
                 { "domains", domains }, { "policy_revision", revision }, { "router_release", release },
                 { "faults", store.ReadFaults() }, { "adapters", Adapters() } };
@@ -381,13 +387,43 @@ namespace IkeV2Manager.Client
         {
             if (!systemIntegration) return;
             if (guard == null) throw new InvalidOperationException("Guard required before VPN provisioning");
-            ClosePermission(); guard.VerifyProtection();
-            SyncNames(policy);
+            guard.VerifyProtection();
             bool full = assigned != null && assigned.Full;
+            // This runs every half-minute. While the profile, its routes and the
+            // name rules are what they should be there is nothing to put right,
+            // and the tunnel keeps its permission: taking it away for the
+            // length of the check used to stop the services for about a second
+            // every half-minute.
+            if (InPlace(policy, full)) return;
+            ClosePermission();
+            SyncNames(policy);
             var profile = ManagedVpnProfile.Ensure(policy, store.LoadPlan().Owner, store.LoadVpnEntry(), full);
             // A changed mode takes effect on a new connection.
             if (full != appliedFull) { appliedFull = full; CloseConnection(); retryConnectionAt = DateTime.MinValue; }
             store.SaveVpnEntry(profile.EntryId);
+        }
+
+        // Looks, changes nothing. Any doubt is "no": the caller then closes the
+        // permission and puts everything right the long way.
+        private bool InPlace(ClientPolicy policy, bool full)
+        {
+            try
+            {
+                bool want = WantNames();
+                if (want != namesApplied || full != appliedFull) return false;
+                Guid owner = store.LoadPlan().Owner, entry = store.LoadVpnEntry();
+                if (entry == Guid.Empty) return false;
+                string https = assigned != null && assigned.NamesHttps ? policy.ServerAddress : null;
+                bool names = want
+                    ? SystemHosts.InPlace(store, store.LoadPolicyHistory()) && ManagedVpnProfile.NamesInPlace(owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
+                        store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain), https)
+                    : SystemHosts.InPlace(store, null) && ManagedVpnProfile.NamesAbsent(owner);
+                return names && ManagedVpnProfile.InPlace(policy, owner, entry, full);
+            }
+            catch (InvalidOperationException) { return false; }
+            catch (ArgumentException) { return false; }
+            catch (System.IO.IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
 
         // Names point into the tunnel always, unless the administrator let
@@ -404,7 +440,8 @@ namespace IkeV2Manager.Client
                 // Every name under a selected domain is asked through the tunnel;
                 // the denials already hold the address that answers.
                 ManagedVpnProfile.ApplyNames(store.LoadPlan().Owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
-                    store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain));
+                    store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain),
+                    assigned != null && assigned.NamesHttps ? policy.ServerAddress : null);
             }
             else
             {
@@ -442,6 +479,7 @@ namespace IkeV2Manager.Client
             // ending whatever is still connected on the managed entry.
             var closing = connection; connection = null;
             if (closing != null) closing.Dispose();
+            if (serverPath != null) { serverPath.Dispose(); serverPath = null; }
         }
 
         private void AdvanceConnection()
@@ -467,6 +505,12 @@ namespace IkeV2Manager.Client
                     var registration = EnrollmentRegistration.Load(store);
                     var profile = ManagedVpnProfile.FromJournal(store.LoadPlan().Owner, store.LoadVpnEntry());
                     RasTunnel.Release(profile.EntryId, profile.Phonebook);
+                    // With another VPN in the way the server is dialed through
+                    // the physical network. Should that not reach it, the next
+                    // attempt goes the way Windows chooses, and so on in turn.
+                    if (serverPath != null) { serverPath.Dispose(); serverPath = null; }
+                    if (!dialPlain) serverPath = ServerPath.Pin(store.LoadPolicyHistory().Current.ServerAddress);
+                    dialedThroughPath = serverPath != null;
                     connection = OwnedRasConnection.Begin(profile, registration.Id, registration.Password);
                     routeDeadline = DateTime.MinValue;
                 }
@@ -557,6 +601,7 @@ namespace IkeV2Manager.Client
                 store.RecordFault("connection", error);
                 connectionState = "connection_error";
                 retryConnectionAt = DateTime.UtcNow.AddSeconds(30);
+                dialPlain = dialedThroughPath && !dialPlain;
                 ClosePermission();
                 CloseConnection();
             }
