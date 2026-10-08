@@ -286,6 +286,14 @@ struct ClientView: View {
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Tone.working.color.opacity(0.12)))
             }
+            if let warnings = status?.warnings, !warnings.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    if warnings.contains("vpn") { Text("Работает другой VPN: сервисы могут не открываться, пока он включён.") }
+                    if warnings.contains("proxy") { Text("Включён системный прокси: трафик через него идёт в обход туннеля.") }
+                }
+                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Tone.working.color.opacity(0.12)))
+            }
             if !model.message.isEmpty { Text(model.message).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 0)
             HStack {

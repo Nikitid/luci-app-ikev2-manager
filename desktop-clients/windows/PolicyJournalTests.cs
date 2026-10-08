@@ -113,8 +113,11 @@ internal static class PolicyJournalTests
         }
         finally
         {
-            if (plan == null && Directory.Exists(directory))
-                using (var pending = new GuardStore(name)) plan = pending.LoadPlan();
+            // The plan the store holds now, not the one this test read earlier:
+            // the runtime has since extended it to the names of the services,
+            // and a guard removed by an older plan leaves filters behind.
+            if (Directory.Exists(directory))
+                using (var pending = new GuardStore(name)) plan = pending.LoadPlan() ?? plan;
             if (plan != null) using (var cleanup = WfpGuard.Resume(plan)) cleanup.Remove();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }

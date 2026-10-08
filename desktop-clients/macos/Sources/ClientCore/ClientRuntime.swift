@@ -39,10 +39,15 @@ public protocol SystemActions: Sendable {
     /// The network as the system shows it, for the report the administrator
     /// asks for: interfaces that are up, the default route, the resolvers.
     func describeNetwork() -> [String]
+    /// What on this machine lets a service be reached around the tunnel or
+    /// keeps it from opening: "vpn" when another tunnel carries the route to
+    /// the Internet, "proxy" when a system proxy is set. Named, not acted on.
+    func observeConditions() -> [String]
 }
 
 public extension SystemActions {
     func describeNetwork() -> [String] { [] }
+    func observeConditions() -> [String] { [] }
 }
 
 public struct ClientStatusReport: Codable, Sendable, Equatable {
@@ -64,6 +69,8 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var blockWithoutTunnel = true
     /// Whether everything goes into the tunnel.
     public var fullTunnel = false
+    /// Conditions on this machine the user should know of: "vpn", "proxy".
+    public var warnings: [String]? = nil
     public var updatedAt: Int
 
     /// Whether `release` is newer than the running program's own version.
@@ -94,6 +101,7 @@ public actor ClientRuntime {
     private var names: DeviceServices?
     private var connectionError = "none"
     private var nextReportPoll = Date.distantPast
+    private var conditions: [String] = []
     private var faults: [String] = []
     private var lastFault = ""
     private let startedAt = Date()
@@ -125,7 +133,7 @@ public actor ClientRuntime {
             "synchronization_failed": synchronizationFailed, "access_closed": accessClosed, "no_services": noServices,
             "mode": report.fullTunnel ? "full" : "services", "block_without_tunnel": report.blockWithoutTunnel,
             "services": report.services, "domains": report.domains, "policy_revision": report.revision, "router_release": release,
-            "faults": faults, "network": Array(system.describeNetwork().prefix(60)),
+            "faults": faults, "warnings": conditions, "network": Array(system.describeNetwork().prefix(60)),
         ]
         if let tunnel = permitted { body["tunnel"] = tunnel.interface + " " + tunnel.address }
         var data = (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data()
@@ -164,7 +172,7 @@ public actor ClientRuntime {
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
             revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true, fullTunnel: names?.full ?? false,
-            updatedAt: Int(now.timeIntervalSince1970))
+            warnings: conditions, updatedAt: Int(now.timeIntervalSince1970))
     }
 
     // MARK: registration
@@ -278,6 +286,8 @@ public actor ClientRuntime {
 
     private func refreshPolicy(_ registration: Registration, history: PolicyHistory, now: Date) async -> PolicyHistory {
         nextPolicyPoll = now.addingTimeInterval(30)
+        // In full-tunnel mode the tunnel that carries everything is this one.
+        conditions = system.observeConditions().filter { $0 != "vpn" || !((names?.full ?? false) && permitted != nil) }
         do {
             let data = try await transport.policy(endpoint: registration.endpoint, deviceToken: registration.deviceToken)
             let next = try history.proposing(try ClientPolicy(data: data))

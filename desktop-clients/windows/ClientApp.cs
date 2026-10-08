@@ -319,7 +319,15 @@ namespace IkeV2Manager.Client
             if (commandBusy) return;
             if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
             {
-                MessageBox.Show(this, "Запустите программу от имени администратора.", "Регистрация");
+                // Registration changes the system, so Windows asks for an
+                // administrator; the window opens again with that right and
+                // goes straight to the link. This one closes.
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Application.ExecutablePath, "--register") { UseShellExecute = true, Verb = "runas" });
+                    Close();
+                }
+                catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Для регистрации нужны права администратора.", "Регистрация"); }
                 return;
             }
             using (var dialog = new Form { Text = "Регистрация", ClientSize = new Size(560, 170),
@@ -460,9 +468,11 @@ namespace IkeV2Manager.Client
                 connectAfterRegistration = false;
                 SubmitCommand("connect");
             }
-            notice = (newer ? "Доступна версия " + current.Release + "." : "") +
-                (current.Warnings != null && current.Warnings.Contains("proxy") ? (newer ? "\r\n" : "") +
-                    "Включён системный прокси: трафик через него идёт в обход туннеля." : "");
+            var notes = new List<string>();
+            if (newer) notes.Add("Доступна версия " + current.Release + ".");
+            if (current.Warnings != null && current.Warnings.Contains("vpn")) notes.Add("Работает другой VPN: сервисы могут не открываться, пока он включён.");
+            if (current.Warnings != null && current.Warnings.Contains("proxy")) notes.Add("Включён системный прокси: трафик через него идёт в обход туннеля.");
+            notice = String.Join("\r\n", notes);
             var own = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             checkedSign.Text = checkedLine = "Проверено " + DateTime.Now.ToString("HH:mm:ss") + " \u00B7 v" + own.Major + "." + own.Minor + "." + Math.Max(own.Build, 0);
             FitWindow();
@@ -498,11 +508,13 @@ namespace IkeV2Manager.Client
         }
 
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new ClientWindow());
+            var window = new ClientWindow();
+            if (args.Length == 1 && args[0] == "--register") window.Shown += (sender, shown) => window.BeginInvoke((Action)window.BeginRegistration);
+            Application.Run(window);
         }
     }
 }

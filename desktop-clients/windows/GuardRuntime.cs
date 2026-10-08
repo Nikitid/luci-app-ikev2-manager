@@ -98,7 +98,45 @@ namespace IkeV2Manager.Client
             catch (System.Security.SecurityException) { }
             catch (UnauthorizedAccessException) { }
             catch (System.IO.IOException) { }
+            if (AnotherTunnelCarriesTheInternet()) found.Add("vpn");
             return found.ToArray();
+        }
+
+        // Another VPN that took the route to the Internet also takes the
+        // names: this client's services then fail to open rather than go
+        // around, and the user is told why. Seen as Windows sees it - the
+        // adapter the system would send an ordinary address through is
+        // neither a wired, wireless or mobile one nor this client's own.
+        internal static bool AnotherTunnelCarriesTheInternet()
+        {
+            try
+            {
+                var chosen = RouteObservation.Read(IPAddress.Parse("1.1.1.1"));
+                if (chosen.IsLoopback || chosen.Source == null) return false;
+                foreach (var adapter in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (!adapter.GetIPProperties().UnicastAddresses.Any(address => address.Address.Equals(chosen.Source))) continue;
+                    if (adapter.Name.StartsWith("Waypoint", StringComparison.Ordinal)) return false;
+                    switch (adapter.NetworkInterfaceType)
+                    {
+                        case System.Net.NetworkInformation.NetworkInterfaceType.Ethernet:
+                        case System.Net.NetworkInformation.NetworkInterfaceType.Ethernet3Megabit:
+                        case System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetT:
+                        case System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetFx:
+                        case System.Net.NetworkInformation.NetworkInterfaceType.GigabitEthernet:
+                        case System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211:
+                        case System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp:
+                        case System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp2:
+                            // A virtual adapter of another VPN often calls itself Ethernet.
+                            return System.Text.RegularExpressions.Regex.IsMatch(adapter.Description ?? "",
+                                @"Wintun|WireGuard|TAP-Windows|TAP Adapter|TUN|OpenVPN|sing-|AdGuard|VPN|Tailscale|ZeroTier", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        default: return true;
+                    }
+                }
+            }
+            catch (System.ComponentModel.Win32Exception) { }
+            catch (InvalidOperationException) { }
+            return false;
         }
 
         public GuardRuntime(string storeName, bool enableSystemIntegration = false)
@@ -246,6 +284,7 @@ namespace IkeV2Manager.Client
                 if (history != null) { domains = history.Current.Resources.Select(r => r.Domain).Distinct().Count(); revision = history.Current.Revision; }
             }
             catch (InvalidOperationException) { }
+            catch (ArgumentException) { }
             var about = PolicyTransportClient.Describe();
             Func<string, string> told = key => about.ContainsKey(key) ? about[key] : "";
             var report = new System.Collections.Generic.Dictionary<string, object> {
@@ -607,6 +646,9 @@ namespace IkeV2Manager.Client
                 }
             }
             catch (InvalidOperationException) { }
+            // A journal that cannot be read must not keep the status from being
+            // written: stopping the service used to fail on it.
+            catch (ArgumentException) { }
             publishedState = state;
             store.PublishStatus(new ClientStatus { State = state, GuardInstalled = healthy,
                 Services = assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray(),

@@ -107,6 +107,16 @@ struct RealSystem: SystemActions {
         _ = try? Tool.run("/usr/bin/profiles", ["remove", "-identifier", identifier])
     }
 
+    func observeConditions() -> [String] {
+        var found: [String] = []
+        // Another tunnel that took the default route takes the names with it.
+        if let route = try? routeInterface("default"),
+           route.range(of: #"\A(utun|ppp|ipsec|tun|tap)[0-9]+\z"#, options: .regularExpression) != nil { found.append("vpn") }
+        let proxy = (try? Tool.run("/usr/sbin/scutil", ["--proxy"]).output) ?? ""
+        if proxy.range(of: #"(HTTPEnable|HTTPSEnable|SOCKSEnable|ProxyAutoConfigEnable) : 1"#, options: .regularExpression) != nil { found.append("proxy") }
+        return found
+    }
+
     /// Another VPN, a virtual interface or a changed resolver shows here.
     func describeNetwork() -> [String] {
         var lines: [String] = []
