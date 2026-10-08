@@ -39,7 +39,12 @@ request() {
 }
 if curl --max-time 3 "$poll" >/dev/null 2>&1; then exit 1; fi
 request 403 -X POST -H "Authorization: Bearer $invite" -H "X-Device-Token: $device" http://localhost:18080/client/v1/enroll
-request 405 -H "Authorization: Bearer $invite" "$claim"
+# A browser that opens the link gets the download page; nothing is claimed by
+# looking, and no other method than the program's own claims either.
+request 200 -H "Authorization: Bearer $invite" "$claim"
+grep -qi '<title>Waypoint</title>' "$work/body"
+[ "$(ucode /usr/libexec/ikev2-manager.d/client-access-control.uc inspect | jsonfilter -e '@.waiting[*].id' | wc -l)" -ge 1 ]
+request 405 -X PUT -H "Authorization: Bearer $invite" "$claim"
 grep -qi '^Allow: POST' "$work/headers"
 request 401 -X POST -H "X-Device-Token: $device" "$claim"
 request 400 -X POST -H "Authorization: Bearer $invite" "$claim"
