@@ -15,10 +15,19 @@ with_mirrors() {
 	"$@" && return 0
 	for mirror in https://ftp.halifax.rwth-aachen.de/openwrt https://mirrors.tuna.tsinghua.edu.cn/openwrt; do
 		for list in /etc/apk/repositories.d/*.list /etc/opkg/distfeeds.conf; do
-			[ -f "$list" ] && sed -i "s#https://[^ ]*/releases/#$mirror/releases/#" "$list"
+			[ -f "$list" ] || continue
+			[ -f "$list.origin" ] || cp "$list" "$list.origin"
+			sed "s#https://[^ ]*/releases/#$mirror/releases/#" "$list.origin" >"$list"
 		done
-		if command -v opkg >/dev/null 2>&1; then opkg update >/dev/null 2>&1 || continue; else apk update >/dev/null 2>&1 || continue; fi
-		"$@" && return 0
+		fetched=1
+		if command -v opkg >/dev/null 2>&1; then opkg update >/dev/null 2>&1 || fetched=0; else apk update >/dev/null 2>&1 || fetched=0; fi
+		[ "$fetched" = 1 ] && "$@" || fetched=0
+		# The package itself insists on the official feeds, as it does on a
+		# router: they are put back as soon as the download is done.
+		for list in /etc/apk/repositories.d/*.list /etc/opkg/distfeeds.conf; do
+			[ -f "$list.origin" ] && mv "$list.origin" "$list"
+		done
+		[ "$fetched" = 1 ] && return 0
 	done
 	return 1
 }
