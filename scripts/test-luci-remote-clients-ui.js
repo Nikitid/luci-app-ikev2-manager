@@ -163,6 +163,12 @@ async function main() {
  assert(text(modal).includes('cannot be used again'));
  await click(button(modal,'Remove'));
  assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'remove-device', payload:{id:'bob-laptop'}});
+ // Everything into the tunnel is not offered until a lost tunnel can hold such a device back.
+ assert(!text(tree).includes('Everything into the tunnel') && !nodes(tree).some(n => n.attrs && n.attrs['aria-label'] === 'Everything into the tunnel'), 'the full-tunnel mode is not offered');
+ snapshot.devices[0].mode = 'full';
+ const withFull = page.render(await page.load());
+ assert(nodes(withFull).some(n => n.tagName === 'BUTTON' && /Selected services|Everything into the tunnel/.test(n.attrs['aria-label'] || n.attrs.title || '')), 'a device that already sends everything can be brought back');
+ delete snapshot.devices[0].mode;
  // Diagnostics: the device is asked by its identifier, and what it sent is shown as it came.
  const gears = nodes(tree).filter(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Device: name and services');
  assert(gears.length >= 1, 'a device has its own settings');

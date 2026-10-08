@@ -391,8 +391,15 @@ var modeSigns = {
  services: 'M4 7h6m4 0h6M12 5v4M4 12h10m4 0h2M16 10v4M4 17h3m4 0h9M9 15v4',
  full: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-9 9h18M12 3c2.4 2.5 3.6 5.5 3.6 9s-1.2 6.5-3.6 9c-2.4-2.5-3.6-5.5-3.6-9S9.6 5.5 12 3Z'
 };
+// Sending everything into the tunnel is not offered: with the tunnel down
+// such a device would go out the ordinary way, and nothing yet holds it back.
+// The mode stays in the router and the clients; a device that already has it
+// keeps its two signs, so that it can be brought back to its services.
+var OFFER_FULL_TUNNEL = false;
+
 function modeSelect(device, onMode) {
  var current = device.mode === 'full' ? 'full' : 'services';
+ if (!OFFER_FULL_TUNNEL && current !== 'full') return '';
  return E('span', { 'class': 'ikev2-mode' }, [ [ 'services', _('Selected services') ], [ 'full', _('Everything into the tunnel') ] ].map(function(item) {
   var button = E('button', { 'class': 'cbi-button ikev2-platform-action' + (item[0] === current ? ' is-on' : ''), 'type': 'button',
    'title': item[1], 'aria-label': item[1], 'aria-pressed': item[0] === current ? 'true' : 'false',
@@ -762,11 +769,12 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  // profiles panel and then given to the person.
  var kind = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Kind of device') }, [
   E('option', { 'value': 'services' }, [ _('Waypoint: selected services') ]),
-  E('option', { 'value': 'full' }, [ _('Waypoint: everything into the tunnel') ])
+  OFFER_FULL_TUNNEL ? E('option', { 'value': 'full' }, [ _('Waypoint: everything into the tunnel') ]) : ''
  ].concat(addProfile && !person && !replace.length ? [ E('option', { 'value': 'profile' }, [ _('Ordinary VPN profile: phone or other device') ]) ] : []));
  // A known person brings name, mail and note; a device is added one at a time.
  var rows = person ? [] : [ common.fieldLabel(_('Who uses it')), owner, common.fieldLabel(_('E-mail')), email, common.fieldLabel(_('Note')), note ];
- rows.push(common.fieldLabel(person ? _('The devices start with') : _('Kind of device'), _('Changed later for each device by itself.')), kind);
+ // With one kind to choose from there is nothing to ask a known person's link.
+ if (!person || OFFER_FULL_TUNNEL) rows.push(common.fieldLabel(person ? _('The devices start with') : _('Kind of device'), OFFER_FULL_TUNNEL ? _('Changed later for each device by itself.') : ''), kind);
  rows.push(common.fieldLabel(_('Devices of the person'), _('How many Waypoint devices this person may have. Each registers with the same link and appears under the name of its computer.')), count);
  rows.push(common.fieldLabel(_('Link is valid for')), lifetime);
  // The identifier is made from the person's name; it is internal and rarely matters.
