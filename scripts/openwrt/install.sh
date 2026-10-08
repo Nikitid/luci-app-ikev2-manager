@@ -7,13 +7,28 @@
 set -eu
 
 mkdir -p /var/lock /var/run /tmp/run
+
+# Packages are signed, so a mirror serves as well as the origin. The origin
+# sometimes cuts large downloads short; when its index or a package cannot be
+# fetched, the feeds are pointed at a mirror and the step is tried again.
+with_mirrors() {
+	"$@" && return 0
+	for mirror in https://ftp.halifax.rwth-aachen.de/openwrt https://mirrors.tuna.tsinghua.edu.cn/openwrt; do
+		for list in /etc/apk/repositories.d/*.list /etc/opkg/distfeeds.conf; do
+			[ -f "$list" ] && sed -i "s#https://[^ ]*/releases/#$mirror/releases/#" "$list"
+		done
+		if command -v opkg >/dev/null 2>&1; then opkg update >/dev/null 2>&1 || continue; else apk update >/dev/null 2>&1 || continue; fi
+		"$@" && return 0
+	done
+	return 1
+}
 ipk="$(ls /src/dist/*.ipk)"
 
 if command -v opkg >/dev/null 2>&1; then
 	# 24.10: the real package manager, maintainer scripts included. Only the
 	# tools the runtime calls are installed; LuCI itself is not needed here.
-	opkg update >/dev/null
-	opkg install ip-full ucode-mod-fs ucode-mod-digest socat sing-box openssl-util >/dev/null
+	with_mirrors opkg update >/dev/null
+	with_mirrors opkg install ip-full ucode-mod-fs ucode-mod-digest socat sing-box openssl-util >/dev/null
 	opkg install --force-depends "$ipk" >/tmp/install.log 2>&1 || {
 		cat /tmp/install.log >&2
 		exit 1
@@ -21,8 +36,8 @@ if command -v opkg >/dev/null 2>&1; then
 else
 	# 25.12 installs the SDK-built APK, which needs the release signing key;
 	# the IPK carries the same files, unpacked here without its scripts.
-	apk update >/dev/null
-	apk add ip-full ucode-mod-fs ucode-mod-digest socat sing-box openssl-util >/dev/null
+	with_mirrors apk update >/dev/null
+	with_mirrors apk add ip-full ucode-mod-fs ucode-mod-digest socat sing-box openssl-util >/dev/null
 	mkdir -p /tmp/ipk
 	tar -xzf "$ipk" -C /tmp/ipk
 	tar -xzf /tmp/ipk/data.tar.gz -C /
@@ -30,9 +45,9 @@ fi
 
 if [ "${1:-}" = client-api ]; then
 	if command -v opkg >/dev/null 2>&1; then
-		opkg install uhttpd uhttpd-mod-ucode ucode-mod-digest curl >/dev/null
+		with_mirrors opkg install uhttpd uhttpd-mod-ucode ucode-mod-digest curl >/dev/null
 	else
-		apk add uhttpd uhttpd-mod-ucode ucode-mod-digest curl >/dev/null
+		with_mirrors apk add uhttpd uhttpd-mod-ucode ucode-mod-digest curl >/dev/null
 	fi
 	exec sh /src/scripts/openwrt/client-api.sh
 fi
@@ -67,15 +82,15 @@ if [ "${1:-}" = failover ] || [ "${1:-}" = client-ike ] || [ "${1:-}" = client-c
 	[ -n "$packages" ] || { printf '%s\n' 'openwrt: no strongSwan packages listed' >&2; exit 1; }
 	# shellcheck disable=SC2086
 	if command -v opkg >/dev/null 2>&1; then
-		opkg install $packages >/dev/null
+		with_mirrors opkg install $packages >/dev/null
 	else
-		apk add $packages >/dev/null
+		with_mirrors apk add $packages >/dev/null
 	fi
 	if [ "$1" = client-credentials ] || [ "$1" = client-native ] || [ "$1" = client-desktop ]; then
 		if command -v opkg >/dev/null 2>&1; then
-			opkg install uhttpd uhttpd-mod-ucode curl >/dev/null
+			with_mirrors opkg install uhttpd uhttpd-mod-ucode curl >/dev/null
 		else
-			apk add uhttpd uhttpd-mod-ucode curl >/dev/null
+			with_mirrors apk add uhttpd uhttpd-mod-ucode curl >/dev/null
 		fi
 		[ "$1" != client-native ] || exec sh /src/scripts/openwrt/client-native.sh
 		[ "$1" != client-desktop ] || exec sh /src/scripts/openwrt/client-desktop.sh
