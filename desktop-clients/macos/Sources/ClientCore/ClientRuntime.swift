@@ -314,6 +314,13 @@ public actor ClientRuntime {
             // they are let go, and come back with the first service.
             noServices = (error as? DeviceError) == .noServices
             accessClosed = noServices || (error as? DeviceError) == .accessRejected
+            if noServices {
+                // Nothing is assigned any more: the names of what was are not
+                // shown as if it still were. The router still says which
+                // release it runs, so a newer program is offered all the same.
+                names = nil
+                release = (try? await transport.release(endpoint: registration.endpoint, deviceToken: registration.deviceToken)) ?? release
+            }
             return history
         }
     }

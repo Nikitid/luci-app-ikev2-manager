@@ -879,7 +879,9 @@ package, as a number and nothing else. A client whose own version is older
 shows it and offers a download button; the address is built in the client from
 the project's release page, so the router cannot point a user elsewhere. The
 program never installs anything by itself: the user runs the downloaded
-installer, which keeps the registration.
+installer, which keeps the registration. A device that is known but has no
+service is answered too, and both clients ask in that state, so a machine
+waiting for its first service is still offered the newer program.
 
 A disabled or revoked device stays known to the router and its client reports
 `access_closed`.

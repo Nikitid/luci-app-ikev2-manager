@@ -52,7 +52,8 @@ private final class Router: DeviceRequests, @unchecked Sendable {
     func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {
         DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
     }
-    func release(endpoint: URL, deviceToken: String) async throws -> String { "2.3.0" }
+    var released = "2.3.0"
+    func release(endpoint: URL, deviceToken: String) async throws -> String { sync { released } }
     var reportWanted = false, reports: [Data] = []
     func reportWanted(endpoint: URL, deviceToken: String) async -> Bool { sync { reportWanted } }
     func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool { sync { reports.append(report); reportWanted = false }; return true }
@@ -197,6 +198,22 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     #expect(machine.resolving.isEmpty)
     #expect(!machine.installed && machine.log.contains { $0.hasPrefix("io.github.nikitid.ikev2-manager-client.") })
     #expect(!FileManager.default.fileExists(atPath: store.directory.path))
+}
+
+@Test func deviceWithoutServicesStillLearnsOfNewerProgram() async throws {
+    var (runtime, machine, router, _, now) = try await registered()
+    try await runtime.setWanted(true)
+    machine.sync { machine.connected = true; machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
+    router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
+    await runtime.tick(now: now); now += 2
+    #expect(await runtime.status().services == ["api"])
+    router.sync { router.policyFailure = .noServices; router.released = "2.4.0" }
+    now += 31
+    await runtime.tick(now: now); now += 2
+    let status = await runtime.status()
+    #expect(status.state == "access_closed" && status.error == "no_services")
+    #expect(status.services.isEmpty && status.available.isEmpty, "what was assigned before is not shown as assigned")
+    #expect(status.release == "2.4.0", "the router's release is asked for without a service too")
 }
 
 @Test func reportGoesOnlyWhenAskedAndSaysWhatFailed() async throws {

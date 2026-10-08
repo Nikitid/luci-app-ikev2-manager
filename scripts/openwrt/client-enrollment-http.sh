@@ -196,6 +196,11 @@ printf '{"version":1,"expected_generation":%s,"operation":"assign-service","payl
 # A device left without a single service is told exactly that, not that it was shut out.
 request 409 -H "Authorization: Bearer 2222222222222222222222222222222222222222222222222222222222222222" https://localhost:18443/client/v1/policy
 grep -q no_services "$work/body"
+# It still learns which release the router runs, so it can be offered a newer
+# program; a key nobody holds learns nothing.
+request 200 -H "Authorization: Bearer 2222222222222222222222222222222222222222222222222222222222222222" https://localhost:18443/client/v1/release
+[ "$(jsonfilter -i "$work/body" -e '@.release')" = "$(cat /usr/share/ikev2-manager/version)" ]
+request 401 -H "Authorization: Bearer 9999999999999999999999999999999999999999999999999999999999999999" https://localhost:18443/client/v1/release
 request 200 -H "Authorization: Bearer $first" https://localhost:18443/client/v1/policy
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":[],"per_device":{"family-1":["%s"],"family-2":["%s"]},"owner":"One Person","note":"both"}}' \
 	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" "$service" | ucode "$control" update >/dev/null

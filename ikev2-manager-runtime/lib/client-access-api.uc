@@ -79,6 +79,14 @@ function report_body(headers, receive) {
 	return length(text) == wanted ? text : null;
 }
 
+// The clients are released with this package under the same version. Only
+// the number leaves the router; a client builds the download address itself.
+function release_answer() {
+	let installed = replace(readfile('/usr/share/ikev2-manager/version') ?? '', /\s+$/, '');
+	if (!match(installed, /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/)) return reply(503, 'release_unavailable');
+	return { status: 200, body: { version: 1, release: installed } };
+}
+
 export function client_policy_response(env, directory, seen_directory, receive) {
 	if (env.HTTPS != 'on')
 		return reply(403, 'tls_required');
@@ -114,6 +122,8 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 				if (text == null || !store_client_report(device.id, text, now)) return reply(400, 'invalid_report');
 				return { status: 200, body: { version: 1, stored: true } };
 			}
+			// A device without a service still learns that a newer program exists.
+			if (release && device.idle) return release_answer();
 			if (!device.enabled) return device.idle ? reply(409, 'no_services') : reply(401, 'unauthorized');
 			if (readiness) {
 				if (type(headers['x-client-address']) != 'string') return reply(400, 'invalid_client_address');
@@ -130,11 +140,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 					selected: device.selected, available: device.available, block_without_tunnel: block, mode: mode,
 					names_https: names_over_https() } };
 			}
-			if (release) {
-				let installed = replace(readfile('/usr/share/ikev2-manager/version') ?? '', /\s+$/, '');
-				if (!match(installed, /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/)) return reply(503, 'release_unavailable');
-				return { status: 200, body: { version: 1, release: installed } };
-			}
+			if (release) return release_answer();
 			let compiled = compile_client_policy(device.policy);
 			if (length(sprintf('%J', compiled.policy)) > 1048576)
 				return reply(503, 'policy_unavailable');
@@ -183,6 +189,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 			if (text == null || !store_client_report(id, text, now)) return reply(400, 'invalid_report');
 			return { status: 200, body: { version: 1, stored: true } };
 		}
+		if (idle != null && release) return release_answer();
 		if (idle != null)
 			return reply(409, 'no_services');
 		if (matches != 1 || selected == null)
@@ -194,14 +201,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 		}
 		if (services)
 			return { status: 200, body: device_services(committed.publication, selected, directory) };
-		if (release) {
-			// The clients are released with this package under the same
-			// version. Only the number leaves the router; a client builds
-			// the download address itself.
-			let installed = replace(readfile('/usr/share/ikev2-manager/version') ?? '', /\s+$/, '');
-			if (!match(installed, /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/)) return reply(503, 'release_unavailable');
-			return { status: 200, body: { version: 1, release: installed } };
-		}
+		if (release) return release_answer();
 		// Validation rejects unknown fields before returning any policy content.
 		let compiled = compile_client_policy(selected.policy);
 		if (length(sprintf('%J', compiled.policy)) > 1048576)

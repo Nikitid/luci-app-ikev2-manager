@@ -254,6 +254,19 @@ namespace IkeV2Manager.Client
                     // Without a single service there is nothing to hold names for:
                     // they are let go, and come back with the first service.
                     noServices = named != null && named.Code == "device_no_services";
+                    if (noServices)
+                    {
+                        // Nothing is assigned any more; the router still says
+                        // which release it runs, so a newer program is offered.
+                        assigned = null;
+                        try
+                        {
+                            var known = EnrollmentRegistration.Load(store);
+                            if (known != null && known.Policy != null)
+                                release = PolicyTransportClient.FetchRelease(new UriBuilder(known.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri, known.DeviceToken);
+                        }
+                        catch (Exception) { }
+                    }
                     accessClosed = noServices || (named != null && named.Code == "device_access_revoked");
                     warnings = noServices ? new[] { "idle" } : warnings.Where(w => w != "idle").ToArray();
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
