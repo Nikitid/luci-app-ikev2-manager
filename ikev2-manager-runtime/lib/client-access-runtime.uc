@@ -1,14 +1,27 @@
 // Local controller bridge. Files and SA evidence are never supplied by HTTP.
 'use strict';
 import { open } from 'fs';
-import { read_committed_client_state } from './client-access-store.uc';
+import { read_client_state, read_committed_client_state } from './client-access-store.uc';
+import { client_views_generation, write_client_views } from './client-access-view.uc';
 import { compile_client_denial, reconcile_client_authorization } from './client-access-authorization.uc';
 import { authenticated_client_sessions } from './client-access-sessions.uc';
 
 try {
 	if (length(ARGV) != 4 || (ARGV[0] != 'close' && ARGV[0] != 'live' && ARGV[0] != 'subnet'))
 		die('invalid controller arguments');
-	let state = read_committed_client_state(ARGV[1]);
+	// The views stand for the state file the publisher checked. While they
+	// do, the file is read as it is. When they do not - before the first
+	// publication of this version, after a restore, after anything but the
+	// publisher touched the file - the state is checked in full before
+	// anybody is admitted from it, and a state that does not hold together
+	// ends this run, which closes access. Fresh views are then written so the
+	// next run is light again.
+	let state;
+	if (client_views_generation(ARGV[1]) != null) state = read_committed_client_state(ARGV[1]);
+	else {
+		state = read_client_state(ARGV[1]);
+		try { write_client_views(ARGV[1], state); } catch (error) { }
+	}
 	if (ARGV[0] == 'subnet') {
 		print(state.publication.virtual_subnet);
 		exit(0);

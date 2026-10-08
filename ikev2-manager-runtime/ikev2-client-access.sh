@@ -90,22 +90,11 @@ sync_access() {
 		failed
 		return 1
 	fi
-	# What devices are answered with is kept in step with the state: made
-	# again after an upgrade, a restored backup or an interrupted publication.
-	# The views are also the proof that the state file in place is the one the
-	# publisher checked. When it is not, it is checked in full here, before
-	# anything is admitted from it; a state that does not hold together closes
-	# access.
-	verified=''
-	if [ "$state_dir" = /etc/ikev2-manager/clients ]; then
-		verified="$("$ucode_bin" "$runtime_lib_dir/client-access-control.uc" views 2>/dev/null)" || { failed; return 1; }
-	fi
 	if ! "$ucode_bin" "$runtime_lib_dir/client-access-runtime.uc" live "$state_dir" "$pool" "$work/sessions.json" >"$work/plan.json" 2>/dev/null || ! client_path_sync || ! path_current || ! install_plan; then
 		failed
 		return 1
 	fi
 	generation="$(jsonfilter -i "$work/plan.json" -e '@.generation')"
-	[ -z "$verified" ] || [ "$verified" = "generation=$generation" ] || { failed; return 1; }
 	grants="$(jsonfilter -i "$work/plan.json" -e '@.grants')"
 	mode="$(jsonfilter -i "$work/plan.json" -e '@.mode')"
 	# With no device yet there is nobody to answer for: the path stands ready
