@@ -1,7 +1,7 @@
 // Compile server-owned service assignments into device-specific API policies.
 // The state store commits allocation history and API output in one snapshot.
 'use strict';
-import { prepare_client_catalog, compile_client_policy, validate_client_base } from './client-access.uc';
+import { prepare_client_catalog, check_client_policy, validate_client_base } from './client-access.uc';
 
 function fields(value, expected) {
 	if (type(value) != 'object' || length(keys(value)) != length(expected))
@@ -12,7 +12,8 @@ function fields(value, expected) {
 }
 
 function canonical_resources(resources) {
-	return map(sort(resources, (a, b) => a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0), resource => ({
+	// The caller's own order is left as it is.
+	return map(sort(slice(resources), (a, b) => a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0), resource => ({
 		id: resource.id, domain: resource.domain, address: resource.address,
 		transports: map(sort(resource.transports, (a, b) => a.protocol < b.protocol ? -1 : a.protocol > b.protocol ? 1 : 0),
 			transport => ({ protocol: transport.protocol, ports: sort(transport.ports) }))
@@ -20,9 +21,14 @@ function canonical_resources(resources) {
 }
 
 export function compile_client_publication(input) {
-	// Clone so a failed proposal never mutates the caller's allocation registry.
-	let proposal = json(sprintf('%J', input));
-	fields(proposal, [ 'version', 'server', 'virtual_subnet', 'exit', 'services', 'allocations', 'devices' ]);
+	fields(input, [ 'version', 'server', 'virtual_subnet', 'exit', 'services', 'allocations', 'devices' ]);
+	if (type(input.allocations) != 'array')
+		die('invalid publication allocations');
+	// A failed proposal must never mutate the caller's allocation registry,
+	// the one thing written into here; the rest is only read. The whole
+	// proposal used to be copied, which at fifty devices cost a second a time.
+	let proposal = { version: input.version, server: input.server, virtual_subnet: input.virtual_subnet, exit: input.exit,
+		services: input.services, allocations: slice(input.allocations), devices: input.devices };
 	if (proposal.version !== 1 || type(proposal.devices) != 'array' || length(proposal.devices) > 512)
 		die('invalid publication version or device count');
 	validate_client_base(proposal.server, proposal.virtual_subnet, proposal.exit);
@@ -47,7 +53,7 @@ export function compile_client_publication(input) {
 			// removed one admits nobody and is never served, and every removed
 			// device stays in the state for good - compiling all of them made
 			// each save slower with each device ever removed.
-			if (device.enabled) compile_client_policy(previous);
+			if (device.enabled) check_client_policy(previous);
 			if (type(previous) != 'object' || type(previous.server) != 'object' || type(previous.resources) != 'array') die('invalid retained policy');
 			if (previous.id != device.id || previous.virtual_subnet != proposal.virtual_subnet ||
 				previous.server.address != proposal.server?.address || previous.server.remote_id != proposal.server?.remote_id)
@@ -69,9 +75,12 @@ export function compile_client_publication(input) {
 			policy = { version: 1, id: device.id, revision: previous?.revision ?? 1,
 				server: proposal.server, virtual_subnet: proposal.virtual_subnet,
 				exit: proposal.exit, resources: selected.resources };
-			compile_client_policy(policy);
+			check_client_policy(policy);
+			// Written the same, they are the same; only when they are not is
+			// the order they were written in set aside.
 			if (previous != null && (previous.exit != policy.exit ||
-				sprintf('%J', canonical_resources(previous.resources)) != sprintf('%J', canonical_resources(policy.resources)))) {
+				(sprintf('%J', previous.resources) != sprintf('%J', policy.resources) &&
+				sprintf('%J', canonical_resources(previous.resources)) != sprintf('%J', canonical_resources(policy.resources))))) {
 				if (previous.revision == 2147483647)
 					die('publication revision exhausted');
 				policy.revision++;

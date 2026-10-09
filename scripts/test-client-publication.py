@@ -100,5 +100,59 @@ class PublicationTests(unittest.TestCase):
             self.assertEqual(result.stdout, '')
 
 
+LIBRARY = COMPILER.parent
+MEMORY = r"""
+import { check_client_policy, compile_client_policy } from '%(lib)s/client-access.uc';
+import { compile_client_publication } from '%(lib)s/client-access-publication.uc';
+function refused(action) { try { action(); } catch (error) { return true; } return false; }
+function copy(value) { return json(sprintf('%%J', value)); }
+let resources = [ { id: 'host-1', domain: 'api.example.com', address: '172.31.254.2', transports: [ { protocol: 'tcp', ports: [ 443 ] } ] },
+	{ id: 'host-2', domain: 'chat.example.com', address: '172.31.254.3', transports: [ { protocol: 'tcp', ports: [ 443 ] } ] } ];
+let policy = { version: 1, id: 'alice', revision: 1, server: { address: 'vpn.example.com', remote_id: 'vpn.example.com' },
+	virtual_subnet: '172.31.254.0/24', exit: '1', resources: resources };
+let out = { first: !refused(() => check_client_policy(policy)), again: !refused(() => check_client_policy(copy(policy))) };
+// The same resources, already found valid, under another pool, another
+// server, and one of them twice.
+let moved = copy(policy); moved.virtual_subnet = '10.9.0.0/24';
+let named = copy(policy); named.server = { address: 'api.example.com', remote_id: 'api.example.com' };
+let twice = copy(policy); push(twice.resources, copy(resources[0]));
+let wider = copy(policy); wider.resources[0].transports[0].ports = [ 443, 70000 ];
+out.other_pool = refused(() => check_client_policy(moved));
+out.server_name = refused(() => check_client_policy(named));
+out.repeated = refused(() => check_client_policy(twice));
+out.changed = refused(() => check_client_policy(wider));
+out.compiled = length(compile_client_policy(policy).router_rules);
+// A refused proposal leaves what the caller holds as it was.
+let proposal = { version: 1, server: policy.server, virtual_subnet: policy.virtual_subnet, exit: '1', allocations: [],
+	services: [ { id: 'api', client_access: true, domains: [ 'b.example.com', 'a.example.com' ], transports: [ { protocol: 'tcp', ports: [ 443 ] } ] } ],
+	devices: [ { id: 'alice', token_sha256: '%(a)s', enabled: true, selected_services: [ 'api' ], previous_policy: null },
+		{ id: 'bob', token_sha256: '%(a)s', enabled: true, selected_services: [ 'api' ], previous_policy: null } ] };
+let before = sprintf('%%J', proposal);
+out.proposal_refused = refused(() => compile_client_publication(proposal));
+out.caller_untouched = sprintf('%%J', proposal) == before;
+proposal.devices[1].token_sha256 = '%(b)s';
+let made = compile_client_publication(proposal);
+out.allocated = length(made.allocations);
+out.caller_allocations = length(proposal.allocations);
+// Two devices given the same services do not share one array a later change could reach.
+push(made.api.devices[0].policy.resources, 'x');
+out.separate = length(made.api.devices[1].policy.resources);
+print(sprintf('%%J\n', out));
+"""
+
+
+class MemoryTests(unittest.TestCase):
+    """What was found valid once is remembered; nothing invalid may pass on that memory."""
+
+    def test_memory_accepts_nothing_it_did_not_check(self):
+        script = MEMORY % {'lib': LIBRARY, 'a': 'a' * 64, 'b': 'b' * 64}
+        result = subprocess.run(['ucode', '-e', script], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            'first': True, 'again': True, 'other_pool': True, 'server_name': True, 'repeated': True, 'changed': True,
+            'compiled': 3, 'proposal_refused': True, 'caller_untouched': True, 'allocated': 2, 'caller_allocations': 0,
+            'separate': 2})
+
+
 if __name__ == '__main__':
     unittest.main()

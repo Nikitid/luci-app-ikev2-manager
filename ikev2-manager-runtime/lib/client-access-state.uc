@@ -10,13 +10,18 @@ function fields(value, expected) {
 			die('missing client state field');
 }
 
-function bounded(snapshot) {
-	if (length(sprintf('%J', snapshot)) > 16777215)
-		die('client snapshot exceeds size limit');
-	return snapshot;
-}
+// One save asks about the same state several times in one process: as it is
+// read, as the base of the proposal, and again where it is published. A state
+// found valid is remembered by its exact text, the last two of them: what was
+// committed and what is proposed.
+let valid_texts = [];
 
 export function validate_client_state(snapshot) {
+	let text = sprintf('%J', snapshot);
+	if (length(text) > 16777215)
+		die('client snapshot exceeds size limit');
+	if (index(valid_texts, text) >= 0)
+		return snapshot;
 	fields(snapshot, [ 'version', 'generation', 'publication', 'api', 'retired_ids' ]);
 	if (snapshot.version !== 1 || type(snapshot.generation) != 'int' ||
 		snapshot.generation < 1 || snapshot.generation > 2147483647 ||
@@ -39,7 +44,10 @@ export function validate_client_state(snapshot) {
 			die('invalid retired client identity');
 		retired[id] = true;
 	}
-	return bounded(snapshot);
+	if (length(valid_texts) > 1)
+		shift(valid_texts);
+	push(valid_texts, text);
+	return snapshot;
 };
 
 export function prepare_client_state(input) {

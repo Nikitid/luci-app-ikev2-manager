@@ -6,7 +6,6 @@
 'use strict';
 import { sha256 } from 'digest';
 import { lstat, mkdir, open, rename, unlink, rmdir, symlink, readlink, lsdir } from 'fs';
-import { compile_client_policy } from './client-access.uc';
 
 function generation_of(name) {
 	let found = type(name) == 'string' && length(name) <= 24 ? match(name, /^views-([1-9][0-9]*)$/) : null;
@@ -79,7 +78,8 @@ export function write_client_views(directory, state) {
 			// Let in now; and known and not switched off, only without a service.
 			enabled: device.enabled, idle: own.enabled === true && !length(own.selected_services),
 			revision: device.policy.revision, policy: device.enabled ? device.policy : null,
-			policy_sha256: device.enabled ? sha256(sprintf('%J', compile_client_policy(device.policy).policy)) : null,
+			// The state given here was checked in full by whoever read or made it.
+			policy_sha256: device.enabled ? sha256(sprintf('%J', device.policy)) : null,
 			selected: sort(selected, by_id), available: sort(available, by_id) };
 		put(path + '/t-' + device.token_sha256 + '.json', document);
 		put(path + '/i-' + device.id + '.json', document);

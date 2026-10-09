@@ -28,7 +28,28 @@ function identifier(value, context) {
 	return value;
 }
 
+// What was already found valid in this process. A save checks the same state
+// several times over - what is committed, what is proposed, what results - and
+// every device of a service carries the same names and addresses, so the same
+// few hundred values used to be examined tens of thousands of times: a minute
+// per save at fifty devices. A check is a pure function of the value, so its
+// answer is remembered by the value's exact text; anything written differently
+// is examined in full. Processes here are short, and the memory is bounded.
+let valid_domains = {}, valid_resources = {}, valid_sets = {}, remembered = 0;
+function remember(known, text) {
+	if (++remembered > 65536) {
+		valid_domains = {};
+		valid_resources = {};
+		valid_sets = {};
+		remembered = 0;
+		return;
+	}
+	known[text] = true;
+}
+
 function domain(value) {
+	if (type(value) == 'string' && valid_domains[value])
+		return value;
 	if (type(value) != 'string' || length(value) > 253 || length(split(value, '.')) < 2)
 		refuse('invalid domain');
 	for (let label in split(value, '.'))
@@ -36,6 +57,7 @@ function domain(value) {
 			refuse('invalid domain label');
 	if (match(value, /^[0-9.]+$/))
 		refuse('domain must not be an IP address');
+	remember(valid_domains, value);
 	return value;
 }
 
@@ -136,7 +158,9 @@ export function validate_client_base(server, virtual_subnet, exit) {
 
 };
 
-export function compile_client_policy(policy) {
+// Whether a policy holds together, without making anything from it: what a
+// publication asks of every device's policy, several times in one save.
+export function check_client_policy(policy) {
 	fields(policy, [ 'version', 'id', 'revision', 'server', 'virtual_subnet', 'exit', 'resources' ], 'policy');
 	integer(policy.version, 1, 1, 'version');
 	identifier(policy.id, 'policy id');
@@ -146,22 +170,42 @@ export function compile_client_policy(policy) {
 	if (type(policy.resources) != 'array' || length(policy.resources) < 1 || length(policy.resources) > 4096)
 		refuse('one to 4096 resources required');
 	let seen_ids = {}, seen_domains = {}, seen_addresses = {};
-	let hosts = [], routes = [], rules = [];
+	// A resource is valid for one pool and one server; the same text under
+	// another pool is another question. Devices assigned the same services
+	// carry the same resources, so a whole set is remembered as well.
+	let within = sprintf('%J', [ policy.virtual_subnet, policy.server.address, policy.server.remote_id ]);
+	let whole = within + sprintf('%J', policy.resources);
+	if (valid_sets[whole])
+		return policy;
 	for (let resource in policy.resources) {
-		fields(resource, [ 'id', 'domain', 'address', 'transports' ], 'resource');
-		identifier(resource.id, 'resource id');
-		domain(resource.domain);
-		let address = address_number(ipv4(resource.address));
-		if (address <= subnet.first || address >= subnet.last)
-			refuse('resource address outside usable virtual subnet');
+		let text = within + sprintf('%J', resource);
+		if (!valid_resources[text]) {
+			fields(resource, [ 'id', 'domain', 'address', 'transports' ], 'resource');
+			identifier(resource.id, 'resource id');
+			domain(resource.domain);
+			let address = address_number(ipv4(resource.address));
+			if (address <= subnet.first || address >= subnet.last)
+				refuse('resource address outside usable virtual subnet');
+			if (resource.domain == policy.server.address || resource.domain == policy.server.remote_id)
+				refuse('VPN bootstrap name cannot be a protected resource');
+			transports(resource.transports);
+			remember(valid_resources, text);
+		}
+		// What holds between the resources of one policy is asked every time.
 		if (seen_ids[resource.id] || seen_domains[resource.domain] || seen_addresses[resource.address])
 			refuse('duplicate resource id, domain or address');
-		if (resource.domain == policy.server.address || resource.domain == policy.server.remote_id)
-			refuse('VPN bootstrap name cannot be a protected resource');
 		seen_ids[resource.id] = true;
 		seen_domains[resource.domain] = true;
 		seen_addresses[resource.address] = true;
-		transports(resource.transports);
+	}
+	remember(valid_sets, whole);
+	return policy;
+};
+
+export function compile_client_policy(policy) {
+	check_client_policy(policy);
+	let hosts = [], routes = [], rules = [];
+	for (let resource in policy.resources) {
 		push(hosts, `${resource.address} ${resource.domain}`);
 		push(routes, `${resource.address}/32`);
 		for (let transport in resource.transports)
@@ -237,12 +281,18 @@ export function prepare_client_catalog(catalog) {
 			push(catalog.allocations, { domain: name, address: address });
 		}
 	}
+	// Devices assigned the same services get the same resources: they are
+	// worked out once for each such set.
+	let chosen_before = {};
 	return {
 		allocations: catalog.allocations,
 		// The resources of the services one device was assigned.
 		select: function(chosen) {
 			if (type(chosen) != 'array')
 				refuse('catalog arrays required');
+			let asked = sprintf('%J', chosen);
+			if (chosen_before[asked] != null)
+				return slice(chosen_before[asked]);
 			let selected = {}, wanted = {};
 			for (let id in chosen) {
 				service_identifier(id);
@@ -278,7 +328,8 @@ export function prepare_client_catalog(catalog) {
 			}));
 			if (length(resources) > 4096)
 				refuse('too many selected resources');
-			return resources;
+			chosen_before[asked] = resources;
+			return slice(resources);
 		}
 	};
 };
