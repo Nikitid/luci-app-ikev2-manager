@@ -20,11 +20,20 @@ disposable router with real IKEv2/ESP on both sides of it
   its computer, system, client version, tunnel address and whether it is
   connected; a device is opened by its registration and removed in one step.
 
-The macOS client is written and tested up to the privileged boundary (see
-"macOS"); its installed form has not been run. Binaries are not signed with a
-publisher identity. Sections below describe each part; where
-an older paragraph says a step "remains incomplete", this list is the current
-state.
+- the people page: devices grouped by person, a limit of devices for each
+  person, one link for several devices, the links still waiting with a way to
+  show, replace or withdraw each, and mail for sending a link;
+- the page a link opens in a browser, with the installer for that system;
+- a diagnostic report a device sends when the administrator asks for it;
+- names asked over HTTPS, a pinned route to the server and a held server
+  address, so the client works beside another VPN that routes everything;
+- the macOS client, installed from its package and run against a router;
+- the Windows service as an ARM64 program on Windows on ARM.
+
+Binaries are not signed with a publisher identity. What was run on which
+system is listed under "Waypoint: names and supported systems". Sections
+below describe each part; where an older paragraph says a step "remains
+incomplete", this list is the current state.
 
 ## Product boundary
 
@@ -864,10 +873,38 @@ form. The icon is drawn by `desktop-clients/assets/make-icon.py`; its results
 are committed. Both windows follow the system's light or dark appearance and
 let the user choose one.
 
-Supported: Windows 10 22H2 and Windows 11, x64, with the .NET Framework 4.8
-they include; macOS 14 and later on Apple silicon. Run so far on Windows 11
-and macOS 27; the other versions are supported by construction, not by test.
+Supported: Windows 10 22H2 and Windows 11 on x64, with the .NET Framework 4.8
+they include; Windows 11 24H2 on ARM64; macOS 14 and later on Apple silicon.
 Intel Macs are not supported: the package is built for Apple silicon only.
+Windows 10 on ARM is not supported: it cannot run the window and the setup
+program, which are x64.
+
+Run from a clean installation of the system, against a router with a real
+inbound server and exit - installation, registration, the tunnel, a service
+seen from the exit, a browser, refusal of a foreign route, recovery after the
+service is killed, and removal that leaves nothing:
+
+| system | result |
+| --- | --- |
+| Windows 10 22H2, as installed and with every update | passes |
+| Windows 11 24H2 x64, UEFI and TPM, directly and behind two address translations | passes |
+| Windows 11 24H2 ARM64, in a virtual machine | passes |
+| macOS 27 on Apple silicon, the installed package | service through the exit, other sites directly, closed when switched off, report on request |
+
+A standard user in a desktop session on Windows 10 sees the state, has the
+services through the tunnel, can switch access off and on, and can neither
+register a device nor read the client's state, change the hosts file, stop the
+service or remove its name rules. After a restart the service runs within
+seconds and protection is back within half a minute, with nobody signed in.
+
+Beside WireGuard routing every address: with its kill switch the services do
+not work, by that switch's design, and the window says the tunnel carries
+nothing; written as two halves of the address space, without the kill switch,
+the services work. Beside a sing-box TUN adapter they work.
+
+Not run: ARM hardware as opposed to a virtual machine, Windows 11 on ARM
+before 24H2, macOS earlier than 27, Safari with Private Relay, and the
+commercial VPN programs that need an account.
 
 ## Networks a device may sit in
 
@@ -905,7 +942,8 @@ The release workflow builds `WaypointSetup.exe` on a Windows runner
 and `Waypoint-X.Y.Z.pkg` on a macOS runner after the router package
 is published, and attaches both to the release. Neither is signed with a
 publisher identity, so Windows shows its unknown-publisher warning and macOS
-needs "Open" from the context menu. These jobs have not run yet.
+needs "Open" from the context menu. The jobs have built both for every release
+since 2.2.0.
 
 `GET /client/v1/release` tells an enrolled device the version of the router's
 package, as a number and nothing else. A client whose own version is older

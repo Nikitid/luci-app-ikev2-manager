@@ -47,7 +47,9 @@ remote gateway.
 
 - official OpenWrt `24.10.x`;
 - firewall4/nftables, IPv4 WAN and official package feeds;
-- storage for strongSwan, sing-box, `dnsmasq-full` and `dnsproxy`.
+- storage for strongSwan, sing-box, `dnsmasq-full` and `dnsproxy`;
+- for managed desktop access, on the computers: Windows 10 22H2 or Windows 11
+  on x64, Windows 11 24H2 on ARM64, or macOS 14 and later on Apple silicon.
 
 OpenWrt `25.12.x` support is experimental and limited to the validated
 `mediatek/filogic` and `aarch64_cortex-a53` targets. Vendor firmware, snapshots

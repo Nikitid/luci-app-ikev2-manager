@@ -49,7 +49,9 @@ Ubuntu](https://github.com/Nikitid/ikev2-ubuntu).
 
 - официальный OpenWrt `24.10.x`;
 - firewall4/nftables, IPv4 WAN и официальные репозитории пакетов;
-- место для strongSwan, sing-box, `dnsmasq-full` и `dnsproxy`.
+- место для strongSwan, sing-box, `dnsmasq-full` и `dnsproxy`;
+- для управляемого доступа с компьютеров: Windows 10 22H2 или Windows 11
+  на x64, Windows 11 24H2 на ARM64 либо macOS 14 и новее на Apple silicon.
 
 OpenWrt `25.12.x` поддерживается экспериментально на проверенных целях
 `mediatek/filogic` и `aarch64_cortex-a53`. Vendor firmware, snapshots и

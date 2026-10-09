@@ -567,3 +567,13 @@ it was running the product's own dial code inside another process, where it
 worked, and then comparing the two processes. When something fails only on
 one architecture, check what the process actually runs as before reading
 protocol traces.
+
+## The failover scenario means something on 25.12 only
+
+Run by hand on an OpenWrt 24.10 image, the failover scenario fails at "the
+first tunnel did not connect", every time, and looks like a broken release.
+It is the product working: 24.10's own strongSwan is older than 6.0.3, and the
+outbound client is blocked on it (CVE-2025-62291), so no tunnel is ever
+configured. `scripts/test-openwrt.sh` runs failover on 25.12 alone for that
+reason. Run a scenario through that script, or with the images and targets it
+names, before reading anything into a failure.

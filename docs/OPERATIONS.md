@@ -813,6 +813,57 @@ holding an address the pool has already reissued — is denied rather than
 granted the union of both policies. Custom inbound profiles do not use the
 managed per-user policy.
 
+## Managed desktop access
+
+The Users page (LuCI -> Services -> IKEv2 Manager -> Users) lists people, their
+computers and the VPN profiles given to them. How the feature is built is in
+`docs/CLIENT_ACCESS.md`; this is what an administrator does with it.
+
+A person gets one link for as many computers as their limit allows. The link
+opens a page with the installer for that system and the link in a field to
+copy; the person installs Waypoint, presses Registration and pastes it. Links
+that still wait are listed under Active links, each with Show, New link and
+Revoke. A waiting link is kept in the router's memory only: after a restart of
+the router Show has nothing to show, and New link replaces it. Mail for sending
+links is set up at the bottom of the page and needs `msmtp`.
+
+A computer's row shows whether it is connected, its system, the version of its
+client and its services. Diagnostics asks that computer for a report; it
+arrives within about twenty seconds while the computer is on, without anybody
+at it doing anything, and holds no credentials. A computer without a service
+still answers.
+
+State on the router:
+
+```sh
+/etc/init.d/ikev2-client-access status
+cat /var/run/ikev2-client-access/status
+/usr/libexec/ikev2-client-admin client-admin-show
+tail /etc/ikev2-manager/clients/journal.log
+```
+
+`client-admin-show` prints the same redacted overview the page reads. `state=`
+in the status file is `ready` while at least one computer has a service and
+`closed` when none has; `failed` means the committed state did not hold
+together and nobody is let in until it is published again.
+
+What a user sees and what it means:
+
+- "Access open": the tunnel is up and the router confirmed this computer.
+- "No services assigned": the computer is known and nothing is assigned to
+  it. Sites open as usual.
+- "No connection" with a note about another VPN: the tunnel came up and
+  carries nothing. A VPN with a kill switch for every other interface -
+  WireGuard with all addresses allowed, and the programs built on it - blocks
+  it by design; the services work again as soon as that VPN is off, or set to
+  leave other tunnels alone.
+- A newer version is offered in the window when the router's package is newer
+  than the client. The program never installs anything by itself.
+
+Saving a change publishes a new state for every computer. With fifty
+computers and three hundred domains that takes a few seconds on a router; the
+page shows the running job and its result in place.
+
 ## Page access
 
 The application's LuCI permissions are root permissions. The write part runs
