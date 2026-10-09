@@ -327,6 +327,17 @@ reaches 192.0.2.10 1 bound
 wait_until 150 exit_uses 1 1 || fail 'the first exit did not go back to its own tunnel'
 held=$(($(date +%s) - up_since))
 [ "$held" -ge 105 ] || fail "the first exit went back after ${held} s of its tunnel up"
+# The choice is written down first and the rules follow it within the same
+# pass of the watcher: a packet sent in between still leaves through the
+# tunnel the exit is moving away from. So the move is given a few seconds to
+# reach the data path; that it does, and by which server, is what is checked.
+moved() {
+	local before
+	before="$(seen 1 first)"
+	ip netns exec lan ping -c 1 -W 2 203.0.113.10 >/dev/null 2>&1 || return 1
+	[ "$(seen 1 first)" -gt "$before" ]
+}
+wait_until 10 moved || fail '203.0.113.10 was still not answered by server 1 ten seconds after the move back'
 reaches 203.0.113.10 1 first
 
 step 'with no tunnel left nothing reaches the WAN'

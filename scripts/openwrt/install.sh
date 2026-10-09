@@ -11,8 +11,22 @@ mkdir -p /var/lock /var/run /tmp/run
 # Packages are signed, so a mirror serves as well as the origin. The origin
 # sometimes cuts large downloads short; when its index or a package cannot be
 # fetched, the feeds are pointed at a mirror and the step is tried again.
+# The origin also slows a download to a crawl instead of failing it, and
+# neither package manager gives up on that by itself: an attempt that outlasts
+# the limit is ended, so the mirrors get their turn. BusyBox here has no
+# timeout applet.
+bounded() {
+	"$@" &
+	job=$!
+	( sleep "${IKEV2_FETCH_LIMIT:-300}"; kill "$job" 2>/dev/null ) &
+	guard=$!
+	code=0
+	wait "$job" || code=$?
+	kill "$guard" 2>/dev/null || true
+	return "$code"
+}
 with_mirrors() {
-	"$@" && return 0
+	bounded "$@" && return 0
 	for mirror in https://ftp.halifax.rwth-aachen.de/openwrt https://mirrors.tuna.tsinghua.edu.cn/openwrt; do
 		for list in /etc/apk/repositories.d/*.list /etc/opkg/distfeeds.conf; do
 			[ -f "$list" ] || continue
