@@ -96,7 +96,9 @@ Names under a service are `client_names_plan` in `lib/client-access.uc`, the
 proxy rules in `lib/client-access-path.uc` and the per-service source sets
 written by `client-access-path-control.uc sources`; the device directory is
 `lib/client-access-directory.uc`. Reports a device sends on the
-administrator's request are `lib/client-access-report.uc`. What each device is answered with
+administrator's request are `lib/client-access-report.uc`. A link that still waits
+for devices is kept in memory by `lib/client-access-link.uc` so the page can show
+it again. What each device is answered with
 is laid out per device by `lib/client-access-view.uc`; the page a link shows in a
 browser is `lib/client-access-download.uc`. `scripts/check-ucode-regex.sh` forbids the
 counted repetitions that made registration slow on a router.
@@ -113,7 +115,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v13.js` |
 | Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v12.js` |
 | Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v10.js` |
-| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v21.js` |
+| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v22.js` |
 | VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v2.js`, shown on the Users page |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 

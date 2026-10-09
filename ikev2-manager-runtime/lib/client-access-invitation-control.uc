@@ -4,6 +4,7 @@ import { stdin } from 'fs';
 import { issue_client_invitation, stage_client_invitation, consume_client_invitation } from './client-access-invitation.uc';
 import { write_client_label } from './client-access-directory.uc';
 import { record_client_event } from './client-access-journal.uc';
+import { keep_client_link, forget_client_link } from './client-access-link.uc';
 
 if (ARGV[0] == 'take' && length(ARGV) == 2) {
  try { print(sprintf('%J\n', consume_client_invitation(ARGV[1], time()))); }
@@ -26,8 +27,15 @@ else if (ARGV[0] == 'issue' || ARGV[0] == 'issue-job') {
 			}
 			delete request.owner; delete request.note; delete request.email; delete request.mode;
 		}
-		if (ARGV[0] == 'issue-job') stage_client_invitation(request, time(), ARGV[1]);
-  else print(sprintf('%J\n', issue_client_invitation('/etc/ikev2-manager/clients', request, time())));
+		let base = request.id, replaced = type(request) == 'object' && type(request.cancel) == 'array' ? [ ...request.cancel ] : [], issued;
+		if (ARGV[0] == 'issue-job') issued = stage_client_invitation(request, time(), ARGV[1]);
+		else { issued = issue_client_invitation('/etc/ikev2-manager/clients', request, time()); print(sprintf('%J\n', issued)); }
+		// The link the new one replaced is no longer shown; the new one is
+		// kept in memory so it can be looked at again while it waits.
+		for (let id in replaced) forget_client_link(id);
+		let places = [];
+		for (let place = 1; place <= count; place++) push(places, count > 1 ? base + '-' + place : base);
+		try { keep_client_link(base, places, issued.invitation, issued.expires_at); } catch (error) { }
 		record_client_event('link-issued', request.id + ' devices ' + count + ' valid ' + request.lifetime_seconds + 's');
 		if (owner != null)
 			for (let place = 1; place <= count; place++)

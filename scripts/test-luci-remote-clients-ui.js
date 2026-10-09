@@ -26,6 +26,7 @@ const document = { getElementById() { return true; }, createDocumentFragment() {
 const window = { setTimeout(fn, delay) { if (!delay) fn(); }, clearTimeout() {} };
 const L = { resolveDefault(promise, fallback) { return promise.catch(() => fallback); } };
 let modal, hidden = 0, written = [], jobs = [], failWrite = false;
+let linkAsked = [], linkKept = true;
 const reportAsked = [];
 const ui = { showModal(title, body) { modal = E('div', {}, body); }, hideModal() { hidden++; } };
 const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_endpoint: 'https://vpn.example.com:9443/client/v1/enroll', server: {address:"vpn.example.com"},
@@ -39,6 +40,7 @@ const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, st
 const backend = {
  exec(file, args) { if(args[0] === 'client-admin-report-request') { reportAsked.push(args[1]); return Promise.resolve({code:0,stdout:'requested=1\n'}); }
   if(args[0] === 'client-admin-report') return Promise.resolve({code:0,stdout: reportAsked.length ? JSON.stringify({version:1,id:args[1],received_at:1700000000+reportAsked.length,report:{state:'access_closed',faults:['2026-01-01T00:00:00Z policy device_no_services']}}) : '{}\n'});
+  if(args[0] === 'client-admin-link') { linkAsked.push(args[1]); return Promise.resolve(linkKept ? {code:0,stdout:JSON.stringify({version:1,invitation:'https://vpn.example.com:9443/client/v1/enroll#'+'d'.repeat(64),expires_seconds:7000,places:1})} : {code:1,stdout:''}); }
   if(args[0] === 'client-admin-take-invitation') return Promise.resolve({code:0,stdout:JSON.stringify({version:1,id:'carol-example',invitation:'https://vpn.example.com:9443/client/v1/enroll#'+'c'.repeat(64)})}); return Promise.resolve(args[0] === 'services' ? data()[1] : data()[0]); },
  write(file, body, mode) { if (failWrite) return Promise.reject(new Error('write rejected')); written.push({ file, body: JSON.parse(body), mode }); return Promise.resolve(); }
 };
@@ -138,6 +140,15 @@ async function main() {
  click(button(modal,'Close')); assert.strictEqual(linkField.value,'');
  // Links that still wait are listed with their person, places and time, and one is withdrawn whole.
  assert(text(tree).includes('Active links: 1') && text(tree).includes('Places left'), 'links out are accounted for');
+ // A waiting link is shown again on request, for the place it holds open; one
+ // the router no longer keeps is said to be gone, and nothing is shown.
+ modal = null;
+ await click(button(tree,'Show')); await Promise.resolve(); await Promise.resolve();
+ assert.deepStrictEqual(linkAsked, ['alice-2']);
+ assert(modal && nodes(modal).find(n => n.tagName === 'TEXTAREA').value.endsWith('#'+'d'.repeat(64)), 'the kept link is shown again');
+ modal = null; linkKept = false;
+ await click(button(tree,'Show')); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+ assert(modal === null && text(tree).includes('no longer keeps this link'), 'a link that is not kept is not shown, and the row says why');
  await click(button(tree,'Revoke'));
  assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'close-places', payload:{ids:['alice-2']}});
  // A person who still has a link out: the new link replaces it, covers the

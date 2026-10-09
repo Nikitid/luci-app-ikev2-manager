@@ -137,7 +137,8 @@
 				"/var/run/ikev2-client-admin-*.in": [ "write" ],
 				"/tmp/run/ikev2-client-admin-*.in": [ "write" ],
 				"/usr/libexec/ikev2-client-admin client-admin-invite *": [ "exec" ],
-				"/usr/libexec/ikev2-client-admin client-admin-take-invitation *": [ "exec" ]
+				"/usr/libexec/ikev2-client-admin client-admin-take-invitation *": [ "exec" ],
+				"/usr/libexec/ikev2-client-admin client-admin-link *": [ "exec" ]
 			},
 			"ubus": {
 				"file": [

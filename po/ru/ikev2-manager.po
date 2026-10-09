@@ -4887,8 +4887,11 @@ msgstr "Через него выходят выбранные сервисы."
 msgid "Settings"
 msgstr "Настройки"
 
-msgid "Shown only once. Send it privately: the owner installs Waypoint on each device and pastes the link there."
-msgstr "Показывается один раз. Передайте лично: владелец ставит Waypoint на каждое устройство и вставляет туда ссылку."
+msgid "Send it privately: the owner installs Waypoint on each device and pastes the link there. While the link waits it can be shown again under Active links."
+msgstr "Передайте лично: владелец ставит Waypoint на каждое устройство и вставляет туда ссылку. Пока ссылка ждёт, её можно показать снова в разделе «Активные ссылки»."
+
+msgid "The router no longer keeps this link: it was issued before a restart or by an earlier version. Make a new link instead."
+msgstr "Роутер больше не хранит эту ссылку: она выдана до перезагрузки или прежней версией. Сделайте новую ссылку."
 
 msgid "The device loses access and its connection ends. Its identifier cannot be used again."
 msgstr "Устройство теряет доступ, его соединение завершается. Идентификатор нельзя использовать повторно."
@@ -5450,3 +5453,6 @@ msgstr "Ссылка отозвана"
 
 msgid "Revoke"
 msgstr "Отозвать"
+
+msgid "Show"
+msgstr "Показать"

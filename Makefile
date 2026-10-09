@@ -174,6 +174,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-mail.uc $(1)/usr/libexec/ikev2-manager.d/client-access-mail.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-journal.uc $(1)/usr/libexec/ikev2-manager.d/client-access-journal.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-report.uc $(1)/usr/libexec/ikev2-manager.d/client-access-report.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-link.uc $(1)/usr/libexec/ikev2-manager.d/client-access-link.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-view.uc $(1)/usr/libexec/ikev2-manager.d/client-access-view.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-download.uc $(1)/usr/libexec/ikev2-manager.d/client-access-download.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-directory.uc $(1)/usr/libexec/ikev2-manager.d/client-access-directory.uc
@@ -270,7 +271,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-manager
 	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v13.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/ikev2-manager/users-panel-v2.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v21.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v22.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/view/ikev2-manager/settings-v10.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/view/ikev2-manager/client-v13.js
 

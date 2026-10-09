@@ -10,6 +10,7 @@ import { cleanup_client_credentials } from './client-access-credentials.uc';
 import { record_client_event, read_client_events } from './client-access-journal.uc';
 import { client_views_generation, write_client_views } from './client-access-view.uc';
 import { request_client_report, read_client_report, describe_client_report, forget_client_report } from './client-access-report.uc';
+import { read_client_link, forget_client_link } from './client-access-link.uc';
 
 let seen_directory = '/var/run/ikev2-client-seen';
 
@@ -73,6 +74,16 @@ try {
    standing = state.generation;
   }
   print(`generation=${standing}\n`);
+ } else if (ARGV[0] == 'link' && length(ARGV) == 2) {
+  // The link that still holds this place open, for the administrator to
+  // look at again. Only while the ledger says the place waits.
+  let id = ARGV[1], now = time();
+  if (type(id) != 'string' || !(length(id) <= 48 ? match(id, /^[a-z][a-z0-9-]*$/) : null)) die('invalid place');
+  let ledger = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? null : read_client_enrollment(directory).ledger;
+  let waits = length(filter(ledger?.invitations ?? [], item => item.id == id && item.status == 'issued' && item.expires_at > now)) == 1;
+  let link = waits ? read_client_link(id, now) : null;
+  if (link == null) { if (!waits) forget_client_link(id); die('link is not kept'); }
+  print(sprintf('%J\n', { version: 1, invitation: link.invitation, expires_seconds: link.expires_at - now, places: length(link.places) }));
  } else if ((ARGV[0] == 'report-request' || ARGV[0] == 'report') && length(ARGV) == 2) {
   // The device is asked the next time it calls, and answers by itself.
   let state = read_committed_client_state(directory), id = ARGV[1];
@@ -101,6 +112,7 @@ try {
    let ledger = read_client_enrollment(directory).ledger;
    write_client_enrollment(directory, { version: 1, expected_generation: ledger.generation, operation: 'cancel', payload: { id: payload.id } }, time(), false);
    try { write_client_label(directory, payload.id, '', '', { email: '', open: false }); } catch (error) { }
+   forget_client_link(payload.id);
    record_client_event('place-closed', payload.id);
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;
@@ -117,6 +129,7 @@ try {
     write_client_enrollment(directory, { version: 1, expected_generation: ledger.generation, operation: 'cancel', payload: { id: id } }, time(), false);
     try { write_client_label(directory, id, '', '', { email: '', open: false }); } catch (error) { }
    }
+   for (let id in payload.ids) forget_client_link(id);
    record_client_event('link-withdrawn', join(',', payload.ids));
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;

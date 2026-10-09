@@ -80,6 +80,7 @@ export function stage_client_invitation(request, now, job) {
   let raw = sprintf('%J\n', result);
   if (length(raw) > 4096 || file.write(raw) != length(raw) || !file.close()) die('unable to stage invitation delivery');
   private_file(path);
+  return result;
  } catch (error) {
   file.close(); unlink(path); die('invitation delivery refused');
  }

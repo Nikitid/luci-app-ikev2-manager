@@ -115,6 +115,10 @@ case "${1:-}" in
   [ "$#" = 1 ] || die
   exec /usr/bin/ucode "$runtime_lib_dir/client-access-mail.uc" show
   ;;
+ client-admin-link)
+  [ "$#" = 2 ] && valid_token "$2" || die
+  exec /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" link "$2"
+  ;;
  client-admin-report-request)
   [ "$#" = 2 ] && valid_token "$2" || die
   exec /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" report-request "$2"

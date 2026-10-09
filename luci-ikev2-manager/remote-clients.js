@@ -409,21 +409,50 @@ function modeSelect(device, onMode) {
  }));
 }
 
+function showLinkDialog(link, address) {
+ var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link'), 'class': 'ikev2-link', rows: '3' });
+ field.value = link;
+ var output = common.inlineResult(), copy, send;
+ var recipient = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Send to'), value: address || '', placeholder: 'name@example.com' });
+ send = E('button', { type: 'button', 'class': 'cbi-button', disabled: mailReady ? null : '',
+  title: mailReady ? '' : _('Set up mail in the settings below first.'), click: function() {
+  var address;
+  try { address = mailText(recipient.value); if (!address) throw new Error(_('Enter an e-mail address like name@example.com.')); }
+  catch (error) { output.err(error.message); return; }
+  return mailJob(send, output, 'client-admin-mail-send', { version: 1, to: address, subject: _('Waypoint: your access link'),
+   body: _('Install Waypoint on your computer, press Registration and paste this link:') + '\n\n' + field.value + '\n\n' +
+    _('The link works for a limited time and only for your devices. Do not forward it.') + '\n' },
+   [ _('Sending...'), _('Sent.'), _('Could not send the link.') ]);
+ } }, [ _('Send by e-mail') ]);
+ ui.showModal(_('Invitation link'), [ E('div', { 'class': 'ikev2-page' }, [
+  common.styles(), E('p', {}, [ _('Send it privately: the owner installs Waypoint on each device and pastes the link there. While the link waits it can be shown again under Active links.') ]), field,
+  E('div', { 'class': 'ikev2-link-send' }, [ recipient, send ]),
+  E('div', { 'class': 'ikev2-actions end', 'style': 'margin-top:1rem' }, [ output.node,
+   E('button', { type: 'button', 'class': 'cbi-button', click: function() { field.value = ''; ui.hideModal(); } }, [ _('Close') ]),
+   (copy = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() {
+    return common.runAction({ button: copy, result: output, busy: _('Copying...'), success: _('Copied'), failure: _('Could not copy invitation link.'), run: function() { return common.copyText(field.value); } });
+   } }, [ _('Copy') ]))
+  ])
+ ]) ]);
+}
+
 // The links that still wait for devices: whose, how many places are left and
-// until when. A link itself is shown once and kept nowhere, so it can be
-// withdrawn or replaced here, not shown again.
+// until when. The router keeps a waiting link in memory, so it can be shown
+// again here until it ends, is withdrawn or the router restarts.
 function activeLinks(everyone, actions) {
  var rows = [];
  everyone.forEach(function(person) {
   var waiting = person.devices.filter(function(device) { return device.waiting; });
   if (!waiting.length) return;
   var withdraw = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-remove', 'click': function() { return actions.withdraw(person, waiting, withdraw); } }, [ _('Revoke') ]);
+  var said = common.inlineResult();
+  var show = E('button', { 'type': 'button', 'class': 'cbi-button', 'style': 'margin-right:.4rem', 'click': function() { return actions.show(person, waiting, show, said); } }, [ _('Show') ]);
   rows.push(E('tr', { 'class': 'tr' }, [
    E('td', { 'class': 'td' }, [ person.name ]),
    E('td', { 'class': 'td' }, [ String(waiting.length) ]),
    E('td', { 'class': 'td' }, [ span(Math.max.apply(null, waiting.map(function(item) { return item.expires_seconds || 0; }))) ]),
    E('td', { 'class': 'td', 'style': 'text-align:right;white-space:nowrap' }, [
-    E('button', { 'type': 'button', 'class': 'cbi-button', 'style': 'margin-right:.4rem', 'click': function() { actions.link(person); } }, [ _('New link') ]), withdraw ])
+    said.node, show, E('button', { 'type': 'button', 'class': 'cbi-button', 'style': 'margin-right:.4rem', 'click': function() { actions.link(person); } }, [ _('New link') ]), withdraw ])
   ]));
  });
  if (!rows.length) return '';
@@ -784,32 +813,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
   E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services'), choices.length ? '' : _('None is published yet. A Waypoint device registers with at least one: publish a service below first. An ordinary VPN profile needs none.')),
    choices.length ? checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) : '' ])
  ]);
- function showLink(link) {
-  var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link'), 'class': 'ikev2-link', rows: '3' });
-  field.value = link;
-  var output = common.inlineResult(), copy, send;
-  var recipient = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Send to'), value: email.value.trim(), placeholder: 'name@example.com' });
-  send = E('button', { type: 'button', 'class': 'cbi-button', disabled: mailReady ? null : '',
-   title: mailReady ? '' : _('Set up mail in the settings below first.'), click: function() {
-   var address;
-   try { address = mailText(recipient.value); if (!address) throw new Error(_('Enter an e-mail address like name@example.com.')); }
-   catch (error) { output.err(error.message); return; }
-   return mailJob(send, output, 'client-admin-mail-send', { version: 1, to: address, subject: _('Waypoint: your access link'),
-    body: _('Install Waypoint on your computer, press Registration and paste this link:') + '\n\n' + field.value + '\n\n' +
-     _('The link works for a limited time and only for your devices. Do not forward it.') + '\n' },
-    [ _('Sending...'), _('Sent.'), _('Could not send the link.') ]);
-  } }, [ _('Send by e-mail') ]);
-  ui.showModal(_('Invitation link'), [ E('div', { 'class': 'ikev2-page' }, [
-   common.styles(), E('p', {}, [ _('Shown only once. Send it privately: the owner installs Waypoint on each device and pastes the link there.') ]), field,
-   E('div', { 'class': 'ikev2-link-send' }, [ recipient, send ]),
-   E('div', { 'class': 'ikev2-actions end', 'style': 'margin-top:1rem' }, [ output.node,
-    E('button', { type: 'button', 'class': 'cbi-button', click: function() { field.value = ''; ui.hideModal(); } }, [ _('Close') ]),
-    (copy = E('button', { type: 'button', 'class': 'cbi-button cbi-button-action', click: function() {
-     return common.runAction({ button: copy, result: output, busy: _('Copying...'), success: _('Copied'), failure: _('Could not copy invitation link.'), run: function() { return common.copyText(field.value); } });
-    } }, [ _('Copy') ]))
-   ])
-  ]) ]);
- }
+ function showLink(link) { showLinkDialog(link, email.value.trim()); }
  create = E('button', { type: 'button', 'class': 'cbi-button cbi-button-positive', click: function() {
   if (kind.value === 'profile') {
    var called;
@@ -1015,6 +1019,16 @@ return view.extend({
     },
     relink: function(person) { invitationDialog(state, labels, reload, person, person.devices.filter(function(device) { return device.waiting; })); },
     remove: function(device) { removeDialog(device, state, reload, result); },
+    show: function(person, waiting, button, said) {
+     button.disabled = true; said.clear();
+     return fs.exec(helper, [ 'client-admin-link', waiting[0].id ]).then(function(response) {
+      var kept = response.code === 0 ? JSON.parse(response.stdout || 'null') : null;
+      if (!kept || kept.version !== 1 || typeof kept.invitation !== 'string') throw new Error('not kept');
+      showLinkDialog(kept.invitation, (waiting[0].email || person.email || ''));
+     }).catch(function() {
+      said.err(_('The router no longer keeps this link: it was issued before a restart or by an earlier version. Make a new link instead.'));
+     }).then(function() { button.disabled = false; });
+    },
     withdraw: function(person, waiting, button) {
      return saveRequest(button, result, { version: 1, expected_generation: state.generation, operation: 'close-places',
       payload: { ids: waiting.map(function(item) { return item.id; }) } }, reload);
