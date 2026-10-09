@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.ServiceProcess;
@@ -159,7 +160,9 @@ internal static class Setup
             using (process) { try { process.Kill(); process.WaitForExit(5000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { } }
         Directory.CreateDirectory(Destination);
         Directory.SetAccessControl(Destination, security);
-        Place("ClientService.exe", ServicePath);
+        // On Windows on ARM the service is installed as an ARM64 image: the
+        // x64 one runs there, but Windows will not begin EAP for it.
+        Place(NativeArm64() ? "ClientService.arm64.exe" : "ClientService.exe", ServicePath);
         Place("IKEv2ManagerClient.exe", AppPath);
         string self = Path.Combine(Destination, "Setup.exe");
         if (!String.Equals(Path.GetFullPath(Assembly.GetExecutingAssembly().Location), self, StringComparison.OrdinalIgnoreCase))
@@ -245,6 +248,17 @@ internal static class Setup
                 "/d /c ping -n 3 127.0.0.1 >nul & del /f /q \"" + installed + "\" & rmdir \"" + Destination + "\"")
                 { CreateNoWindow = true, UseShellExecute = false, WorkingDirectory = System32 });
         }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool IsWow64Process2(IntPtr process, out ushort processMachine, out ushort nativeMachine);
+
+    // The machine's own processor, whatever this program runs as on it.
+    private static bool NativeArm64()
+    {
+        ushort process, native;
+        try { return IsWow64Process2(System.Diagnostics.Process.GetCurrentProcess().Handle, out process, out native) && native == 0xAA64; }
+        catch (EntryPointNotFoundException) { return false; }
     }
 
     private static void Place(string resource, string destination)
