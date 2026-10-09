@@ -62,6 +62,7 @@ namespace IkeV2Manager.Client
         private ServerPath serverPath;
         private bool dialPlain, dialedThroughPath, dialSucceeded;
         private int pathMisses;
+        private bool pathProven;
         // The server held to its real address in this program's hosts block.
         private HostEntry serverHeld;
         private string lookedFor;
@@ -594,7 +595,7 @@ namespace IkeV2Manager.Client
                     HoldServer(store.LoadPolicyHistory().Current.ServerAddress);
                     if (!dialPlain) serverPath = ServerPath.Pin(store.LoadPolicyHistory().Current.ServerAddress);
                     dialedThroughPath = serverPath != null || serverHeld != null;
-                    dialSucceeded = false; pathMisses = 0;
+                    dialSucceeded = false; pathMisses = 0; pathProven = false;
                     connection = OwnedRasConnection.Begin(profile, registration.Id, registration.Password);
                     routeDeadline = DateTime.MinValue;
                 }
@@ -680,8 +681,13 @@ namespace IkeV2Manager.Client
                 if (assigned != null && assigned.NamesHttps)
                 {
                     string resolver = PolicyHistory.NamesResolver(current.VirtualSubnet);
-                    if (Reaches(resolver, 443) || Reaches(resolver, 53)) pathMisses = 0;
+                    if (Reaches(resolver, 443) || Reaches(resolver, 53)) { pathMisses = 0; pathProven = true; }
                     else if (++pathMisses >= 3) { pathMisses = 0; throw new InvalidOperationException("Tunnel carries nothing"); }
+                    // A new connection is not called open before it has carried
+                    // anything: under another VPN that blocks every other
+                    // interface it never will, and the window would say "access
+                    // open" for a few seconds of every attempt.
+                    if (!pathProven) { connectionError = "path_stalled"; connectionState = "tunnel_connected"; return; }
                 }
                 dialSucceeded = true;
                 connectionError = "none";

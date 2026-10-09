@@ -79,7 +79,7 @@ namespace IkeV2Manager.Client
             }
             menu.Show(anchor, new Point(0, anchor.Height));
         }
-        private readonly string[] checkLabels = { "Блокировка вне туннеля", "Туннель", "Подтверждение сервера", "Имена в браузерах" };
+        private readonly string[] checkLabels = { "Блокировка вне туннеля", "Туннель", "Подтверждение сервера", "DNS в браузерах" };
         private readonly string[] checkValues = { "", "", "", "" };
         private readonly Tone[] checkTones = { Tone.Off, Tone.Off, Tone.Off, Tone.Off };
         private readonly Button browsers = new Button { Text = "Браузеры…", AutoSize = true, Visible = false };
@@ -159,22 +159,22 @@ namespace IkeV2Manager.Client
         {
             bool told = BrowsersTold();
             string question = told
-                ? "Waypoint задал браузерам на этом компьютере настройку «спрашивать имена у системы».\n\nВернуть браузерам их собственную настройку?"
-                : "Браузер, который спрашивает имена сам по шифрованному каналу" + (selfResolving.Length == 0 ? "" : " (" + String.Join(", ", selfResolving) + ")") +
-                  ", открывает сервисы в обход туннеля.\n\nWaypoint может задать Chrome, Edge, Brave, Яндекс Браузеру и Firefox системную настройку «спрашивать имена у системы». " +
+                ? "Waypoint задал браузерам на этом компьютере политику «использовать системный DNS».\n\nВернуть браузерам их собственную настройку?"
+                : "Браузер со своим DNS поверх HTTPS (DoH)" + (selfResolving.Length == 0 ? "" : " (" + String.Join(", ", selfResolving) + ")") +
+                  ", открывает сервисы в обход туннеля.\n\nWaypoint может задать Chrome, Edge, Brave, Яндекс Браузеру и Firefox политику «использовать системный DNS». " +
                   "Она действует для всех сайтов и всех пользователей этого компьютера; вернуть её можно здесь же.\n\nЗадать настройку?";
-            if (MessageBox.Show(this, question, "Имена в браузерах", MessageBoxButtons.OKCancel, told ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.OK) return;
+            if (MessageBox.Show(this, question, "DNS в браузерах", MessageBoxButtons.OKCancel, told ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.OK) return;
             try
             {
                 using (var setup = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "Setup.exe"), (told ? "/browsers-off" : "/browsers-on") + " /quiet") { UseShellExecute = true, Verb = "runas" }))
                 {
                     setup.WaitForExit(60000);
-                    if (!setup.HasExited || setup.ExitCode != 0) MessageBox.Show(this, "Настройка не изменена. Повторите.", "Имена в браузерах");
-                    else if (!told) MessageBox.Show(this, "Готово. Перезапустите браузеры, чтобы настройка вступила в силу.", "Имена в браузерах");
+                    if (!setup.HasExited || setup.ExitCode != 0) MessageBox.Show(this, "Настройка не изменена. Повторите.", "DNS в браузерах");
+                    else if (!told) MessageBox.Show(this, "Готово. Перезапустите браузеры, чтобы настройка вступила в силу.", "DNS в браузерах");
                 }
                 RefreshStatus();
             }
-            catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Нужны права администратора.", "Имена в браузерах"); }
+            catch (System.ComponentModel.Win32Exception) { MessageBox.Show(this, "Нужны права администратора.", "DNS в браузерах"); }
         }
         private readonly Button register = new Button { Text = "Регистрация…", AutoSize = true };
         private readonly Button resume = new Button { Text = "Продолжить", AutoSize = true };
@@ -236,7 +236,7 @@ namespace IkeV2Manager.Client
             remove.FlatAppearance.BorderSize = 0;
             remove.Click += (sender, args) =>
             {
-                if (MessageBox.Show(this, "Сбросить Waypoint на этом компьютере?\n\nБудут удалены: VPN-подключение, блокировки, записи имён сервисов и регистрация устройства. " +
+                if (MessageBox.Show(this, "Сбросить Waypoint на этом компьютере?\n\nБудут удалены: VPN-подключение, блокировки, DNS-записи сервисов и регистрация устройства. " +
                     "Программа останется; чтобы вернуть доступ, понадобится новая ссылка от администратора.", "Сброс Waypoint", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
                 try
                 {
@@ -509,11 +509,14 @@ namespace IkeV2Manager.Client
                     description = code == "path_connection_failed" ? "Нет связи с сервером." :
                         code == "path_different_policy" ? "Настройки обновляются." :
                         code == "device_access_revoked" ? "Доступ отозван администратором." :
-                        code == "path_response_invalid" ? "Ответ сервера не принят." : "Сервер ещё не подтвердил доступ.";
+                        code == "path_response_invalid" ? "Ответ сервера не принят." :
+                        code == "path_stalled" ? "Туннель установлен, но данные через него не идут. Если включён другой VPN, он может их блокировать." :
+                        "Сервер ещё не подтвердил доступ.";
                     break;
                 case "connection_error":
                     heading = "Нет подключения";
-                    description = "Туннель не установлен. Попытка повторится.";
+                    description = code == "path_stalled" ? "Данные через туннель не идут. Если включён другой VPN, он может их блокировать. Попытка повторится." :
+                        "Туннель не установлен. Попытка повторится.";
                     break;
                 case "access_closed":
                     bool idle = current.Warnings != null && current.Warnings.Contains("idle");
@@ -548,7 +551,7 @@ namespace IkeV2Manager.Client
             checkTones[2] = current.Protected ? Tone.Open : current.Routed ? Tone.Working : Tone.Off;
             selfResolving = SelfResolvingBrowsers();
             bool told = BrowsersTold();
-            checkValues[3] = selfResolving.Length != 0 ? String.Join(", ", selfResolving) + ": в обход туннеля" : told ? "через систему, задано Waypoint" : "через систему";
+            checkValues[3] = selfResolving.Length != 0 ? String.Join(", ", selfResolving) + ": свой DoH, в обход туннеля" : told ? "системный DNS, задано Waypoint" : "системный DNS";
             checkTones[3] = selfResolving.Length != 0 ? Tone.Attention : fresh ? Tone.Off : Tone.Open;
             browsers.Visible = selfResolving.Length != 0 || told;
             servicesLine = unassigned ? "Не назначены" : current.Services.Length != 0 ? String.Join(" \u00B7 ", current.Services) :

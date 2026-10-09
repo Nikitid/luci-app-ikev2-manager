@@ -294,8 +294,8 @@ struct ClientView: View {
                          tone: status?.routed == true ? .open : status?.state == "connecting" ? .working : .off)
                 CheckRow(label: "Подтверждение сервера", value: status?.protected == true ? "получено" : "нет",
                          tone: status?.protected == true ? .open : status?.routed == true ? .working : .off)
-                CheckRow(label: "Имена в браузерах",
-                         value: !model.selfResolving.isEmpty ? model.selfResolving.joined(separator: ", ") + ": в обход туннеля" : model.browsersTold ? "через систему, задано Waypoint" : "через систему",
+                CheckRow(label: "DNS в браузерах",
+                         value: !model.selfResolving.isEmpty ? model.selfResolving.joined(separator: ", ") + ": свой DoH, в обход туннеля" : model.browsersTold ? "системный DNS, задано Waypoint" : "системный DNS",
                          tone: !model.selfResolving.isEmpty ? .attention : fresh ? .off : .open)
             }
             Card(title: "Сервисы") {
@@ -366,9 +366,9 @@ struct ClientView: View {
             Button("Сбросить", role: .destructive) { model.command("reset") }
             Button("Отмена", role: .cancel) { }
         } message: {
-            Text("Будут удалены: профиль VPN, блокировки, записи имён сервисов и регистрация устройства. Программа останется; чтобы вернуть доступ, понадобится новая ссылка от администратора.")
+            Text("Будут удалены: профиль VPN, блокировки, DNS-записи сервисов и регистрация устройства. Программа останется; чтобы вернуть доступ, понадобится новая ссылка от администратора.")
         }
-        .confirmationDialog("Имена в браузерах", isPresented: $browsing) {
+        .confirmationDialog("DNS в браузерах", isPresented: $browsing) {
             if model.browsersTold {
                 Button("Открыть «Управление устройством»") { model.openProfileSettings() }
             } else {
@@ -377,8 +377,8 @@ struct ClientView: View {
             Button("Отмена", role: .cancel) { }
         } message: {
             Text(model.browsersTold
-                 ? "Waypoint задал браузерам настройку «спрашивать имена у системы» отдельным профилем. Чтобы вернуть браузерам их собственную настройку, удалите профиль «Waypoint: browsers» в «Управлении устройством»."
-                 : "Браузер, который спрашивает имена сам по шифрованному каналу" + (model.selfResolving.isEmpty ? "" : " (" + model.selfResolving.joined(separator: ", ") + ")") + ", открывает сервисы в обход туннеля. Waypoint может подготовить профиль, который задаёт Chrome, Edge, Brave, Яндекс Браузеру и Firefox настройку «спрашивать имена у системы». Она действует для всех сайтов; установить и удалить профиль можете только вы.")
+                 ? "Waypoint задал браузерам политику «использовать системный DNS» отдельным профилем. Чтобы вернуть браузерам их собственную настройку, удалите профиль «Waypoint: browsers» в «Управлении устройством»."
+                 : "Браузер со своим DNS поверх HTTPS (DoH)" + (model.selfResolving.isEmpty ? "" : " (" + model.selfResolving.joined(separator: ", ") + ")") + ", открывает сервисы в обход туннеля. Waypoint может подготовить профиль, который задаёт Chrome, Edge, Brave, Яндекс Браузеру и Firefox политику «использовать системный DNS». Она действует для всех сайтов; установить и удалить профиль можете только вы.")
         }
         .sheet(isPresented: $reporting) {
             VStack(alignment: .leading, spacing: 12) {

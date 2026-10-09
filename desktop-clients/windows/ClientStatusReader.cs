@@ -115,7 +115,7 @@ namespace IkeV2Manager.Client
                 if (version >= 2)
                 {
                     if (!data.ContainsKey("ConnectionError") || !(data["ConnectionError"] is string) ||
-                        !Regex.IsMatch((string)data["ConnectionError"], @"\A(?:none|route_or_identity|interface_missing|route_mismatch|route_loopback|route_interface|route_source|route_prefix|route_fields_[0-9]{1,3}|projection_missing|native_[0-9]{1,5}|path_unavailable|path_connection_failed|path_response_invalid|path_different_policy|device_access_revoked|enrollment_[a-z_]{1,40})\z")) return new ClientView("status_invalid");
+                        !Regex.IsMatch((string)data["ConnectionError"], @"\A(?:none|route_or_identity|interface_missing|route_mismatch|route_loopback|route_interface|route_source|route_prefix|route_fields_[0-9]{1,3}|projection_missing|native_[0-9]{1,5}|path_unavailable|path_connection_failed|path_stalled|path_response_invalid|path_different_policy|device_access_revoked|enrollment_[a-z_]{1,40})\z")) return new ClientView("status_invalid");
                     connectionError = (string)data["ConnectionError"];
                 }
                 if (servicePid == 0 || (int)data["ProcessId"] <= 0 || (int)data["ProcessId"] != servicePid)

@@ -61,7 +61,7 @@ internal static class ClientStatusTests
             data["ConnectionError"] = "none"; data["GuardInstalled"] = false; Check(data, 123, now, "status_invalid");
             data["GuardInstalled"] = true; data["State"] = "tunnel_connected"; Check(data, 123, now, "status_invalid");
             data["Protected"] = false;
-            foreach (string code in new[] {"path_unavailable", "path_connection_failed", "path_response_invalid", "path_different_policy", "device_access_revoked"}) {
+            foreach (string code in new[] {"path_unavailable", "path_connection_failed", "path_response_invalid", "path_different_policy", "device_access_revoked", "path_stalled"}) {
                 data["ConnectionError"] = code;
                 var waiting = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
                 if (waiting.State != "tunnel_connected" || waiting.Protected || waiting.ConnectionError != code) throw new Exception("Path refusal was lost: " + code);
