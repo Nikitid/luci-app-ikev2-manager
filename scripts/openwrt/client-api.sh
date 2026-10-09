@@ -108,15 +108,28 @@ page=https://127.0.0.1:18443/client/v1/enroll
 version="$(cat /usr/share/ikev2-manager/version)"
 request 200 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' -H 'Accept-Language: ru-RU,ru;q=0.9' "$page"
 grep -qi '^Content-Type: text/html' "$work/headers"; grep -qi "^Content-Security-Policy: default-src 'none'" "$work/headers"
+# The page opens in Russian whatever the browser asks for, carries both
+# languages, and its one script runs under the value this answer named.
+grep -q '<html lang="ru">' "$work/body"
+named="$(sed -n "s/^Content-Security-Policy:.*script-src 'nonce-\([0-9a-f]*\)'.*/\1/p" "$work/headers")"
+[ "${#named}" = 32 ] && grep -q "<script nonce=\"$named\">" "$work/body" && [ "$(grep -o '<script' "$work/body" | wc -l)" -eq 1 ]
+named_before="$named"
 grep -q "class=\"main\" href=\"https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v$version/WaypointSetup.exe\"" "$work/body"
 grep -q "class=\"plain\" href=\"[^\"]*/Waypoint-$version.pkg\"" "$work/body"; grep -q 'Скачать для Windows' "$work/body"
 request 200 -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15' "$page"
-grep -q "class=\"main\" href=\"[^\"]*/Waypoint-$version.pkg\"" "$work/body"; grep -q 'Download for macOS' "$work/body"
+grep -q "class=\"main\" href=\"[^\"]*/Waypoint-$version.pkg\"" "$work/body"; grep -q 'Download for macOS' "$work/body"; grep -q 'Скачать для macOS' "$work/body"
+grep -q '<html lang="ru">' "$work/body"
+# Every answer names its own value; the link itself is never in the page.
+named="$(sed -n "s/^Content-Security-Policy:.*script-src 'nonce-\([0-9a-f]*\)'.*/\1/p" "$work/headers")"
+[ "${#named}" = 32 ] && [ "$named" != "$named_before" ]
+! grep -q '<input[^>]*value=' "$work/body"
 request 200 -A 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15' "$page"
-! grep -q 'href=' "$work/body"; grep -q 'VPN profile' "$work/body"
+! grep -q 'releases/download' "$work/body"; ! grep -q '<input' "$work/body"; grep -q 'VPN profile' "$work/body"; grep -q 'VPN-профиль' "$work/body"
 request 200 -A 'curl/8' "$page"
-[ "$(grep -o 'class="main"' "$work/body" | wc -l)" = 2 ]
-! grep -qi '<script\|src=' "$work/body"
+# Both downloads are offered, once in each of the page's two languages.
+[ "$(grep -o 'class="main"' "$work/body" | wc -l)" = 4 ] && [ "$(grep -o '<section lang=' "$work/body" | wc -l)" = 2 ]
+# Nothing is loaded from anywhere: no file of a script, a style or a picture.
+! grep -qi 'src=\|<link[^>]*href="http\|@import\|url(http' "$work/body"
 request 401 -X POST "$page"
 printf '%s\n' 'client-api: the link opened in a browser offers the program for that computer'
 # A report is taken only from a device the administrator asked, once, whole

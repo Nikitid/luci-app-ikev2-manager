@@ -14,7 +14,8 @@ global.handle_request = function(env) {
 		try { page = client_download_page(env); } catch (error) { page = null; }
 		if (page != null) {
 			uhttpd.send('Status: 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\n');
-			uhttpd.send("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n");
+			// The one script is the page's own, named by a value made for this answer.
+			uhttpd.send(`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'nonce-${page.nonce}'\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n`);
 			uhttpd.send(sprintf('X-Content-Type-Options: nosniff\r\nConnection: close\r\nContent-Length: %d\r\n\r\n%s', length(page.html), page.html));
 			return;
 		}
