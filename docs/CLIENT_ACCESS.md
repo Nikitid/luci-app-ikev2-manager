@@ -226,6 +226,13 @@ link field when closed. A lost response requires a new invitation and identity.
 The configured dedicated HTTPS listener is still required; the form does not
 establish or verify that listener.
 
+While a link waits for devices the router also keeps it in a root-only
+directory in memory (`/var/run/ikev2-client-links`), so the page can show it
+again from the list of active links. Only a place the ledger still holds open
+is answered; the kept link goes with a restart, with the link's own end, and
+the moment it is withdrawn or replaced. The state on flash still holds digests
+only.
+
 The root-only credential worker now stages a separate random EAP password per
 reserved device, retains it across retries and uses the manager's restrictive
 user-policy transaction. A policy-only retry explicitly reloads strongSwan
@@ -623,13 +630,33 @@ a restore, after anything but the publisher touched it - the device API falls
 back to the state, compiled and compared in full, and the controller checks
 the state in full before it admits anybody and then writes fresh views.
 
+A save checks the state several times in one process: as it is read, as the
+base of the proposal, and where it is published. Within a process, a domain, a
+resource, a set of resources and a whole state that were found valid are
+remembered by their exact text and not examined again; anything written
+differently is examined in full. On a router with fifty devices and three
+hundred domains this took a publication from 53 seconds to 4.
+
 ### The link in a browser
 
 `GET /client/v1/enroll` answers a person who opened their link in a browser:
-a page without scripts that offers the installer for the system the browser
-reports - Windows or macOS - and says to paste the page's own address into
+a page that offers the installer for the system the browser reports - Windows
+or macOS - and shows the link in a field with a copy button, to paste into
 Waypoint. The secret part of a link is a fragment and never reaches the
-router. The installers are release assets of the router's own version.
+router: the page's one script, allowed by a value made for that answer, reads
+the address the browser holds and writes it into the field. A link opened
+without its secret part gets a warning instead of the field. The page carries
+Russian and English, opens in Russian, and loads nothing from anywhere. The
+installers are release assets of the router's own version.
+
+### Windows on ARM
+
+The setup program is one file for x64 and ARM64 Windows. The window and the
+setup program run on ARM as x64 programs under the system's emulation. The
+service does not: it dials, and Windows on ARM begins EAP only for a program
+whose image is ARM64, so the setup program carries the service as two images
+and installs the one for the machine's own processor. Checked on Windows 11
+24H2 ARM64; Windows 10 on ARM cannot run x64 programs and is not supported.
 
 ### Beside another VPN
 
@@ -662,7 +689,13 @@ things make the two coexist, each owned and each removed with the rest:
 - A tunnel that carries nothing. The router's word that a device is admitted
   comes over the Internet. While names over HTTPS are on, the client also
   reaches the resolver inside the tunnel; three misses in a row end the
-  connection and it is dialed again.
+  connection and it is dialed again. A new connection is not shown as open
+  before the resolver answered once: under a VPN whose kill switch blocks
+  every other interface - WireGuard with all addresses allowed - the tunnel
+  comes up and never carries anything, and the window says so
+  (`path_stalled`) instead of "access open" for a few seconds of each try.
+  The same WireGuard tunnel written as two halves of the address space has no
+  kill switch, and the services work beside it.
 - No interruption. The half-minute check of the profile, its routes and the
   name rules first looks without changing anything, and takes the tunnel's
   permission away only when something has to be put right. Before, it took the

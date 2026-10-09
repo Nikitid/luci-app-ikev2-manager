@@ -538,3 +538,32 @@ No test saw it, because every test looked at the published state, which stayed
 A check that runs on a timer asks first (`check` in `ManagedVpnProfile.ps1`)
 and disturbs the data path only when it has something to put right. Measure an
 "always on" path with a probe faster than its own timers.
+
+## A new status code must be readable before it is written
+
+The Windows service began to publish `path_stalled` when a tunnel carried
+nothing. The window's reader accepts a closed list of codes, the new one was
+not on it, and so exactly in the situation the code was made for the window
+showed "status invalid". Every unit test passed: none published the new code
+through the reader. Found on a clean virtual machine with WireGuard's kill
+switch on. When the runtime gains a code, add it to the list in
+`ClientStatusReader.cs` and to the loop in `ClientStatusTests.cs` in the same
+change.
+
+## On Windows on ARM the dialing program must be an ARM64 image
+
+The Windows client installed, registered and then failed every connection
+with RAS error 691 on Windows 11 ARM64, while every x64 Windows connected. The
+server showed the client falling silent after the server's own authentication:
+no EAP identity ever arrived. The service ran there as x64 under emulation,
+and Windows would not load the EAP method into such a process (EapHost event
+2002, "Eap method DLL path validation failed", once per attempt). A build for
+any processor fails the same way, with or without a manifest naming arm64:
+what counts is the processor named in the header of the program's file. The
+same code in a process whose image is ARM64 connects. So the setup program
+carries the service twice and installs the ARM64 image where the machine's
+own processor is ARM64 (`build.ps1`, `Setup.cs`). It took a day; what found
+it was running the product's own dial code inside another process, where it
+worked, and then comparing the two processes. When something fails only on
+one architecture, check what the process actually runs as before reading
+protocol traces.
