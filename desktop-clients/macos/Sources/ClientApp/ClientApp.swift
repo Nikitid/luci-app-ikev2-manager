@@ -344,7 +344,11 @@ struct ClientView: View {
         }
         .padding(22)
         .frame(width: 540)
-        .frame(minHeight: 420)
+        // The window is as tall as what it shows and no shorter than its
+        // usual height: when a notice appears - a newer version, a warning -
+        // the window grows by it instead of squeezing everything above.
+        .frame(minHeight: 420, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear { applyTheme(); model.start(); model.lookAtBrowsers() }
         .onChange(of: theme) { applyTheme() }
         .sheet(isPresented: $registering) {
