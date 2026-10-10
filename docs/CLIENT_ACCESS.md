@@ -954,6 +954,17 @@ installer, which keeps the registration. A device that is known but has no
 service is answered too, and both clients ask in that state, so a machine
 waiting for its first service is still offered the newer program.
 
+An installer run over a working installation is an update. It closes the
+window that is open - that window is the old program and would go on showing
+the old version - installs, starts the service again and opens the window
+anew: on Windows when it was open before or when the closing dialog's box is
+left ticked, on macOS always. On Windows the window is opened by the desktop's
+shell, as the person signed in and not as the administrator setup runs as.
+The registration, the services and the wish to be connected are kept, so a
+connected computer is connected again without anybody doing anything. Both
+windows are as tall as what they show: a notice of a newer version adds its
+own height.
+
 A disabled or revoked device stays known to the router and its client reports
 `access_closed`.
 

@@ -236,7 +236,11 @@ Checks that do not apply to the setup report nothing. Tokens stay in
 `/etc/ikev2-kuma/kuma.conf`, owned by root with mode 600 - the script refuses
 a config others could write; list the directory in `/etc/sysupgrade.conf`.
 Use `https` for the Kuma URL where possible: the tokens are part of it. A
-push monitor goes down on its own when the router stops reporting.
+push monitor goes down on its own when the router stops reporting. The
+inbound check asks the user policy twice, four seconds apart, before it
+reports a failure: a client that connects and leaves within a second is in
+the session list before the policy has followed it, and one such instant used
+to raise an alert every few days.
 
 Each monitor also charts a number in its ping field, the one that moves before
 its state does: the watcher's share of one CPU core (with what it waited for),
@@ -858,7 +862,11 @@ What a user sees and what it means:
   it by design; the services work again as soon as that VPN is off, or set to
   leave other tunnels alone.
 - A newer version is offered in the window when the router's package is newer
-  than the client. The program never installs anything by itself.
+  than the client. The program never installs anything by itself: Update
+  downloads the installer, the person runs it, and it closes the open window,
+  updates and opens the new one. The registration and the connection are
+  kept. The macOS installers up to 2.2.2 left the old window open after an
+  update; closing and opening it is enough.
 
 Saving a change publishes a new state for every computer. With fifty
 computers and three hundred domains that takes a few seconds on a router; the
