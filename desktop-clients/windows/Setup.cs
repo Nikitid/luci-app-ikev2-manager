@@ -85,16 +85,21 @@ internal static class Setup
     [STAThread]
     // The last step of an installation: it is done, and the program opens
     // unless the user clears the box.
-    private static bool AskToOpen()
+    private static bool AskToOpen(bool afterUpdate)
     {
         using (var done = new Form { Text = Title, ClientSize = new System.Drawing.Size(360, 130), FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = new System.Drawing.Font("Segoe UI", 10) })
         {
             var open = new CheckBox { Text = "Открыть " + Title, Checked = true, AutoSize = true, Location = new System.Drawing.Point(22, 54) };
             var close = new Button { Text = "Готово", DialogResult = DialogResult.OK, AutoSize = true, Location = new System.Drawing.Point(250, 88) };
-            done.Controls.Add(new Label { Text = Title + " установлен.", AutoSize = true, Location = new System.Drawing.Point(20, 20) });
+            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+            done.Controls.Add(new Label { Text = afterUpdate ? Title + " обновлён до версии " + version + "." : Title + " установлен.",
+                AutoSize = true, Location = new System.Drawing.Point(20, 20) });
             done.Controls.Add(open); done.Controls.Add(close);
             done.AcceptButton = close;
+            // The last word of setup is not left behind other windows.
+            done.TopMost = true;
+            done.Shown += (sender, args) => { done.Activate(); close.Focus(); };
             done.ShowDialog();
             return open.Checked;
         }
@@ -124,10 +129,11 @@ internal static class Setup
                 return 0;
             }
             Install();
-            if (!quiet)
-            {
-                if (AskToOpen()) Process.Start(new ProcessStartInfo(AppPath) { WorkingDirectory = Destination, UseShellExecute = false });
-            }
+            // After an update the window comes back by itself if it was open:
+            // the person who pressed Update expects to see the new version, not
+            // an empty desktop. A first installation asks. Run without
+            // questions, setup opens nothing that was not open.
+            if (quiet ? windowWasOpen : AskToOpen(updated)) OpenWindow();
             return 0;
         }
         catch (Refusal refusal) { if (!quiet) MessageBox.Show(refusal.Message, Title, MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
@@ -140,10 +146,26 @@ internal static class Setup
         }
     }
 
+    // What this run found: an installation to update, and its window open.
+    private static bool updated, windowWasOpen;
+
+    // Setup runs as an administrator; the window must not. Asked to open a
+    // file, the desktop's own shell starts it as the person signed in.
+    private static void OpenWindow()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+                "\"" + AppPath + "\"") { UseShellExecute = false });
+        }
+        catch (System.ComponentModel.Win32Exception) { }
+    }
+
     private static void Install()
     {
         RejectRedirected(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Destination, ServicePath, AppPath);
         bool exists = ServiceExists();
+        updated = exists;
         if (exists && !OwnService()) throw new Refusal("Имя службы клиента занято другой программой. Установка остановлена.");
         if (exists) StopService();
         var security = new DirectorySecurity();
@@ -157,7 +179,7 @@ internal static class Setup
         // half way, with the service already stopped. The window is closed;
         // the user opens it again, or setup does at the end.
         foreach (var process in Process.GetProcessesByName("IKEv2ManagerClient"))
-            using (process) { try { process.Kill(); process.WaitForExit(5000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { } }
+            using (process) { windowWasOpen = true; try { process.Kill(); process.WaitForExit(5000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { } }
         Directory.CreateDirectory(Destination);
         Directory.SetAccessControl(Destination, security);
         // On Windows on ARM the service is installed as an ARM64 image: the

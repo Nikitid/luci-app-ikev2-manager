@@ -65,6 +65,7 @@ cat >"$tools/$label.uninstall" <<SCRIPT
 #!/bin/sh
 set -u
 [ "\$(id -u)" = 0 ] || { echo 'Run with sudo.' >&2; exit 1; }
+pkill -TERM -f "^/Applications/Waypoint.app/Contents/MacOS/" 2>/dev/null
 launchctl bootout system/$label 2>/dev/null
 "/Library/PrivilegedHelperTools/$label" --remove || echo 'The stored device could not be removed completely.' >&2
 rm -f "/Library/LaunchDaemons/$label.plist" "/Library/PrivilegedHelperTools/$label"
@@ -76,6 +77,9 @@ SCRIPT
 chmod 755 "$tools/$label" "$tools/$label.uninstall" "$app/MacOS/IKEv2ManagerClient"
 cat >"$stage/scripts/preinstall" <<SCRIPT
 #!/bin/sh
+# An open window is the old program and would go on showing the old version
+# after the update. It is closed here; postinstall opens the new one.
+pkill -TERM -f "^/Applications/Waypoint.app/Contents/MacOS/" 2>/dev/null
 launchctl bootout system/$label 2>/dev/null
 exit 0
 SCRIPT
