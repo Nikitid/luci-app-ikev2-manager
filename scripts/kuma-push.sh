@@ -255,7 +255,12 @@ report "$T_dns" "резолв, DNS-сегменты и FakeIP в порядке,
 if [ "$(echo "$state" | field server_enabled)" = 1 ]; then
 	bounded 10 swanctl --list-conns 2>/dev/null | grep -q '^ikev2-in:' || fail "соединение ikev2-in не загружено"
 	ip link show ipsec-in 2>/dev/null | grep -q '[<,]UP[,>]' || fail "ipsec-in не поднят"
-	/usr/libexec/ikev2-user-policy check >/dev/null 2>&1 || fail "политика пользователей не отвечает"
+	# A client that connects and leaves within a second is in the session
+	# list before the policy has followed it: one such instant is not a
+	# fault, so the check is asked again before it is reported.
+	/usr/libexec/ikev2-user-policy check >/dev/null 2>&1 ||
+		{ sleep 4; /usr/libexec/ikev2-user-policy check >/dev/null 2>&1; } ||
+		fail "политика пользователей не отвечает"
 	gw=$(ip -4 -o addr show dev ipsec-in 2>/dev/null | awk '{sub(/\/.*/,"",$4); print $4}' | head -n 1)
 	for p in $LOCAL_NAMES; do
 		n=${p%%=*}; want=${p#*=}
