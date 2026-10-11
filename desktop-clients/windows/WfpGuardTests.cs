@@ -56,6 +56,8 @@ internal static class WfpGuardTests
             Require(InboundDatagram(), "baseline incoming UDP");
             JournalCrash(port, "planned");
             JournalCrash(port, "installed");
+            Contention(port);
+            Migration(port);
             ServiceIntegrationTests.Run(() => Probe(port), InboundDatagram, Target);
             if (args.Length != 1) throw new ArgumentException("Policy fixtures directory required");
             PolicyJournalTests.Run(args[0]);
@@ -213,6 +215,171 @@ internal static class WfpGuardTests
             if (resumed != null) { try { resumed.Remove(); } finally { resumed.Dispose(); } }
             if (store != null) store.Dispose();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    // Another program's permissions for the guarded address, each in a
+    // dynamic session of its own that takes them away when it closes. Where
+    // WFP leaves the order open - an equal sublayer, or a stranger inside the
+    // guard's own - the outcome is printed, not required.
+    private static void Contention(int port)
+    {
+        using (var guard = new WfpGuard(Guid.NewGuid(), new[] { Target }))
+        {
+            GuardReceipt receipt = guard.Receipt();
+            try
+            {
+                guard.InstallBlocking();
+                Require(SublayerWeight(receipt.Owner) == 0xFFFF, "guard sublayer is the heaviest");
+                using (new Stranger(0xFFFE, true, Guid.Empty))
+                    Require(!Probe(port), "hard permission in a lighter sublayer stays denied");
+                using (new Stranger(0xFFFF, false, Guid.Empty))
+                    Require(!Probe(port), "soft permission in an equal sublayer stays denied");
+                using (new Stranger(0xFFFF, true, Guid.Empty))
+                    Console.WriteLine("Hard permission in an equal sublayer passes: " + Probe(port));
+                using (new Stranger(0, false, receipt.Owner))
+                    Console.WriteLine("Permission inside the guard sublayer passes: " + Probe(port));
+                guard.AllowInterface(LoopbackLuid());
+                Require(Probe(port), "own tunnel permission passes");
+                guard.Block();
+                Require(!Probe(port), "contention scenario ends denied");
+            }
+            finally { guard.Remove(); }
+        }
+        Require(Probe(port), "contention scenario restores baseline");
+    }
+
+    // A guard installed before 2.2.6: its sublayer at 0x7000 and its denials
+    // without a hard action. It is recovered as it is and moved up when it is
+    // next installed, without a moment that denies nothing.
+    private static void Migration(int port)
+    {
+        GuardReceipt receipt;
+        using (var planned = new WfpGuard(Guid.NewGuid(), new[] { Target })) receipt = planned.Receipt();
+        bool installed = false;
+        try
+        {
+            using (var legacy = new Stranger(receipt))
+            {
+                installed = true;
+                Require(!Probe(port), "legacy guard denies");
+                using (var recovered = WfpGuard.Recover(receipt)) recovered.VerifyProtection();
+                Require(SublayerWeight(receipt.Owner) == 0x7000, "legacy guard recovered unchanged");
+                var watching = new Thread(() => { while (!stopping && Volatile.Read(ref watch)) if (Probe(port)) Interlocked.Increment(ref passed); });
+                Volatile.Write(ref watch, true); passed = 0;
+                watching.Start();
+                using (var moved = WfpGuard.Resume(receipt)) moved.VerifyProtection();
+                Volatile.Write(ref watch, false);
+                watching.Join();
+                Require(Volatile.Read(ref passed) == 0, "nothing passes while the guard moves");
+                Require(SublayerWeight(receipt.Owner) == 0xFFFF && !Probe(port), "legacy guard moved to the heaviest sublayer");
+                using (var again = WfpGuard.Resume(receipt)) again.VerifyProtection();
+            }
+        }
+        finally { if (installed) using (var guard = WfpGuard.Recover(receipt)) guard.Remove(); }
+        Require(Probe(port), "migration scenario restores baseline");
+    }
+
+    private static bool watch;
+    private static int passed;
+
+    private static ushort SublayerWeight(Guid key)
+    {
+        IntPtr engine = IntPtr.Zero, pointer = IntPtr.Zero;
+        var session = new WfpGuard.Native.Session { Key = Guid.NewGuid(), Flags = 1, Timeout = 5000 };
+        Check(WfpGuard.Native.FwpmEngineOpen0(null, 10, IntPtr.Zero, ref session, out engine));
+        try
+        {
+            Check(WfpGuard.Native.FwpmSubLayerGetByKey0(engine, ref key, out pointer));
+            return ((WfpGuard.Native.Sublayer)System.Runtime.InteropServices.Marshal.PtrToStructure(pointer, typeof(WfpGuard.Native.Sublayer))).Weight;
+        }
+        finally
+        {
+            if (pointer != IntPtr.Zero) WfpGuard.Native.FwpmFreeMemory0(ref pointer);
+            WfpGuard.Native.FwpmEngineClose0(engine);
+        }
+    }
+
+    private static void Check(uint error)
+    {
+        if (error != 0) throw new System.ComponentModel.Win32Exception(unchecked((int)error), "WFP test operation failed: 0x" + error.ToString("X8"));
+    }
+
+    private sealed class Stranger : IDisposable
+    {
+        private IntPtr engine;
+        private readonly System.Collections.Generic.List<IntPtr> memory = new System.Collections.Generic.List<IntPtr>();
+
+        // Permissions of another program in a sublayer of the given weight,
+        // or inside an existing one.
+        public Stranger(ushort weight, bool hard, Guid inside)
+        {
+            Open(true);
+            Guid layer = inside;
+            if (layer == Guid.Empty)
+            {
+                layer = Guid.NewGuid();
+                var sublayer = new WfpGuard.Native.Sublayer { Key = layer, Weight = weight,
+                    Display = new WfpGuard.Native.Display { Name = Text("Stranger sublayer") } };
+                Check(WfpGuard.Native.FwpmSubLayerAdd0(engine, ref sublayer, IntPtr.Zero));
+            }
+            foreach (Guid level in new[] { WfpGuard.Native.ConnectV4, WfpGuard.Native.PacketV4, WfpGuard.Native.ReceivePacketV4 })
+                Add(Guid.NewGuid(), level, layer, hard ? 8u : 0u, 0x1002, 15, "Stranger permit");
+        }
+
+        // The guard as versions before 2.2.6 installed it, persistent.
+        public Stranger(GuardReceipt receipt)
+        {
+            Open(false);
+            var sublayer = new WfpGuard.Native.Sublayer { Key = receipt.Owner, Flags = 1, Weight = 0x7000,
+                Display = new WfpGuard.Native.Display { Name = Text("IKEv2 Manager client guard") } };
+            Check(WfpGuard.Native.FwpmSubLayerAdd0(engine, ref sublayer, IntPtr.Zero));
+            int index = 0;
+            Add(receipt.Filters[index++], WfpGuard.Native.ConnectV4, receipt.Owner, 1, 0x1001, 1, "IKEv2 Manager deny bypass");
+            Add(receipt.Filters[index++], WfpGuard.Native.PacketV4, receipt.Owner, 1, 0x1001, 1, "IKEv2 Manager deny bypass");
+            Add(receipt.Filters[index++], WfpGuard.Native.PacketV4, receipt.Owner, 2, 0x1001, 1, "IKEv2 Manager deny bypass");
+            Add(receipt.Filters[index++], WfpGuard.Native.ReceivePacketV4, receipt.Owner, 1, 0x1001, 1, "IKEv2 Manager deny bypass");
+            Add(receipt.Filters[index++], WfpGuard.Native.ReceivePacketV4, receipt.Owner, 2, 0x1001, 1, "IKEv2 Manager deny bypass");
+        }
+
+        private void Open(bool dynamic)
+        {
+            var session = new WfpGuard.Native.Session { Key = Guid.NewGuid(), Flags = dynamic ? 1u : 0u, Timeout = 5000 };
+            Check(WfpGuard.Native.FwpmEngineOpen0(null, 10, IntPtr.Zero, ref session, out engine));
+        }
+
+        private void Add(Guid key, Guid level, Guid layer, uint flags, uint action, ulong weight, string name)
+        {
+            var condition = new WfpGuard.Native.Condition { Key = WfpGuard.Native.RemoteAddress, Value = new WfpGuard.Native.Value {
+                Type = 256, Pointer = Block(new WfpGuard.Native.AddressMask { Address = 0x7F000002, Mask = UInt32.MaxValue }) } };
+            var filter = new WfpGuard.Native.Filter { Key = key, Flags = flags, Layer = level, Sublayer = layer,
+                Display = new WfpGuard.Native.Display { Name = Text(name) },
+                Weight = new WfpGuard.Native.Value { Type = 1, Number = weight },
+                ConditionCount = 1, Conditions = Block(condition), Action = new WfpGuard.Native.Action { Type = action } };
+            ulong id;
+            Check(WfpGuard.Native.FwpmFilterAdd0(engine, ref filter, IntPtr.Zero, out id));
+        }
+
+        private IntPtr Text(string value)
+        {
+            IntPtr pointer = System.Runtime.InteropServices.Marshal.StringToHGlobalUni(value);
+            memory.Add(pointer);
+            return pointer;
+        }
+
+        private IntPtr Block<T>(T value) where T : struct
+        {
+            IntPtr pointer = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf(typeof(T)));
+            memory.Add(pointer);
+            System.Runtime.InteropServices.Marshal.StructureToPtr(value, pointer, false);
+            return pointer;
+        }
+
+        public void Dispose()
+        {
+            if (engine != IntPtr.Zero) { WfpGuard.Native.FwpmEngineClose0(engine); engine = IntPtr.Zero; }
+            foreach (IntPtr pointer in memory) System.Runtime.InteropServices.Marshal.FreeHGlobal(pointer);
+            memory.Clear();
         }
     }
 
