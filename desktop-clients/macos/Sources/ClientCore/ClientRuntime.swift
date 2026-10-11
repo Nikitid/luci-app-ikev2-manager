@@ -428,8 +428,16 @@ public actor ClientRuntime {
         publish("protected", now: now)
     }
 
-    /// One step. Called every two seconds by the daemon.
+    private var ticking = false
+
+    /// One step. Called every two seconds by the daemon, and by a command
+    /// from the window. The actor lets a second call in while the first waits
+    /// for the router; that one returns at once, so two steps never interleave
+    /// and an answer awaited by one cannot open what the other just closed.
     public func tick(now: Date = Date()) async {
+        guard !ticking else { return }
+        ticking = true
+        defer { ticking = false }
         var history: PolicyHistory?
         do {
             guard let registration = try store.loadRegistration() else {
