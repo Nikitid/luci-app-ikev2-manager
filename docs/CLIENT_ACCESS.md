@@ -1155,7 +1155,11 @@ disconnects it, so the window and the system's menu always agree.
 status with one sign and colour, three checks (denial outside the tunnel,
 tunnel and routes, path through the office), the assigned services, a notice
 for an update or a proxy, and one prominent button for the next step; the
-macOS one adds "a VPN profile is needed".
+macOS one adds "a VPN profile is needed". A permanent right-hand panel shows
+the server name, its known IPv4 address, the services network and the tunnel
+network, each with its own copy button. Unknown values remain visible with
+copying disabled. The optional `tunnel_subnet` field in `/client/v1/services`
+supplies the inbound network; older routers leave that row unavailable.
 
 `desktop-clients/macos/build.sh X.Y.Z` builds an installer package for Apple
 silicon: the application, the daemon under `/Library/PrivilegedHelperTools`,

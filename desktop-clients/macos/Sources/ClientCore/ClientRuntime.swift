@@ -43,6 +43,8 @@ public protocol SystemActions: Sendable {
     /// The network as the system shows it, for the report the administrator
     /// asks for: interfaces that are up, the default route, the resolvers.
     func describeNetwork() -> [String]
+    /// Informational server address, resolved outside the readiness path.
+    func serverIPv4(_ name: String) async -> String
     /// What on this machine lets a service be reached around the tunnel or
     /// keeps it from opening: "vpn" when another tunnel carries the route to
     /// the Internet, "proxy" when a system proxy is set. Named, not acted on.
@@ -52,6 +54,7 @@ public protocol SystemActions: Sendable {
 public extension SystemActions {
     func packetFilterEffective() throws -> Bool { true }
     func describeNetwork() -> [String] { [] }
+    func serverIPv4(_ name: String) async -> String { "" }
     func observeConditions() -> [String] { [] }
 }
 
@@ -76,6 +79,7 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var fullTunnel = false
     /// Conditions on this machine the user should know of: "vpn", "proxy".
     public var warnings: [String]? = nil
+    public var addresses: ConnectionAddresses? = nil
     public var updatedAt: Int
 
     /// Whether `release` is newer than the running program's own version.
@@ -97,6 +101,8 @@ public actor ClientRuntime {
     private var readyUntil = Date.distantPast
     private var nextReadinessAt = Date.distantPast
     private var noServices = false
+    private var serverIP = ""
+    private var addressLookup: Task<Void, Never>?
     private var nextPolicyPoll = Date.distantPast
     private var nextEnrollmentStep = Date.distantPast
     private var retryConnectionAt = Date.distantPast
@@ -177,7 +183,9 @@ public actor ClientRuntime {
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
             revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true, fullTunnel: names?.full ?? false,
-            warnings: conditions, updatedAt: Int(now.timeIntervalSince1970))
+            warnings: conditions,
+            addresses: history.map { ConnectionAddresses(server: $0.current.serverAddress, serverIP: serverIP,
+                services: $0.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "") }, updatedAt: Int(now.timeIntervalSince1970))
     }
 
     // MARK: registration
@@ -316,6 +324,15 @@ public actor ClientRuntime {
             release = (try? await transport.release(endpoint: registration.endpoint, deviceToken: registration.deviceToken)) ?? release
             if let id = registration.id {
                 names = (try? await transport.services(endpoint: registration.endpoint, deviceToken: registration.deviceToken, id: id)) ?? names
+            }
+            if addressLookup == nil {
+                let server = next.current.serverAddress
+                addressLookup = Task { [system] in
+                    let resolved = await system.serverIPv4(server)
+                    guard !Task.isCancelled else { return }
+                    if !resolved.isEmpty { serverIP = resolved }
+                    addressLookup = nil
+                }
             }
             return next
         } catch DeviceError.connectionFailed {
@@ -477,7 +494,8 @@ public actor ClientRuntime {
         guardInstalled = false; readyUntil = .distantPast; nextReadinessAt = .distantPast
         noServices = false; synchronizationFailed = false; accessClosed = false
         nextPolicyPoll = .distantPast; nextEnrollmentStep = .distantPast; retryConnectionAt = .distantPast
-        names = nil; release = ""; connectionError = "none"
+        addressLookup?.cancel(); addressLookup = nil
+        names = nil; serverIP = ""; release = ""; connectionError = "none"
         publish("enrollment_required", now: now)
     }
 
