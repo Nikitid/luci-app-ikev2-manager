@@ -37,10 +37,12 @@ export function validate_client_state(snapshot) {
 		if (sprintf('%J', device.previous_policy) != sprintf('%J', snapshot.api.devices[index].policy))
 			die('missing committed device history');
 	}
+	// A retired identity keeps its record for one publication, then only its
+	// name: the name is what can never be given again.
 	for (let id in snapshot.retired_ids) {
 		let device = devices[id];
-		if (type(id) != 'string' || retired[id] || device == null ||
-			device.enabled || length(device.selected_services))
+		if (type(id) != 'string' || !(length(id) <= 48 ? match(id, /^[a-z][a-z0-9-]*$/) : null) || retired[id] ||
+			(device != null && (device.enabled || length(device.selected_services))))
 			die('invalid retired client identity');
 		retired[id] = true;
 	}
@@ -80,8 +82,15 @@ export function prepare_client_state(input) {
 		seen[device.id] = true;
 		device.previous_policy = old[device.id]?.previous_policy;
 	}
+	// A device removed now keeps a closed record for this publication; one
+	// retired before is left out and stays only as a retired name. Removed
+	// devices used to stay in the state for good and counted against its
+	// limit of 512, so a router that had seen 512 devices took no more.
+	let retired_before = {};
+	for (let id in previous?.retired_ids ?? [])
+		retired_before[id] = true;
 	for (let id, device in old) {
-		if (seen[id])
+		if (seen[id] || retired_before[id])
 			continue;
 		retired[id] = true;
 		push(desired.devices, { id: id, token_sha256: device.token_sha256,

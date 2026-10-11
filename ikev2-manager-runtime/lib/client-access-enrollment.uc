@@ -67,7 +67,7 @@ function desired_state(state) {
 }
 
 function eligible(state, id, selected) {
-	if (length(filter(state.publication.devices, device => device.id == id)))
+	if (length(filter(state.publication.devices, device => device.id == id)) || index(state.retired_ids, id) >= 0)
 		die('existing or retired enrollment identity');
 	for (let id in selected)
 		if (!length(filter(state.publication.services, service => service.id == id && service.client_access)))
@@ -105,6 +105,14 @@ export function prepare_client_enrollment(input) {
 	if (request.version !== 1 || request.expected_generation !== ledger.generation || ledger.generation == 2147483647)
 		die('stale enrollment request');
 	let next = json(sprintf('%J', ledger)), payload = request.payload, proposed = null;
+	// What no longer decides anything is let go: a place withdrawn, abandoned
+	// or never used a day after its link ended, and the place of a removed
+	// device a month after. The ledger used to keep all of them and take no
+	// link after its 512th place. Names stay spent where it matters: removed
+	// devices in the state, issued credentials by their markers.
+	next.invitations = filter(next.invitations, item =>
+		!((index([ 'cancelled', 'aborted', 'issued' ], item.status) >= 0 && item.expires_at + 86400 < input.now) ||
+		  (item.status == 'completed' && index(state.retired_ids, item.id) >= 0 && item.expires_at + 2592000 < input.now)));
 	if (request.operation == 'issue') {
 		fields(payload, [ 'id', 'token_sha256', 'selected_services', 'lifetime_seconds' ]);
 		identity(payload.id); hash(payload.token_sha256); services(payload.selected_services);

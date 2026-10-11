@@ -412,10 +412,17 @@ its unknown-publisher warning.
 for this device at the tunnel's address (`GET /client/v1/readiness`, device
 token, `X-Client-Address`). Only an answer for the same device, address and
 policy revision permits the tunnel interface in the dynamic WFP session and
-publishes `protected`. An unanswered request keeps permission for at most ten
-seconds since the last confirmation, less than the router's own fifteen-second
-admission lease; revocation, a different policy or an invalid answer closes it
-at once. Without confirmation the state stays `tunnel_connected` with a reason
+publishes `protected`. The router is asked again every six seconds while access
+stands confirmed. An unanswered request, or the router saying its path is not
+in effect right now (`path_unavailable`), keeps permission for at most twenty
+seconds since the last confirmation; both clients do the same. That outlives
+the router's fifteen-second admission lease by design: the router decides
+admission by itself, closes its grants the moment its path fails, and a
+permission on this side only lets the tunnel carry what the router admits.
+What the window may show is "protected" for those few seconds longer.
+Revocation, a different policy or an invalid answer closes it at once. The
+policy, service and release requests are made outside the service lock, so a
+router that is slow to answer them cannot hold up this check. Without confirmation the state stays `tunnel_connected` with a reason
 the window explains. Selected addresses are virtual and denied outside the
 tunnel at all times, so this gate decides what the user is told and when the
 tunnel may carry traffic, not whether traffic can leave another way.
@@ -980,6 +987,70 @@ own height.
 
 A disabled or revoked device stays known to the router and its client reports
 `access_closed`.
+
+## Lifecycle with the rest of the router
+
+Remote clients run only in managed mode: their exit is chosen by the health
+watcher, which runs only there. Turning managed mode off stops
+`ikev2-client-access` and then runs `ikev2-client-access teardown`, which
+removes the proxy, both owned tables, the local route and its rule; the
+published state, the devices and their accounts stay. Turning it on starts
+the service again. Removing the package does the same and also unloads the
+`ikev2-in-managed` connection. The SDK `Makefile` carries the prerm script
+itself (`scripts/check-version-sync.sh`).
+
+A stop leaves the denial table in place. The controller's own TERM handler
+closes the grants and stops the proxy; procd allows it fifteen seconds.
+
+Removing a device first withdraws the rights of its account, so a device
+that sent everything into the tunnel is never left a VPN user should the
+account outlive the cleanup. A restored backup marks each restored
+credential as issued, so a device restored on a fresh router can still be
+removed with its account.
+
+A device identifier is never one an account already has or one a credential
+was ever issued for: the page counts such names as used and issuance
+refuses them. A registration whose account still cannot be made is retried
+for ten minutes, or until its link ends, and then abandoned
+(`registration-abandoned` in the journal); before, it waited for good and no
+other link could be issued, withdrawn or used meanwhile.
+
+## Limits and load
+
+The ledger lets go of places that no longer decide anything: one withdrawn,
+abandoned or never used, a day after its link ended, and the place of a
+removed device a month after its link ended. A removed device keeps its
+record in the state for one publication and then only its name in
+`retired_ids`. Both used to be kept for good, and a router that had seen 512
+places or 512 devices took no more. A name stays spent: removed devices by
+`retired_ids`, issued credentials by their markers.
+
+The controller replaces its admission table only when it holds grants, which
+need their lease renewed, or when the table differs from what it installed:
+it used to replace the whole table every two seconds, about 13% of one core
+of a GL-MT6000 with nobody connected. It checks the path once a round, writes
+the source lists only when who is connected changed, and the enrollment
+worker looks at the journal only when something is registering.
+
+The registration port takes at most eight connections at a time from one
+address, with `kmod-nft-connlimit` (a runtime dependency); without the module
+the per-address rate limit alone stays. The server holds 48 connections. One
+address that kept eight idle connections open used to take every place.
+
+The API and its resolver are restarted when their name, port or certificate
+changed, not on every save of the router's settings, and they run only while
+the inbound server is on. The Remote clients page warns when the server's
+name is no longer the one devices were enrolled for.
+
+The Users page neither changes the password of a registered Waypoint
+device's account nor deletes it; that is done by removing the device. Mail
+for links takes the password from a file of its own (`passwordeval`).
+
+On macOS the daemon also checks that the packet filter is on and that the
+main ruleset still reaches Apple's anchors: another program that switches the
+filter off (`pfctl -d`) gets it switched on again; one that loads a main
+ruleset without `com.apple` leaves the client in `error` with its permission
+withdrawn, since the anchor's rules would deny nothing.
 
 ## Marks and other software on the router
 

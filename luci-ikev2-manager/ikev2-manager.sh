@@ -108,6 +108,14 @@ swanctl_quiet() {
 	return "$code"
 }
 
+# Whether USER is the account of a Waypoint device that is still registered:
+# it has a credential record and the published state answers for it. The
+# account of a removed device that outlived its cleanup can be deleted here.
+waypoint_account() {
+	[ -f "${root:-}/etc/ikev2-manager/clients/credentials/$1.json" ] &&
+		[ -f "${root:-}/etc/ikev2-manager/clients/views/i-$1.json" ]
+}
+
 consume_user_input() {
 	local extra user_count normalized_targets normalized_ports policy_supplied
 	[ -f "$user_input_file" ] || die 'User input is missing'
@@ -154,6 +162,12 @@ consume_user_input() {
 	fi
 	if [ "$action" = password ] && ! user_exists "$user"; then
 		die 'VPN user does not exist'
+	fi
+	# The account of a Waypoint device holds the credential the device was
+	# given; a new password from this page would only break the device. It
+	# is removed with the device on the Remote clients page.
+	if [ "$action" = password ] && waypoint_account "$user"; then
+		die 'This account belongs to a Waypoint device; manage it on the Remote clients page'
 	fi
 	if [ "$action" = policy ] && ! user_exists "$user"; then
 		die 'VPN user does not exist'
@@ -1811,6 +1825,11 @@ server_apply_action() {
 		# disable, and the rollback after it.
 		! inbound_link_up || return 1
 	fi
+	# The device API answers only while the server is on, under its name and
+	# certificate: it follows the server's settings at once.
+	if [ -f /etc/ikev2-manager/clients/initialized ] && [ -x /etc/init.d/ikev2-client-access ]; then
+		/etc/init.d/ikev2-client-access reload >/dev/null 2>&1 || :
+	fi
 }
 
 inbound_link_up() {
@@ -1999,6 +2018,8 @@ case "${1:-}" in
 	user-delete)
 		user="${2:-}"
 		valid_user "$user" || die 'Invalid username'
+		waypoint_account "$user" &&
+			die 'This account belongs to a Waypoint device; remove the device on the Remote clients page'
 		delete_user_account "$user"
 		;;
 	disconnect)

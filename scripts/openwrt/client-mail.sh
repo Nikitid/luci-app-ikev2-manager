@@ -44,6 +44,7 @@ cat >/usr/bin/msmtp <<RECORD
 #!/bin/sh
 printf '%s\n' "\$*" >"$work/arguments"
 for argument in "\$@"; do case "\$argument" in --file=*) cp "\${argument#--file=}" "$work/config" ;; esac; done
+sh -c "\$(sed -n 's/^passwordeval \"\\(.*\\)\"\$/\\1/p' "$work/config")" >"$work/password"
 cat >"$work/message"
 RECORD
 chmod 755 /usr/bin/msmtp
@@ -53,8 +54,11 @@ printf '{"version":1,"to":"person@example.com","subject":"Ссылка","body":"
 grep -q 'person@example.com' "$work/arguments"
 ! grep -q 'correct horse' "$work/arguments"
 grep -q '^host smtp.example.com$' "$work/config" && grep -q '^port 587$' "$work/config" && grep -q '^tls_starttls on$' "$work/config"
-grep -q '^password "correct horse"$' "$work/config"
-[ ! -e /var/run/ikev2-client-admin/mail-7-1.conf ]
+# The password reaches msmtp from its own file, never parsed with the rest.
+grep -q '^passwordeval "cat /var/run/ikev2-client-admin/mail-7-1.pass"$' "$work/config"
+! grep -q 'correct horse' "$work/config"
+[ "$(cat "$work/password")" = 'correct horse' ]
+[ ! -e /var/run/ikev2-client-admin/mail-7-1.conf ] && [ ! -e /var/run/ikev2-client-admin/mail-7-1.pass ]
 grep -q '^To: person@example.com' "$work/message"
 grep -q '^Subject: =?UTF-8?B?' "$work/message"
 sed '1,/^.$/d' "$work/message" | tr -d '\r\n' >"$work/encoded"

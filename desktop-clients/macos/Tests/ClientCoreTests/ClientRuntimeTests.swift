@@ -18,6 +18,8 @@ private final class Machine: SystemActions, @unchecked Sendable {
     func setNameResolution(domains: [String], resolver: String) throws { sync { resolving = domains; self.resolver = resolver; log.append("names") } }
     func loadPacketFilter(_ text: String) throws { sync { rules = text; log.append("filter") } }
     func packetFilterRules() throws -> String { sync { rules } }
+    var effective = true
+    func packetFilterEffective() throws -> Bool { sync { effective } }
     func vpnInstalled() -> Bool { sync { installed } }
     func vpnConnected() -> Bool { sync { connected } }
     func startVPN() throws { sync { started += 1 } }
@@ -364,4 +366,25 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     chmod(directory.appendingPathComponent("connection.json").path, 0o600)
     chmod(directory.path, 0o755)
     #expect(throws: (any Error).self) { try store.loadIntent() }
+}
+
+@Test func filterThatDeniesNothingIsNoGuard() async throws {
+    var (runtime, machine, router, store, now) = try await registered()
+    try await runtime.setWanted(true)
+    machine.sync { machine.connected = true; machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
+    router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
+    await runtime.tick(now: now); now += 2
+    #expect(await runtime.status().protected)
+    // Another program switched the filter off or replaced the main ruleset:
+    // the anchor's rules are still there and deny nothing.
+    machine.sync { machine.effective = false }
+    await runtime.tick(now: now); now += 2
+    var status = await runtime.status()
+    #expect(status.state == "error" && !status.protected && !status.guardInstalled)
+    #expect(!machine.rules.contains("pass"), "permission is withdrawn")
+    machine.sync { machine.effective = true }
+    await runtime.tick(now: now); now += 2
+    status = await runtime.status()
+    #expect(status.guardInstalled && status.state == "protected")
+    try? FileManager.default.removeItem(at: store.directory)
 }

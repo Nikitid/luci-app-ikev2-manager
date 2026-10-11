@@ -98,6 +98,22 @@ struct RealSystem: SystemActions {
         try Tool.run("/sbin/pfctl", ["-a", SystemPlan.anchor, "-s", "rules"]).output
     }
 
+    /// Another program may switch the filter off (`pfctl -d`) or load a main
+    /// ruleset without Apple's anchors; the rules of this client's anchor then
+    /// stay in place and deny nothing. A filter that is off is switched on
+    /// again. A main ruleset that no longer reaches "com.apple" is reported,
+    /// which closes access: only a listing that worked and lacks it says so.
+    func packetFilterEffective() throws -> Bool {
+        func enabled() throws -> Bool { try Tool.run("/sbin/pfctl", ["-s", "info"]).output.contains("Status: Enabled") }
+        if !(try enabled()) {
+            _ = try Tool.run("/sbin/pfctl", ["-E"])
+            guard try enabled() else { return false }
+        }
+        let anchors = try Tool.run("/sbin/pfctl", ["-s", "Anchors"])
+        guard anchors.status == 0 else { return true }
+        return anchors.output.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "com.apple" }
+    }
+
     func vpnInstalled() -> Bool { vpn.installed }
     func vpnConnected() -> Bool { vpn.connected }
     func startVPN() throws { try vpn.start() }

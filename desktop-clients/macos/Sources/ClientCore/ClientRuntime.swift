@@ -27,6 +27,10 @@ public protocol SystemActions: Sendable {
     func loadPacketFilter(_ rules: String) throws
     /// The rules the system currently holds in the anchor, as it prints them.
     func packetFilterRules() throws -> String
+    /// Whether the packet filter applies the anchor at all: it is enabled and
+    /// the main ruleset still reaches the anchor. Another program may switch
+    /// the filter off or load a main ruleset of its own.
+    func packetFilterEffective() throws -> Bool
     func vpnInstalled() -> Bool
     func vpnConnected() -> Bool
     func startVPN() throws
@@ -46,6 +50,7 @@ public protocol SystemActions: Sendable {
 }
 
 public extension SystemActions {
+    func packetFilterEffective() throws -> Bool { true }
     func describeNetwork() -> [String] { [] }
     func observeConditions() -> [String] { [] }
 }
@@ -260,6 +265,15 @@ public actor ClientRuntime {
             permitted = nil
             try system.loadPacketFilter(try rules(for: history))
             guard try denied() else { throw StoreError.unsafe }
+        }
+        // Rules in the anchor deny nothing while the filter is off or no
+        // longer reaches the anchor; that is no guard, and the state says so.
+        // The permission goes with it, so nothing passes should the filter
+        // come back on before the router confirms this tunnel again.
+        guard try system.packetFilterEffective() else {
+            permitted = nil
+            try? system.loadPacketFilter(try rules(for: history))
+            throw StoreError.unsafe
         }
         // Names point into the tunnel always, unless the administrator let
         // this device's services go the ordinary way while the tunnel is

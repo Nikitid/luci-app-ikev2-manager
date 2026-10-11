@@ -227,3 +227,18 @@ ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); if(s.perso
 if ucode "$control" update <"$work/request.json" >/dev/null 2>&1; then exit 1; fi
 printf '%s\n' 'client-admin: device description, reported computer, refusal of markup, removal and the settings of a person passed'
 printf '%s\n' 'client-admin: invitation job, secret-free status, protected one-shot delivery and expiry passed'
+# A name an ordinary VPN profile already has is never given to a device: its
+# registration could not make the account and used to wait for good, blocking
+# every other link. The page is told the name is taken.
+test_step=taken-name
+users_db=/etc/ikev2-manager/users.db
+cp -p "$users_db" "$work/users.db.saved" 2>/dev/null || : >"$work/users.db.saved"
+printf 'taken-name\t0sdGFrZW4=\n' >>"$users_db"; chmod 600 "$users_db"
+generation="$(ucode -e 'import {readfile} from "fs"; print(json(readfile(ARGV[0])).ledger.generation);' "$state_dir/invitations.json")"
+ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); print(sprintf("%J",{version:1,expected_generation:+ARGV[1],endpoint:"https://"+s.publication.server.address+"/client/v1/enroll",id:"taken-name",selected_services:["test_service"],lifetime_seconds:600}));' "$state_dir/state.json" "$generation" >"$work/taken.json"
+if ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue <"$work/taken.json" >/dev/null 2>&1; then
+ cp -p "$work/users.db.saved" "$users_db"; echo 'client-admin: a link was issued for a name an account has' >&2; exit 1
+fi
+ucode "$control" inspect | jsonfilter -e '@.used_ids[*]' | grep -qx taken-name || { cp -p "$work/users.db.saved" "$users_db"; exit 1; }
+if [ -s "$work/users.db.saved" ]; then cp -p "$work/users.db.saved" "$users_db"; else rm -f "$users_db"; fi
+printf '%s\n' 'client-admin: a name taken by an account is refused and reported as used'

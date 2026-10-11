@@ -51,6 +51,12 @@ grep -Fq "/usr/share/ikev2-manager/version" "$root/scripts/stage-package.sh" ||
 grep -Fq "usr/share/ikev2-manager/version" "$mk" ||
 	note 'Makefile does not install /usr/share/ikev2-manager/version'
 
+# The prerm of both paths is one script: the SDK copy once lacked the inbound
+# policy watcher and remote-client cleanup the canonical packer had.
+mk_prerm="$(sed -n '/^define Package\/luci-app-ikev2-manager\/prerm$/,/^endef$/p' "$mk" | sed '1d;$d' | sed 's/\$\$/$/g')"
+[ "$mk_prerm" = "$(cat "$root/scripts/package-prerm.sh")" ] ||
+	note 'Makefile prerm differs from scripts/package-prerm.sh; copy the script into the Makefile with $ doubled'
+
 if [ "$fail" -eq 0 ]; then
 	if [ -n "${PKG_RELEASE:-}" ]; then
 		version="$PKG_VERSION-r$PKG_RELEASE"

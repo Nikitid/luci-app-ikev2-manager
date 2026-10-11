@@ -59,14 +59,26 @@ SETTINGS
  planned="$(jsonfilter -i "$work/plan.json" -e '@.generation')|$tunnel_link|$address|$port"
  if [ "$planned" != "${path_planned:-}" ] || [ ! -s "$work/path-plan.json" ]; then
   path_planned=''
+  rm -f "$work/proxy.next.json"
   client_path_control prepare "$state_dir" "$tunnel_link" "$address" "$port" 17896 "$runtime_dir" >"$work/path-plan.json" || return 1
   path_planned="$planned"
  fi
- # The proxy reads these at start and whenever they change.
- client_path_control sources "$runtime_dir" "$work/plan.json" || return 1
- "$ucode_bin" -e 'import {readfile} from "fs"; let p=json(readfile(ARGV[0])); print(sprintf("%J\n",p.config));' "$work/path-plan.json" >"$work/proxy.next.json" || return 1
+ # The proxy reads these at start and whenever they change; they are
+ # written again only when who is connected changed.
+ local sources
+ sources="$(jsonfilter -i "$work/plan.json" -e '@.sources')" || return 1
+ if [ "$sources" != "${path_sources:-}" ]; then
+  path_sources=''
+  client_path_control sources "$runtime_dir" "$work/plan.json" || return 1
+  path_sources="$sources"
+ fi
+ # The configuration follows from the plan alone.
+ if [ ! -s "$work/proxy.next.json" ]; then
+  "$ucode_bin" -e 'import {readfile} from "fs"; let p=json(readfile(ARGV[0])); print(sprintf("%J\n",p.config));' "$work/path-plan.json" >"$work/proxy.next.json" || { rm -f "$work/proxy.next.json"; return 1; }
+ fi
  # Fast path retains active sockets only when the applied generation is current.
  if cmp -s "$work/proxy.next.json" "$runtime_dir/proxy.json" && path_current; then
+  path_verified=1
   client_path_routes
   return $?
  fi

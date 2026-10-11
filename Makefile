@@ -506,27 +506,60 @@ endef
 
 define Package/luci-app-ikev2-manager/prerm
 #!/bin/sh
+
 set -eu
+
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
+[ -r /etc/openwrt_release ] || exit 0
+
+# Upgrades must not tear down live routing. On explicit package removal,
+# disable only the managed runtime state while preserving user configuration,
+# credentials, certificates and custom destination lists.
 [ "$${PKG_UPGRADE:-0}" = 1 ] && exit 0
 case "$${1:-}" in
 	upgrade) exit 0 ;;
 esac
+
 fail() {
-	echo "IKEv2 Manager for OpenWrt: $$*" >&2
+	printf 'IKEv2 Manager for OpenWrt: %s\n' "$$*" >&2
 	exit 1
 }
+
 [ -x /usr/libexec/ikev2-manager-system ] ||
-	fail "cleanup helper is missing; package removal stopped before changing files"
+	fail 'cleanup helper is missing; package removal stopped before changing files'
 /usr/libexec/ikev2-manager-system disable >/dev/null 2>&1 ||
-	fail "unable to restore managed router state; package removal stopped before changing files"
+	fail 'unable to restore managed router state; package removal stopped before changing files'
+
+# Remote clients: the controller, the API and its resolver, the proxy, their
+# tables and the local route go; the published state stays with the rest of
+# the configuration.
+if [ -x /etc/init.d/ikev2-client-access ]; then
+	/etc/init.d/ikev2-client-access stop >/dev/null 2>&1 || true
+	/etc/init.d/ikev2-client-access disable >/dev/null 2>&1 || true
+	tries=0
+	while [ "$$tries" -lt 20 ] &&
+		for cmdline in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$$cmdline"; echo; done |
+		grep -Eq '^/bin/sh /usr/libexec/ikev2-client-(access watch|api serve|api names|catalog watch|enrollment watch) $$'; do
+		tries=$$((tries + 1))
+		sleep 1
+	done
+	[ ! -x /usr/libexec/ikev2-client-access ] ||
+		/usr/libexec/ikev2-client-access teardown >/dev/null 2>&1 || true
+fi
+rm -rf /var/run/ikev2-client-access /var/run/ikev2-client-catalog /var/run/ikev2-client-enrollment \
+	/var/run/ikev2-client-admin /var/run/ikev2-client-seen /var/run/ikev2-client-reports /var/run/ikev2-client-links
+rm -rf /var/run/ikev2-client-api.* /var/run/ikev2-client-names.*
+rm -f /var/run/ikev2-client-admin-*.in
+
 swanctl --terminate --ike proxy-out --timeout 3 >/dev/null 2>&1 || true
 for index in 2 3 4 5 6 7; do
 	swanctl --terminate --ike "proxy-out-$$index" --timeout 3 >/dev/null 2>&1 || true
 done
 swanctl --terminate --ike ikev2-in --timeout 3 >/dev/null 2>&1 || true
+swanctl --terminate --ike ikev2-in-managed --timeout 3 >/dev/null 2>&1 || true
 swanctl --unload-conn proxy-out >/dev/null 2>&1 || true
 swanctl --unload-conn ikev2-in >/dev/null 2>&1 || true
+swanctl --unload-conn ikev2-in-managed >/dev/null 2>&1 || true
 rm -f /etc/swanctl/conf.d/20-proxy-out.conf
 rm -f /etc/swanctl/conf.d/21-proxy-out-extra.conf
 rm -f /etc/swanctl/conf.d/30-inbound.conf
@@ -537,17 +570,23 @@ rm -f /etc/swanctl/x509/ikev2.pem
 rm -f /etc/swanctl/private/ikev2.key
 rm -f /etc/swanctl/x509ca/ikev2-le-isrg-root-*.pem
 rm -f /etc/swanctl/x509ca/ikev2-server-chain-*.pem
-for service in ikev2-health ikev2-xfrm ikev2-dns-segments ikev2-domain-router; do
+
+for service in ikev2-health ikev2-xfrm ikev2-user-policy ikev2-dns-segments ikev2-domain-router; do
 	[ -x "/etc/init.d/$$service" ] || continue
 	"/etc/init.d/$$service" stop >/dev/null 2>&1 || true
 	"/etc/init.d/$$service" disable >/dev/null 2>&1 || true
 done
+
 rm -f /usr/share/nftables.d/chain-pre/forward/20-ikev2-killswitch.nft
 rm -f /tmp/luci-indexcache
 rm -rf /tmp/luci-modulecache
 rm -f /tmp/ikev2-manager-action.log /tmp/ikev2-system-action.log
 rm -f /tmp/ikev2-manager-deps.log /tmp/ikev2-manager-deps.status
-rm -f /tmp/ikev2-manager-doctor.last /tmp/ikev2-manager-preflight.last
+rm -f /tmp/ikev2-manager-doctor.last /tmp/ikev2-manager-preflight.last \
+	/var/run/ikev2-widget-status.cache \
+	/var/run/ikev2-pbr-policy.signature \
+	/var/run/ikev2-pbr-policy.signature.new \
+	/var/run/ikev2-pbr-policy.signature.input.*
 rm -f /tmp/ikev2-manager-dhcp.before-deps
 rm -rf /tmp/ikev2-manager-dns-packages
 rm -f /tmp/ikev2-domains-community.log /tmp/ikev2-domains-pbr-restart.log
@@ -563,6 +602,9 @@ rm -f /var/run/ikev2-manager-action.status /var/run/ikev2-system-action.status
 rm -f /var/run/ikev2-action.lock.status /var/run/ikev2-domain-router.status
 rm -f /var/run/ikev2-health.status /var/run/ikev2-health-probe.state
 rm -f /var/run/ikev2-health-recovery.last /var/run/ikev2-auto-connect.attempt
+rm -f /var/run/ikev2-user-policy.signature /var/run/ikev2-user-policy.sessions
+rm -f /var/run/ikev2-user-policy.lock/pid
+rmdir /var/run/ikev2-user-policy.lock 2>/dev/null || true
 rm -rf /var/run/ikev2-manager-actions /var/run/ikev2-system-actions
 rm -rf /var/run/ikev2-quality
 rm -f /var/run/ikev2-quality-sample.state
@@ -572,7 +614,9 @@ for lock in /var/run/ikev2-action.lock /var/run/ikev2-manager-config.lock \
 	/var/run/ikev2-domains-pbr-restart.lock /var/run/ikev2-auto-connect.lock; do
 	rmdir "$$lock" 2>/dev/null || true
 done
+
 fw4 -q reload >/dev/null 2>&1 || true
+
 exit 0
 endef
 

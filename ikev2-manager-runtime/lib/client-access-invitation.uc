@@ -7,6 +7,16 @@ import { read_client_state } from './client-access-store.uc';
 import { prepare_client_invitation } from './client-access-enrollment.uc';
 import { write_client_enrollment } from './client-access-enrollment-store.uc';
 
+function account_taken(id) {
+	let file = open('/etc/ikev2-manager/users.db', 're');
+	if (file == null) return false;
+	let raw = file.read(1048577); file.close();
+	if (type(raw) != 'string' || length(raw) > 1048576) die('account database unavailable');
+	for (let line in split(raw, '\n'))
+		if (split(line, '\t')[0] == id) return true;
+	return false;
+}
+
 export function issue_client_invitation(directory, request, now) {
 	let random = open('/dev/urandom', 're');
 	if (random == null) die('invitation entropy unavailable');
@@ -35,7 +45,14 @@ export function issue_client_invitation(directory, request, now) {
 		push(places, { request: one, digest: sha256(count > 1 ? token + ':' + place : token) });
 	}
 	// Refuse the whole link before any place is written.
-	for (let place in places) prepare_client_invitation(state, place.request, place.digest);
+	for (let place in places) {
+		prepare_client_invitation(state, place.request, place.digest);
+		// A name an account already has, or one a credential was ever issued
+		// for, cannot become this device's: its registration could never make
+		// the account and would wait in vain.
+		if (account_taken(place.request.id) || lstat(directory + '/credentials/' + place.request.id + '.issued') != null)
+			die('invitation identity is taken by an account');
+	}
 	let journal = null;
 	for (let id in cancel) {
 		journal = write_client_enrollment(directory, { version: 1, expected_generation: journal?.ledger?.generation ?? request.expected_generation,
