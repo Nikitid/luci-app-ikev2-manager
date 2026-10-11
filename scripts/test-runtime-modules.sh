@@ -139,6 +139,7 @@ case "$*" in
 		if [ "${MOCK_FAILCLOSED_MISSING:-0}" != 1 ]; then
 			echo 'unreachable default metric 32767'
 			[ "${MOCK_TUNNEL_ROUTE:-0}" != 1 ] || echo 'default dev ipsec-out metric 10'
+			[ "${MOCK_SPARE_ROUTE:-0}" != 1 ] || echo 'default dev ipsec-out2 scope link metric 10'
 		fi
 		;;
 	"-4 rule show")
@@ -159,6 +160,10 @@ case "$*" in
 	"-4 route get "*)
 		if [ "${MOCK_TUNNEL_ROUTE:-0}" = 1 ]; then
 			echo '203.0.113.77 dev ipsec-out src 10.20.20.14 mark 0x1000000'
+			exit 0
+		fi
+		if [ "${MOCK_SPARE_ROUTE:-0}" = 1 ]; then
+			echo "203.0.113.77 dev ${MOCK_SPARE_GET:-ipsec-out2} table 1601 src 10.20.20.14 mark 0x1000000"
 			exit 0
 		fi
 		echo 'RTNETLINK answers: Network is unreachable' >&2
@@ -250,6 +255,13 @@ failclosed_check
 MOCK_TUNNEL_ROUTE=1 failclosed_check
 if grep -Eq '(^| )(add|del|delete|flush|replace)( |$)' "$TEST_IP_LOG"; then
 	echo 'failclosed_check modified routing state' >&2
+	exit 1
+fi
+# The first exit carried by its spare tunnel is in order; the same default
+# with the packet leaving another way is not.
+MOCK_SPARE_ROUTE=1 failclosed_check || { echo 'failclosed_check refused the spare tunnel of the first exit' >&2; exit 1; }
+if MOCK_SPARE_ROUTE=1 MOCK_SPARE_GET=eth1 failclosed_check; then
+	echo 'failclosed_check accepted a packet that left outside the tunnel in the table' >&2
 	exit 1
 fi
 if MOCK_FAILCLOSED_MISSING=1 failclosed_check; then
@@ -650,6 +662,12 @@ grep -Fq "fail 'cleanup helper is missing; package removal stopped before changi
 	"$root/Makefile"
 grep -Fq "fail 'unable to restore managed router state; package removal stopped before changing files'" \
 	"$root/Makefile"
+# Every domain-router command the system helper calls must exist: Apply called
+# "resume", which never did, and turning managed mode on again always failed.
+dr_commands="$(sed -n '/^case "\${1:-}" in/,/^esac/p' "$root/ikev2-manager-runtime/ikev2-domain-router.sh" | sed -n 's/^\t\([a-z][a-z-]*\)).*/\1/p')"
+for called in $(grep -o '/usr/libexec/ikev2-domain-router [a-z][a-z-]*' "$root/ikev2-manager-runtime/ikev2-manager-system.sh" "$root/ikev2-manager-runtime/lib/"*.sh "$root/luci-ikev2-manager/ikev2-manager.sh" | sed 's/.* //' | sort -u); do
+	printf '%s\n' "$dr_commands" | grep -qx "$called" || { echo "ikev2-domain-router has no command $called" >&2; exit 1; }
+done
 # Remote clients leave with managed mode and with the package: stopped, then
 # their proxy, tables and local route removed; started again by an apply.
 printf '%s\n' "$remove_managed_body" | grep -Fq '/etc/init.d/ikev2-client-access stop'
