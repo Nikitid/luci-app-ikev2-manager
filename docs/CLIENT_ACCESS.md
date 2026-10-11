@@ -448,6 +448,31 @@ disposing the controller retains the persistent denials. Explicit removal owns
 only the recorded filters and sublayer. Recovery verifies recorded filter
 destinations, actions, layers and ownership before permitting traffic.
 
+The guard's sublayer has the highest weight there is (`0xFFFF`) and its denials
+are hard (`FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT`). WFP asks the heaviest
+sublayer first and a denial is final, so a permission another program adds in
+a lighter sublayer cannot undo it, hard or not. Guards installed before 2.2.6
+sat at `0x7000`, where a hard permission from a heavier sublayer went first;
+the service moves such a guard up when it starts, deleting and re-adding its
+filters and sublayer in one WFP transaction, so no moment denies nothing. A
+filter of another program inside the guard's sublayer fails that move, and the
+old guard stays as it was.
+A client older than 2.2.6 does not accept the moved sublayer: installed over
+2.2.6 its service stays in `error` with the guard denying, and its uninstaller
+cannot remove the guard. Go back by installing 2.2.6 or later again.
+
+What the weight cannot settle - a hard permission in another sublayer of the
+same weight, whose order against this one WFP leaves open, or a filter of
+another program inside the guard's own sublayer - is not detected. The WFP
+test suite installs permissions of its own: in a lighter sublayer the address
+stays denied, and the equal-weight cases are recorded in its output.
+
+What leaves when the guard is overridden: only the virtual subnet is guarded -
+the addresses the router hands out for the services, the resolver and the
+names network. A connection to one of them outside the tunnel goes to a
+private address on another network: the service is not reached, but a name
+asked in plain text or a TLS server name can be seen there.
+
 `GuardStore.cs` stores a protection plan before installing its filters. The
 directory, journal and controller lock grant access only to Administrators and
 SYSTEM. A write-through temporary file is flushed before publication; recovery
@@ -617,7 +642,7 @@ access administrative endpoints or receive malformed policy fields. The
 snapshot directory and file require owner-only permissions. The listener is
 the `ikev2-client-api serve` instance of `ikev2-client-access.init`.
 
-Windows `PolicyTransportClient` and its macOS counterpart use platform
+Windows `PolicyTransportClient` and macOS `DeviceTransport` use platform
 certificate and hostname validation, refuse redirects, bypass configured HTTP
 proxies and bound the response to 1 MiB. They validate schema and enrolled history
 before returning a proposal. Neither fetch commits intent nor grants access.

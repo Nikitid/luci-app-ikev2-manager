@@ -19,7 +19,17 @@ namespace IkeV2Manager.Client
     // interface-specific permissions belong to a dynamic WFP session.
     public sealed class WfpGuard : IDisposable
     {
+        // The heaviest sublayer is asked first, and a denial there is final:
+        // another program's permission in a lighter sublayer cannot undo it,
+        // hard or not. Guards installed before 2.2.6 sat at 0x7000, where a
+        // hard permission from a heavier sublayer went ahead of them; they are
+        // moved up in the transaction that next installs the guard.
+        internal const ushort Weight = 0xFFFF, LegacyWeight = 0x7000;
+        // FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT on every denial.
+        private const uint Hard = 8;
+        private const string PermitName = "IKEv2 Manager verified interface";
         private readonly Guid sublayer;
+        private bool legacy;
         private readonly List<Guid> filters = new List<Guid>();
         private readonly List<uint> addresses;
         // One mask per destination: all ones for a single address, shorter for
@@ -95,21 +105,40 @@ namespace IkeV2Manager.Client
                 {
                     var layer = new Native.Sublayer {
                         Key = sublayer, Display = new Native.Display { Name = memory.String("IKEv2 Manager client guard") },
-                        Flags = 1, Weight = 0x7000
+                        Flags = 1, Weight = Weight
                     };
                     uint error = Native.FwpmSubLayerAdd0(engine, ref layer, IntPtr.Zero);
                     if (error != 0x80320009) Check(error); // FWP_E_ALREADY_EXISTS: verify, never replace.
+                    VerifySublayer();
+                    if (legacy)
+                    {
+                        // Within this transaction: the old denials and their
+                        // sublayer go, the new ones come below, and nothing is
+                        // ever without a denial. A filter of another program
+                        // in the sublayer fails the deletion and the whole
+                        // move, which leaves the old guard as it was.
+                        foreach (Guid key in filters)
+                        {
+                            Guid copy = key;
+                            uint deleted = Native.FwpmFilterDeleteByKey0(engine, ref copy);
+                            if (deleted != 0x80320003) Check(deleted); // FWP_E_FILTER_NOT_FOUND: not installed yet.
+                        }
+                        Guid old = sublayer;
+                        Check(Native.FwpmSubLayerDeleteByKey0(engine, ref old));
+                        Check(Native.FwpmSubLayerAdd0(engine, ref layer, IntPtr.Zero));
+                        VerifySublayer();
+                        if (legacy) throw new InvalidOperationException("Guard sublayer not moved");
+                    }
                 }
-                VerifySublayer();
                 int index = 0;
                 for (int item = 0; item < addresses.Count; item++)
                 {
                     uint address = addresses[item], mask = masks[item];
-                    AddFilter(engine, address, mask, Native.ConnectV4, false, 1, 0, filters[index++]);
-                    AddFilter(engine, address, mask, Native.PacketV4, false, 1, 0, filters[index++]);
-                    AddFilter(engine, address, mask, Native.PacketV4, false, 2, 0, filters[index++]);
-                    AddFilter(engine, address, mask, Native.ReceivePacketV4, false, 1, 0, filters[index++]);
-                    AddFilter(engine, address, mask, Native.ReceivePacketV4, false, 2, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.ConnectV4, false, 1 | Hard, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.PacketV4, false, 1 | Hard, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.PacketV4, false, 2 | Hard, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.ReceivePacketV4, false, 1 | Hard, 0, filters[index++]);
+                    AddFilter(engine, address, mask, Native.ReceivePacketV4, false, 2 | Hard, 0, filters[index++]);
                 }
                 VerifyInstalled();
                 Check(Native.FwpmTransactionCommit0(engine));
@@ -256,8 +285,9 @@ namespace IkeV2Manager.Client
                 Guid key = sublayer;
                 Check(Native.FwpmSubLayerGetByKey0(engine, ref key, out pointer));
                 var value = (Native.Sublayer)Marshal.PtrToStructure(pointer, typeof(Native.Sublayer));
-                if (value.Key != sublayer || value.Flags != 1 || value.Weight != 0x7000 || value.Provider != IntPtr.Zero)
+                if (value.Key != sublayer || value.Flags != 1 || (value.Weight != Weight && value.Weight != LegacyWeight) || value.Provider != IntPtr.Zero)
                     throw new InvalidOperationException("Guard sublayer changed");
+                legacy = value.Weight == LegacyWeight;
             }
             finally { if (pointer != IntPtr.Zero) Native.FwpmFreeMemory0(ref pointer); }
         }
@@ -275,11 +305,13 @@ namespace IkeV2Manager.Client
                     Guid copy = key;
                     Check(Native.FwpmFilterGetByKey0(engine, ref copy, out pointer));
                     var filter = (Native.Filter)Marshal.PtrToStructure(pointer, typeof(Native.Filter));
+                    // A guard not yet moved up carries the denials of its time.
+                    uint hard = legacy ? 0 : Hard;
                     if (filter.Sublayer != sublayer || filter.Action.Type != 0x1001 ||
                         filter.ConditionCount != 1 || filter.Conditions == IntPtr.Zero ||
-                        !((filter.Layer == Native.ConnectV4 && filter.Flags == 1) ||
+                        !((filter.Layer == Native.ConnectV4 && filter.Flags == (1 | hard)) ||
                           ((filter.Layer == Native.PacketV4 || filter.Layer == Native.ReceivePacketV4) &&
-                           (filter.Flags == 1 || filter.Flags == 2))))
+                           (filter.Flags == (1 | hard) || filter.Flags == (2 | hard)))))
                         throw new InvalidOperationException("Guard filter changed");
                     var condition = (Native.Condition)Marshal.PtrToStructure(filter.Conditions, typeof(Native.Condition));
                     if (condition.Key != Native.RemoteAddress || condition.Match != 0 || condition.Value.Type != 256 ||
@@ -306,7 +338,7 @@ namespace IkeV2Manager.Client
                     Type = 4, Pointer = memory.Struct(luid) } });
                 Guid key = plannedKey ?? Guid.NewGuid();
                 var filter = new Native.Filter {
-                    Key = key, Display = new Native.Display { Name = memory.String(permit ? "IKEv2 Manager verified interface" : "IKEv2 Manager deny bypass") },
+                    Key = key, Display = new Native.Display { Name = memory.String(permit ? PermitName : "IKEv2 Manager deny bypass") },
                     Flags = flags, Layer = layer, Sublayer = sublayer,
                     Weight = new Native.Value { Type = 1, Number = permit ? 15u : 1u },
                     ConditionCount = (uint)conditions.Count, Conditions = memory.Array(conditions.ToArray()),
@@ -354,7 +386,7 @@ namespace IkeV2Manager.Client
             public void Dispose() { foreach (IntPtr p in values) Marshal.FreeHGlobal(p); }
         }
 
-        private static class Native
+        internal static class Native
         {
             internal static readonly Guid ConnectV4 = new Guid("c38d57d1-05a7-4c33-904f-7fbceee60e82");
             internal static readonly Guid PacketV4 = new Guid("1e5c9fae-8a84-4135-a331-950b54229ecd");
