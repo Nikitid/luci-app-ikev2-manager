@@ -82,7 +82,6 @@ internal static class Setup
 
     private sealed class Refusal : Exception { internal Refusal(string message) : base(message) { } }
 
-    [STAThread]
     // The last step of an installation: it is done, and the program opens
     // unless the user clears the box.
     private static bool AskToOpen(bool afterUpdate)
@@ -105,6 +104,9 @@ internal static class Setup
         }
     }
 
+    // Windows Forms and the shell's COM objects expect a single-threaded
+    // apartment; the attribute used to stand on another method and did nothing.
+    [STAThread]
     private static int Main(string[] args)
     {
         bool quiet = Array.IndexOf(args, "/quiet") >= 0, remove = Array.IndexOf(args, "/uninstall") >= 0, reset = Array.IndexOf(args, "/reset") >= 0;

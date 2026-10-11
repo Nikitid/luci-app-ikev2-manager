@@ -32,22 +32,34 @@ final class ControlServer: @unchecked Sendable {
         return groups.prefix(Int(count)).contains(80)
     }
 
+    private let callers = NSLock()
+    private var active = 0
+    private func enter() -> Bool { callers.lock(); defer { callers.unlock() }; guard active < 16 else { return false }; active += 1; return true }
+    private func leave() { callers.lock(); active -= 1; callers.unlock() }
+
     func start() {
         Thread.detachNewThread { [self] in
             while true {
                 let client = accept(listener, nil, nil)
                 guard client >= 0 else { continue }
-                var timeout = timeval(tv_sec: 5, tv_usec: 0)
-                setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-                setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-                var user: uid_t = 0, group: gid_t = 0
-                guard getpeereid(client, &user, &group) == 0, let line = Control.readLine(client),
-                      let request = try? JSONDecoder().decode(Control.Request.self, from: line) else { close(client); continue }
-                let privileged = Self.administrator(user)
-                Task { [runtime] in
-                    let response = await Self.answer(request, privileged: privileged, runtime: runtime)
-                    if let data = try? JSONEncoder().encode(response) { _ = Control.writeLine(client, data) }
-                    close(client)
+                // Each caller is read on its own thread: one that sends
+                // nothing used to hold every other caller for its timeout. A
+                // few at a time; the rest are turned away.
+                guard self.enter() else { close(client); continue }
+                Thread.detachNewThread { [runtime] in
+                    defer { self.leave() }
+                    var timeout = timeval(tv_sec: 5, tv_usec: 0)
+                    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+                    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+                    var user: uid_t = 0, group: gid_t = 0
+                    guard getpeereid(client, &user, &group) == 0, let line = Control.readLine(client),
+                          let request = try? JSONDecoder().decode(Control.Request.self, from: line) else { close(client); return }
+                    let privileged = Self.administrator(user)
+                    Task {
+                        let response = await Self.answer(request, privileged: privileged, runtime: runtime)
+                        if let data = try? JSONEncoder().encode(response) { _ = Control.writeLine(client, data) }
+                        close(client)
+                    }
                 }
             }
         }
