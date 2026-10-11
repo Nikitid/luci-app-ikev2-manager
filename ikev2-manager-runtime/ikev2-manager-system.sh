@@ -1305,10 +1305,13 @@ apply_system_inner() {
 	if [ "$(getv domains engine)" = fakeip ] &&
 	   [ -x /usr/libexec/ikev2-domain-router ]; then
 		if ! /etc/init.d/ikev2-domain-router enabled 2>/dev/null; then
-			# Stopped with managed mode: resume starts it, points dnsmasq at
-			# it again and restores interception. A refresh only restarted
-			# the service and left dnsmasq on its previous resolver.
-			/usr/libexec/ikev2-domain-router resume ||
+			# Stopped with managed mode: activating starts it, points dnsmasq
+			# at it again and restores interception. A refresh only restarted
+			# the service and left dnsmasq on its previous resolver. This used
+			# to call "resume", which the domain router does not have, so
+			# turning managed mode on again always failed and rolled back.
+			# The engine stayed fakeip; a failure is undone with the transaction.
+			/usr/libexec/ikev2-domain-router activate ||
 				die 'FakeIP domain router failed to start'
 		else
 			/usr/libexec/ikev2-domain-router refresh ||
