@@ -579,3 +579,14 @@ outbound client is blocked on it (CVE-2025-62291), so no tunnel is ever
 configured. `scripts/test-openwrt.sh` runs failover on 25.12 alone for that
 reason. Run a scenario through that script, or with the images and targets it
 names, before reading anything into a failure.
+
+## Turning managed mode on again
+
+Apply called `ikev2-domain-router resume`, a command the domain router never
+had, so after managed mode was turned off it could not be turned on again
+with the FakeIP engine: Apply failed and rolled back. The same Apply also
+failed whenever the first exit was carried by its spare tunnel, which is
+usual right after the tunnels come up, because the fail-closed check accepted
+only `ipsec-out`. Found only by turning managed mode off and on on a live
+router. `scripts/test-runtime-modules.sh` now checks that every domain-router
+command the helpers call exists and that the spare tunnel passes the check.

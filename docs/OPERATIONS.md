@@ -872,6 +872,21 @@ Saving a change publishes a new state for every computer. With fifty
 computers and three hundred domains that takes a few seconds on a router; the
 page shows the running job and its result in place.
 
+Remote clients run only in managed mode: turning it off stops them and
+removes their proxy, tables and local route; turning it on starts them again.
+The devices, their accounts and the published state stay.
+
+Going back to 2.2.3 or earlier after 2.2.4 has published a state once does
+not work for remote clients: 2.2.4 keeps only the names of removed devices,
+and the earlier version refuses such a state and keeps every computer closed
+until 2.2.4 or later is installed again. Everything else of the package goes
+back as before.
+
+On macOS the device's password is kept in the daemon's own directory
+(`/Library/Application Support/IKEv2ManagerClient`, root only), not in the
+keychain; FileVault is what protects it at rest. On Windows it is encrypted
+with DPAPI for the machine.
+
 ## Page access
 
 The application's LuCI permissions are root permissions. The write part runs
