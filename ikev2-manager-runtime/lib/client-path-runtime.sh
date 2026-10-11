@@ -21,15 +21,23 @@ client_path_stop() {
 client_path_routes() {
  local subnet
  subnet="$(jsonfilter -i "$work/path-plan.json" -e '@.virtual_subnet')" || return 1
+ local inventory
  ip -j -4 rule show >"$work/path-rules.json" &&
-  ip -j -4 route show table all >"$work/path-routes.json" &&
-  client_path_control routes "$runtime_dir" "$work/path-plan.json" "$work/path-rules.json" "$work/path-routes.json" >"$work/path-slots.json" || return 1
+  ip -j -4 route show table all >"$work/path-routes.json" || return 1
+ # Rules and routes exactly as they were when both slots were last found
+ # ours and in place: nothing to look at again.
+ inventory="$(cat "$work/path-rules.json" "$work/path-routes.json" "$work/path-plan.json" | sha256sum | cut -d' ' -f1)"
+ [ "$inventory" != "${path_inventory:-}" ] || return 0
+ path_inventory=''
+ client_path_control routes "$runtime_dir" "$work/path-plan.json" "$work/path-rules.json" "$work/path-routes.json" >"$work/path-slots.json" || return 1
  if [ "$(jsonfilter -i "$work/path-slots.json" -e '@.route_present')" != true ]; then
   ip -4 route add local "$subnet" dev lo table 1506 || return 1
  fi
  if [ "$(jsonfilter -i "$work/path-slots.json" -e '@.rule_present')" != true ]; then
   ip -4 rule add iif ipsec-in to "$subnet" lookup 1506 priority 10998 || return 1
  fi
+ [ "$(jsonfilter -i "$work/path-slots.json" -e '@.route_present')" != true ] ||
+  [ "$(jsonfilter -i "$work/path-slots.json" -e '@.rule_present')" != true ] || path_inventory="$inventory"
 }
 
 client_path_sync() {
@@ -37,16 +45,30 @@ client_path_sync() {
  local exit selected endpoint address port pid fingerprint remaining=5
  exit="$(jsonfilter -i "$work/plan.json" -e '@.exit')" || return 1
  tunnel_exit_valid "$exit" || return 1
- tunnel_settings_parse <<SETTINGS
-$("$uci_bin" -q show ikev2-manager 2>/dev/null)
+ # Parsed again only when the settings changed.
+ local settings
+ settings="$("$uci_bin" -q show ikev2-manager 2>/dev/null)"
+ if [ "$settings" != "${path_settings:-}" ]; then
+  path_settings=''
+  tunnel_settings_parse <<SETTINGS
+$settings
 SETTINGS
+  path_settings="$settings"
+ fi
  tunnel_exit_chain "$exit"
  selected="$(tunnel_exit_selected "$exit")" || return 1
  case " $tunnel_chain " in *" $selected "*) ;; *) return 1 ;; esac
  case "$selected" in [1-7]) ;; *) return 1 ;; esac
  tunnel_names "$selected"
- ip -j -d link show dev "$tunnel_link" >"$work/path-link.json" &&
+ ip -j -d link show dev "$tunnel_link" >"$work/path-link.json" || return 1
+ # The link is looked at in full only when what the kernel says of it changed.
+ local link
+ link="$tunnel_if_id|$(cat "$work/path-link.json")"
+ if [ "$link" != "${path_link:-}" ]; then
+  path_link=''
   "$ucode_bin" -e 'import {readfile} from "fs"; let links=json(readfile(ARGV[0])); if(length(links)!=1 || links[0].linkinfo?.info_kind!="xfrm" || +links[0].linkinfo.info_data.if_id!=+ARGV[1] || index(links[0].flags,"UP")<0) exit(1);' "$work/path-link.json" "$tunnel_if_id" || return 1
+  path_link="$link"
+ fi
  endpoint="$("$uci_bin" -q get ikev2-manager.client.tunnel_dns_bootstrap 2>/dev/null)" || return 1
  # The compiler validates the literal endpoint; DNS never bootstraps via WAN.
  endpoint="${endpoint%% *}"

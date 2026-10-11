@@ -81,6 +81,8 @@ close_access() {
 }
 
 failed() {
+	# A failed round trusts nothing it remembered: the next one looks again.
+	path_listed=''; path_link=''; path_inventory=''; path_settings=''; path_sources=''
 	close_grants || :
 	status_write failed || :
 	return 1
@@ -90,7 +92,17 @@ path_current() {
 	[ "$require_path" = 0 ] && return 0
 	# Already shown in this round by the path itself.
 	[ "${path_verified:-0}" = 1 ] && return 0
-	path_fingerprint="$(table=ikev2_client_path; runtime_owned && runtime_fingerprint)" || return 1
+	# The fingerprint of a table that reads exactly as before is the one taken
+	# then; taking it costs a full JSON listing and a ucode run.
+	local listed
+	listed="$("$nft_bin" -s list table inet ikev2_client_path 2>/dev/null | sha256sum | cut -d' ' -f1)"
+	if [ -n "${path_listed:-}" ] && [ "$listed" = "$path_listed" ]; then
+		path_fingerprint="$path_listed_fingerprint"
+	else
+		path_listed=''
+		path_fingerprint="$(table=ikev2_client_path; runtime_owned && runtime_fingerprint)" || return 1
+		path_listed="$listed"; path_listed_fingerprint="$path_fingerprint"
+	fi
 	"$ucode_bin" "$runtime_lib_dir/client-access-ready.uc" "$runtime_dir" "$work/plan.json" "$path_fingerprint" >/dev/null 2>&1
 }
 
