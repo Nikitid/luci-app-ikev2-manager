@@ -46,6 +46,7 @@ strongswan-mod-vici
 strongswan-mod-x509
 kmod-xfrm-interface
 kmod-nft-xfrm
+kmod-nft-connlimit
 kmod-nft-tproxy
 kmod-nf-tproxy
 ip-full

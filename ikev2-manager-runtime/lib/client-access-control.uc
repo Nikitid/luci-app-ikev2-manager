@@ -1,6 +1,6 @@
 // Local administrative entry point. The device HTTP API is read-only.
 'use strict';
-import { stdin, lstat, mkdir, chmod, popen, open } from 'fs';
+import { stdin, lstat, mkdir, chmod, popen, open, lsdir } from 'fs';
 import { publish_client_state, read_client_state, read_committed_client_state } from './client-access-store.uc';
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
@@ -49,6 +49,18 @@ try {
   let used = {};
   for (let id in state_now.retired_ids) used[id] = true;
   for (let item in (ledger?.invitations ?? [])) used[item.id] = true;
+  // Names an ordinary VPN profile has, and those a credential was ever issued
+  // for: a device registered under one could never get its account.
+  let accounts = open('/etc/ikev2-manager/users.db', 're'), account_lines = accounts?.read(1048577);
+  accounts?.close();
+  for (let line in split(type(account_lines) == 'string' ? account_lines : '', '\n')) {
+   let name = split(line, '\t')[0];
+   if (length(name) <= 48 && match(name, /^[a-z][a-z0-9-]*$/)) used[name] = true;
+  }
+  for (let name in lsdir(directory + '/credentials') ?? []) {
+   let issued = match(name, /^([a-z][a-z0-9-]*)\.issued$/);
+   if (issued) used[issued[1]] = true;
+  }
   inspected.used_ids = keys(used);
   inspected.events = read_client_events(40);
   inspected.profile_owners = read_profile_owners(directory);
@@ -195,6 +207,11 @@ try {
   let generation = prepared.changed ? publish_client_state(directory, prepared.desired, state.generation, false) : state.generation;
   if (request.operation == 'assign-device' && 'owner' in request.payload)
    write_client_label(directory, request.payload.id, request.payload.owner, request.payload.note);
+  // A device that sends everything gets the rights of a VPN user when it is
+  // opened - also when the administrator approves it by hand - and loses
+  // them when it is closed.
+  if (request.operation == 'assign-device' && read_client_labels(directory)[request.payload.id]?.full === true)
+   set_account_rights(request.payload.id, request.payload.enabled);
   if (request.operation == 'assign-devices')
    for (let id in request.payload.ids) {
     let was = read_client_labels(directory)[id]?.full ?? false, full = 'mode' in request.payload ? request.payload.mode == 'full' : was;
@@ -208,6 +225,11 @@ try {
   if (request.operation == 'remove-device') {
    // The account goes with the device; its sessions end with the account.
    // A device registered before this journal existed has no record to clean.
+   // First it loses whatever rights it had: a device that sent everything
+   // into the tunnel had those of a VPN user, and should the account outlive
+   // the cleanup below it must not stay one.
+   try { set_account_rights(request.payload.id, false); }
+   catch (error) { warn('client-access-control: the rights of the removed device were not withdrawn\n'); }
    forget_client_device(directory, seen_directory, request.payload.id);
    forget_client_report(request.payload.id);
    try { cleanup_client_credentials(directory, request.payload.id, read_client_enrollment(directory).ledger.generation); }

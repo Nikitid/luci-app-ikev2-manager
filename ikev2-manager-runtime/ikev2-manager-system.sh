@@ -1227,6 +1227,18 @@ remove_managed() {
 	elif [ -x "$user_policy_helper" ]; then
 		"$user_policy_helper" stop >/dev/null 2>&1 || return 1
 	fi
+	# Remote clients leave with managed mode: their exit is chosen by the
+	# health watcher stopped above, and their inbound connection by the server
+	# that is going down. Stopping keeps the denial; teardown then removes the
+	# proxy, the owned tables and the local route, since nothing is left that
+	# a device could reach. Managed mode starts the service again.
+	# What was never set up has nothing to stop. Whether the stop worked is
+	# judged by the processes being gone, not by procd's answer.
+	if [ -f /etc/ikev2-manager/clients/initialized ] && [ -x /etc/init.d/ikev2-client-access ]; then
+		/etc/init.d/ikev2-client-access stop >/dev/null 2>&1 || :
+		client_access_stopped || return 1
+		/usr/libexec/ikev2-client-access teardown >/dev/null 2>&1 || return 1
+	fi
 	# Keep the independent atomic device table until every risky service and
 	# firewall transition has succeeded. A failed disable can then restore UCI
 	# without leaving configured mode missing its live DNS/device policy.
@@ -1276,6 +1288,13 @@ apply_system_inner() {
 		die 'IPv6 fail-closed route validation failed'
 	ensure_ipv6_failfast
 	/etc/init.d/ikev2-health start >/dev/null 2>&1 || true
+	# Remote clients come back with managed mode; their service does not run
+	# without it. Started, not restarted: a running controller keeps its grants.
+	if [ -f /etc/ikev2-manager/clients/initialized ] && [ -x /etc/init.d/ikev2-client-access ]; then
+		/etc/init.d/ikev2-client-access enable >/dev/null 2>&1 || :
+		/etc/init.d/ikev2-client-access start >/dev/null 2>&1 ||
+			die 'Remote client access failed to start'
+	fi
 	# Turning managed mode off stops the segment resolvers and the FakeIP
 	# service; turning it on brings them back, not only the routing.
 	if [ "$(defaultv dns managed 0)" = 1 ] && [ -x /etc/init.d/ikev2-dns-segments ]; then
@@ -1421,6 +1440,18 @@ base_config_matches() {
 	[ "$(getv globals source_include_vpn)" = "$include_vpn" ]
 }
 
+# procd stops instances in the background; the controller's own TERM handler
+# needs a few seconds for the proxy.
+client_access_stopped() {
+	local tries=0
+	while for cmdline in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$cmdline"; echo; done |
+		grep -Eq '^/bin/sh /usr/libexec/ikev2-client-(access watch|api serve|api names) $'; do
+		tries=$((tries + 1))
+		[ "$tries" -le 20 ] || return 1
+		sleep 1
+	done
+}
+
 disabled_runtime_absent() {
 	! uci -q get network.ikev2out >/dev/null 2>&1 &&
 	! uci show firewall 2>/dev/null | grep -q '^firewall\.ikev2pbr_' &&
@@ -1429,6 +1460,9 @@ disabled_runtime_absent() {
 	! "$nft_binary" list table inet ikev2_user_policy >/dev/null 2>&1 &&
 	! "$nft_binary" list table inet ikev2_discord_voice >/dev/null 2>&1 &&
 	! "$nft_binary" list table inet ikev2_domain_router >/dev/null 2>&1 &&
+	! "$nft_binary" list table inet ikev2_client_access >/dev/null 2>&1 &&
+	! "$nft_binary" list table inet ikev2_client_path >/dev/null 2>&1 &&
+	! ip -4 rule show 2>/dev/null | grep -q 'lookup 1506' &&
 	! ip -4 rule show 2>/dev/null | grep -q 'lookup 51820' &&
 	[ ! -e /usr/share/nftables.d/chain-pre/forward/20-ikev2-killswitch.nft ]
 }

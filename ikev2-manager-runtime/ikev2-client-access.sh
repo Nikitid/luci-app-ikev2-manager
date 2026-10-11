@@ -43,8 +43,24 @@ close_grants() {
 	pkg_run_bounded 3 "$nft_bin" -f "$work/close.nft" >/dev/null 2>&1
 }
 
+# Installs the compiled table. A table without a single grant holds nothing
+# that expires, so one that is still exactly what was installed last time -
+# the same program asked for, the same program in the kernel - is left as it
+# is: replacing it every two seconds was most of what this watcher cost the
+# router while no device was connected. Grants are always installed afresh,
+# which is what renews their lease.
 install_plan() {
-	"$ucode_bin" -e 'import {readfile} from "fs"; let p=json(readfile(ARGV[0])); if(type(p.nft)!="string") die("Invalid plan"); print(p.nft);' "$work/plan.json" >"$work/guard.nft" || return 1
+	local wanted='' live
+	[ "$(jsonfilter -i "$work/plan.json" -t '@.nft' 2>/dev/null)" = string ] || return 1
+	jsonfilter -i "$work/plan.json" -e '@.nft' >"$work/guard.nft" || return 1
+	if [ "$(jsonfilter -i "$work/plan.json" -e '@.grants' 2>/dev/null || echo 0)" = 0 ]; then
+		wanted="$(sha256sum <"$work/guard.nft" | cut -d' ' -f1)"
+		if [ -s "$runtime_dir/access-installed" ]; then
+			live="$("$nft_bin" -s list table inet "$table" 2>/dev/null | sha256sum | cut -d' ' -f1)"
+			[ "$(cat "$runtime_dir/access-installed" 2>/dev/null)" != "$wanted $live" ] || return 0
+		fi
+	fi
+	rm -f "$runtime_dir/access-installed"
 	: >"$work/transaction.nft"
 	if runtime_exists; then
 		runtime_owned || return 1
@@ -52,7 +68,10 @@ install_plan() {
 	fi
 	cat "$work/guard.nft" >>"$work/transaction.nft" || return 1
 	pkg_run_bounded 3 "$nft_bin" -c -f "$work/transaction.nft" >/dev/null 2>&1 &&
-		pkg_run_bounded 3 "$nft_bin" -f "$work/transaction.nft" >/dev/null 2>&1 && runtime_owned
+		pkg_run_bounded 3 "$nft_bin" -f "$work/transaction.nft" >/dev/null 2>&1 && runtime_owned || return 1
+	[ -n "$wanted" ] || return 0
+	live="$("$nft_bin" -s list table inet "$table" 2>/dev/null | sha256sum | cut -d' ' -f1)" &&
+		printf '%s %s\n' "$wanted" "$live" >"$runtime_dir/access-installed" || :
 }
 
 close_access() {
@@ -69,16 +88,20 @@ failed() {
 
 path_current() {
 	[ "$require_path" = 0 ] && return 0
+	# Already shown in this round by the path itself.
+	[ "${path_verified:-0}" = 1 ] && return 0
 	path_fingerprint="$(table=ikev2_client_path; runtime_owned && runtime_fingerprint)" || return 1
 	"$ucode_bin" "$runtime_lib_dir/client-access-ready.uc" "$runtime_dir" "$work/plan.json" "$path_fingerprint" >/dev/null 2>&1
 }
 
 sync_access() {
+	local listing
+	path_verified=0
 	# A missing table first receives an empty guard, before reading VICI.
-	if ! runtime_exists; then
+	if ! listing="$("$nft_bin" list table inet "$table" 2>/dev/null)"; then
 		close_access || { failed; return 1; }
 	else
-		runtime_owned || { failed; return 1; }
+		case "$listing" in *'chain ikev2_manager_owned'*) ;; *) failed; return 1 ;; esac
 	fi
 	if [ "$("$uci_bin" -q get ikev2-manager.server.enabled 2>/dev/null)" != 1 ]; then
 		close_access || { failed; return 1; }
@@ -94,9 +117,8 @@ sync_access() {
 		failed
 		return 1
 	fi
-	generation="$(jsonfilter -i "$work/plan.json" -e '@.generation')"
-	grants="$(jsonfilter -i "$work/plan.json" -e '@.grants')"
-	mode="$(jsonfilter -i "$work/plan.json" -e '@.mode')"
+	eval "$(jsonfilter -i "$work/plan.json" -e 'generation=@.generation' -e 'grants=@.grants' -e 'mode=@.mode')" || { failed; return 1; }
+	case "$generation:$grants:$mode" in [0-9]*:[0-9]*:ready | [0-9]*:[0-9]*:closed) ;; *) failed; return 1 ;; esac
 	# With no device yet there is nobody to answer for: the path stands ready
 	# and closed, which is a healthy state and not a failure.
 	if [ "$require_path" = 1 ] && [ "$mode" = ready ]; then
@@ -107,10 +129,47 @@ sync_access() {
 	status_write "$mode" "$generation" "$grants"
 }
 
+# Everything this controller put on the router, for when managed mode is
+# turned off or the package is removed: the proxy, both owned tables, the
+# local route and its rule. Only after the service has stopped - the lock
+# refuses while the watcher runs. Stopping alone keeps the denial; this does
+# not, because nothing remains that a device could reach.
+teardown_runtime() {
+	local rc=0 subnet=''
+	close_grants || rc=1
+	client_path_stop || rc=1
+	subnet="$(sed -n 's/.*"subnet"[[:space:]]*:[[:space:]]*"\([0-9./]*\)".*/\1/p' "$runtime_dir/route-owner.json" 2>/dev/null)"
+	[ -n "$subnet" ] || subnet="$("$ucode_bin" "$runtime_lib_dir/client-access-runtime.uc" subnet "$state_dir" '' '' 2>/dev/null)" || subnet=''
+	case "$subnet" in *[!0-9./]*) subnet='' ;; esac
+	if [ -n "$subnet" ]; then
+		while ip -4 rule show 2>/dev/null | grep -Eq "^10998:[[:space:]]+from all to $subnet iif ipsec-in lookup 1506"; do
+			ip -4 rule del priority 10998 iif ipsec-in to "$subnet" lookup 1506 2>/dev/null || { rc=1; break; }
+		done
+		ip -4 route show table 1506 2>/dev/null | grep -q "^local $subnet dev lo" &&
+			{ ip -4 route del local "$subnet" dev lo table 1506 2>/dev/null || rc=1; }
+	fi
+	for owned in ikev2_client_path ikev2_client_access; do
+		table="$owned"
+		runtime_exists || continue
+		if runtime_owned; then
+			pkg_run_bounded 3 "$nft_bin" delete table inet "$owned" >/dev/null 2>&1 || rc=1
+		fi
+	done
+	table=ikev2_client_access
+	# The API's rate table goes with its server; a killed server leaves it.
+	for cmdline in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$cmdline"; echo; done |
+		grep -q '^/bin/sh /usr/libexec/ikev2-client-api serve $' ||
+		"$nft_bin" delete table inet ikev2_client_api >/dev/null 2>&1 || :
+	rm -f "$runtime_dir/route-owner.json" "$runtime_dir/device-ready.json" "$runtime_dir/path-ready.json" "$runtime_dir/access-installed" \
+		"$runtime_dir/proxy.json" "$runtime_dir"/src-*.json
+	status_write stopped || :
+	return "$rc"
+}
+
 case "${1:-}" in
 	status) cat "$runtime_dir/status" 2>/dev/null; exit $? ;;
-	sync | close | watch) ;;
-	*) printf '%s\n' 'usage: ikev2-client-access sync|close|watch|status' >&2; exit 2 ;;
+	sync | close | watch | teardown) ;;
+	*) printf '%s\n' 'usage: ikev2-client-access sync|close|watch|teardown|status' >&2; exit 2 ;;
 esac
 mkdir -p "$runtime_dir" || exit 1
 chmod 700 "$runtime_dir" || exit 1
@@ -131,6 +190,7 @@ finish() {
 trap 'cleanup; exit 1' HUP INT TERM
 case "$1" in
 	sync) rc=0; sync_access || rc=$?; finish; exit "$rc" ;;
+	teardown) rc=0; teardown_runtime || rc=1; finish; exit "$rc" ;;
 	close) rc=0; close_grants || rc=1; [ "$require_path" = 1 ] && [ "$auto_path" = 1 ] && client_path_stop; if close_access; then status_write closed; else rc=1; failed || :; fi; finish; exit "$rc" ;;
 	watch)
 		close_access || { failed; finish; exit 1; }

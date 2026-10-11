@@ -1,8 +1,8 @@
 // Invoked only by the bounded background worker; it never returns credentials.
 'use strict';
 import { lstat } from 'fs';
-import { read_client_enrollment, finalize_client_enrollment } from './client-access-enrollment-store.uc';
-import { provision_client_credentials } from './client-access-credentials.uc';
+import { read_client_enrollment, finalize_client_enrollment, abandon_client_enrollment } from './client-access-enrollment-store.uc';
+import { provision_client_credentials, cleanup_client_credentials } from './client-access-credentials.uc';
 import { read_client_state, publish_client_state } from './client-access-store.uc';
 import { prepare_client_admin } from './client-access-admin.uc';
 import { record_client_event } from './client-access-journal.uc';
@@ -16,8 +16,22 @@ try {
 	}
 	let journal = read_client_enrollment(directory);
 	if (journal.pending == null) { print('state=idle\n'); exit(0); }
-	provision_client_credentials(directory, journal.ledger.generation);
 	let id = journal.pending.id;
+	try { provision_client_credentials(directory, journal.ledger.generation); }
+	catch (error) {
+		// A registration whose account cannot be made - its name taken by an
+		// ordinary VPN profile, a credential of an earlier router - would wait
+		// here for good, and while it waits no link can be issued, withdrawn or
+		// used. Retried for ten minutes, or until its link ends, then given up:
+		// the device is told it is not registered and needs a new link.
+		let invitation = filter(journal.ledger.invitations, item => item.id == id)[0], now = time();
+		if (invitation == null || (now < invitation.expires_at && now < journal.ledger.updated_at + 600)) die(error);
+		let abandoned = abandon_client_enrollment(directory, journal.ledger.generation, now);
+		try { cleanup_client_credentials(directory, id, abandoned.generation); } catch (cleanup) { }
+		record_client_event('registration-abandoned', id);
+		print('state=abandoned\n');
+		exit(0);
+	}
 	finalize_client_enrollment(directory, journal.ledger.generation, time());
 	// The invitation named the device and its services; that was the
 	// administrator's decision to let it in. Registration commits the device

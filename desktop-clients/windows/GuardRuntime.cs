@@ -209,33 +209,74 @@ namespace IkeV2Manager.Client
             }
         }
 
+        // The router is asked outside the service lock: each question may wait
+        // up to ten seconds, and while it waited the two-second step that
+        // checks the tunnel, its routes and the router's readiness waited too,
+        // so a permission could outlive its confirmation by half a minute.
+        // What was asked is applied under the lock, and only if the policy it
+        // was checked against is still the committed one.
         public void RefreshPolicy()
         {
+            EnrollmentRegistration registration;
+            PolicyHistory previous;
+            lock (gate)
+            {
+                if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                registration = EnrollmentRegistration.Load(store);
+                previous = registration == null || registration.Policy == null ? null : store.LoadPolicyHistory();
+            }
+            ClientPolicy next = null;
+            DeviceServices fetchedServices = null;
+            string fetchedRelease = null;
+            string[] observed = null;
+            Exception refused = null;
+            Uri endpoint = null;
+            if (registration == null || registration.Policy == null || previous == null)
+                refused = new InvalidOperationException("Completed registration required");
+            else
+            {
+                endpoint = new UriBuilder(registration.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri;
+                try { next = PolicyTransportClient.Fetch(endpoint, registration.DeviceToken, previous); }
+                catch (PolicyFetchException unanswered)
+                {
+                    // A poll that got no answer changes nothing: the
+                    // committed policy stays in force, and the router's
+                    // readiness remains the live gate on permission.
+                    if (unanswered.Code == "policy_connection_failed") return;
+                    refused = unanswered;
+                }
+                catch (Exception other) { refused = other; }
+                if (refused == null)
+                {
+                    try { fetchedServices = PolicyTransportClient.FetchServices(endpoint, registration.DeviceToken, registration.Id); }
+                    catch (PolicyFetchException) { }
+                    try { fetchedRelease = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
+                    catch (PolicyFetchException) { }
+                    observed = Observe();
+                }
+                else
+                {
+                    var named = refused as PolicyFetchException;
+                    // Nothing is assigned any more; the router still says which
+                    // release it runs, so a newer program is offered.
+                    if (named != null && named.Code == "device_no_services")
+                        try { fetchedRelease = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
+                        catch (Exception) { }
+                }
+            }
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("GuardRuntime");
                 try
                 {
-                    var registration = EnrollmentRegistration.Load(store);
-                    if (registration == null || registration.Policy == null)
-                        throw new InvalidOperationException("Completed registration required");
-                    var previous = store.LoadPolicyHistory();
-                    var endpoint = new UriBuilder(registration.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri;
-                    ClientPolicy next;
-                    try { next = PolicyTransportClient.Fetch(endpoint, registration.DeviceToken, previous); }
-                    catch (PolicyFetchException unanswered)
-                    {
-                        // A poll that got no answer changes nothing: the
-                        // committed policy stays in force, and the router's
-                        // readiness remains the live gate on permission.
-                        if (unanswered.Code != "policy_connection_failed") throw;
-                        return;
-                    }
-                    try { assigned = PolicyTransportClient.FetchServices(endpoint, registration.DeviceToken, registration.Id); }
-                    catch (PolicyFetchException) { }
-                    try { release = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
-                    catch (PolicyFetchException) { }
-                    warnings = Observe();
+                    if (refused != null) throw refused;
+                    var committed = store.LoadPolicyHistory();
+                    // Another step changed the policy meanwhile: this answer was
+                    // checked against the old one and the next poll asks again.
+                    if (committed == null || committed.Current.Canonical != previous.Current.Canonical) return;
+                    if (fetchedServices != null) assigned = fetchedServices;
+                    if (fetchedRelease != null) release = fetchedRelease;
+                    warnings = observed;
                     // Another VPN is worth a word only where it can still get in
                     // the way: with names asked over HTTPS it does not.
                     if (assigned != null && assigned.NamesHttps && EncryptedNames()) warnings = warnings.Where(w => w != "vpn").ToArray();
@@ -257,16 +298,8 @@ namespace IkeV2Manager.Client
                     noServices = named != null && named.Code == "device_no_services";
                     if (noServices)
                     {
-                        // Nothing is assigned any more; the router still says
-                        // which release it runs, so a newer program is offered.
                         assigned = null;
-                        try
-                        {
-                            var known = EnrollmentRegistration.Load(store);
-                            if (known != null && known.Policy != null)
-                                release = PolicyTransportClient.FetchRelease(new UriBuilder(known.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri, known.DeviceToken);
-                        }
-                        catch (Exception) { }
+                        if (fetchedRelease != null) release = fetchedRelease;
                     }
                     accessClosed = noServices || (named != null && named.Code == "device_access_revoked");
                     warnings = noServices ? new[] { "idle" } : warnings.Where(w => w != "idle").ToArray();
@@ -285,19 +318,24 @@ namespace IkeV2Manager.Client
         // programs or files, and nothing the user did.
         public void AnswerReportRequest()
         {
+            EnrollmentRegistration registration;
             lock (gate)
             {
                 if (disposed) return;
-                try
-                {
-                    var registration = EnrollmentRegistration.Load(store);
-                    if (registration == null || registration.Policy == null) return;
-                    var endpoint = new UriBuilder(registration.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri;
-                    if (!PolicyTransportClient.ReportWanted(endpoint, registration.DeviceToken)) return;
-                    PolicyTransportClient.SendReport(endpoint, registration.DeviceToken, BuildReport());
-                }
-                catch (Exception fault) { store.RecordFault("report", fault); }
+                try { registration = EnrollmentRegistration.Load(store); }
+                catch (Exception fault) { store.RecordFault("report", fault); return; }
             }
+            if (registration == null || registration.Policy == null) return;
+            // Asked and answered outside the service lock, like the policy.
+            try
+            {
+                var endpoint = new UriBuilder(registration.ClaimEndpoint) { Path = "/client/v1/policy" }.Uri;
+                if (!PolicyTransportClient.ReportWanted(endpoint, registration.DeviceToken)) return;
+                string report;
+                lock (gate) { if (disposed) return; report = BuildReport(); }
+                PolicyTransportClient.SendReport(endpoint, registration.DeviceToken, report);
+            }
+            catch (Exception fault) { lock (gate) { if (!disposed) store.RecordFault("report", fault); } }
         }
 
         internal string BuildReport()

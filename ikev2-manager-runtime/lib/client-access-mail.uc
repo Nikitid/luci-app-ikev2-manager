@@ -83,10 +83,16 @@ try {
 		validate(settings);
 		if (access(TOOL, 'x') != true) die('mail tool is not installed');
 		let config = '/var/run/ikev2-client-admin/mail-' + ARGV[1] + '.conf';
-		write_private(config, 'account default\nhost ' + settings.host + '\nport ' + settings.port +
+		// The password is read from its own file, as it is, and never parsed
+		// as part of the configuration: a backslash in it used to escape the
+		// quote that closed it there.
+		let secret = '/var/run/ikev2-client-admin/mail-' + ARGV[1] + '.pass';
+		write_private(secret, settings.password);
+		try { write_private(config, 'account default\nhost ' + settings.host + '\nport ' + settings.port +
 			'\ntls on\ntls_starttls ' + (settings.security == 'starttls' ? 'on' : 'off') +
 			'\ntls_trust_file /etc/ssl/certs/ca-certificates.crt\ntimeout 30\nfrom ' + settings.from +
-			(length(settings.user) ? '\nauth on\nuser ' + settings.user + '\npassword "' + settings.password + '"' : '\nauth off') + '\n');
+			(length(settings.user) ? '\nauth on\nuser ' + settings.user + '\npasswordeval "cat ' + secret + '"' : '\nauth off') + '\n'); }
+		catch (error) { unlink(secret); die('unable to write mail file'); }
 		let status = 1;
 		try {
 			// Addresses are in the checked form above and the paths are ours.
@@ -97,8 +103,9 @@ try {
 			let encoded = b64enc(request.body);
 			for (let at = 0; at < length(encoded); at += 76) mail.write(substr(encoded, at, 76) + '\r\n');
 			status = mail.close();
-		} catch (error) { unlink(config); die('mail was not sent'); }
+		} catch (error) { unlink(config); unlink(secret); die('mail was not sent'); }
 		unlink(config);
+		unlink(secret);
 		if (status != 0) die('mail was not accepted');
 		record_client_event('mail-sent', request.to);
 	} else {

@@ -246,7 +246,7 @@ printf '%s\n' 'client-api: TLS, device isolation, updates, revocation, schema an
 case "${CLIENT_API_MUTATION:-}" in
  key-mode) sed -i 's/(private_key \&\& (info.mode \& 0077) != 0)/false/' /usr/libexec/ikev2-manager.d/client-api-settings.uc ;;
  tls-validation) sed -i '/^openssl verify /c\:' /usr/libexec/ikev2-client-api ;;
- certificate-watch) sed -i 's@procd_set_param file /etc/config/ikev2-manager "\$api_certificate" "\$api_key"@procd_set_param file /etc/config/ikev2-manager@' /etc/init.d/ikev2-client-access ;;
+ certificate-watch) sed -i 's@procd_set_param file "\$api_certificate" "\$api_key"@procd_set_param file /dev/null@' /etc/init.d/ikev2-client-access ;;
 esac
 tls=/etc/ikev2-manager/test-api-tls
 mkdir -m 700 "$tls"
@@ -377,6 +377,8 @@ i=0
 until ubus list service >/dev/null 2>&1; do
  i=$((i+1)); [ "$i" -lt 15 ] || { cat "$work/procd-log" >&2; exit 1; }; sleep 1
 done
+# Remote clients run in managed mode only.
+uci set ikev2-manager.globals.configured=1; uci commit ikev2-manager
 /etc/init.d/ikev2-client-access start
 probe_service() {
  service_port="$1"
@@ -412,4 +414,21 @@ uci set ikev2-manager.client_access.enabled=0; uci commit ikev2-manager
 /etc/init.d/ikev2-client-access reload
 sleep 1
 if curl --noproxy '*' -sk --max-time 2 https://127.0.0.1:19444/client/v1/policy >/dev/null; then echo 'Disabled API listener remained open' >&2; exit 1; fi
+# Saving an unrelated setting of the router restarts neither the API nor
+# anything else; the server switched off takes the API down with it.
+uci set ikev2-manager.client_access.enabled=1; uci commit ikev2-manager
+/etc/init.d/ikev2-client-access reload
+probe_service 19444
+ubus call service list '{"name":"ikev2-client-access"}' >"$work/service-before"
+uci set ikev2-manager.globals.audit_marker=1; uci commit ikev2-manager
+/etc/init.d/ikev2-client-access reload
+sleep 1
+ubus call service list '{"name":"ikev2-client-access"}' >"$work/service-after"
+ucode -e 'import {readfile} from "fs"; let before=json(readfile(ARGV[0]))["ikev2-client-access"].instances, after=json(readfile(ARGV[1]))["ikev2-client-access"].instances; for(let name in ["access","api"]) if(type(before[name]?.pid)!="int" || before[name].pid!=after[name].pid) die("An unrelated setting restarted " + name);' "$work/service-before" "$work/service-after"
+uci -q delete ikev2-manager.globals.audit_marker; uci set ikev2-manager.server.enabled=0; uci commit ikev2-manager
+/etc/init.d/ikev2-client-access reload
+sleep 1
+if curl --noproxy '*' -sk --max-time 2 https://127.0.0.1:19444/client/v1/policy >/dev/null; then echo 'API listener remained open with the server off' >&2; exit 1; fi
+uci set ikev2-manager.server.enabled=1; uci set ikev2-manager.client_access.enabled=0; uci commit ikev2-manager
+/etc/init.d/ikev2-client-access reload
 printf '%s\n' 'client-api: actual procd startup, configuration reload and disable passed'

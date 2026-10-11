@@ -335,7 +335,9 @@ SDK `Makefile`. Anything that must reach a router has to be installed by
 **both**. The version stamp was added to the packer only, so every release from
 1.7.0 to 1.8.0 shipped without it and the page reported an unknown version.
 
-Guarded by `scripts/check-version-sync.sh`.
+Guarded by `scripts/check-version-sync.sh`, which also requires the Makefile prerm to be
+`scripts/package-prerm.sh` itself: the SDK copy had drifted and left the inbound
+policy watcher and every remote-client process running after removal.
 
 ## A released tag does not reach the routers
 

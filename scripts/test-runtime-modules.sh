@@ -645,10 +645,29 @@ if sed -n '/run_remove_deps()/,/^}/p' \
 	echo 'dependency removal still stops restored user PBR state' >&2
 	exit 1
 fi
-grep -Fq 'fail "cleanup helper is missing; package removal stopped before changing files"' \
+# The SDK prerm is the canonical script itself (check-version-sync.sh).
+grep -Fq "fail 'cleanup helper is missing; package removal stopped before changing files'" \
 	"$root/Makefile"
-grep -Fq 'fail "unable to restore managed router state; package removal stopped before changing files"' \
+grep -Fq "fail 'unable to restore managed router state; package removal stopped before changing files'" \
 	"$root/Makefile"
+# Remote clients leave with managed mode and with the package: stopped, then
+# their proxy, tables and local route removed; started again by an apply.
+printf '%s\n' "$remove_managed_body" | grep -Fq '/etc/init.d/ikev2-client-access stop'
+printf '%s\n' "$remove_managed_body" | grep -Fq '/usr/libexec/ikev2-client-access teardown'
+sed -n '/^apply_system_inner() {/,/^}/p' "$system_source" | grep -Fq '/etc/init.d/ikev2-client-access start'
+sed -n '/^disabled_runtime_absent() {/,/^}/p' "$system_source" | grep -Fq 'ikev2_client_path'
+for needle in '/etc/init.d/ikev2-client-access stop' '/usr/libexec/ikev2-client-access teardown' \
+	'--unload-conn ikev2-in-managed' 'ikev2-user-policy'; do
+	grep -Fq -- "$needle" "$root/scripts/package-prerm.sh" || { echo "prerm lacks: $needle" >&2; exit 1; }
+done
+client_init="$root/ikev2-manager-runtime/ikev2-client-access.init"
+if grep -Fq 'ikev2-client-access close' "$client_init"; then
+	echo 'client access stop still runs a close that the watcher lock refuses' >&2
+	exit 1
+fi
+grep -Fq 'term_timeout 15' "$client_init"
+grep -Fq 'ikev2-manager.globals.configured' "$client_init"
+grep -Eq '^[[:space:]]+sync \| close \| watch \| teardown\)' "$root/ikev2-manager-runtime/ikev2-client-access.sh"
 if grep -Fq 'route flush table' "$root/ikev2-manager-runtime/ikev2-domain-router.sh"; then
 	echo 'FakeIP cleanup still flushes an entire routing table' >&2
 	exit 1

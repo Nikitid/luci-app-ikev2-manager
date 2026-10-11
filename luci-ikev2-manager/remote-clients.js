@@ -66,6 +66,8 @@ function setupSection(settings, reload) {
  var notes = [];
  if (!settings.server_enabled || !settings.server_identity)
   notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('Enable the inbound server with a DNS name first: remote clients register and connect through it.') ]));
+ if (settings.initialized && settings.enrolled_identity && settings.server_identity !== settings.enrolled_identity)
+  notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('Remote clients were set up for the server name %s, and the inbound server now has another. Devices can neither register nor connect, and the registration port stays closed, until the server has that name again.').format(settings.enrolled_identity) ]));
  if (settings.custom_server)
   notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('The inbound server runs your own configuration, which this page does not change. For macOS devices add to it a connection named ikev2-in-managed that answers the identity *@managed.ikev2-manager and offers only the virtual subnet; without it a Mac refuses the tunnel, because it would carry all of its traffic.') ]));
  if (!settings.tunnels.length)
@@ -1076,7 +1078,7 @@ return view.extend({
   var search = E('input', { 'type': 'search', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
   var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
   var opened = {}, everyoneCount = 0, lastData = null, everyoneNames = [];
-  var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'),
+  var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'), 'registration-abandoned': _('Registration given up: its account could not be made'),
    'access-set': _('Access set'), 'access-closed': _('Access closed'), 'device-removed': _('Device removed'), 'place-closed': _('Free place closed'),
    'service-published': _('Service published'), 'service-withdrawn': _('Service withdrawn'), 'mail-sent': _('Mail sent'), 'device-renamed': _('Device named'), 'report-requested': _('Report requested'), 'devices-limit': _('Number of devices set'), 'link-withdrawn': _('Link withdrawn'), 'service-assigned': _('Service handed out'), 'mode-full': _('Full tunnel switched on'), 'mode-services': _('Full tunnel switched off'), 'profiles-set': _('VPN profiles assigned') };
   // Put each owned profile's card into its person's card. The panel redraws
