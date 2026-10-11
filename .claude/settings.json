@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__mac__ssh_exec",
+      "mcp__mac__ssh_hosts",
+      "mcp__mac__bridge_status",
+      "mcp__mac__mac_read_file"
+    ]
+  }
+}
