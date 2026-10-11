@@ -125,8 +125,9 @@ addresses even for services not assigned to the particular client.
 The sing-box generator accepts optional `client_access_policy` and
 `client_access_port` inputs. It creates a dedicated TProxy listener and explicit
 destination rules before ordinary sniffing and routing. Missing exits and
-unmatched destinations are rejected. The runtime does not yet supply these
-inputs or install the interception rules. This is not an active router feature.
+unmatched destinations are rejected. The runtime does not supply these inputs:
+the active path is the dedicated instance of the `path` mode below, and these
+inputs remain only for the generator's own tests.
 
 The separate `path` compiler mode reads a validated committed state plus a
 server-selected XFRM exit interface, resolver and listener port. It compiles a
@@ -271,8 +272,11 @@ protected source paths, stages a private pair and checks TLS server purpose,
 hostname, validity and matching public keys. It binds IPv4 and IPv6 with an empty
 root and only the client API handler; it attaches no LuCI or ubus handler.
 Configuration reload updates the API instance without restarting unchanged client
-controllers. Disabling removes the listener. Certificate renewal currently
-requires a service reload; automatic renewal integration remains incomplete.
+controllers. Disabling removes the listener. The listener and its resolver stage
+their own copy of the pair when they start, so the ACME hotplug hook reloads
+`ikev2-client-access` after `server-cert-sync`; procd restarts both instances
+because their certificate files changed. Without that reload they kept the old
+certificate until the next restart, and devices refused it once it expired.
 
 Installed OpenWrt tests exercise the launcher and actual procd startup, port
 reload and disable. No live router endpoint or WAN firewall rule has been
@@ -486,8 +490,8 @@ traffic permission. Native profile creation, stable ownership, route replacement
 and unrelated-profile preservation have been exercised on Windows. A real
 SCM/OpenWrt HTTPS enrollment run also created and persisted the profile and
 updated it from central publication. An opt-in native connection scenario now
-also verifies EAP IKEv2 establishment and effective selected routes. Full traffic
-protection remains incomplete.
+also verifies EAP IKEv2 establishment and effective selected routes. Traffic
+protection is the guard runtime described under "Permission, status and recovery".
 
 `SystemHosts.cs` reconciles assigned and retained domain mappings only after
 persistent WFP coverage is verified. Replacement preserves unrelated entries,
@@ -569,8 +573,8 @@ checking that they have no specific route or active TCP connection. It tests
 planned versus installed protection, restart, invalid updates, restricted-user
 access, and corruption at startup and during a heartbeat. It does not send
 traffic to those destinations and removes its owned filters and journal.
-This is not an IKEv2 end-to-end test. The Windows CI job runs this scenario;
-the workflow itself has not yet been exercised remotely.
+This is not an IKEv2 end-to-end test. The `desktop-core` CI job runs this
+scenario on a hosted Windows runner.
 
 `scripts/openwrt/client-access.sh` uses the production authorization compiler
 and two disposable network namespaces with actual kernel ESP, TCP and UDP.
@@ -604,7 +608,7 @@ the root-owned snapshot contains only key hashes. Unknown and disabled keys
 receive the same refusal. Requests cannot select another device, post a body,
 access administrative endpoints or receive malformed policy fields. The
 snapshot directory and file require owner-only permissions. The listener is
-not yet installed as a permanent router service or opened on WAN.
+the `ikev2-client-api serve` instance of `ikev2-client-access.init`.
 
 Windows `PolicyTransportClient` and its macOS counterpart use platform
 certificate and hostname validation, refuse redirects, bypass configured HTTP
@@ -623,7 +627,6 @@ for unchanged policy content, advances them for changed access and refuses
 identity, pool or allocation changes. Removing all assignments disables policy
 retrieval while retaining the last intent. The caller must also revoke live
 router grants; client polling alone cannot terminate existing access. Persistent publication and the read-only API share a validated snapshot.
-Enrollment and catalog UI integration are still required.
 
 
 ### Views
@@ -756,14 +759,14 @@ The `reconcile` compiler mode joins the protected API publication to a local
 VICI snapshot. Device IDs are the provisioned EAP IDs; enabled devices receive
 only their server-owned policy. Disabled, unknown or incomplete sessions get
 no grant. Invalid local publication or failed VICI reads are errors. The live
-controller reads this persistent publication. Enrollment, actual managed-device
-IKEv2 provisioning and client activation are not connected yet.
+controller reads this persistent publication.
 
 The encrypted packet scenario requires `kmod-nft-xfrm` and XFRM interfaces;
 its isolated veth links also require `kmod-veth` on a router. Containers without
 XFRM skip the scenario unless `IKEV2_REQUIRE_XFRM=1`, as in CI. The scenario passed
-on home hardware; the updated remote workflow has not yet been exercised.
-The runtime dependency installer does not yet install nft_xfrm.
+on home hardware and runs in the `openwrt` CI job. The admission table matches
+`ipsec in` and `ipsec out`, so the router needs `kmod-nft-xfrm` too; the runtime
+dependency installer installs and repairs it with the other kernel modules.
 
 
 ## Router admission controller
@@ -840,14 +843,20 @@ cover the whole subnet, so the resolver and the names range are closed outside
 the tunnel like the fixed addresses.
 
 Because no AAAA record is ever returned for a managed name, a machine with
-working IPv6 has no IPv6 destination for it. The clients set nothing in any
-browser: a setting of another program is outside what they were let do, and
-what earlier builds wrote there is taken back on update. Chrome and Edge on
-Windows ask the system by themselves once name rules exist, also with a public
-system resolver they could encrypt to; that was measured. Firefox, and every
-browser on macOS, was not: a browser that resolves over its own encrypted
-channel never asks the tunnel. A system proxy takes browser traffic before any
-route does; both clients report it as a warning.
+working IPv6 has no IPv6 destination for it. Chrome and Edge on Windows ask
+the system by themselves once name rules exist, also with a public system
+resolver they could encrypt to; that was measured. Firefox, and every browser
+on macOS, was not: a browser that resolves over its own encrypted channel never
+asks the tunnel. Both windows therefore read the browsers' own settings of the
+person at the window - read, never written - and name each browser set to its
+own provider ("secure" in Chrome and its kin, `network.trr.mode` 2 or 3 in
+Firefox). Nothing is set by installing: a setting of another program reaches
+beyond this program's services. Only when the person asks, the window sets the
+managed policy "resolve through the system" for Chrome, Edge, Brave, Yandex
+Browser and Firefox - on Windows through Setup in the machine's policy keys,
+recording and later removing only the values it wrote; on macOS as a separate
+configuration profile the person installs and removes. A system proxy takes
+browser traffic before any route does; both clients report it as a warning.
 
 On the router the DNS enforcement redirect leaves questions arriving from the
 inbound tunnel for the virtual subnet alone, and the firewall admits marked
@@ -932,7 +941,11 @@ reasoning except where a test is named:
   back when it is gone (tested with WireGuard on Windows).
 - A system proxy: traffic sent to the proxy bypasses the tunnel; both windows warn.
 - A program with its own encrypted resolver reaches a service directly and
-  not through the tunnel. No program is configured against it.
+  not through the tunnel. Browsers are named in the window and can be given a
+  policy to ask the system (see "Names under a service"); other programs are
+  not. Denying the services' real addresses instead is not done: they belong
+  to shared CDN ranges and change, so such a denial would close unrelated
+  sites and still miss new addresses.
 - Captive portals, IPv6-only access networks and small path MTU are
   unverified.
 
@@ -1058,9 +1071,10 @@ Verified: the unit tests; the daemon running unprivileged with `--dry-system`
 against the disposable router - registration over verified TLS, private
 storage, planned denial and names, service names, the generated profile, the
 router refusing readiness for a tunnel it did not authenticate, revocation and
-removal; the package's contents. Not yet run on a Mac with privileges: the
-installed daemon, the packet-filter anchor, the profile approval and a real
-IKEv2 session. The packet filter does not keep rules across a boot. The
+removal; the package's contents. The installed package was then run on
+macOS 27 on Apple silicon (see "Waypoint: names and supported systems"): the
+daemon, the packet-filter anchor, the profile approval and a real IKEv2
+session. The packet filter does not keep rules across a boot. The
 daemon is a launchd job started at boot, before any user session, and loads
 the denial before it touches names; until then managed names point at virtual
 addresses that lead nowhere, so nothing reaches the real service.
