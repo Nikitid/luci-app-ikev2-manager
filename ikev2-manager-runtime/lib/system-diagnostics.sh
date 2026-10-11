@@ -214,7 +214,7 @@ diagnostics_versions() {
 		apk list --installed 2>/dev/null
 	else
 		opkg list-installed 2>/dev/null
-	fi | grep -E '^(luci-app-ikev2|strongswan|sing-box|dnsproxy|dnsmasq|kmod-xfrm|ip-full|nftables|firewall4)'
+	fi | grep -E '^(luci-app-ikev2|strongswan|sing-box|dnsproxy|dnsmasq|kmod-xfrm|kmod-nft-xfrm|ip-full|nftables|firewall4)'
 }
 
 # swanctl names every plugin it was built without on stderr.
