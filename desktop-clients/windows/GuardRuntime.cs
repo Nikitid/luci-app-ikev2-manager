@@ -8,7 +8,7 @@ namespace IkeV2Manager.Client
 {
     public sealed class ClientStatus
     {
-        public int Version { get { return 3; } }
+        public int Version { get { return 4; } }
         public string State { get; internal set; }
         public bool GuardInstalled { get; internal set; }
         // True only while every gate holds at once: persistent denials, the
@@ -30,6 +30,10 @@ namespace IkeV2Manager.Client
         // reached around the tunnel by a program that does not use the
         // system's own routes and names. Named, not acted on.
         public string[] Warnings { get; internal set; }
+        public string ServerName { get; internal set; }
+        public string ServerIP { get; internal set; }
+        public string ServicesSubnet { get; internal set; }
+        public string TunnelSubnet { get; internal set; }
     }
 
     public sealed class GuardRuntime : IDisposable
@@ -828,6 +832,7 @@ namespace IkeV2Manager.Client
         private void Publish(string state)
         {
             int domains = 0, revision = 0;
+            string server = "", subnet = "", ip = "";
             try
             {
                 var history = guard == null ? null : store.LoadPolicyHistory();
@@ -835,6 +840,8 @@ namespace IkeV2Manager.Client
                 {
                     domains = history.Current.Resources.Select(r => r.Domain).Distinct().Count();
                     revision = history.Current.Revision;
+                    server = history.Current.ServerAddress; subnet = history.Current.VirtualSubnet;
+                    ip = store.LoadServerAddresses().FirstOrDefault() ?? "";
                 }
             }
             catch (InvalidOperationException) { }
@@ -846,6 +853,7 @@ namespace IkeV2Manager.Client
                 Services = assigned == null ? new string[0] : assigned.Selected.Take(64).ToArray(),
                 Available = assigned == null ? new string[0] : assigned.Available.Take(64).ToArray(),
                 Domains = domains, Revision = revision, Wanted = connectionWanted, Release = release, Warnings = warnings,
+                ServerName = server, ServerIP = ip, ServicesSubnet = subnet, TunnelSubnet = assigned == null ? "" : assigned.TunnelSubnet,
                 Protected = healthy && state == "protected" && permittedInterface != 0,
                 ConnectionError = state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),

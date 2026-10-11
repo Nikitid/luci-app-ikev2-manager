@@ -1,5 +1,6 @@
 import ClientCore
 import Foundation
+import Darwin
 
 enum Tool {
     /// Runs one system tool by absolute path and returns what it printed.
@@ -25,6 +26,33 @@ enum Tool {
 /// The machine itself: the hosts file, the packet filter and the system's VPN service.
 struct RealSystem: SystemActions {
     let hostsPath = "/etc/hosts"
+
+    func serverIPv4(_ name: String) async -> String {
+        await Task.detached {
+            var hints = addrinfo()
+            hints.ai_family = AF_INET
+            hints.ai_socktype = SOCK_STREAM
+            var result: UnsafeMutablePointer<addrinfo>?
+            guard getaddrinfo(name, nil, &hints, &result) == 0 else { return "" }
+            defer { freeaddrinfo(result) }
+            var cursor = result
+            while let entry = cursor {
+                var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                if getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST) == 0 {
+                    let address = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                    // A second VPN may answer with a synthetic or private address.
+                    let octets = address.split(separator: ".").compactMap { Int($0) }
+                    if octets.count == 4, ![0, 10, 127].contains(octets[0]), octets[0] < 224,
+                       !(octets[0] == 172 && (16...31).contains(octets[1])),
+                       !(octets[0] == 192 && octets[1] == 168),
+                       !(octets[0] == 198 && (18...19).contains(octets[1])),
+                       !(octets[0] == 169 && octets[1] == 254) { return address }
+                }
+                cursor = entry.pointee.ai_next
+            }
+            return ""
+        }.value
+    }
 
     private let vpn = SystemVPN(name: SystemPlan.serviceName)
     func readHosts() throws -> String {

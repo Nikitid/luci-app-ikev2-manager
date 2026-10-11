@@ -253,6 +253,55 @@ struct CheckRow: View {
     }
 }
 
+struct AddressRow: View {
+    let label: String
+    let value: String
+    @State private var copied = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(value.isEmpty ? "Нет данных" : value)
+                    .font(.system(.callout, design: .monospaced))
+                    .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading).help(value)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    if NSPasteboard.general.setString(value, forType: .string) {
+                        copied = true
+                        Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
+                    }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless).disabled(value.isEmpty)
+                .help(copied ? "Скопировано" : "Скопировать")
+                .accessibilityLabel("Скопировать: " + label)
+            }
+            .padding(7)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+        }
+    }
+}
+
+struct AddressCard: View {
+    let addresses: ConnectionAddresses?
+    var body: some View {
+        Card(title: "Адреса Waypoint") {
+            Text("Для исключений в другом VPN.")
+                .font(.caption).foregroundStyle(.secondary)
+            AddressRow(label: "Сервер", value: addresses?.server ?? "")
+            AddressRow(label: "IP сервера", value: addresses?.serverIP ?? "")
+            AddressRow(label: "Сеть сервисов", value: addresses?.services ?? "")
+            AddressRow(label: "Сеть туннеля", value: addresses?.tunnel ?? "")
+            Text("Используйте домен или IP сервера.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct ClientView: View {
     @StateObject private var model = ClientModel()
     @State private var invitation = ""
@@ -265,6 +314,7 @@ struct ClientView: View {
 
     var body: some View {
         let status = model.status
+        HStack(alignment: .top, spacing: 20) {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
@@ -342,8 +392,11 @@ struct ClientView: View {
             Text("Проверено " + model.checked.formatted(date: .omitted, time: .standard) + " · " + model.version)
                 .foregroundStyle(.secondary).font(.caption)
         }
+        .frame(width: 496)
+        AddressCard(addresses: status?.addresses).frame(width: 280)
+        }
         .padding(22)
-        .frame(width: 540)
+        .frame(width: 840)
         // The window is as tall as what it shows and no shorter than its
         // usual height: when a notice appears - a newer version, a warning -
         // the window grows by it instead of squeezing everything above.

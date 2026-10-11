@@ -52,7 +52,9 @@ private final class Router: DeviceRequests, @unchecked Sendable {
         try sync { try ready.get() }
     }
     func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {
-        DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
+        var services = DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
+        services.tunnelSubnet = "10.40.50.0/24"
+        return services
     }
     var released = "2.3.0"
     func release(endpoint: URL, deviceToken: String) async throws -> String { sync { released } }
@@ -89,6 +91,7 @@ private let invitation = "https://vpn.example.com:8443/client/v1/enroll#" + Stri
     await runtime.tick(now: now)
     let status = await runtime.status()
     #expect(status.state == "blocked" && status.guardInstalled && !status.protected && status.services == ["api"] && status.available == ["wiki"])
+    #expect(status.addresses?.server == "vpn.example.com" && status.addresses?.services == "172.31.254.0/24" && status.addresses?.tunnel == "10.40.50.0/24")
     #expect(status.release == "2.3.0" && ClientStatusReport.newer("2.3.0", than: "2.2.9") && ClientStatusReport.newer("2.10.0", than: "2.9.9"))
     #expect(!ClientStatusReport.newer("2.3.0", than: "2.3.0") && !ClientStatusReport.newer("2.2.0", than: "2.3.0") && !ClientStatusReport.newer("", than: "1.0.0"))
     #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeRelease(Data(#"{"version":1,"release":"2.3.0","url":"https://example.com"}"#.utf8)) }

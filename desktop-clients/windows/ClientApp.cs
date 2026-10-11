@@ -35,6 +35,10 @@ namespace IkeV2Manager.Client
         private Color Line { get { return dark ? Color.FromArgb(70, 70, 74) : Color.FromArgb(217, 217, 222); } }
         private readonly List<Button> plain = new List<Button>();
         private Button themeSign;
+        private readonly TextBox[] addressValues = new TextBox[4];
+        private readonly Button[] addressCopy = new Button[4];
+        private readonly ToolTip addressTips = new ToolTip();
+        private readonly string[] addressLabels = { "Сервер", "IP сервера", "Сеть сервисов", "Сеть туннеля" };
         private Label checkedSign;
         private const string Preferences = @"Software\Waypoint";
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
@@ -58,6 +62,7 @@ namespace IkeV2Manager.Client
             if (checkedSign != null) { checkedSign.ForeColor = Soft; checkedSign.BackColor = Back; }
             if (themeSign != null) { themeSign.BackColor = Back; themeSign.ForeColor = Ink; themeSign.FlatAppearance.MouseOverBackColor = Sheet; }
             if (IsHandleCreated) { int on = dark ? 1 : 0; DwmSetWindowAttribute(Handle, 20, ref on, 4); }
+            foreach (var value in addressValues) if (value != null) { value.BackColor = Sheet; value.ForeColor = Ink; }
             surface.Invalidate();
         }
 
@@ -194,7 +199,7 @@ namespace IkeV2Manager.Client
         internal ClientWindow()
         {
             Text = "Waypoint";
-            ClientSize = new Size(560, 470);
+            ClientSize = new Size(860, 470);
             AutoScaleMode = AutoScaleMode.Dpi;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -279,6 +284,29 @@ namespace IkeV2Manager.Client
                 }
                 (button == refresh || button == report || button == remove || button == browsers ? rest : first).Controls.Add(button);
             }
+            for (int index = 0; index < 4; index++) {
+                var value = new TextBox { ReadOnly = true, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 10), TabStop = true,
+                    Text = "Нет данных", AccessibleName = addressLabels[index] };
+                var copy = new Button { FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, AccessibleName = "Скопировать: " + addressLabels[index] };
+                copy.FlatAppearance.BorderSize = 0;
+                copy.Paint += (sender, args) => {
+                    var button = (Button)sender;
+                    using (var pen = new Pen(button.Enabled ? Ink : Soft, 1.2f)) {
+                        float k = args.Graphics.DpiX / 96f;
+                        args.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                        args.Graphics.DrawRectangle(pen, 9*k, 7*k, 9*k, 11*k);
+                        args.Graphics.DrawLines(pen, new[] { new PointF(7*k, 11*k), new PointF(5*k, 11*k), new PointF(5*k, 22*k), new PointF(14*k, 22*k), new PointF(14*k, 20*k) });
+                    }
+                };
+                int row = index;
+                copy.Click += (sender, args) => {
+                    try { Clipboard.SetText(addressValues[row].Text); addressTips.Show("Скопировано", addressCopy[row], 0, -24, 1200); }
+                    catch (System.Runtime.InteropServices.ExternalException) { addressTips.Show("Буфер обмена занят", addressCopy[row], 0, -24, 1200); }
+                };
+                addressTips.SetToolTip(copy, "Скопировать");
+                addressValues[index] = value; addressCopy[index] = copy; plain.Add(copy);
+                surface.Controls.Add(value); surface.Controls.Add(copy);
+            }
             surface.Paint += (sender, args) => Draw(args.Graphics, true);
             surface.Resize += (sender, args) => look.Location = new Point(surface.ClientSize.Width - 44, 12);
             look.Location = new Point(surface.ClientSize.Width - 44, 12);
@@ -303,7 +331,7 @@ namespace IkeV2Manager.Client
             float k = g.DpiX / 96f;
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            float left = 24 * k, width = surface.ClientSize.Width - 48 * k, y = 22 * k;
+            float left = 24 * k, width = 496 * k, y = 22 * k;
             Color ink = Ink, soft = Soft, line = Line;
             using (var titleFont = new Font("Segoe UI Semibold", 15))
             using (var small = new Font("Segoe UI", 8))
@@ -381,7 +409,25 @@ namespace IkeV2Manager.Client
                     y += said.Height + 20 * k + 12 * k;
                 }
             }
-            return (int)Math.Ceiling(y);
+            float sideX = 540 * k, sideY = 22 * k, sideWidth = surface.ClientSize.Width - sideX - 24 * k;
+            float sideHeight = 354 * k;
+            if (paint) {
+                using (var pen = new Pen(Line)) Card(g, sideX, sideY, sideWidth, sideHeight, pen, 10*k);
+                using (var sideInk = new SolidBrush(Ink)) using (var sideSoft = new SolidBrush(Soft))
+                using (var title = new Font("Segoe UI Semibold", 11)) using (var small = new Font("Segoe UI", 8)) {
+                    g.DrawString("Адреса Waypoint", title, sideInk, sideX + 14*k, sideY + 12*k);
+                    g.DrawString("Для исключений в другом VPN.", small, sideSoft, sideX + 14*k, sideY + 38*k);
+                    for (int i = 0; i < 4; i++) {
+                        float top = sideY + (64 + i*64)*k;
+                        g.DrawString(addressLabels[i], small, sideSoft, sideX + 14*k, top);
+                        using (var border = new Pen(Line)) using (var shape = Rounded(sideX + 14*k, top + 20*k, sideWidth - 28*k, 32*k, 6*k)) g.DrawPath(border, shape);
+                        addressValues[i].Bounds = new Rectangle((int)(sideX + 22*k), (int)(top + 27*k), (int)(sideWidth - 76*k), (int)(20*k));
+                        addressCopy[i].Bounds = new Rectangle((int)(sideX + sideWidth - 47*k), (int)(top + 21*k), (int)(30*k), (int)(30*k));
+                    }
+                    g.DrawString("Используйте домен или IP сервера.", small, sideSoft, sideX + 14*k, sideY + 326*k);
+                }
+            }
+            return (int)Math.Ceiling(Math.Max(y, sideY + sideHeight + 12*k));
         }
 
         private static System.Drawing.Drawing2D.GraphicsPath Rounded(float x, float y, float width, float height, float radius)
@@ -470,6 +516,14 @@ namespace IkeV2Manager.Client
         internal void Present(ClientView view)
         {
             current = view;
+            var addresses = new[] { view.ServerName, view.ServerIP, view.ServicesSubnet, view.TunnelSubnet };
+            for (int i = 0; i < 4; i++) {
+                string value = addresses[i] ?? "";
+                string shown = value.Length == 0 ? "Нет данных" : value;
+                if (addressValues[i].Text != shown) addressValues[i].Text = shown;
+                addressCopy[i].Enabled = value.Length != 0;
+                addressTips.SetToolTip(addressValues[i], value);
+            }
             bool unassigned = current.State == "access_closed" && current.Warnings != null && current.Warnings.Contains("idle");
             tone = unassigned ? Tone.Off : current.State == "protected" ? Tone.Open :
                 current.State == "connecting" || current.State == "tunnel_connected" || current.State == "registration_pending" ? Tone.Working :
