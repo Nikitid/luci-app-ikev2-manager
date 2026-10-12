@@ -238,9 +238,11 @@ establish or verify that listener.
 
 While a link waits for devices the router also keeps it in a root-only
 directory in memory (`/var/run/ikev2-client-links`), so the page can show it
-again from the list of active links. Only a place the ledger still holds open
-is answered; the kept link goes with a restart, with the link's own end, and
-the moment it is withdrawn or replaced. The state on flash still holds digests
+again from the list of active links. The link remains available while any of
+its places is still open, including when an older page asks through a place
+that has already registered. Revocation from that page closes only unused
+places and preserves registered devices. The kept link goes with a restart,
+with the link's own end, and the moment it is withdrawn or replaced. The state on flash still holds digests
 only.
 
 The root-only credential worker now stages a separate random EAP password per
@@ -448,7 +450,8 @@ disposing the controller retains the persistent denials. Explicit removal owns
 only the recorded filters and sublayer. Recovery verifies recorded filter
 destinations, actions, layers and ownership before permitting traffic.
 
-The guard's sublayer has the highest weight there is (`0xFFFF`) and its denials
+The guard requests the maximum sublayer weight (`0xFFFF`), accepting `0xFFFE`
+when Windows normalizes that request. Its denials
 are hard (`FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT`). WFP asks the heaviest
 sublayer first and a denial is final, so a permission another program adds in
 a lighter sublayer cannot undo it, hard or not. Guards installed before 2.2.6

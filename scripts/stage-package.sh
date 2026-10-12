@@ -160,7 +160,7 @@ install_file 644 luci-ikev2-manager/setup.js \
 install_file 644 luci-ikev2-manager/users.js \
 	/www/luci-static/resources/ikev2-manager/users-panel-v2.js
 install_file 644 luci-ikev2-manager/remote-clients.js \
-	/www/luci-static/resources/view/ikev2-manager/remote-clients-v22.js
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v23.js
 install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v12.js
 
 # The pages show which build is installed. Stamping it here keeps status cheap:
@@ -200,7 +200,7 @@ PY
 		printf 'Version: %s\n' "$PKG_VERSION"
 	fi
 	cat <<'EOF'
-Depends: luci-base, rpcd-mod-file, jsonfilter, socat, ucode, ucode-mod-fs, ucode-mod-digest
+Depends: luci-base, rpcd-mod-file, jsonfilter, socat, ucode, ucode-mod-fs, ucode-mod-digest, uhttpd, uhttpd-mod-ubus, uhttpd-mod-ucode
 Section: luci
 Architecture: all
 Maintainer: nikitid
@@ -309,6 +309,7 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/client-v12.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v12.js \
 	/www/luci-static/resources/view/ikev2-manager/remote-clients-v1.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v22.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v11.js
 # Releases before 1.13 shipped the charon settings under strongswan.d/charon/,
 # which strongswan.conf includes inside charon.plugins, so none of them applied.

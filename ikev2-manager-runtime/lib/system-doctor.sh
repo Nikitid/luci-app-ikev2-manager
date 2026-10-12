@@ -24,6 +24,43 @@ doctor_dns_segments_status() {
 	esac
 }
 
+doctor_uhttpd() {
+	local base plugin version invalid=0
+	base="$(pkg_version uhttpd)"
+	[ -n "$base" ] || invalid=1
+	for plugin in uhttpd-mod-ubus uhttpd-mod-ucode uhttpd-mod-lua; do
+		version="$(pkg_version "$plugin")"
+		case "$plugin" in
+			uhttpd-mod-ubus | uhttpd-mod-ucode) [ -n "$version" ] || invalid=1 ;;
+		esac
+		[ -z "$version" ] || [ "$version" = "$base" ] || invalid=1
+	done
+	if [ "$invalid" = 0 ]; then
+		printf 'uhttpd_cohort=ok:%s\n' "$base"
+	else
+		printf 'uhttpd_cohort=invalid:mixed-or-missing-version\n'
+		ok=0
+		dependencies_ok=0
+	fi
+}
+
+doctor_xfrm_modules() {
+	local directory="$1" module field
+	for module in xfrm_interface nft_xfrm; do
+		case "$module" in
+			xfrm_interface) field=xfrm_module ;;
+			nft_xfrm) field=nft_xfrm_module ;;
+		esac
+		if find "$directory" -name "$module.ko*" -print 2>/dev/null | grep -q .; then
+			printf '%s=ok\n' "$field"
+		else
+			printf '%s=missing\n' "$field"
+			ok=0
+			dependencies_ok=0
+		fi
+	done
+}
+
 # The installed strongSwan: one build across its packages, and versions with
 # the fixes the client and the server need; then the charon that runs, which an
 # upgrade that did not restart it leaves on the old version while the
@@ -206,14 +243,8 @@ doctor_checks() {
 		ok=0
 		dependencies_ok=0
 	fi
-	if find /lib/modules/"$(uname -r)" -name 'xfrm_interface.ko*' -print 2>/dev/null |
-		grep -q .; then
-		printf 'xfrm_module=ok\n'
-	else
-		printf 'xfrm_module=missing\n'
-		ok=0
-		dependencies_ok=0
-	fi
+	doctor_uhttpd
+	doctor_xfrm_modules "/lib/modules/$(uname -r)"
 	# The application routes on its own; PBR is not needed at all.
 	if [ "$(getv globals configured)" != 1 ]; then
 		:

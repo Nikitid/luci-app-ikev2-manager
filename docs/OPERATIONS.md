@@ -132,6 +132,21 @@ strongSwan, and exercise outbound and inbound SAs. Promote the same
 artifacts to other routers only after a soak period. Kernel packages are never
 mixed across firmware builds.
 
+### Updating web-server modules
+
+Keep `uhttpd` and every installed `uhttpd-mod-*` plugin on the same build.
+They share private request structures, despite package dependencies accepting
+different versions. A mixed ubus plugin can abort the server on a JSON-RPC
+request while the login page still renders. Doctor reports this as
+`uhttpd_cohort=invalid:mixed-or-missing-version`.
+
+On apk firmware, inspect `apk policy uhttpd uhttpd-mod-ubus uhttpd-mod-ucode`,
+then simulate the explicitly named update with `apk add --simulate --upgrade
+uhttpd uhttpd-mod-ubus uhttpd-mod-ucode`. Include `uhttpd-mod-lua` when installed.
+Install only a matched plan from trusted feeds. Verify both the login page and
+a read-only `/ubus` JSON-RPC response, process continuity and preserved network
+configuration. This web-service update does not require a WAN or router restart.
+
 ### Fast repeat APK builds
 
 For a persistent build machine, prepare the SDK once with its normal

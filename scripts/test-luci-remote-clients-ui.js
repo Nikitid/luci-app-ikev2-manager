@@ -143,13 +143,19 @@ async function main() {
  // A waiting link is shown again on request, for the place it holds open; one
  // the router no longer keeps is said to be gone, and nothing is shown.
  modal = null;
- await click(button(tree,'Show')); await Promise.resolve(); await Promise.resolve();
+ const showWaiting = button(tree,'Show');
+ await click(showWaiting); await Promise.resolve(); await Promise.resolve();
  assert.deepStrictEqual(linkAsked, ['alice-2']);
  assert(modal && nodes(modal).find(n => n.tagName === 'TEXTAREA').value.endsWith('#'+'d'.repeat(64)), 'the kept link is shown again');
  modal = null; linkKept = false;
- await click(button(tree,'Show')); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+ await click(showWaiting); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
  assert(modal === null && text(tree).includes('no longer keeps this link'), 'a link that is not kept is not shown, and the row says why');
- await click(button(tree,'Revoke'));
+ const revokeWaiting = button(tree,'Revoke');
+ await click(revokeWaiting);
+ const linkCell = nodes(tree).find(n => n.attrs.class === 'td ikev2-link-cell');
+ assert(linkCell && nodes(linkCell).includes(showWaiting) && nodes(linkCell).includes(revokeWaiting), 'link controls stay in their own cell');
+ assert(nodes(linkCell).includes(jobs[jobs.length-1].result.node), 'revocation outcome stays beside the link instead of the page footer');
+ assert(!nodes(linkCell).find(n => n.attrs.style && n.attrs.style.includes('nowrap')), 'long outcomes do not force the controls onto one overflowing line');
  assert.deepStrictEqual({operation: written[written.length-1].body.operation, payload: written[written.length-1].body.payload}, {operation:'close-places', payload:{ids:['alice-2']}});
  // A person who still has a link out: the new link replaces it, covers the
  // places left under her own limit, and takes an identifier nothing used.

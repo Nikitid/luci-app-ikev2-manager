@@ -251,33 +251,35 @@ if wait_for_router_dns 127.0.0.1 1 openwrt.org; then
 	exit 1
 fi
 
+# Older POSIX shells retain prefix assignments after a shell function call.
+# Isolate each override so another scenario cannot inherit its routing input.
 failclosed_check
-MOCK_TUNNEL_ROUTE=1 failclosed_check
+( MOCK_TUNNEL_ROUTE=1 failclosed_check )
 if grep -Eq '(^| )(add|del|delete|flush|replace)( |$)' "$TEST_IP_LOG"; then
 	echo 'failclosed_check modified routing state' >&2
 	exit 1
 fi
 # The first exit carried by its spare tunnel is in order; the same default
 # with the packet leaving another way is not.
-MOCK_SPARE_ROUTE=1 failclosed_check || { echo 'failclosed_check refused the spare tunnel of the first exit' >&2; exit 1; }
-if MOCK_SPARE_ROUTE=1 MOCK_SPARE_GET=eth1 failclosed_check; then
+( MOCK_SPARE_ROUTE=1 failclosed_check ) || { echo 'failclosed_check refused the spare tunnel of the first exit' >&2; exit 1; }
+if ( MOCK_SPARE_ROUTE=1 MOCK_SPARE_GET=eth1 failclosed_check ); then
 	echo 'failclosed_check accepted a packet that left outside the tunnel in the table' >&2
 	exit 1
 fi
-if MOCK_FAILCLOSED_MISSING=1 failclosed_check; then
+if ( MOCK_FAILCLOSED_MISSING=1 failclosed_check ); then
 	echo 'failclosed_check accepted a table without unreachable default' >&2
 	exit 1
 fi
-if MOCK_FAILCLOSED_RULE_MISSING=1 failclosed_check; then
+if ( MOCK_FAILCLOSED_RULE_MISSING=1 failclosed_check ); then
 	echo 'failclosed_check accepted a table without a matching policy rule' >&2
 	exit 1
 fi
 failclosed_ipv6_check
-if MOCK_FAILCLOSED6_MISSING=1 failclosed_ipv6_check; then
+if ( MOCK_FAILCLOSED6_MISSING=1 failclosed_ipv6_check ); then
 	echo 'failclosed_ipv6_check accepted a table without unreachable default' >&2
 	exit 1
 fi
-if MOCK_FAILCLOSED6_RULE_MISSING=1 failclosed_ipv6_check; then
+if ( MOCK_FAILCLOSED6_RULE_MISSING=1 failclosed_ipv6_check ); then
 	echo 'failclosed_ipv6_check accepted a table without a matching policy rule' >&2
 	exit 1
 fi
