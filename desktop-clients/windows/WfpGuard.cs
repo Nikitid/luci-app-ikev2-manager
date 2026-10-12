@@ -24,7 +24,9 @@ namespace IkeV2Manager.Client
         // hard or not. Guards installed before 2.2.6 sat at 0x7000, where a
         // hard permission from a heavier sublayer went ahead of them; they are
         // moved up in the transaction that next installs the guard.
-        internal const ushort Weight = 0xFFFF, LegacyWeight = 0x7000;
+        // Some Windows builds store a requested 0xFFFF as 0xFFFE. Keep
+        // requesting the maximum, but verify the value BFE actually retains.
+        internal const ushort Weight = 0xFFFF, NormalizedWeight = 0xFFFE, LegacyWeight = 0x7000;
         // FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT on every denial.
         private const uint Hard = 8;
         private const string PermitName = "IKEv2 Manager verified interface";
@@ -285,7 +287,8 @@ namespace IkeV2Manager.Client
                 Guid key = sublayer;
                 Check(Native.FwpmSubLayerGetByKey0(engine, ref key, out pointer));
                 var value = (Native.Sublayer)Marshal.PtrToStructure(pointer, typeof(Native.Sublayer));
-                if (value.Key != sublayer || value.Flags != 1 || (value.Weight != Weight && value.Weight != LegacyWeight) || value.Provider != IntPtr.Zero)
+                if (value.Key != sublayer || value.Flags != 1 ||
+                    (value.Weight != Weight && value.Weight != NormalizedWeight && value.Weight != LegacyWeight) || value.Provider != IntPtr.Zero)
                     throw new InvalidOperationException("Guard sublayer changed");
                 legacy = value.Weight == LegacyWeight;
             }

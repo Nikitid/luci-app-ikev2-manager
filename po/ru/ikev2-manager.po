@@ -5462,3 +5462,6 @@ msgstr "Показать"
 
 msgid "Remote clients were set up for the server name %s, and the inbound server now has another. Devices can neither register nor connect, and the registration port stays closed, until the server has that name again."
 msgstr "Удалённые клиенты настроены для имени сервера %s, а у входящего сервера сейчас другое имя. Пока серверу не вернут это имя, устройства не могут ни зарегистрироваться, ни подключиться, а порт регистрации закрыт."
+
+msgid "Link opened."
+msgstr "Ссылка открыта."

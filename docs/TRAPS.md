@@ -590,3 +590,28 @@ usual right after the tunnels come up, because the fail-closed check accepted
 only `ipsec-out`. Found only by turning managed mode off and on on a live
 router. `scripts/test-runtime-modules.sh` now checks that every domain-router
 command the helpers call exists and that the spare tunnel passes the check.
+
+## A shared invitation outlives its first registered device
+
+An administrator may keep the page open while a device registers. Looking up
+the link through that used place must not delete the shared secret while other
+places remain open. Withdrawing the stale list must skip consumed places and
+close only unused ones, preserving devices and their owner labels.
+
+Guarded by `scripts/openwrt/client-enrollment-http.sh`.
+
+
+## A uhttpd plugin must match the server build
+
+The package manager accepted a newer server and ucode plugin with an older
+ubus plugin. Login HTML rendered, but a read-only JSON-RPC request hung and
+aborted the server with exit134. Both routers exhausted procd respawn attempts
+after boot. The HTTP request structure had changed between those builds;
+upgrading only the ubus plugin to the server's build restored the same request.
+Doctor checks the installed cohort, and packaging explicitly includes both
+plugins. Test `/ubus` as well as HTML after web-server updates.
+
+An XFRM interface module also does not imply nftables IPsec expression support.
+Doctor checks `nft_xfrm` separately; the runtime dependency list already includes
+`kmod-nft-xfrm`. Guarded by the OpenWrt module-presence scenario and version
+policy behavior tests.

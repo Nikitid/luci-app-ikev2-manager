@@ -446,20 +446,20 @@ function activeLinks(everyone, actions) {
  everyone.forEach(function(person) {
   var waiting = person.devices.filter(function(device) { return device.waiting; });
   if (!waiting.length) return;
-  var withdraw = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-remove', 'click': function() { return actions.withdraw(person, waiting, withdraw); } }, [ _('Revoke') ]);
   var said = common.inlineResult();
-  var show = E('button', { 'type': 'button', 'class': 'cbi-button', 'style': 'margin-right:.4rem', 'click': function() { return actions.show(person, waiting, show, said); } }, [ _('Show') ]);
+  var withdraw = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-remove', 'click': function() { return actions.withdraw(person, waiting, withdraw, said); } }, [ _('Revoke') ]);
+  var show = E('button', { 'type': 'button', 'class': 'cbi-button', 'click': function() { return actions.show(person, waiting, show, said); } }, [ _('Show') ]);
   rows.push(E('tr', { 'class': 'tr' }, [
    E('td', { 'class': 'td' }, [ person.name ]),
    E('td', { 'class': 'td' }, [ String(waiting.length) ]),
    E('td', { 'class': 'td' }, [ span(Math.max.apply(null, waiting.map(function(item) { return item.expires_seconds || 0; }))) ]),
-   E('td', { 'class': 'td', 'style': 'text-align:right;white-space:nowrap' }, [
-    said.node, show, E('button', { 'type': 'button', 'class': 'cbi-button', 'style': 'margin-right:.4rem', 'click': function() { actions.link(person); } }, [ _('New link') ]), withdraw ])
+   E('td', { 'class': 'td ikev2-link-cell' }, [
+    E('div', { 'class': 'ikev2-link-actions' }, [ show, E('button', { 'type': 'button', 'class': 'cbi-button', 'click': function() { actions.link(person); } }, [ _('New link') ]), withdraw ]), said.node ])
   ]));
  });
  if (!rows.length) return '';
  return E('details', { 'class': 'ikev2-fold', 'open': '', 'style': 'margin-bottom:.9rem' }, [ E('summary', {}, [ _('Active links: %d').format(rows.length) ]),
-  E('table', { 'class': 'table cbi-section-table' }, [
+  E('table', { 'class': 'table cbi-section-table ikev2-active-links' }, [
    E('tr', { 'class': 'tr' }, [ _('Person'), _('Places left'), _('Valid for'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
   ].concat(rows)) ]);
 }
@@ -536,6 +536,7 @@ function magnifier() { return sign('M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4
 function pageStyles() {
  return E('style', {}, [
   '.ikev2-page .ikev2-people-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: .6rem; flex-wrap: nowrap; white-space: nowrap; } .ikev2-page .ikev2-people-actions .cbi-button { margin: 0; height: 2.4rem; display: inline-flex; align-items: center; } @media (max-width: 700px) { .ikev2-page .ikev2-people-actions { flex-wrap: wrap; } }' +
+  '.ikev2-page .ikev2-active-links { width: 100%; table-layout: fixed; } .ikev2-page .ikev2-active-links .td, .ikev2-page .ikev2-active-links .th { overflow-wrap: anywhere; white-space: normal; } .ikev2-page .ikev2-active-links .th:last-child { width: 55%; } .ikev2-page .ikev2-link-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: flex-end; } .ikev2-page .ikev2-link-actions .cbi-button { margin: 0; } .ikev2-page .ikev2-link-cell > .ikev2-result { display: flex; max-width: 100%; margin-top: .5rem; } @media (max-width: 600px) { .ikev2-page .ikev2-active-links .th:last-child { width: 48%; } }' +
   '.ikev2-page .ikev2-report { width: 100%; box-sizing: border-box; margin-top: .5rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; line-height: 1.35; white-space: pre; resize: vertical; }' +
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
@@ -1022,17 +1023,19 @@ return view.extend({
     relink: function(person) { invitationDialog(state, labels, reload, person, person.devices.filter(function(device) { return device.waiting; })); },
     remove: function(device) { removeDialog(device, state, reload, result); },
     show: function(person, waiting, button, said) {
-     button.disabled = true; said.clear();
-     return fs.exec(helper, [ 'client-admin-link', waiting[0].id ]).then(function(response) {
-      var kept = response.code === 0 ? JSON.parse(response.stdout || 'null') : null;
-      if (!kept || kept.version !== 1 || typeof kept.invitation !== 'string') throw new Error('not kept');
-      showLinkDialog(kept.invitation, (waiting[0].email || person.email || ''));
-     }).catch(function() {
-      said.err(_('The router no longer keeps this link: it was issued before a restart or by an earlier version. Make a new link instead.'));
-     }).then(function() { button.disabled = false; });
+     return common.runAction({ button: button, result: said, busy: _('Loading...'), success: _('Link opened.'),
+      failure: _('The router no longer keeps this link: it was issued before a restart or by an earlier version. Make a new link instead.'),
+      run: function() {
+       return fs.exec(helper, [ 'client-admin-link', waiting[0].id ]).then(function(response) {
+        var kept = response.code === 0 ? JSON.parse(response.stdout || 'null') : null;
+        if (!kept || kept.version !== 1 || typeof kept.invitation !== 'string') throw new Error(_('The router no longer keeps this link: it was issued before a restart or by an earlier version. Make a new link instead.'));
+        showLinkDialog(kept.invitation, (waiting[0].email || person.email || ''));
+       });
+      }
+     });
     },
-    withdraw: function(person, waiting, button) {
-     return saveRequest(button, result, { version: 1, expected_generation: state.generation, operation: 'close-places',
+    withdraw: function(person, waiting, button, said) {
+     return saveRequest(button, said, { version: 1, expected_generation: state.generation, operation: 'close-places',
       payload: { ids: waiting.map(function(item) { return item.id; }) } }, reload);
     }
    };

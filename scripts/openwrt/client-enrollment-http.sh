@@ -167,13 +167,29 @@ pair="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:184
 [ "$(ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -c '^pair-[12]$')" = 2 ]
 # Either place of a link for two devices shows the same link.
 [ "$(ucode "$control" link pair-1 | jsonfilter -e '@.invitation')" = "$pair" ] && [ "$(ucode "$control" link pair-2 | jsonfilter -e '@.invitation')" = "$pair" ]
+# Register one place while the administrator still has the old page open.
+request 202 -X POST -H "Authorization: Bearer ${pair##*#}" -H "X-Device-Token: 5555555555555555555555555555555555555555555555555555555555555555" "$claim"
+i=0
+while :; do
+ status="$(curl --cacert "$work/cert.pem" --max-time 5 -o "$work/body" -w '%{http_code}' -H "Authorization: Bearer 5555555555555555555555555555555555555555555555555555555555555555" "$poll")"
+ [ "$status" = 200 ] && break
+ [ "$status" = 202 ] || exit 1
+ i=$((i + 1)); [ "$i" -lt 30 ] || exit 1
+ sleep 1
+done
+# Looking through the used place must not destroy the remaining shared link.
+[ "$(ucode "$control" link pair-1 | jsonfilter -e '@.invitation')" = "$pair" ]
+[ "$(ucode "$control" link pair-2 | jsonfilter -e '@.places')" = 1 ]
 # A kept link others could read is not shown and not kept any longer.
 chmod 644 /var/run/ikev2-client-links/pair.json
 ! ucode "$control" link pair-1 >/dev/null 2>&1 && [ ! -e /var/run/ikev2-client-links/pair.json ]
 printf '{"version":1,"expected_generation":%s,"operation":"close-places","payload":{"ids":["pair-1","pair-2"]}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
 ! ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -q '^pair-'
 ! ucode "$control" link pair-1 >/dev/null 2>&1 && [ ! -e /var/run/ikev2-client-links/pair.json ]
-request 401 -X POST -H "Authorization: Bearer ${pair##*#}" -H "X-Device-Token: 5555555555555555555555555555555555555555555555555555555555555555" "$claim"
+# Retrying withdrawal from the same old page is harmless; the used device stays.
+printf '{"version":1,"expected_generation":%s,"operation":"close-places","payload":{"ids":["pair-1","pair-2"]}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
+ucode "$control" inspect | jsonfilter -e '@.devices[*].id' | grep -qx pair-1
+request 401 -X POST -H "Authorization: Bearer ${pair##*#}" -H "X-Device-Token: 6666666666666666666666666666666666666666666666666666666666666666" "$claim"
 # One decision for all of a person's devices.
 shown="$(ucode "$control" inspect)"
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":false,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \

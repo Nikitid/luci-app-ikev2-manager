@@ -92,10 +92,13 @@ try {
   let id = ARGV[1], now = time();
   if (type(id) != 'string' || !(length(id) <= 48 ? match(id, /^[a-z][a-z0-9-]*$/) : null)) die('invalid place');
   let ledger = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? null : read_client_enrollment(directory).ledger;
-  let waits = length(filter(ledger?.invitations ?? [], item => item.id == id && item.status == 'issued' && item.expires_at > now)) == 1;
-  let link = waits ? read_client_link(id, now) : null;
-  if (link == null) { if (!waits) forget_client_link(id); die('link is not kept'); }
-  print(sprintf('%J\n', { version: 1, invitation: link.invitation, expires_seconds: link.expires_at - now, places: length(link.places) }));
+  let link = read_client_link(id, now);
+  let waiting = link == null ? [] : filter(ledger?.invitations ?? [], item =>
+   index(link.places, item.id) >= 0 && item.status == 'issued' && item.expires_at > now);
+  // A stale page may ask through a place that has just registered. Keep the
+  // shared link available until its last free place is used or withdrawn.
+  if (link == null || !length(waiting)) { forget_client_link(id); die('link is not kept'); }
+  print(sprintf('%J\n', { version: 1, invitation: link.invitation, expires_seconds: link.expires_at - now, places: length(waiting) }));
  } else if ((ARGV[0] == 'report-request' || ARGV[0] == 'report') && length(ARGV) == 2) {
   // The device is asked the next time it calls, and answers by itself.
   let state = read_committed_client_state(directory), id = ARGV[1];
@@ -138,6 +141,10 @@ try {
     if (type(id) != 'string' || !(length(id) <= 48 ? match(id, /^[a-z][a-z0-9-]*$/) : null)) die('invalid place');
    for (let id in payload.ids) {
     let ledger = read_client_enrollment(directory).ledger;
+    // Registration may have consumed a place since the page was loaded.
+    // Withdraw only places still issued; never touch a registered device.
+    let pending = filter(ledger.invitations, item => item.id == id && item.status == 'issued');
+    if (!length(pending)) continue;
     write_client_enrollment(directory, { version: 1, expected_generation: ledger.generation, operation: 'cancel', payload: { id: id } }, time(), false);
     try { write_client_label(directory, id, '', '', { email: '', open: false }); } catch (error) { }
    }

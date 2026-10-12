@@ -230,8 +230,9 @@ internal static class WfpGuardTests
             try
             {
                 guard.InstallBlocking();
-                Require(SublayerWeight(receipt.Owner) == 0xFFFF, "guard sublayer is the heaviest");
-                using (new Stranger(0xFFFE, true, Guid.Empty))
+                ushort actualWeight = SublayerWeight(receipt.Owner);
+                Require(actualWeight == WfpGuard.Weight || actualWeight == WfpGuard.NormalizedWeight, "guard sublayer retains the requested maximum or its OS-normalized value");
+                using (new Stranger((ushort)(actualWeight - 1), true, Guid.Empty))
                     Require(!Probe(port), "hard permission in a lighter sublayer stays denied");
                 using (new Stranger(0xFFFF, false, Guid.Empty))
                     Require(!Probe(port), "soft permission in an equal sublayer stays denied");
@@ -272,7 +273,8 @@ internal static class WfpGuardTests
                 Volatile.Write(ref watch, false);
                 watching.Join();
                 Require(Volatile.Read(ref passed) == 0, "nothing passes while the guard moves");
-                Require(SublayerWeight(receipt.Owner) == 0xFFFF && !Probe(port), "legacy guard moved to the heaviest sublayer");
+                ushort actualWeight = SublayerWeight(receipt.Owner);
+                Require((actualWeight == WfpGuard.Weight || actualWeight == WfpGuard.NormalizedWeight) && !Probe(port), "legacy guard moved to the maximum accepted sublayer weight");
                 using (var again = WfpGuard.Resume(receipt)) again.VerifyProtection();
             }
         }
