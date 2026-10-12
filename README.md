@@ -121,44 +121,6 @@ Private DNS can bypass classification. In Reliable mode the router answers the
 names Firefox and Apple publish for this purpose as missing, so Firefox keeps
 the router resolver and iCloud Private Relay is turned off on this network.
 
-### Waypoint with another VPN
-
-A system proxy or browser VPN extension can send selected services through
-another VPN, bypassing Waypoint. A kill switch usually blocks access; that
-alone does not prove a leak. Turning it off removes the other VPN's protection
-when its connection drops.
-
-Copy exclusions from the right side of the Waypoint window: the server IP,
-service networks and tunnel network. Add the server name when domains are accepted.
-
-| Application | Setting |
-| --- | --- |
-| v2rayN, Throne, Clash Verge Rev, Hiddify | Turn System proxy off and TUN on. In Hiddify select the VPN service mode. |
-| WireGuard, Windows | Tunnel -> Edit -> clear Block untunneled traffic (kill-switch) -> Save. |
-| WireGuard, macOS | Keep the default `0.0.0.0/0` route. Do not replace it with two `/1` routes: that broke Waypoint connectivity in testing. |
-| AmneziaVPN, Windows | Settings -> Connection -> KillSwitch -> off. For split tunneling, exclude the listed addresses from the VPN, add the Waypoint addresses and reconnect. Full-tunnel mode was not tested. |
-| AmneziaVPN, macOS | Disconnect Amnezia while using Waypoint: disabling its kill switch and adding exclusions did not resolve the conflict in version 4.8.21. |
-| Proton VPN, Windows | Split tunneling -> on -> Exclude mode -> Excluded IP addresses -> Waypoint addresses -> Apply or Reconnect. This requires a paid plan. |
-| ExpressVPN, Windows | Profile -> Split Tunneling -> on -> Add IP -> Waypoint IP and networks. |
-| AdGuard | **AdGuard VPN:** Exclusions -> Websites -> exclude listed websites from the VPN -> service domains and the Waypoint server name. If blocked: Settings -> App settings -> Kill Switch -> off. **AdGuard blocker:** for DNS failures, Settings -> DNS protection -> off. These are different applications. |
-| Mullvad, corporate VPN | Disconnect the other VPN while using Waypoint. Excluding an application does not exclude Waypoint addresses; coexistence was not tested. |
-| Browser VPN extension | Disable the extension. |
-
-If the system proxy remains enabled:
-
-- **Windows:** Settings -> Network & internet -> Proxy -> turn Use a proxy server and Use setup script off.
-- **macOS:** System Settings -> Network -> network service -> Details -> Proxies -> turn HTTP, HTTPS, SOCKS and automatic proxy configuration off.
-
-TUN was tested with v2rayN, Throne and Clash on Windows, and Clash on macOS.
-The Hiddify GUI and Throne on macOS remain unverified. Proton and AdGuard VPN
-could not be tested without login; ExpressVPN and Mullvad were unavailable
-under free-only testing. Provider settings follow their documentation and do
-not establish Waypoint compatibility.
-
-Settings documentation: [Proton](https://protonvpn.com/support/protonvpn-split-tunneling),
-[ExpressVPN](https://www.expressvpn.com/support/knowledge-hub/split-tunneling-desktop/),
-[AdGuard VPN](https://github.com/AdguardTeam/KnowledgeBaseVPN/blob/master/docs/adguard-vpn-for-windows/overview.md).
-
 ## Domain lists
 
 Project lists are stored in `luci-ikev2-domains/local-services/`. Optional
