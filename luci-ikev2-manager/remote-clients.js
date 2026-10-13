@@ -2,8 +2,8 @@
 'require view';
 'require fs';
 'require ui';
-'require ikev2-manager.shared-v15 as common';
-'require ikev2-manager.users-panel-v3 as vpnUsers';
+'require ikev2-manager.shared-v16 as common';
+'require ikev2-manager.users-panel-v4 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
 var catalogHelper = '/usr/libexec/ikev2-domains-community';
@@ -635,7 +635,8 @@ function pageStyles() {
   '.ikev2-page .ikev2-search-box { position: relative; flex: 0 1 20rem; min-width: 0; max-width: 100%; }' +
   '.ikev2-page .ikev2-people-bar > :first-child { min-width: 0; }' +
   '.ikev2-page .ikev2-search-box .ikev2-icon { position: absolute; left: .7rem; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%); color: var(--ikev2-muted); pointer-events: none; }' +
-  '.ikev2-page .ikev2-search-box input.ikev2-search { box-sizing: border-box; width: 100%; min-width: 0; height: 2.25rem; margin: 0; padding: 0 .8rem 0 2.1rem; border: 1px solid var(--ikev2-border); border-radius: 999px; background: var(--ikev2-surface-2); color: inherit; font: inherit; box-shadow: none; outline: none; }' +
+  '.ikev2-page .ikev2-search-box input.ikev2-search { box-sizing: border-box; width: 100%; min-width: 0; height: 2.25rem; margin: 0; padding: 0 .8rem 0 2.1rem; border: 1px solid var(--ikev2-border); border-radius: 999px; background: var(--ikev2-surface-2); background-image: none; color: inherit; font: inherit; box-shadow: none; outline: none; -webkit-appearance: none; appearance: none; }' +
+  '.ikev2-page .ikev2-search-box .ikev2-icon { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 0; }' +
   '.ikev2-page .ikev2-search-box input.ikev2-search:focus { border-color: var(--ikev2-accent); }' +
   '.ikev2-page .ikev2-search-box input.ikev2-search::placeholder { color: var(--ikev2-muted); }' +
   '@media (max-width: 820px) { .ikev2-page .ikev2-person-head, .ikev2-page .ikev2-device { grid-template-columns: 1fr; } .ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: wrap; justify-content: flex-start; } }'
@@ -912,7 +913,7 @@ return view.extend({
  render: function(loaded) {
   var data = loaded[0], profiles = loaded[1];
   var state, records = [], labels = {}, services = E('div', {}), devices = E('div', {});
-  var result = common.inlineResult(), serviceResult = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite;
+  var result = common.inlineResult(), serviceResult = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite, more;
   function reload() { return readState().then(setData); }
   function setData(next) {
    lastData = next;
@@ -930,6 +931,7 @@ return view.extend({
    fresh.replaceChildren(); setup.replaceChildren();
    (settings && !settings.initialized ? fresh : setup).replaceChildren(section);
    managed.style.display = settings && !settings.initialized ? 'none' : '';
+   if (more) [ 0, 1, 2 ].forEach(function(index) { more.hideTab(index, !!(settings && !settings.initialized)); });
    if (settings && !settings.initialized) { availability.replaceChildren(); return; }
    try {
     if (next[0].code !== 0) throw new Error('unavailable');
@@ -1119,7 +1121,9 @@ return view.extend({
   // a person is shown in that person's card.
   var windowsApp = E('span', { 'style': 'display:inline-flex;align-items:center;gap:.6rem;white-space:nowrap' });
   var vpnMain = E('div', {}), vpnRest = E('div', {}), summary = E('div', {}), journal = E('div', {});
-  var search = E('input', { 'type': 'search', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
+  // A plain text field: a search field brings the browser's own decoration,
+  // a box around the icon in some of them.
+  var search = E('input', { 'type': 'text', 'inputmode': 'search', 'autocomplete': 'off', 'class': 'ikev2-search', 'placeholder': _('Search'), 'aria-label': _('Find a person, a device or a profile') });
   var profileNames = [], allAccounts = profiles && profiles[0] ? String(profiles[0].stdout || '').split('\n').map(function(line) { return line.split('\t')[0]; }).filter(Boolean) : [];
   var opened = {}, everyoneCount = 0, lastData = null, everyoneNames = [];
   var eventNames = { 'link-issued': _('Link issued'), 'registered': _('Device registered'), 'registered-waiting': _('Device registered, waits for approval'), 'registration-abandoned': _('Registration given up: its account could not be made'),
@@ -1227,6 +1231,15 @@ return view.extend({
      if (changes.some(function(change) { return change.addedNodes.length; })) { refreshAccounts(); distribute(); applySearch(); }
     }).observe(vpnMain, { childList: true, subtree: true });
   }
+  // What is looked at now and then, in one card under one row of tabs; none
+  // is open until asked for. Without remote clients set up only the
+  // diagnostics apply.
+  more = common.tabs([
+   { title: _('Settings'), content: setup },
+   { title: _('Mail for invitation links'), content: mailBox },
+   { title: _('Journal'), content: common.section(_('Journal'), _('The last actions with remote clients.'), journal) },
+   { title: _('Inbound connection diagnostics'), content: vpnRest }
+  ], { collapsible: true });
   setData(data);
   return E([ common.styles(), pageStyles(), E('div', { 'class': 'ikev2-page' }, [
    common.header(_('Users'), _('People, their Waypoint devices and ordinary VPN profiles.')),
@@ -1239,10 +1252,8 @@ return view.extend({
     vpnMain,
     common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks. A device reaches the names of the service on the ports listed, through the exit tunnel chosen under Settings - not the tunnel Policy Routing gives the service. A change of a list reaches the devices within an hour, or at once with the button.'),
      E('div', {}, [ services, E('div', { 'class': 'ikev2-actions end' }, [ serviceResult.node ]) ]), refresh),
-    fold(_('Settings'), setup), fold(_('Mail for invitation links'), mailBox),
-    fold(_('Journal'), common.section(_('Journal'), _('The last actions with remote clients.'), journal))
    ), managed),
-   fold(_('Inbound connection diagnostics'), vpnRest)
+   more
   ]) ]);
  },
  handleSaveApply: null, handleSave: null, handleReset: null

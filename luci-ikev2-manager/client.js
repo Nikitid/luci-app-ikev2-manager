@@ -1,8 +1,8 @@
 'use strict';
-'require view';
+'require baseclass';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v15 as common';
+'require ikev2-manager.shared-v16 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -1344,7 +1344,11 @@ function qualitySection(initial) {
 	};
 }
 
-return view.extend({
+// The outbound tunnels and the DNS that goes with them, as the parts two
+// pages are made of: "tunnel" stands on the Tunnels page beside the inbound
+// server, "dns" is the DNS page. Both are built from one load so a setting
+// saved on one page still carries the values the other page shows.
+return baseclass.extend({
 	load: function() {
 		return L.resolveDefault(fs.stat('/usr/sbin/swanmon'), null).then(function(ready) {
 			if (!ready)
@@ -1363,10 +1367,9 @@ return view.extend({
 		});
 	},
 
-	render: function(data) {
+	parts: function(data) {
 		if (!data.ready)
-			return E([ common.styles(), common.gate(_('Outbound IKEv2 Tunnel'),
-				_('The router uses this IPv4 IKEv2 tunnel for domains and devices selected on the Policy Routing page.')) ]);
+			return { unavailable: true };
 		var value = common.parseKeyValues(data[0].stdout);
 		var dnsValue = common.parseKeyValues((data[4] && data[4].stdout) || '');
 		var dnsSegments = parseDnsSegments((data[5] && data[5].stdout) || '');
@@ -2407,12 +2410,9 @@ return view.extend({
 			dnsWanFallback ]);
 		var rawTracker = common.trackChanges(rawSave, [ rawText ]);
 
-		return E([
-			common.styles(),
-			E('div', { 'class': 'ikev2-page' }, [
-				common.header(_('Outbound IKEv2 Tunnel'),
-					_('The router uses this IPv4 IKEv2 tunnel for domains and devices selected on the Policy Routing page.'),
-					statusPill),
+		return {
+			pill: statusPill,
+			tunnel: [
 				E('div', { 'class': 'ikev2-grid' }, [
 					gatewayCard.node,
 					virtualCard.node,
@@ -2448,7 +2448,9 @@ return view.extend({
 							_('When another tunnel drops, its traffic moves to the main one until it is back. Off: only what is sent to the main tunnel uses it.'),
 							mainBackupResult.node),
 						tunnelRows
-					])),
+					]))
+			],
+			dns: [
 				common.section(_('Tunnel DNS'),
 					_('Resolves VPN-routed destinations through the outbound tunnel. Servers are tried in order; failover occurs only after two failed checks and a successful probe of the next server.'),
 					E('div', {}, [
@@ -2488,11 +2490,7 @@ return view.extend({
 					_('Send explicit domain suffixes to an independent resolver group. A segment resolves on its own terms whatever the rest of the policy does — including while every other name goes through the tunnel. Each has its own protocol and query strategy; unlisted names keep the global policy. Suffixes cannot overlap between enabled segments, at most eight run at once, and lists are stored locally rather than rebuilt with domain policy.'),
 					segmentRows,
 					segmentStatus)
-			])
-		]);
-	},
-
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+			]
+		};
+	}
 });

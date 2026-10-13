@@ -169,9 +169,19 @@ const common = loadModule('shared.js', null);
 		fail('shared.js does not export ' + name + ', which client.js uses');
 });
 
-const view = loadModule('client.js', common);
-if (typeof view.render !== 'function')
-	fail('client.js does not return a view with render()');
+// The outbound tunnels and DNS are one panel that two pages are made of. The
+// checks below look at every control it builds, so they read all its parts
+// from one call; the pages themselves are rendered further down.
+const outboundPanel = loadModule('client.js', common);
+if (typeof outboundPanel.parts !== 'function' || typeof outboundPanel.load !== 'function')
+	fail('client.js does not return a panel with load() and parts()');
+const view = {
+	render: function(data) {
+		const parts = outboundPanel.parts(data);
+		return parts.unavailable ? E('div', {}, []) :
+			E('div', {}, [ parts.pill ].concat(parts.tunnel, parts.dns));
+	}
+};
 
 // Reliable mode, managed DNS, tunnel resolution on, one destination segment.
 const clientGet = [
@@ -1251,7 +1261,15 @@ try {
 
 // The inbound server page carries the most controls of any view, so its render
 // is exercised too - a restructured section there fails the same silent way.
-const settingsView = loadModule('settings.js', common);
+const inboundPanel = loadModule('settings.js', common);
+if (typeof inboundPanel.parts !== 'function' || typeof inboundPanel.load !== 'function')
+	fail('settings.js does not return a panel with load() and parts()');
+const settingsView = {
+	render: function(data) {
+		const parts = inboundPanel.parts(data);
+		return parts.unavailable ? E('div', {}, []) : E('div', {}, parts.server);
+	}
+};
 if (typeof settingsView.render !== 'function')
 	fail('settings.js does not return a view with render()');
 const serverGet = [
@@ -1276,6 +1294,53 @@ try {
 } catch (error) {
 	fail('settings.js render() threw: ' + (error && error.stack ? error.stack : error));
 }
+
+// The pages the panels are shown on. Tunnels holds the outbound tunnels and
+// the inbound server under two tabs and none of DNS; DNS holds that part
+// alone; the address of the inbound server opens its tab.
+function loadPage(file) {
+	const src = fs.readFileSync(path.join(root, 'luci-ikev2-manager', file), 'utf8');
+	return new Function('window', 'document', 'L', 'E', 'view', 'common', 'outbound', 'inbound', src)(
+		windowStub, documentStub, L, E, { extend: function(o) { return o; } }, common, outboundPanel, inboundPanel);
+}
+const tunnelsPage = loadPage('tunnels.js'), dnsPage = loadPage('dns.js');
+function headings(tree) {
+	return nodesOf(tree).filter(function(node) { return node.tagName === 'H3'; }).map(function(node) { return textOf(node).trim(); });
+}
+function tabButtons(tree) {
+	const row = nodesOf(tree).find(function(node) { return hasClass(node, 'ikev2-tabs-row'); });
+	return row ? row.children : [];
+}
+function shownPanels(tree) {
+	return nodesOf(tree).filter(function(node) { return hasClass(node, 'ikev2-tabs-panel'); })
+		.map(function(node) { return node.style.display === 'none' ? 0 : 1; }).join('');
+}
+const locationBefore = windowStub.location;
+windowStub.location = { pathname: '/cgi-bin/luci/admin/services/ikev2-manager/client', hash: '' };
+const tunnelsTree = tunnelsPage.render([ data, settingsData ]);
+if (tabButtons(tunnelsTree).map(function(node) { return textOf(node).trim(); }).join('|') !== 'Outbound tunnels|Inbound server')
+	fail('the Tunnels page does not offer the outbound tunnels and the inbound server as its two tabs');
+if (shownPanels(tunnelsTree) !== '10')
+	fail('the Tunnels page does not open on the outbound tunnels: ' + shownPanels(tunnelsTree));
+const tunnelsHeadings = headings(tunnelsTree);
+[ 'Connection', 'More tunnels', 'Service' ].forEach(function(title) {
+	if (tunnelsHeadings.indexOf(title) < 0) fail('the Tunnels page lost its section: ' + title);
+});
+[ 'Tunnel DNS', 'Router DNS upstream', 'Destination DNS segments' ].forEach(function(title) {
+	if (tunnelsHeadings.indexOf(title) >= 0) fail('DNS is still on the Tunnels page: ' + title);
+});
+tabButtons(tunnelsTree)[1].listeners.click();
+if (shownPanels(tunnelsTree) !== '01')
+	fail('the inbound server tab does not show its panel alone: ' + shownPanels(tunnelsTree));
+windowStub.location = { pathname: '/cgi-bin/luci/admin/services/ikev2-manager/server', hash: '' };
+if (shownPanels(tunnelsPage.render([ data, settingsData ])) !== '01')
+	fail('the address of the inbound server does not open its tab');
+windowStub.location = locationBefore;
+const dnsHeadings = headings(dnsPage.render(data));
+if (dnsHeadings.join('|') !== 'Tunnel DNS|Router DNS upstream|Destination DNS segments')
+	fail('the DNS page does not hold the three DNS sections alone: ' + dnsHeadings.join('|'));
+if (!nodesOf(tunnelsPage.render([ { ready: false }, { ready: false } ])).some(function(node) { return hasClass(node, 'ikev2-empty'); }))
+	fail('the Tunnels page has nothing to say while strongSwan is missing');
 if (!settingsPage || !settingsPage.children || !settingsPage.children.length)
 	fail('settings.js render() produced an empty page');
 if (orphanLabels(settingsPage).length)

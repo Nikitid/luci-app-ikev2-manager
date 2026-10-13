@@ -1,7 +1,7 @@
 'use strict';
-'require view';
+'require baseclass';
 'require fs';
-'require ikev2-manager.shared-v15 as common';
+'require ikev2-manager.shared-v16 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -119,7 +119,9 @@ function addressPlanPicker(current, networks) {
 	};
 }
 
-return view.extend({
+// The inbound server, as the part of the Tunnels page that stands beside the
+// outbound tunnels.
+return baseclass.extend({
 	load: function() {
 		return L.resolveDefault(fs.stat('/usr/sbin/swanmon'), null).then(function(ready) {
 			if (!ready)
@@ -137,10 +139,9 @@ return view.extend({
 		});
 	},
 
-	render: function(data) {
+	parts: function(data) {
 		if (!data.ready)
-			return E([ common.styles(), common.gate(_('Inbound VPN Server'),
-				_('Remote devices connect to the router over IKEv2. Routes advertised by strongSwan and firewall permissions are controlled independently.')) ]);
+			return { unavailable: true };
 		var value = common.parseKeyValues(data[0].stdout);
 		var access = common.parseKeyValues(data[1].stdout);
 		var acme = common.parseKeyValues((data[4] && data[4].stdout) || '');
@@ -744,11 +745,8 @@ return view.extend({
 			[ acmeEmail, acmeMethod, dnsRows, acmeStaging ]);
 		var rawTracker = common.trackChanges(rawSave, [ rawText ]);
 
-		return E([
-			common.styles(),
-			E('div', { 'class': 'ikev2-page' }, [
-				common.header(_('Inbound VPN Server'),
-					_('Remote devices connect to the router over IKEv2. Routes advertised by strongSwan and firewall permissions are controlled independently.')),
+		return {
+			server: [
 				common.section(_('Service'),
 					_('Server identity and the address pool handed to inbound clients.'),
 					E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
@@ -765,15 +763,11 @@ return view.extend({
 				accessPanel,
 				acmePanel,
 				behaviorPanel,
-				E('div', { 'class': 'ikev2-actions end ikev2-save-bar' }, [
+				E('div', { 'class': 'ikev2-actions end ikev2-save-bar ikev2-save-bar-sticky' }, [
 					serverResult.node,
 					save
 				])
-			])
-		]);
-	},
-
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+			]
+		};
+	}
 });

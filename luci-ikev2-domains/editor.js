@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v15 as common';
+'require ikev2-manager.shared-v16 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -1503,10 +1503,15 @@ return view.extend({
 					routeLanes,
 					serviceResult.node
 				])),
-			common.section(_('Catalogue'),
-				_('Prepared services and your own. A click adds one to the highlighted field, the button on it opens its list; dragging one back here takes it out.'),
-				catalogBody,
-				E('div', { 'class': 'ikev2-actions' }, [ catalogSearch, newServiceButton ])) ]) ]),
+			E('section', { 'class': 'ikev2-section ikev2-board-side' }, [
+				E('div', { 'class': 'ikev2-board-sticky' }, [
+					E('div', { 'class': 'ikev2-section-head' }, [
+						E('div', {}, [ E('h3', {}, [ _('Catalogue') ]), E('p', {}, [ _('Prepared services and your own. A click adds one to the highlighted field, the button on it opens its list; dragging one back here takes it out.') ]) ]),
+						E('div', { 'class': 'ikev2-actions' }, [ catalogSearch, newServiceButton ])
+					]),
+					catalogBody
+				])
+			]) ]) ]),
 			dialogHost,
 			buildSourcesSection(data[7]),
 			E('div', { 'class': 'ikev2-destination-editors' }, [

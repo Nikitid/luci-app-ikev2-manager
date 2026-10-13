@@ -211,7 +211,7 @@ async function main() {
  assert.deepStrictEqual(reportAsked, ['alice']);
  assert(reportField.value.includes('device_no_services') && reportField.value.includes('access_closed') && !button(modal,'Copy').disabled);
  const unavailable = page.render([[{code:1,stdout:''},data()[1]], null]);
- assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT' && n.attrs.type !== 'search'), 'nothing to edit while the state is unavailable');
+ assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT' && n.attrs['class'] !== 'ikev2-search'), 'nothing to edit while the state is unavailable');
  // First activation: only the setup section is offered, and it stages one request.
  const fresh = { version: 1, initialized: false, enabled: false, port: 8443, server_enabled: true, server_identity: 'vpn.example.com', tunnels: ['1', '2'] };
  const first = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(fresh)}], null]);

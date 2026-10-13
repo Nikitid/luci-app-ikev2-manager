@@ -1700,19 +1700,20 @@ var CSS = `
 			@container (min-width: 68rem) {
 				.ikev2-board {
 					grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
-					align-items: start;
 				}
-				.ikev2-board > .ikev2-section:last-child {
+				/* Both cards are as tall as the taller one, so their edges line
+				   up; what the catalogue holds stays in view inside its card
+				   while the fields scroll. */
+				.ikev2-board { align-items: stretch; }
+				.ikev2-board-side > .ikev2-board-sticky {
 					position: sticky;
 					top: var(--ikev2-s4);
-					max-height: calc(100vh - 2 * var(--ikev2-s4));
+					max-height: calc(100vh - 2 * var(--ikev2-s4) - 5rem);
 					overflow: auto;
 				}
-				.ikev2-board > .ikev2-section:last-child .ikev2-section-head { display: block; }
-				.ikev2-board > .ikev2-section:last-child .ikev2-section-head .ikev2-actions {
-					margin-top: var(--ikev2-s3);
-				}
-				.ikev2-board > .ikev2-section:last-child .ikev2-section-head input { flex: 1 1 8rem; min-width: 0; }
+				.ikev2-board-side .ikev2-section-head { display: block; }
+				.ikev2-board-side .ikev2-section-head .ikev2-actions { margin-top: var(--ikev2-s3); }
+				.ikev2-board-side .ikev2-section-head input { flex: 1 1 8rem; min-width: 0; }
 			}
 			/* Opens a service that lies in the catalogue. Part of its chip. */
 			.ikev2-chip-open {
@@ -1736,7 +1737,11 @@ var CSS = `
 				color: var(--ikev2-accent);
 			}
 			/* Save stays within reach on a page longer than the screen. */
-			.ikev2-page > .ikev2-save-bar.ikev2-save-bar-sticky {
+			.ikev2-page .ikev2-save-bar.ikev2-save-bar-sticky {
+				margin: var(--ikev2-s4) 0;
+				padding: var(--ikev2-s4) var(--ikev2-s5);
+				border: 1px solid var(--ikev2-border);
+				border-radius: var(--ikev2-radius);
 				position: sticky;
 				bottom: var(--ikev2-s3);
 				z-index: 5;
@@ -1747,7 +1752,7 @@ var CSS = `
 				backdrop-filter: blur(18px);
 			}
 			@media (max-width: 640px) {
-				.ikev2-page > .ikev2-save-bar.ikev2-save-bar-sticky > .ikev2-field-help { display: none; }
+				.ikev2-page .ikev2-save-bar.ikev2-save-bar-sticky > .ikev2-field-help { display: none; }
 			}
 			.ikev2-route-chip { cursor: grab; }
 			.ikev2-route-chip:focus-visible {
@@ -2118,6 +2123,25 @@ var CSS = `
 			.ikev2-page .ikev2-seg button:focus-visible {
 				outline: 2px solid var(--ikev2-accent);
 				outline-offset: 1px;
+			}
+			/* Panels under a row of tabs, in one card. What a panel holds is
+			   a section of its own elsewhere; here the card is the tabs'. */
+			.ikev2-page .ikev2-tabs-row { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; }
+			.ikev2-page .ikev2-tabs-row button { padding: .42rem .95rem; font-size: .88rem; }
+			.ikev2-page .ikev2-tabs-panel { margin-top: var(--ikev2-s4); min-width: 0; }
+			.ikev2-page .ikev2-tabs.ikev2-section > .ikev2-tabs-panel > .ikev2-section,
+			.ikev2-page .ikev2-tabs.ikev2-section > .ikev2-tabs-panel > div > .ikev2-section {
+				margin: 0;
+				padding: 0;
+				border: 0;
+				border-radius: 0;
+				background: transparent;
+				box-shadow: none;
+			}
+			.ikev2-page .ikev2-tabs.ikev2-section > .ikev2-tabs-panel > div > .ikev2-section + .ikev2-section {
+				margin-top: var(--ikev2-s5);
+				padding-top: var(--ikev2-s5);
+				border-top: 1px solid var(--ikev2-border);
 			}
 			.ikev2-page .ikev2-quality-verdict {
 				display: flex;
@@ -2591,6 +2615,44 @@ function section(title, description, content, actions) {
 		]),
 		content
 	]);
+}
+
+// Several panels under one row of tabs, in one card, one panel shown at a
+// time. With `collapsible` none is open until asked for and a second click
+// closes it: for what is looked at now and then, kept out of the way. The
+// node carries hideTab(index, hidden) for a panel that does not apply.
+function tabs(items, options) {
+	options = options || {};
+	var current = options.collapsible ? -1 : (options.open || 0);
+	var buttons = [], panels = [];
+	function draw() {
+		items.forEach(function(item, index) {
+			buttons[index].setAttribute('aria-pressed', index === current ? 'true' : 'false');
+			panels[index].style.display = index === current ? '' : 'none';
+		});
+	}
+	items.forEach(function(item, index) {
+		var button = E('button', { 'type': 'button', 'aria-pressed': 'false' }, [ item.title ]);
+		button.addEventListener('click', function() {
+			current = options.collapsible && current === index ? -1 : index;
+			draw();
+			if (options.onShow)
+				options.onShow(current);
+		});
+		buttons.push(button);
+		panels.push(E('div', { 'class': 'ikev2-tabs-panel', 'style': 'display:none' }, [ item.content ]));
+	});
+	var node = E('div', { 'class': 'ikev2-tabs' + (options.bare ? '' : ' ikev2-section') }, [
+		E('div', { 'class': 'ikev2-seg ikev2-tabs-row', 'role': 'group' }, buttons)
+	].concat(panels));
+	node.hideTab = function(index, hidden) {
+		buttons[index].style.display = hidden ? 'none' : '';
+		if (hidden && current === index)
+			current = options.collapsible ? -1 : 0;
+		draw();
+	};
+	draw();
+	return node;
 }
 
 // Advanced options belong to the section they modify. A square toggle in that
@@ -3313,5 +3375,6 @@ return baseclass.extend({
 	runJob: runJob,
 	formState: formState,
 	trackChanges: trackChanges,
+	tabs: tabs,
 	copyText: copyText
 });

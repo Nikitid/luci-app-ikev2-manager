@@ -14,23 +14,29 @@
 		"order": 5,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/setup-v14"
+			"path": "ikev2-manager/setup-v15"
 		}
 	},
 	"admin/services/ikev2-manager/server": {
-		"title": "Inbound Server",
-		"order": 40,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/settings-v11"
+			"path": "ikev2-manager/tunnels-v1"
 		}
 	},
 	"admin/services/ikev2-manager/client": {
-		"title": "Outbound Tunnel",
+		"title": "Tunnels",
 		"order": 20,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/client-v14"
+			"path": "ikev2-manager/tunnels-v1"
+		}
+	},
+	"admin/services/ikev2-manager/dns": {
+		"title": "DNS",
+		"order": 35,
+		"action": {
+			"type": "view",
+			"path": "ikev2-manager/dns-v1"
 		}
 	},
 	"admin/services/ikev2-manager/routing": {
@@ -38,7 +44,7 @@
 		"order": 30,
 		"action": {
 			"type": "view",
-			"path": "ikev2-domains/editor-v14"
+			"path": "ikev2-domains/editor-v15"
 		}
 	},
 	"admin/services/ikev2-manager/remote-clients": {
@@ -46,7 +52,7 @@
 		"order": 55,
 		"action": {
 			"type": "view",
-			"path": "ikev2-manager/remote-clients-v25"
+			"path": "ikev2-manager/remote-clients-v26"
 		}
 	}
 }

@@ -13,7 +13,7 @@ One OpenWrt package, `luci-app-ikev2-manager`, containing three things:
   scripts and by the LuCI pages through rpcd; structured data (strongSwan SA
   snapshots, the sing-box configuration, installed nftables tables) is read
   and written by ucode scripts in `ikev2-manager-runtime/lib/*.uc`
-- **LuCI pages** - six views plus a status-overview widget, all built on one
+- **LuCI pages** - seven views and panels plus a status-overview widget, all built on one
   shared design system rather than stock CBI
 - **checks** - 66 scripts under `scripts/`, run as one suite by
   `scripts/ci-check.sh`; `scripts/ensure-ucode.sh` builds the pinned ucode
@@ -111,16 +111,18 @@ upgraded, so a stable name would serve stale code to the browser.
 
 | page | source | installed as |
 | --- | --- | --- |
-| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v14.js` |
-| Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v14.js` |
-| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v14.js` |
-| Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v11.js` |
-| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v25.js` |
-| VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v3.js`, shown on the Users page |
+| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v15.js` |
+| Tunnels | `luci-ikev2-manager/tunnels.js` | `view/ikev2-manager/tunnels-v1.js`: the two panels below under two tabs |
+| DNS | `luci-ikev2-manager/dns.js` | `view/ikev2-manager/dns-v1.js`: the DNS part of the outbound panel |
+| Outbound tunnels and DNS panel | `luci-ikev2-manager/client.js` | `ikev2-manager/outbound-panel-v1.js`; `parts()` returns `tunnel` and `dns` |
+| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v15.js` |
+| Inbound server panel | `luci-ikev2-manager/settings.js` | `ikev2-manager/inbound-panel-v1.js`; `parts()` returns `server` |
+| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v26.js` |
+| VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v4.js`, shown on the Users page |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
 `luci-ikev2-manager/shared.js` is the design system and the action lifecycle
-used by all of them; it installs as `shared-v15.js`. Russian strings live in
+used by all of them; it installs as `shared-v16.js`. Russian strings live in
 `po/ru/ikev2-manager.po`, compiled by `scripts/po2lmo.py` into
 `/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo`, which LuCI's own `_()` reads.
 `luci-ikev2-manager/menu.json` wires the pages, `acl.json` grants every helper

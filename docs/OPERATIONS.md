@@ -395,7 +395,7 @@ CPU; hardware flow offload only accelerates forwarded traffic. A high CPU
 figure is therefore the router's limit as a client, not what devices on the LAN
 get over the direct path. Fewer streams load it less.
 
-The Outbound Tunnel page shows the same data as Connection quality: the
+The Tunnels page shows the same data as Connection quality: the
 verdict, four figures, a latency curve for one hour, six hours or a day with
 loss, outages, maintenance and events marked on it, the event list and the
 speed test with its settings. The overview shows one line for the last hour.
@@ -773,7 +773,7 @@ ignores cache freshness and prints its `action_id`.
 
 ## Inbound user access
 
-Inbound Server access settings are global defaults. The Users page can
+The access settings of the inbound server (Tunnels page) are global defaults. The Users page can
 override each managed EAP user:
 
 - router access: inherit, allow or deny;
