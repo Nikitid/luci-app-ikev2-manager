@@ -94,6 +94,11 @@ namespace IkeV2Manager.Client
                 {
                     if (response != null && response.StatusCode == HttpStatusCode.Unauthorized)
                         throw new EnrollmentException("enrollment_access_rejected");
+                    // The router answered, and said it cannot serve this now:
+                    // another registration holds the ledger, or too many
+                    // requests came at once. That is not a lost connection.
+                    if (response != null && ((int)response.StatusCode == 503 || (int)response.StatusCode == 429))
+                        throw new EnrollmentException("enrollment_server_busy");
                 }
                 throw new EnrollmentException("enrollment_connection_failed");
             }

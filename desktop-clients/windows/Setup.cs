@@ -191,7 +191,23 @@ internal static class Setup
         string self = Path.Combine(Destination, "Setup.exe");
         if (!String.Equals(Path.GetFullPath(Assembly.GetExecutingAssembly().Location), self, StringComparison.OrdinalIgnoreCase))
             Inherit(self, () => File.Copy(Assembly.GetExecutingAssembly().Location, self, true));
-        if (!exists) Run("sc.exe", "create " + Name + " binPath= \"\\\"" + ServicePath + "\\\"\" start= auto DisplayName= \"" + Title + "\"");
+        // The entry Windows removes the program by is written as soon as the
+        // files are in place, before anything that can fail: a setup that
+        // stopped at the service used to leave a program with files, a
+        // service and nothing in the list of installed programs to remove
+        // it with.
+        using (var key = Registry.LocalMachine.CreateSubKey(UninstallKey))
+        {
+            key.SetValue("DisplayName", Title);
+            key.SetValue("DisplayVersion", Assembly.GetExecutingAssembly().GetName().Version.ToString(3));
+            key.SetValue("Publisher", "Waypoint");
+            key.SetValue("InstallLocation", Destination);
+            key.SetValue("DisplayIcon", AppPath);
+            key.SetValue("UninstallString", "\"" + self + "\" /uninstall");
+            key.SetValue("QuietUninstallString", "\"" + self + "\" /uninstall /quiet");
+            key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+            key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+            if (!exists) Run("sc.exe", "create " + Name + " binPath= \"\\\"" + ServicePath + "\\\"\" start= auto DisplayName= \"" + Title + "\"");
         else Run("sc.exe", "config " + Name + " start= auto");
         Run("sc.exe", "description " + Name + " \"Keeps selected services inside the organization's IKEv2 tunnel and blocks them outside it.\"");
         Run("sc.exe", "failure " + Name + " reset= 86400 actions= restart/5000/restart/15000/restart/60000");
@@ -205,18 +221,7 @@ internal static class Setup
         link.GetType().InvokeMember("TargetPath", BindingFlags.SetProperty, null, link, new object[] { AppPath });
         link.GetType().InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, link, new object[] { Destination });
         link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
-        using (var key = Registry.LocalMachine.CreateSubKey(UninstallKey))
-        {
-            key.SetValue("DisplayName", Title);
-            key.SetValue("DisplayVersion", Assembly.GetExecutingAssembly().GetName().Version.ToString(3));
-            key.SetValue("Publisher", "Waypoint");
-            key.SetValue("InstallLocation", Destination);
-            key.SetValue("DisplayIcon", AppPath);
-            key.SetValue("UninstallString", "\"" + self + "\" /uninstall");
-            key.SetValue("QuietUninstallString", "\"" + self + "\" /uninstall /quiet");
-            key.SetValue("NoModify", 1, RegistryValueKind.DWord);
-            key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-        }
+    }
     }
 
     // Everything the program set up on this computer goes - the VPN

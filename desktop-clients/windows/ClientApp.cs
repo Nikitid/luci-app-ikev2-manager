@@ -188,6 +188,19 @@ namespace IkeV2Manager.Client
         private readonly Button update = new Button { Text = "Обновить", AutoSize = true, Visible = false, TabStop = false };
         // The one place downloads come from. The router supplies a version
         // number and nothing else.
+        // What a registration that has not finished is waiting for, in words.
+        private static string RegistrationNote(string code)
+        {
+            switch (code)
+            {
+                case null: case "": case "none": return null;
+                case "enrollment_connection_failed": return "Нет связи с сервером. Попытка повторится сама.";
+                case "enrollment_server_busy": return "Сервер занят другой регистрацией. Попытка повторится сама.";
+                case "enrollment_access_rejected": return "Ссылка недействительна, истекла или уже использована. Попросите у администратора новую.";
+                default: return "Сервер ответил не так, как ожидалось (" + code + "). Попытка повторится сама; если не проходит, нажмите «Отчёт…» и передайте его администратору.";
+            }
+        }
+
         private const string Downloads = "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v";
         // Set by a registration started in this window: the first thing a newly
         // registered device wants is its connection.
@@ -542,13 +555,14 @@ namespace IkeV2Manager.Client
                     break;
                 case "registration_pending":
                     heading = "Регистрация";
-                    description = code == "enrollment_connection_failed" ? "Нет связи с сервером." :
-                        code == "enrollment_access_rejected" ? "Приглашение недействительно. Запросите новое." :
-                        code != "none" ? "Неожиданный ответ сервера (" + code + ")." : "Ожидается ответ сервера.";
+                    description = RegistrationNote(code) ?? "Ожидается ответ сервера.";
                     break;
                 case "registration_error":
-                    heading = "Ошибка регистрации";
-                    description = "Настройки не получены. Повторите регистрацию.";
+                    // The service goes on trying by itself; the window says
+                    // what stands in the way and whether anything is asked
+                    // of the person.
+                    heading = code == "enrollment_access_rejected" ? "Ссылка не принята" : "Регистрация не завершена";
+                    description = RegistrationNote(code) ?? "Настройки пока не получены. Попытка повторится сама.";
                     break;
                 case "connecting":
                     heading = "Подключение";
