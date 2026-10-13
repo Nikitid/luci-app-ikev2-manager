@@ -243,8 +243,9 @@ included: a link lasts up to a week. Only a place the ledger still holds open
 is answered; the kept link goes with the link's own end and the moment it is
 withdrawn or replaced. The state, the ledger and the journal still hold
 digests only, and a backup does not carry the directory. The page also lists
-what became of the places that wait no longer - used, withdrawn, expired -
-for thirty days, and for each waiting link whether a letter with it was taken
+what became of the places that wait no longer, for as long as the ledger
+keeps them: a used place for thirty days, a withdrawn or unused one for a day
+after its link ended, and for each waiting link whether a letter with it was taken
 by the mail server, refused, or never sent. That the server took a letter is
 all the router knows; delivery is the mail server's affair.
 

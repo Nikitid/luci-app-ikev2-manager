@@ -46,8 +46,9 @@ try {
     push(inspected.waiting, { id: item.id, selected_services: item.selected_services, expires_seconds: item.expires_at - now,
      owner: labels[item.id]?.owner ?? '', note: labels[item.id]?.note ?? '', mode: labels[item.id]?.full === true ? 'full' : 'services',
      email: labels[item.id]?.email ?? '', kept: showable[item.id] === true });
-  // What became of the places that wait no longer, for the last thirty days:
-  // used by a device, withdrawn, or run out unused.
+  // What became of the places that wait no longer: used by a device,
+  // withdrawn, or run out unused. The ledger itself lets go of a withdrawn or
+  // unused place a day after its link ended, so those are listed that long.
   inspected.past = [];
   for (let item in (ledger?.invitations ?? [])) {
    if ((item.status == 'issued' && item.expires_at > now) || now - (item.issued_at ?? 0) > 2592000) continue;
