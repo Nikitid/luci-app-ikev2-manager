@@ -471,6 +471,49 @@ run_helper _apply-service 200-keep keep0001
 grep -Fxq customsvc "$tmp/selected"
 grep -Fxq custom-renamed.example "$tmp/domains"
 
+# The form can say where the service goes: it is then saved, put in use and
+# routed there in the one operation, and taken out of use the same way.
+stage_service() {
+	printf '%s\n' "$2" | tr '|' '\n' >"$tmp/service-input-$1.meta"
+	printf '%s' "$3" >"$tmp/service-input-$1.domains"
+	: >"$tmp/service-input-$1.cidrs"
+}
+stage_service plac0001 'operation=save|id=customsvc|label=Renamed custom service|selected=keep|place=wan' 'custom-renamed.example
+'
+run_helper _apply-service 200-place plac0001 || { cat "$tmp/log" >&2; exit 1; }
+grep -Fxq customsvc "$tmp/selected"
+grep -Fxq 'customsvc wan' "$tmp/exits"
+! grep -Fxq custom-renamed.example "$tmp/domains"
+stage_service plac0002 'operation=save|id=customsvc|label=Renamed custom service|selected=keep|place=1' 'custom-renamed.example
+'
+run_helper _apply-service 200-place2 plac0002 || { cat "$tmp/log" >&2; exit 1; }
+! grep -q '^customsvc ' "$tmp/exits"
+grep -Fxq custom-renamed.example "$tmp/domains"
+# Only placed: what the service is stays untouched, and "none" takes it out.
+before="$(cat "$tmp/user/customsvc.lst")"
+stage_service plac0003 'operation=place|id=customsvc|label=|selected=keep|place=none' ''
+run_helper _apply-service 200-place3 plac0003 || { cat "$tmp/log" >&2; exit 1; }
+! grep -Fxq customsvc "$tmp/selected"
+[ "$(cat "$tmp/user/customsvc.lst")" = "$before" ]
+stage_service plac0004 'operation=place|id=customsvc|label=|selected=keep|place=1' ''
+run_helper _apply-service 200-place4 plac0004 || { cat "$tmp/log" >&2; exit 1; }
+grep -Fxq customsvc "$tmp/selected"
+[ "$(cat "$tmp/user/customsvc.lst")" = "$before" ]
+# A place that is not one, or a service that does not exist, changes nothing.
+for bad in 'place=9z' 'place=../x'; do
+	stage_service plac0005 "operation=place|id=customsvc|label=|selected=keep|$bad" ''
+	if run_helper _apply-service 200-place5 plac0005 2>/dev/null; then
+		printf 'accepted a bad place: %s\n' "$bad" >&2
+		exit 1
+	fi
+done
+stage_service plac0006 'operation=place|id=nosuchsvc|label=|selected=keep|place=1' ''
+if run_helper _apply-service 200-place6 plac0006 2>/dev/null; then
+	printf 'placed a service that does not exist\n' >&2
+	exit 1
+fi
+! grep -Fxq nosuchsvc "$tmp/selected"
+
 # A newly created service stays disabled until the page-level policy Save.
 cat >"$tmp/service-input-off00001.meta" <<'EOF'
 operation=save

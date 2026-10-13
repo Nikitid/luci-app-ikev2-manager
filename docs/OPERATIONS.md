@@ -532,9 +532,15 @@ nft list chain inet ikev2_routing prerouting | grep bypass
 Prepared services are edited from **Manage services**. This stores a complete
 local override; **Restore prepared service** removes only that override after
 confirmation. **Add service** creates a separately named domain/CIDR list, so
-large definitions do not accumulate in the common custom-domain field. The
-editor changes definitions only. Service chips stage policy selection and the
-page-level **Save** applies that selection. Definitions live in
+large definitions do not accumulate in the common custom-domain field. A
+service is opened from its chip in a field (**Edit** in the action bar) or by
+the button on its chip in the catalogue. **Where it goes** in its window is
+applied with **Save service**: the service is saved, put in use and routed in
+that one step, or taken out of use with **Not in use**. A prepared service
+whose lists were left as they are is only placed and keeps its source. Chips
+moved on the board are staged, and the page-level **Save** applies them. A
+service published to remote clients cannot be deleted until it is withdrawn on
+the Users page. Definitions live in
 `/etc/ikev2-manager/services.d/` and are included in sysupgrade preservation.
 
 Clients must use router DNS for domain routing. Custom IPv4/CIDR entries and

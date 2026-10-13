@@ -398,9 +398,12 @@ service creates a complete local override in
 `/etc/ikev2-manager/services.d/`; it is never merged with later provider
 changes. A user service follows an external list only at an address its
 administrator entered (`<service>.source`). User-created services use the same directory and remain distinct from
-the common manual domain list. Definition changes preserve the independently
-staged service selection; deleting a custom service also removes it from that
-selection. Saving, resetting or deleting a definition rebuilds the active
+the common manual domain list. The service window also says where the
+service goes, and the router stores that with the definition in one operation;
+a service whose lists were not touched is only placed (`operation=place`), so a
+prepared service keeps following its source. Deleting a custom service removes
+it from the selection, and is refused while the service is published to remote
+clients. Saving, resetting or deleting a definition rebuilds the active
 policy under one lock. If validation or the routing restart fails, both the
 service definition and selection are restored.
 

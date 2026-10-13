@@ -1052,11 +1052,107 @@ function saveServiceDialog() {
 	}).listeners.click();
 	return new Promise(function(resolve) { setTimeout(resolve, 5); }).then(function() {
 		fsStub.write = writeBefore;
-		if (!/^operation=save\nid=work_portal\nlabel=Work Portal\nselected=keep\nmode=route\nurl=https:\/\/lists\.example\/portal\?v=1\n$/.test(written.meta || ''))
-			fail('a new service is not stored under an identifier from its name, with the list it follows: ' + JSON.stringify(written.meta));
+		if (!/^operation=save\nid=work_portal\nlabel=Work Portal\nselected=keep\nmode=route\nurl=https:\/\/lists\.example\/portal\?v=1\nplace=1\n$/.test(written.meta || ''))
+			fail('a new service is not stored under an identifier from its name, with the list it follows and where it goes: ' + JSON.stringify(written.meta));
 		if (written.domains !== 'portal.example\nstatic.portal.example\n' || written.cidrs !== '203.0.113.0/24\n')
 			fail('the domains and the addresses of a service are not stored apart: ' + JSON.stringify(written));
-	}).then(editServiceDialog);
+	}).then(editServiceDialog).then(catalogServiceDialog);
+}
+// A service that lies in the catalogue is opened by the button on its chip.
+// Given a place with its lists untouched it is only placed - a prepared
+// service must not become a local copy that stops following its source - and
+// with a changed list it is saved; either way the router is told where it
+// goes, and the page's own Save has nothing left to save.
+function catalogServiceDialog() {
+	const page = editor.render([
+		'', '', policyStatus, { code: 0, stdout: 'openai|openai|builtin|0|0|route\n' },
+		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
+		{ code: 0, stdout: '' }, ''
+	]);
+	const written = {};
+	const execBefore = fsStub.exec, writeBefore = fsStub.write;
+	fsStub.exec = function(file, args) {
+		const line = (args || []).join(' ');
+		if (line === 'service-read openai')
+			return Promise.resolve({ code: 0, stdout: 'label=openai\nurl=\n---domains---\nopenai.com\n---cidrs---\n' });
+		if (line.indexOf('service-schedule') === 0)
+			return Promise.resolve({ code: 0, stdout: 'action_id=7-7\n' });
+		if (line === 'status 7-7')
+			return Promise.resolve({ code: 0, stdout: 'action_id=7-7\nstate=ok\n' });
+		if (line === 'services')
+			return Promise.resolve({ code: 0, stdout: 'openai|openai|builtin|0|0|route\n' });
+		return Promise.resolve({ code: 0, stdout: '' });
+	};
+	fsStub.write = function(file, content) { written[file.replace(/^.*\./, '')] = content; return Promise.resolve(); };
+	// The action lifecycle keeps a busy state visible for a moment; here the
+	// page's timers run at once so the whole action can be followed.
+	// The status of the action is read through resolveDefault, which this
+	// harness otherwise answers with the default alone.
+	const timerBefore = windowStub.setTimeout, resolveBefore = L.resolveDefault;
+	windowStub.setTimeout = function(fn) { setTimeout(fn, 0); };
+	L.resolveDefault = function(promise, fallback) {
+		return Promise.resolve(promise).catch(function() { return fallback; });
+	};
+	const tick = function() { return new Promise(function(resolve) { setTimeout(resolve, 40); }); };
+	function openWindow() {
+		const chip = boardChip(page, 'openai');
+		const open = chip && nodesOf(chip).find(function(node) { return node.attrs && node.attrs['data-act'] === 'open'; });
+		if (!open) fail('a service in the catalogue cannot be opened');
+		open.listeners.click({ stopPropagation: function() {}, preventDefault: function() {} });
+		return tick().then(function() {
+			const dialog = nodesOf(page).find(function(node) { return hasClass(node, 'ikev2-dialog'); });
+			if (!dialog) fail('the button on a catalogue service opens no window');
+			return dialog;
+		});
+	}
+	function fieldsOf(dialog) {
+		return nodesOf(dialog).filter(function(node) {
+			return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
+		});
+	}
+	function save(dialog) {
+		nodesOf(dialog).find(function(node) {
+			return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save service';
+		}).listeners.click();
+		return tick();
+	}
+	return openWindow().then(function(dialog) {
+		if (chipsIn(page, 'catalog') !== 'openai')
+			fail('opening a catalogue service put it into a field');
+		const fields = fieldsOf(dialog);
+		if (fields[1].value !== 'openai.com' || fields[4].value !== '')
+			fail('the window of a catalogue service does not show its list and that it is not in use');
+		fields[4].value = '1';
+		return save(dialog);
+	}).then(function() {
+		if (!/^operation=place\nid=openai\n(.*\n)*place=1\n$/.test(written.meta || ''))
+			fail('placing an untouched prepared service saved a copy of it: ' + JSON.stringify(written.meta));
+		if (chipsIn(page, '1').indexOf('openai') < 0)
+			fail('a service placed from its window is not shown in its field: ' + boardState(page) + ' / ' + nodesOf(page).filter(function(n) { return hasClass(n, 'ikev2-result'); }).map(textOf).join('|'));
+		const pageSave = nodesOf(page).filter(function(node) {
+			return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save';
+		})[0];
+		if (pageSave && !pageSave.disabled)
+			fail('a service the router already placed is offered for saving again');
+		// The service just placed is the chosen one: its actions are in the bar.
+		if (!barControl(page, 'edit'))
+			fail('a service placed from its window is not the chosen one afterwards');
+		barControl(page, 'edit').listeners.click();
+		return tick();
+	}).then(function() {
+		const dialog = nodesOf(page).find(function(node) { return hasClass(node, 'ikev2-dialog'); });
+		const fields = fieldsOf(dialog);
+		fields[1].value = 'openai.com\nextra.example';
+		return save(dialog);
+	}).then(function() {
+		fsStub.exec = execBefore;
+		fsStub.write = writeBefore;
+		windowStub.setTimeout = timerBefore;
+		L.resolveDefault = resolveBefore;
+		if (!/^operation=save\nid=openai\n(.*\n)*place=1\n$/.test(written.meta || '') ||
+		    written.domains !== 'openai.com\nextra.example\n')
+			fail('a changed list was not saved with the place of its service: ' + JSON.stringify(written));
+	});
 }
 // An existing service of one's own: Edit reads its definition, a changed form
 // is not thrown away without asking, and Delete removes the service.

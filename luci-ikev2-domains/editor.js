@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v14 as common';
+'require ikev2-manager.shared-v15 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -81,10 +81,10 @@ function severalTunnels() {
 // earlier release marked as never through the tunnel stays there until it is
 // moved. A tunnel the router no longer has sends its targets to the first,
 // and with one tunnel there is nothing to be bound against.
-function placeOf(target) {
+function placeOf(target, exits) {
 	var own = target.charAt(0) === '@';
 	var record = own ? null : recordOf(target);
-	var token = serviceExits[target] || (record && record.mode === 'exclude' ? 'wan' : '1');
+	var token = (exits || serviceExits)[target] || (record && record.mode === 'exclude' ? 'wan' : '1');
 	if (token === 'wan')
 		return own ? '1' : 'wan';
 	var index = token.charAt(0);
@@ -102,6 +102,14 @@ function exitsText() {
 			return '';
 		return target + ' ' + token + '\n';
 	}).join('');
+}
+
+// What the board holds, as one string: which services are in use and where
+// each of them and the two own lists go.
+function placementOf(selection, exits) {
+	return [ '@domains', '@cidrs' ].concat(Object.keys(selection).sort()).map(function(target) {
+		return target + ' ' + placeOf(target, exits);
+	}).join('\n');
 }
 
 // An identifier for a new service from its name: the helper wants lowercase
@@ -677,6 +685,11 @@ return view.extend({
 		var serviceBusy = false;
 		var saveBtn;
 		var policyTracker = null;
+		// What the router holds: the board as it was loaded or last saved, and
+		// every service saved from its own window since. Save compares against
+		// it, so a service saved in its window is not offered for saving again.
+		var storedSelection = Object.assign({}, serviceSelection);
+		var storedExits = Object.assign({}, serviceExits);
 		var dialogTracker = null;
 		var dialogControls = [];
 		var editingService = null;
@@ -836,7 +849,30 @@ return view.extend({
 				record && record.ip === '1' ? E('span', {
 					'class': 'ikev2-chip-mark',
 					'title': _('Includes direct service IP networks')
-				}, [ 'IP' ]) : ''
+				}, [ 'IP' ]) : '',
+				// A service that is not in use can still be opened: to look at
+				// its list, change it or put it into a field from its window.
+				!placed && record ? (function() {
+					var open = E('button', {
+						'class': 'ikev2-chip-open',
+						'type': 'button',
+						'data-act': 'open',
+						'title': _('Open: its list and where it goes'),
+						'aria-label': _('Open %s').format(targetTitle(target))
+					}, [ common.icon('sliders') ]);
+					open.addEventListener('click', function(ev) {
+						if (ev && ev.stopPropagation)
+							ev.stopPropagation();
+						if (ev && ev.preventDefault)
+							ev.preventDefault();
+						requestService(record, open);
+					});
+					open.addEventListener('keydown', function(ev) {
+						if (ev && ev.stopPropagation)
+							ev.stopPropagation();
+					});
+					return open;
+				})() : ''
 			]);
 			function activate() {
 				if (serviceBusy)
@@ -1087,13 +1123,14 @@ return view.extend({
 			});
 		}
 
-		function serviceMeta(operation, id, label, mode, url) {
+		function serviceMeta(operation, id, label, mode, url, place) {
 			return 'operation=' + operation + '\n' +
 				'id=' + id + '\n' +
 				'label=' + label + '\n' +
 				'selected=' + (operation === 'delete' ? '0' : 'keep') + '\n' +
 				'mode=' + mode + '\n' +
-				'url=' + (url || '') + '\n';
+				'url=' + (url || '') + '\n' +
+				(operation === 'save' || operation === 'place' ? 'place=' + (place || 'none') + '\n' : '');
 		}
 
 		function reconcileServiceRecord(operation, previous, id, label, hasCidrs) {
@@ -1157,7 +1194,10 @@ return view.extend({
 				'203.0.113.0/24');
 			var listAddress = E('input', {
 				'class': 'cbi-input-text',
-				'type': 'url',
+				// A plain text field: the themes style those, and the address
+				// is checked by the page and by the router.
+				'type': 'text',
+				'inputmode': 'url',
 				'autocomplete': 'off',
 				'spellcheck': 'false',
 				'placeholder': 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/example',
@@ -1191,6 +1231,15 @@ return view.extend({
 					place: place.value
 				};
 			}
+			// What the window opened with. A service whose name and lists were
+			// not touched is only put somewhere: saving it must not turn a
+			// prepared service into a local copy that stops following its source.
+			var opened = form();
+			function onlyPlaced() {
+				var now = form();
+				return !!record && now.name === opened.name && now.domains === opened.domains &&
+					now.cidrs === opened.cidrs && now.url === opened.url;
+			}
 			function run(button, busyLabel, operation) {
 				return runPageAction({
 					button: button,
@@ -1208,7 +1257,9 @@ return view.extend({
 					return;
 				closeDialog();
 			}
-			save.addEventListener('click', function() { return run(save, _('Saving service...'), 'save'); });
+			save.addEventListener('click', function() {
+				return run(save, _('Saving service...'), onlyPlaced() ? 'place' : 'save');
+			});
 			cancel.addEventListener('click', dismiss);
 			if (reset)
 				reset.addEventListener('click', function() {
@@ -1332,7 +1383,7 @@ return view.extend({
 				// The mark of an earlier release is kept as it is: where the
 				// service goes is the board's to say, and the board overrides it.
 				fs.write(prefix + '.meta', serviceMeta(operation, id, label,
-					previous && previous.mode === 'exclude' ? 'exclude' : 'route', form.url), 384),
+					previous && previous.mode === 'exclude' ? 'exclude' : 'route', form.url, form.place), 384),
 				fs.write(prefix + '.domains', domains.join('\n') + (domains.length ? '\n' : ''), 384),
 				fs.write(prefix + '.cidrs', cidrs.join('\n') + (cidrs.length ? '\n' : ''), 384)
 			]).then(function() {
@@ -1357,24 +1408,30 @@ return view.extend({
 					result.warn(_('The operation is still running in the background.'));
 					return;
 				}
-				if (!refreshed)
+				if (!refreshed && operation !== 'place')
 					reconcileServiceRecord(operation, previous, id, label, cidrs.length > 0);
-				if (operation === 'delete' || (operation === 'save' && form.place === '')) {
+				// The router saved where the service goes together with it: the
+				// board and what Save compares against both follow.
+				var saved = operation === 'save' || operation === 'place';
+				if (operation === 'delete' || (saved && form.place === '')) {
 					delete serviceSelection[id];
 					delete serviceExits[id];
+					delete storedSelection[id];
+					delete storedExits[id];
 				}
-				else if (operation === 'save') {
-					serviceSelection[id] = true;
-					serviceExits[id] = form.place;
+				else if (saved) {
+					serviceSelection[id] = storedSelection[id] = true;
+					serviceExits[id] = storedExits[id] = form.place;
 					chosen = id;
 				}
 				closeDialog();
 				drawBoard();
 				var success = operation === 'delete' ? _('Custom service deleted and policy rebuilt.') :
 					(operation === 'reset' ? _('Prepared service restored and policy rebuilt.') :
-					 _('Service saved. Active policy was rebuilt when required.'));
+					 (form.place === '' ? _('Service saved. It is not in use: put it into a field to route it.') :
+					  _('Service saved and routed: %s.').format(zoneName(form.place))));
 				if (policyTracker && policyTracker.dirty())
-					success += ' ' + _('Press Save to apply where it goes.');
+					success += ' ' + _('Other changes on the board are not saved yet: press Save.');
 				if (refreshed)
 					serviceResult.ok(success);
 				else
@@ -1435,7 +1492,9 @@ return view.extend({
 						])
 					])
 				])),
-			common.section(_('Routes'),
+			// The fields and the catalogue side by side while the page is wide:
+			// a service is dragged across, not past a screen of other things.
+			E('div', { 'class': 'ikev2-board-wrap' }, [ E('div', { 'class': 'ikev2-board' }, [ common.section(_('Routes'),
 				several ?
 					_('Each field is a tunnel, and what lies in it goes through that tunnel. With backup a service moves to another tunnel while its own is down; without, it waits for its own and is refused meanwhile. Nothing goes to the WAN in either case.') :
 					_('What lies in the first field goes through the tunnel; everything else continues through the normal WAN.'),
@@ -1445,9 +1504,9 @@ return view.extend({
 					serviceResult.node
 				])),
 			common.section(_('Catalogue'),
-				_('Prepared services and your own. A click adds one to the highlighted field; dragging one back here takes it out.'),
+				_('Prepared services and your own. A click adds one to the highlighted field, the button on it opens its list; dragging one back here takes it out.'),
 				catalogBody,
-				E('div', { 'class': 'ikev2-actions' }, [ catalogSearch, newServiceButton ])),
+				E('div', { 'class': 'ikev2-actions' }, [ catalogSearch, newServiceButton ])) ]) ]),
 			dialogHost,
 			buildSourcesSection(data[7]),
 			E('div', { 'class': 'ikev2-destination-editors' }, [
@@ -1599,8 +1658,11 @@ return view.extend({
 					return self.doSave(saveResult, updatePolicyStatus);
 				},
 				onSuccess: function(saved) {
-					if (saved)
+					if (saved) {
+						storedSelection = Object.assign({}, serviceSelection);
+						storedExits = Object.assign({}, serviceExits);
 						policyTracker.reset();
+					}
 				}
 			});
 		});
@@ -1616,7 +1678,9 @@ return view.extend({
 				return JSON.stringify([ domains ? domains.value : '',
 					addresses ? addresses.value : '', excluded ? excluded.value : '',
 					excludedAddresses ? excludedAddresses.value : '',
-					Object.keys(serviceSelection).sort(), exitsText() ]);
+					placementOf(serviceSelection, serviceExits) ===
+						placementOf(storedSelection, storedExits) ? '' :
+						placementOf(serviceSelection, serviceExits) ]);
 			}
 		});
 
@@ -1629,7 +1693,7 @@ return view.extend({
 				domainsContent,
 				// A card like the other pages' save bars; left bare it sat on the
 				// LuCI footer rule.
-				E('div', { 'class': 'ikev2-actions end ikev2-save-bar' }, [
+				E('div', { 'class': 'ikev2-actions end ikev2-save-bar ikev2-save-bar-sticky' }, [
 					E('span', { 'class': 'ikev2-field-help' }, [
 						_('Saves where each service and list goes, then rebuilds the routing list.') ]),
 					saveResult.node,

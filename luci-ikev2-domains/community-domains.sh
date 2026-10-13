@@ -33,6 +33,7 @@ bypass_cidr_file="${IKEV2_BYPASS_CIDR_FILE:-/etc/pbr-ikev2-addresses.bypass.txt}
 # nothing), or "wan" for a service kept out of the tunnel. Absent means the
 # first tunnel. The lists of the other exits sit beside the first one's.
 exits_file="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
+client_state_file="${IKEV2_CLIENT_STATE_FILE:-/etc/ikev2-manager/clients/state.json}"
 catalog_file="${IKEV2_CATALOG_FILE:-/usr/share/ikev2-domains/community-services}"
 public_suffix_file="${IKEV2_PUBLIC_SUFFIXES:-/usr/share/ikev2-domains/public-suffixes}"
 subnet_catalog_file="${IKEV2_SUBNET_CATALOG_FILE:-/etc/pbr-ikev2-community-subnet-services}"
@@ -1340,6 +1341,13 @@ staged_destination() {
 	esac
 }
 
+# Whether remote clients are offered this service.
+service_published() {
+	[ -r "$client_state_file" ] || return 1
+	jsonfilter -i "$client_state_file" -e '@.publication.services[@.client_access=true].id' 2>/dev/null |
+		grep -Fxq "$1"
+}
+
 restore_service_files() {
 	local backup="$1" service="$2" kind
 	mkdir -p "$user_services_dir"
@@ -1367,8 +1375,24 @@ set_service_selected() {
 	mv "$normalized" "$selected_file"
 }
 
+# Where a service goes, as the page-level Save stores it: only what differs
+# from the first tunnel, and that too for a service whose old mark it
+# overrides. "none" takes the line away.
+set_service_place() {
+	local service="$1" place="$2" keep="$3" updated
+	updated="$(mktemp)" || return 1
+	{
+		awk -v service="$service" '$1 != service' "$exits_file" 2>/dev/null
+		if [ "$place" != none ] && { [ "$place" != 1 ] || [ "$keep" = 1 ]; }; then
+			printf '%s %s\n' "$service" "$place"
+		fi
+	} >"$updated" || { rm -f "$updated"; return 1; }
+	chmod 600 "$updated"
+	mv "$updated" "$exits_file"
+}
+
 apply_staged_service() {
-	local action_id="$1" token="$2" meta domains cidrs operation service label url source_before
+	local action_id="$1" token="$2" meta domains cidrs operation service label url source_before place
 	local selected origin work kind bytes extension mode
 	valid_input_token "$token" || {
 		apply_failed 'the submitted service token is malformed'
@@ -1408,9 +1432,25 @@ apply_staged_service() {
 		apply_failed 'the list address must be an https:// link without spaces'
 		return 1
 	}
-	case "$operation" in save | reset | delete) ;; *) apply_failed 'invalid service operation'; return 1 ;; esac
+	case "$operation" in save | reset | delete | place) ;; *) apply_failed 'invalid service operation'; return 1 ;; esac
 	valid_service_id "$service" || { apply_failed 'invalid service identifier'; return 1; }
 	case "$selected" in 0 | 1 | keep) ;; *) apply_failed 'invalid service selection state'; return 1 ;; esac
+	# Where the service goes, when the form says so: saved and routed with the
+	# definition in one step. Absent from a page that predates it: only the
+	# definition is saved, as before.
+	place="$(sed -n 's/^place=//p' "$meta" | sed -n '1p')"
+	case "$operation" in save | place) ;; *) place='' ;; esac
+	# Putting a service somewhere changes nothing of what it is: a prepared
+	# service keeps following its source.
+	[ "$operation" != place ] || {
+		[ -n "$place" ] && catalog_services | grep -Fxq "$service"
+	} || { apply_failed 'unknown service or no place given for it'; return 1; }
+	case "$place" in
+		'') ;;
+		none) selected=0 ;;
+		[1-7] | [1-7]s | wan) selected=1 ;;
+		*) apply_failed 'invalid place for the service'; return 1 ;;
+	esac
 	[ "$operation" != save ] || valid_service_label "$label" || {
 		apply_failed 'invalid service display name'
 		return 1
@@ -1424,6 +1464,7 @@ apply_staged_service() {
 			cp "$user_services_dir/$service.$kind" "$work/service-before/$kind"
 	done
 	[ ! -e "$selected_file" ] || cp "$selected_file" "$work/selected.before"
+	[ ! -e "$exits_file" ] || cp "$exits_file" "$work/exits.before"
 
 	case "$operation" in
 		save)
@@ -1493,6 +1534,7 @@ apply_staged_service() {
 			fi
 		fi
 		;;
+	place) ;;
 	reset)
 		base_service_exists "$service" || {
 			rm -rf "$work"
@@ -1509,6 +1551,13 @@ apply_staged_service() {
 			apply_failed 'only a user-created service can be deleted'
 			return 1
 		}
+		# Remote clients are handed this list by name: without it their
+		# devices would keep a list nobody can change any more.
+		if service_published "$service"; then
+			rm -rf "$work"
+			apply_failed 'this service is published to remote clients; withdraw it on the Users page first'
+			return 1
+		fi
 		selected=0
 		rm -f "$user_services_dir/$service.lst" "$user_services_dir/$service.cidrs" \
 			"$user_services_dir/$service.name" "$user_services_dir/$service.origin" \
@@ -1525,11 +1574,14 @@ apply_staged_service() {
 	rm -f "$cache_dir/$service.lst.fetched"
 
 	if { [ "$selected" = keep ] || set_service_selected "$service" "$selected"; } &&
+	   { [ -z "$place" ] ||
+	     set_service_place "$service" "$place" "$([ "$(service_mode "$service")" = exclude ] && echo 1 || echo 0)"; } &&
 	   apply_once "$action_id"; then
 		:
 	else
 		restore_service_files "$work/service-before" "$service"
 		restore_output "$work/selected.before" "$selected_file" || true
+		[ -z "$place" ] || restore_output "$work/exits.before" "$exits_file" || true
 		apply_once >/dev/null 2>&1 || true
 		rm -rf "$work"
 		return 1

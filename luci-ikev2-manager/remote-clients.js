@@ -2,8 +2,8 @@
 'require view';
 'require fs';
 'require ui';
-'require ikev2-manager.shared-v14 as common';
-'require ikev2-manager.users-panel-v2 as vpnUsers';
+'require ikev2-manager.shared-v15 as common';
+'require ikev2-manager.users-panel-v3 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
 var catalogHelper = '/usr/libexec/ikev2-domains-community';
@@ -20,7 +20,7 @@ function readState() {
 function catalogRecords(stdout) {
  return (stdout || '').trim().split('\n').filter(Boolean).map(function(line) {
   var fields = line.split('|');
-  return { id: fields[0], label: fields[1] || fields[0] };
+  return { id: fields[0], label: fields[1] || fields[0], ip: fields[4] === '1' };
  }).filter(function(record) { return /^[a-z0-9][a-z0-9_-]{0,47}$/.test(record.id); });
 }
 
@@ -968,7 +968,13 @@ return view.extend({
     var holders = state.devices.filter(function(device) { return device.selected_services.indexOf(record.id) >= 0; }).length;
     return E('tr', { 'class': 'tr' }, [
      E('td', { 'class': 'td' }, [ E('strong', {}, [ record.label ]) ]),
-     E('td', { 'class': 'td' }, [ String(service.domain_count) ]),
+     E('td', { 'class': 'td' }, [ String(service.domain_count),
+      // A service also reached by address has networks in Policy Routing.
+      // Devices are handed names only, and the page says so where it applies.
+      record.ip ? E('div', { 'class': 'ikev2-field-help' }, [ _('names only: its networks are not handed to devices') ]) : '' ]),
+     E('td', { 'class': 'td' }, [ service.transports.map(function(transport) {
+      return transport.protocol.toUpperCase() + ' ' + transport.ports.join(', ');
+     }).join(' · ') ]),
      E('td', { 'class': 'td' }, [ _('%d of %d').format(holders, state.devices.length) ]),
      E('td', { 'class': 'td' }, [ E('span', { 'class': 'ikev2-user-actions ikev2-row-signs' }, [
       signButton('people', _('Who has this service'), 'cbi-button-action', function() { serviceHoldersDialog(record, state, reload, serviceResult); }),
@@ -993,7 +999,7 @@ return view.extend({
    } }, [ _('Publish') ]);
    services.replaceChildren(
     shown.length ? E('table', { 'class': 'table cbi-section-table' }, [
-     E('tr', { 'class': 'tr' }, [ _('Published service'), _('Domains'), _('Devices'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+     E('tr', { 'class': 'tr' }, [ _('Published service'), _('Domains'), _('Ports'), _('Devices'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
     ].concat(serviceRows)) : E('div', { 'class': 'ikev2-empty' }, [ _('No service is published yet.') ]),
     others.length ? E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:.9rem' }, [ pick, publish ]) : '');
    // New devices that wait for the administrator are told apart from those
@@ -1231,7 +1237,7 @@ return view.extend({
        vpnUsers.disconnectAll ? signButton('disconnectAll', _('Disconnect all'), 'cbi-button-negative', function(ev) { return vpnUsers.disconnectAll(ev.currentTarget); }) : '' ]) ]),
       devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), E('span', { 'class': 'ikev2-people-actions' }, [ windowsApp, invite ])),
     vpnMain,
-    common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks.'),
+    common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks. A device reaches the names of the service on the ports listed, through the exit tunnel chosen under Settings - not the tunnel Policy Routing gives the service. A change of a list reaches the devices within an hour, or at once with the button.'),
      E('div', {}, [ services, E('div', { 'class': 'ikev2-actions end' }, [ serviceResult.node ]) ]), refresh),
     fold(_('Settings'), setup), fold(_('Mail for invitation links'), mailBox),
     fold(_('Journal'), common.section(_('Journal'), _('The last actions with remote clients.'), journal))

@@ -1688,6 +1688,67 @@ var CSS = `
 				color: var(--ikev2-muted);
 			}
 			.ikev2-route-catalog { display: block; margin-top: 0; }
+			/* The fields and the catalogue: one under the other, and side by
+			   side once the page is wide enough for both. The catalogue then
+			   stays in view while the fields scroll. */
+			/* The measure is the board's own box, not the page: containment on
+			   the page would pin every window on it to the page instead of
+			   the screen. */
+			.ikev2-board-wrap { container-type: inline-size; }
+			.ikev2-board { display: grid; gap: 0 var(--ikev2-s4); }
+			.ikev2-board > .ikev2-section { min-width: 0; }
+			@container (min-width: 68rem) {
+				.ikev2-board {
+					grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
+					align-items: start;
+				}
+				.ikev2-board > .ikev2-section:last-child {
+					position: sticky;
+					top: var(--ikev2-s4);
+					max-height: calc(100vh - 2 * var(--ikev2-s4));
+					overflow: auto;
+				}
+				.ikev2-board > .ikev2-section:last-child .ikev2-section-head { display: block; }
+				.ikev2-board > .ikev2-section:last-child .ikev2-section-head .ikev2-actions {
+					margin-top: var(--ikev2-s3);
+				}
+				.ikev2-board > .ikev2-section:last-child .ikev2-section-head input { flex: 1 1 8rem; min-width: 0; }
+			}
+			/* Opens a service that lies in the catalogue. Part of its chip. */
+			.ikev2-chip-open {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				width: 1.35rem;
+				height: 1.35rem;
+				margin: -.1rem -.35rem -.1rem .05rem;
+				padding: 0;
+				border: 0;
+				border-radius: 999px;
+				background: transparent;
+				color: var(--ikev2-muted);
+				cursor: pointer;
+			}
+			.ikev2-chip-open:hover,
+			.ikev2-chip-open:focus-visible {
+				outline: none;
+				background: color-mix(in srgb, var(--ikev2-accent) 18%, transparent);
+				color: var(--ikev2-accent);
+			}
+			/* Save stays within reach on a page longer than the screen. */
+			.ikev2-page > .ikev2-save-bar.ikev2-save-bar-sticky {
+				position: sticky;
+				bottom: var(--ikev2-s3);
+				z-index: 5;
+				/* The surfaces are tints over a ground the page does not know;
+				   blurring what passes under the bar needs no ground. */
+				background: var(--ikev2-surface-2);
+				-webkit-backdrop-filter: blur(18px);
+				backdrop-filter: blur(18px);
+			}
+			@media (max-width: 640px) {
+				.ikev2-page > .ikev2-save-bar.ikev2-save-bar-sticky > .ikev2-field-help { display: none; }
+			}
 			.ikev2-route-chip { cursor: grab; }
 			.ikev2-route-chip:focus-visible {
 				outline: none;

@@ -38,7 +38,7 @@ const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_end
  waiting: [{ id: 'alice-2', owner: 'Alice Example', note: 'accounting', selected_services: ['example_service'], expires_seconds: 7200, email: 'alice@example.com', kept: true }],
  mail: [{ at: 1700000000, to: 'alice@example.com', accepted: true, place: 'alice-2' }],
  past: [{ id: 'old-1', owner: 'Alice Example', issued_at: 1690000000, outcome: 'withdrawn' }, { id: 'old-2', owner: '', issued_at: 1680000000, outcome: 'expired' }] };
-const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, stdout: 'example_service|Example service|builtin|0|0|tunnel\nnew_service|New service|builtin|0|0|tunnel\n' }];
+const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, stdout: 'example_service|Example service|builtin|0|1|tunnel\nnew_service|New service|builtin|0|0|tunnel\n' }];
 const backend = {
  exec(file, args) { if(args[0] === 'client-admin-report-request') { reportAsked.push(args[1]); return Promise.resolve({code:0,stdout:'requested=1\n'}); }
   if(args[0] === 'client-admin-report') return Promise.resolve({code:0,stdout: reportAsked.length ? JSON.stringify({version:1,id:args[1],received_at:1700000000+reportAsked.length,report:{state:'access_closed',faults:['2026-01-01T00:00:00Z policy device_no_services']}}) : '{}\n'});
@@ -108,6 +108,10 @@ async function main() {
  failWrite = true; await click(button(modal,'Save'));
  assert(text(modal).includes('write rejected')); assert.strictEqual(jobs.length,3);
  failWrite = false;
+ // What a device gets of a published service is on the page: its ports, and
+ // that the networks it has in Policy Routing are not handed out.
+ assert(/TCP [0-9, ]+/.test(text(tree)), 'the ports of a published service are not shown');
+ assert(text(tree).includes('names only: its networks are not handed to devices'), 'a service with networks does not say they are not handed out');
  await click(button(tree,'Update service lists'));
  assert.deepStrictEqual(jobs[3].startArgs,['client-admin-refresh']);
  // Another service is published from the picker with nothing asked: the web's ports.

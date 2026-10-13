@@ -2305,8 +2305,8 @@ msgstr "Идентификатор должен состоять из 2–48 с�
 msgid "Service name"
 msgstr "Название сервиса"
 
-msgid "Service saved. Active policy was rebuilt when required."
-msgstr "Сервис сохранён. Активная политика пересобрана, если это требовалось."
+msgid "Service saved and routed: %s."
+msgstr "Сервис сохранён и направлен: %s."
 
 msgid "Service to edit"
 msgstr "Сервис для изменения"
@@ -4500,8 +4500,8 @@ msgstr "С резервом сервис переходит на другой т
 msgid "A prepared service: saving keeps your own copy of its list on this router."
 msgstr "Готовый сервис: при сохранении на роутере останется ваша копия его списка."
 
-msgid "Press Save to apply where it goes."
-msgstr "Нажмите «Сохранить», чтобы применить назначение."
+msgid "Other changes on the board are not saved yet: press Save."
+msgstr "Другие изменения на доске ещё не сохранены: нажмите «Сохранить»."
 
 msgid "Routes"
 msgstr "Маршруты"
@@ -4515,8 +4515,8 @@ msgstr "То, что лежит в первом поле, идёт через т
 msgid "Catalogue"
 msgstr "Каталог"
 
-msgid "Prepared services and your own. A click adds one to the highlighted field; dragging one back here takes it out."
-msgstr "Готовые сервисы и ваши собственные. Нажатие добавляет сервис в выделенное поле; чтобы убрать, перетащите его обратно сюда."
+msgid "Prepared services and your own. A click adds one to the highlighted field, the button on it opens its list; dragging one back here takes it out."
+msgstr "Готовые сервисы и ваши собственные. Нажатие добавляет сервис в выделенное поле, кнопка на нём открывает его список; перетащите сервис сюда, чтобы убрать его."
 
 msgid "Saves where each service and list goes, then rebuilds the routing list."
 msgstr "Сохраняет, куда идёт каждый сервис и список, и пересобирает список маршрутизации."
@@ -5349,8 +5349,8 @@ msgstr "Числа через пробел."
 msgid "Usually empty."
 msgstr "Обычно пусто."
 
-msgid "A service published here works for Waypoint devices whether or not Policy Routing uses it for the router's own networks."
-msgstr "Сервис, опубликованный здесь, работает для устройств Waypoint независимо от того, используется ли он в маршрутизации по правилам для сетей самого роутера."
+msgid "A service published here works for Waypoint devices whether or not Policy Routing uses it for the router's own networks. A device reaches the names of the service on the ports listed, through the exit tunnel chosen under Settings - not the tunnel Policy Routing gives the service. A change of a list reaches the devices within an hour, or at once with the button."
+msgstr "Сервис, опубликованный здесь, работает для устройств Waypoint независимо от того, используется ли он в маршрутизации по правилам для сетей самого роутера. Устройство ходит к именам сервиса по перечисленным портам через выходной туннель из настроек ниже, а не через туннель, который сервису задан в маршрутизации. Изменение списка доходит до устройств в течение часа или сразу по кнопке."
 
 msgid "Windows application"
 msgstr "Приложение для Windows"
@@ -5516,3 +5516,15 @@ msgstr "Адрес списка должен быть ссылкой https:// б
 
 msgid "Custom list by address"
 msgstr "Свой список по адресу"
+
+msgid "Service saved. It is not in use: put it into a field to route it."
+msgstr "Сервис сохранён. Он не используется: положите его в поле, чтобы направить."
+
+msgid "Open: its list and where it goes"
+msgstr "Открыть: список сервиса и куда он идёт"
+
+msgid "Open %s"
+msgstr "Открыть %s"
+
+msgid "names only: its networks are not handed to devices"
+msgstr "только имена: сети этого сервиса устройствам не передаются"
