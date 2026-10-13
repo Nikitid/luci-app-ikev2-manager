@@ -15,6 +15,15 @@ Downloaded content is controlled by its upstream authors and is not covered by
 this project's MIT License. Users who enable the integration are responsible
 for determining whether their use of the external lists is permitted.
 
+Wise, Shopify, Notion and the Hetzner console can download domain lists from:
+
+    https://github.com/v2fly/domain-list-community
+
+That repository is licensed under the MIT License, Copyright (c) 2018-2019
+V2Ray. Runtime content remains subject to the upstream license:
+
+    https://github.com/v2fly/domain-list-community/blob/master/LICENSE
+
 The project-maintained lists under `luci-ikev2-domains/local-services/` are
 part of this repository and are covered by the MIT License.
 

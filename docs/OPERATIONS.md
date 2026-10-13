@@ -701,6 +701,34 @@ Nothing is refreshed while routing is paused or when no service is selected, a
 failed attempt is retried after an hour, and routing restarts only when a list
 actually changed.
 
+Package-owned `<service>.source` files select a provider: line one is `plain`
+or `v2fly`, line two is an HTTPS URL. These services refresh from that URL
+instead of freezing the packaged `.lst`. A valid cached revision wins on a
+fetch failure; without one, the packaged snapshot supplies initial coverage.
+A cached fallback preserves the policy but records a failed fetch and retries
+after an hour, even when an earlier fetch that day succeeded.
+The cache TTL, scheduled refresh and source ledger are shared with community
+lists. User overrides remain complete definitions and disable provider updates.
+
+A `<service>.omit` file excludes suffixes from a provider, including their
+subdomains. V2fly inputs accept ordinary suffix rules and skip advertising
+rules; other directives reject the entire revision instead of broadening exact
+matches or silently losing included domains. Explicit domain sources never
+inherit same-named community subnet lists. The separate `hetzner_console`
+service therefore does not change the existing broad `hetzner` service.
+
+Wise, Shopify, Notion and Hetzner Console use v2fly. Revolut, Supabase
+and Anthropic fetch their project-maintained list from the main branch, so
+publishing a domain correction does not require a router package upgrade.
+This downloads maintained definitions; it does not discover new service
+endpoints automatically. Review source changes and validate authenticated
+workflows when a vendor changes its login, API or file delivery.
+
+Notion public sites, Shopify shops and Supabase project endpoints share their
+vendor namespaces. Their service lists include those namespaces for coverage;
+arbitrary custom domains and external OAuth providers are separate services.
+Cloud-wide AWS, Cloudflare and Google address ranges are not included.
+
 Each downloaded revision is recorded beside its cache in
 `/etc/pbr-ikev2-community-cache` as `<service>.lst.meta` or
 `<service>.cidrs.meta`: source URL, fetch time, entry count, SHA-256, and the

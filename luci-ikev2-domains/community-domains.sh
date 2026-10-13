@@ -344,6 +344,7 @@ service_has_cidrs() {
 		[ -s "$user_services_dir/$service.cidrs" ]
 		return $?
 	fi
+	[ ! -f "$local_services_dir/$service.source" ] || return 1
 	[ -s "$local_services_dir/$service.cidrs" ] ||
 		grep -Fxq "$service" "$subnet_catalog_file" 2>/dev/null
 }
@@ -519,10 +520,66 @@ refresh_subnet_catalog() {
 	rm -f "$tmp_json" "$tmp_catalog" "$subnet_catalog_file.tmp"
 }
 
+# Only package-owned metadata selects an external provider. User overrides keep
+# their existing complete-definition semantics.
+service_domain_source() {
+	local service="$1" format url
+	[ -f "$local_services_dir/$service.source" ] || return 0
+	format="$(sed -n '1p' "$local_services_dir/$service.source")"
+	url="$(sed -n '2p' "$local_services_dir/$service.source")"
+	case "$format" in plain | v2fly) ;; *) return 1 ;; esac
+	case "$url" in https://* ) ;; *) return 1 ;; esac
+	printf '%s\n' "$url"
+}
+
+normalize_service_domains() {
+	local service="$1" file="$2" format="$3" decoded normalized omitted rc
+	decoded="$(mktemp)" || return 1
+	normalized="$(mktemp)" || { rm -f "$decoded"; return 1; }
+	omitted="$local_services_dir/$service.omit"
+	[ -f "$omitted" ] || omitted=/dev/null
+	if [ "$format" = v2fly ]; then
+		# Exact-host rules cannot be broadened into suffix rules. Ads are not
+		# needed for service access; unsupported directives reject the revision.
+		if ! awk '
+			{ sub(/\r$/, ""); sub(/[ \t]*#.*/, "") }
+			/^[ \t]*$/ { next }
+			/^[^ \t]+[ \t]+@ads([ \t]|$)/ { next }
+			/:|@/ { exit 1 }
+			{ print }
+		' "$file" >"$decoded"; then
+			rm -f "$decoded" "$normalized"
+			return 1
+		fi
+	else
+		cp "$file" "$decoded"
+	fi
+	if ! normalize_remote_domains "$decoded" >"$normalized"; then
+		rm -f "$decoded" "$normalized"
+		return 1
+	fi
+	# Do not implicitly route customer hosting zones along with a provider's
+	# management portal. An empty exclusion file must work on BusyBox too.
+	awk -v omit="$omitted" '
+		FILENAME == omit { if (NF && $0 !~ /^#/) excluded[$0] = 1; next }
+		{
+			name = $0
+			while (1) {
+				if (name in excluded) next
+				if (!sub(/^[^.]*\./, "", name)) break
+			}
+			print
+		}
+	' "$omitted" "$normalized"
+	rc=$?
+	rm -f "$decoded" "$normalized"
+	return "$rc"
+}
+
 download_service() {
 	local service="$1" destination="$2" cached
 	cached="$cache_dir/$service.lst"
-	local downloaded normalized downloaded_size
+	local downloaded normalized downloaded_size url format
 
 	# A user-owned service or override is the complete definition. It is never
 	# merged with a changing provider behind the administrator's back.
@@ -537,9 +594,13 @@ download_service() {
 		return 1
 	fi
 
+	url="$(service_domain_source "$service")" || return 1
+	format=plain
+	[ -z "$url" ] || format="$(sed -n '1p' "$local_services_dir/$service.source")"
+
 	# Check local bundled services first, but validate them exactly like remote
 	# content so a packaging mistake cannot poison the active ruleset.
-	if [ -s "$local_services_dir/$service.lst" ]; then
+	if [ -z "$url" ] && [ -s "$local_services_dir/$service.lst" ]; then
 		normalized="$(mktemp)"
 		if normalize_domains "$local_services_dir/$service.lst" \
 			>"$normalized" && [ -s "$normalized" ]; then
@@ -550,15 +611,17 @@ download_service() {
 		return 1
 	fi
 
+	[ -n "$url" ] || url="$raw_base/$service.lst"
 	downloaded="$(mktemp)"
 	normalized="$(mktemp)"
 	if cache_is_fresh "$cached" &&
-	   normalize_remote_domains "$cached" >"$destination"; then
+	   normalize_service_domains "$service" "$cached" plain >"$destination" &&
+	   [ -s "$destination" ]; then
 		rm -f "$downloaded" "$normalized"
 		return 0
 	fi
 
-	if uclient-fetch -q -T 20 -O "$downloaded" "$raw_base/$service.lst"; then
+	if uclient-fetch -q -T 20 -O "$downloaded" "$url"; then
 		downloaded_size="$(wc -c < "$downloaded" | tr -d ' ')"
 	else
 		downloaded_size=0
@@ -566,14 +629,14 @@ download_service() {
 
 	if [ "$downloaded_size" -gt 0 ] &&
 		[ "$downloaded_size" -le "$max_service_bytes" ] &&
-		normalize_remote_domains "$downloaded" > "$normalized" &&
+		normalize_service_domains "$service" "$downloaded" "$format" > "$normalized" &&
 		[ -s "$normalized" ]; then
 		mkdir -p "$cache_dir"
 		[ ! -s "$cached" ] || cp "$cached" "$cached.prev"
 		cp "$normalized" "$cached.tmp"
 		mv "$cached.tmp" "$cached"
 		mark_cache_fetched "$cached"
-		record_fetch_success "$cached" "$raw_base/$service.lst" "$cached.prev"
+		record_fetch_success "$cached" "$url" "$cached.prev"
 		rm -f "$cached.prev"
 		cp "$normalized" "$destination"
 		rm -f "$downloaded" "$normalized"
@@ -583,11 +646,19 @@ download_service() {
 	if [ "$downloaded_size" -gt "$max_service_bytes" ]; then
 		echo "downloaded service exceeds size limit: $service" >&2
 	fi
-	record_fetch_error "$cached" "$raw_base/$service.lst" \
+	record_fetch_error "$cached" "$url" \
 		"$(fetch_failure_reason "$downloaded_size")"
 
 	rm -f "$downloaded" "$normalized"
-	if [ -s "$cached" ] && normalize_remote_domains "$cached" >"$destination"; then
+	if [ -s "$cached" ] && normalize_service_domains "$service" "$cached" plain >"$destination" &&
+	   [ -s "$destination" ]; then
+		echo "$service" >> "$destination.stale"
+		return 0
+	fi
+	# A first boot without network access still has the packaged snapshot.
+	if [ -s "$local_services_dir/$service.lst" ] &&
+	   normalize_service_domains "$service" "$local_services_dir/$service.lst" plain >"$destination" &&
+	   [ -s "$destination" ]; then
 		echo "$service" >> "$destination.stale"
 		return 0
 	fi
@@ -625,6 +696,10 @@ download_service_cidrs() {
 			normalize_cidrs "$user_services_dir/$service.cidrs" >"$destination"
 		return $?
 	fi
+
+	# Explicit domain providers are scoped to names. In particular a console
+	# service must not inherit the hosting provider's entire network catalog.
+	[ ! -f "$local_services_dir/$service.source" ] || return 0
 
 	if [ -s "$local_services_dir/$service.cidrs" ]; then
 		normalize_cidrs "$local_services_dir/$service.cidrs" >>"$destination" ||
@@ -1374,12 +1449,13 @@ refresh_state_set() {
 # and otherwise daily at a stable per-router offset so a fleet does not reach
 # the same sources in the same minute. With "probe" nothing is written.
 refresh_due() {
-	local mode="${1:-}" now last_attempt last_success jitter uptime boot
+	local mode="${1:-}" now last_attempt last_success last_error jitter uptime boot
 	[ "$(uci -q get ikev2-manager.domains.paused 2>/dev/null)" != 1 ] || return 1
 	[ -s "$selected_file" ] || return 1
 	now="$(date +%s)"
 	last_attempt="$(numeric_or_zero "$(meta_value "$refresh_state_file" last_attempt)")"
 	last_success="$(numeric_or_zero "$(meta_value "$refresh_state_file" last_success)")"
+	last_error="$(numeric_or_zero "$(meta_value "$refresh_state_file" last_error)")"
 	jitter="$(meta_value "$refresh_state_file" jitter)"
 	case "$jitter" in
 		'' | *[!0-9]*)
@@ -1390,6 +1466,8 @@ refresh_due() {
 	uptime="$(numeric_or_zero "$(cut -d. -f1 "$uptime_file" 2>/dev/null)")"
 	boot=$((now - uptime))
 	[ $((now - last_attempt)) -ge "$refresh_retry" ] || return 1
+	# Serving the cached policy is healthy, but is not a successful download.
+	[ "$last_error" -gt 0 ] && [ "$last_error" -ge "$last_success" ] && return 0
 	[ "$last_attempt" -ge "$boot" ] || return 0
 	[ $((now - last_success)) -ge $((refresh_interval + jitter)) ]
 }
@@ -1409,6 +1487,10 @@ refresh_worker() {
 	rc=$?
 	force_refresh=0
 	if [ "$rc" -eq 0 ]; then
+		if [ -n "$(meta_value "$status_file" cached_services)" ]; then
+			refresh_state_set last_error "$(date +%s)" || true
+			return 0
+		fi
 		refresh_state_set last_success "$(date +%s)" || true
 		refresh_state_set last_error '' || true
 		return 0
@@ -1485,6 +1567,9 @@ print_sources() {
 		printf 'label=%s\n' "$(service_label "$service")"
 		if [ -f "$user_services_dir/$service.lst" ]; then
 			print_list_source domains "$cache_dir/$service.lst" user '' "$user_services_dir/$service.lst"
+		elif [ -f "$local_services_dir/$service.source" ]; then
+			url="$(service_domain_source "$service")" || return 1
+			print_list_source domains "$cache_dir/$service.lst" community "$url" "$local_services_dir/$service.lst"
 		elif [ -s "$local_services_dir/$service.lst" ]; then
 			print_list_source domains "$cache_dir/$service.lst" bundled '' "$local_services_dir/$service.lst"
 		else
@@ -1496,6 +1581,8 @@ print_sources() {
 		if [ -f "$user_services_dir/$service.lst" ] || [ -f "$user_services_dir/$service.cidrs" ]; then
 			[ ! -s "$user_services_dir/$service.cidrs" ] ||
 				print_list_source networks "$cache_dir/$service.cidrs" user '' "$user_services_dir/$service.cidrs"
+		elif [ -f "$local_services_dir/$service.source" ]; then
+			: # Explicit domain-only provider; ignore historical subnet caches.
 		elif [ -n "$url" ]; then
 			print_list_source networks "$cache_dir/$service.cidrs" vendor "$url" "$bundled"
 		elif grep -Fxq "$service" "$subnet_catalog_file" 2>/dev/null ||

@@ -660,6 +660,9 @@ sed -n '/^normalize_domains() {/,/^}/p; /^normalize_remote_domains() {/,/^}/p' \
 	done
 )
 
+step 'per-service providers preserve offline coverage with real OpenWrt tools'
+sh /src/scripts/openwrt/service-sources.sh
+
 step 'a list nothing was taken from keeps every line, with the BusyBox tools'
 # The networks of each exit are what no exit before it took. Filtered with
 # "grep -vxFf", an empty list of what was taken matched every line on BusyBox

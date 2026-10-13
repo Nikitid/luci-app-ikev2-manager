@@ -134,6 +134,9 @@ install_file 644 luci-ikev2-domains/public-suffixes.txt /usr/share/ikev2-domains
 for source in "$root"/luci-ikev2-domains/local-services/*.lst; do
 	install_file 644 "${source#"$root/"}" "/usr/share/ikev2-domains/local-services/${source##*/}"
 done
+for source in "$root"/luci-ikev2-domains/local-services/*.source "$root"/luci-ikev2-domains/local-services/*.omit; do
+	install_file 644 "${source#"$root/"}" "/usr/share/ikev2-domains/local-services/${source##*/}"
+done
 for source in "$root"/luci-ikev2-domains/local-services/*.cidrs; do
 	install_file 644 "${source#"$root/"}" "/usr/share/ikev2-domains/local-services/${source##*/}"
 done

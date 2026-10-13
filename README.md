@@ -128,7 +128,13 @@ lists are downloaded from
 [`itdoginfo/allow-domains`](https://github.com/itdoginfo/allow-domains) and are
 not included in the IPK. See [NOTICE](NOTICE) for their terms. Zoom Meetings
 networks come from Zoom's official list instead and merge with the bundled
-snapshot.
+snapshot. Selected services with a packaged `.source` definition refresh daily
+from their configured provider; a validated cache or packaged snapshot keeps
+routing available if the download fails. Wise, Shopify, Notion and Hetzner
+Console use v2fly; Revolut, Supabase and Anthropic use the
+project-maintained lists. Hetzner Console excludes customer hosting networks.
+Editing a service in LuCI creates a complete local override and stops its
+provider updates until the override is reset.
 
 ## Development
 

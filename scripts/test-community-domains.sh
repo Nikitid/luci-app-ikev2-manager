@@ -766,4 +766,54 @@ unset TEST_REMOTE_EXTRA IKEV2_PUBLIC_SUFFIXES
 rm -rf "$tmp/cache"
 run_helper apply >/dev/null 2>&1
 
+# A package-owned source refreshes a bundled service, while offline first
+# activation and a rejected update retain coverage without replacing overrides.
+for file in manual manual-cidrs manual-exclude manual-exclude-cidrs exits; do
+	: >"$tmp/$file"
+done
+TEST_RESTART_CHECK_RC=0
+printf '%s\n' local >"$tmp/selected"
+printf '%s\n' v2fly https://lists.invalid/remote.lst >"$tmp/local/local.source"
+printf '%s\n' local.example >"$tmp/local/local.lst"
+printf '%s\n' tenant.example >"$tmp/local/local.omit"
+rm -f "$tmp/cache/local.lst"*
+TEST_REMOTE_FAIL=1 run_helper _refresh 300-1 force >/dev/null 2>&1
+grep -Fxq local.example "$tmp/domains"
+run_helper sources | grep -Fxq 'domains_url=https://lists.invalid/remote.lst'
+TEST_REMOTE_FAIL= TEST_REMOTE_EXTRA='tenant.example sub.tenant.example' run_helper _refresh 300-2 force >/dev/null
+printf 'remote.example\n' | cmp -s - "$tmp/domains"
+grep -Fxq 'url=https://lists.invalid/remote.lst' "$tmp/cache/local.lst.meta"
+TEST_REMOTE_FAIL=1 run_helper _refresh 300-3 force >/dev/null 2>&1
+printf 'remote.example\n' | cmp -s - "$tmp/domains"
+# A cached fallback retries after an hour, even if today's previous fetch
+# succeeded. It must not turn an intermittent failure into a full-day delay.
+grep -Eq '^last_error=[1-9][0-9]*$' "$tmp/refresh.state"
+run_helper sources | grep -Fxq 'refresh_due=0'
+sed "s/^last_attempt=.*/last_attempt=$(( $(date +%s) - 3601 ))/" \
+	"$tmp/refresh.state" >"$tmp/refresh.next"
+mv "$tmp/refresh.next" "$tmp/refresh.state"
+run_helper sources | grep -Fxq 'refresh_due=1'
+TEST_REMOTE_FAIL= TEST_REMOTE_EXTRA='com' run_helper _refresh 300-4 force >/dev/null 2>&1
+printf 'remote.example\n' | cmp -s - "$tmp/domains"
+# Unsupported provider syntax must not silently drop coverage.
+TEST_REMOTE_EXTRA='include:other-service' run_helper _refresh 300-5 force >/dev/null 2>&1
+printf 'remote.example\n' | cmp -s - "$tmp/domains"
+TEST_REMOTE_EXTRA=
+printf 'override.example\n' >"$tmp/user/local.lst"
+: >"$tmp/fetch.log"
+run_helper _refresh 300-7 force >/dev/null
+printf 'override.example\n' | cmp -s - "$tmp/domains"
+[ ! -s "$tmp/fetch.log" ]
+# An explicit domain provider does not inherit same-named hosting CIDRs.
+rm -f "$tmp/user/local.lst"
+printf 'local\n' >"$tmp/subnet-catalog"
+printf '8.8.8.0/24\n' >"$tmp/cache/local.cidrs"
+run_helper _refresh 300-8 force >/dev/null
+[ ! -s "$tmp/cidrs" ] || {
+	# The operator's own manual networks remain; provider networks do not.
+	! grep -Fxq 8.8.8.0/24 "$tmp/cidrs"
+}
+! run_helper ip-services | grep -Fxq local
+unset TEST_REMOTE_EXTRA TEST_REMOTE_FAIL
+
 printf 'community domain tests OK\n'
