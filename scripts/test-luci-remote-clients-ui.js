@@ -35,7 +35,9 @@ const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_end
   host: 'ALICE-PC', system: 'Windows 10.0.26100', client: '2.3.0', online: true, tunnel_address: '10.20.0.7', remote_address: '203.0.113.9', connected_seconds: 7300, seen_seconds: 4, seen_from: '203.0.113.9' },
   { id: 'bob-laptop', enabled: true, selected_services: ['example_service'], revision: 1, owner: '', note: '', online: false, seen_seconds: 90000, seen_from: '198.51.100.4' },
   { id: 'spare', enabled: false, selected_services: [], revision: 1, owner: '', note: '', online: false, seen_seconds: null }],
- waiting: [{ id: 'alice-2', owner: 'Alice Example', note: 'accounting', selected_services: ['example_service'], expires_seconds: 7200 }] };
+ waiting: [{ id: 'alice-2', owner: 'Alice Example', note: 'accounting', selected_services: ['example_service'], expires_seconds: 7200, email: 'alice@example.com', kept: true }],
+ mail: [{ at: 1700000000, to: 'alice@example.com', accepted: true, place: 'alice-2' }],
+ past: [{ id: 'old-1', owner: 'Alice Example', issued_at: 1690000000, outcome: 'withdrawn' }, { id: 'old-2', owner: '', issued_at: 1680000000, outcome: 'expired' }] };
 const data = () => [{ code: 0, stdout: JSON.stringify(snapshot) }, { code: 0, stdout: 'example_service|Example service|builtin|0|0|tunnel\nnew_service|New service|builtin|0|0|tunnel\n' }];
 const backend = {
  exec(file, args) { if(args[0] === 'client-admin-report-request') { reportAsked.push(args[1]); return Promise.resolve({code:0,stdout:'requested=1\n'}); }
@@ -150,6 +152,10 @@ async function main() {
  modal = null; linkKept = false;
  await click(showWaiting); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
  assert(modal === null && text(tree).includes('no longer keeps this link'), 'a link that is not kept is not shown, and the row says why');
+ // The row says whether a letter with this link went out; places that wait no
+ // longer are listed with what became of them.
+ assert(text(tree).includes('sent ') && !text(tree).includes('not sent'), 'the letter for the waiting link is shown');
+ assert(text(tree).includes('Past links: 2') && text(tree).includes('withdrawn') && text(tree).includes('expired'), 'past links are accounted for');
  const revokeWaiting = button(tree,'Revoke');
  await click(revokeWaiting);
  const linkCell = nodes(tree).find(n => n.attrs.class === 'td ikev2-link-cell');

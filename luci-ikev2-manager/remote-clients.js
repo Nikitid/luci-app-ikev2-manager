@@ -411,7 +411,7 @@ function modeSelect(device, onMode) {
  }));
 }
 
-function showLinkDialog(link, address) {
+function showLinkDialog(link, address, place) {
  var field = E('textarea', { readonly: '', 'aria-label': _('Invitation link'), 'class': 'ikev2-link', rows: '3' });
  field.value = link;
  var output = common.inlineResult(), copy, send;
@@ -421,10 +421,13 @@ function showLinkDialog(link, address) {
   var address;
   try { address = mailText(recipient.value); if (!address) throw new Error(_('Enter an e-mail address like name@example.com.')); }
   catch (error) { output.err(error.message); return; }
-  return mailJob(send, output, 'client-admin-mail-send', { version: 1, to: address, subject: _('Waypoint: your access link'),
+  var letter = { version: 1, to: address, subject: _('Waypoint: your access link'),
    body: _('Install Waypoint on your computer, press Registration and paste this link:') + '\n\n' + field.value + '\n\n' +
-    _('The link works for a limited time and only for your devices. Do not forward it.') + '\n' },
-   [ _('Sending...'), _('Sent.'), _('Could not send the link.') ]);
+    _('The link works for a limited time and only for your devices. Do not forward it.') + '\n' };
+  // Which link went out is recorded with the letter, by one of its places.
+  if (place) letter.place = place;
+  return mailJob(send, output, 'client-admin-mail-send', letter,
+   [ _('Sending...'), _('The mail server took the letter.'), _('Could not send the link.') ]);
  } }, [ _('Send by e-mail') ]);
  ui.showModal(_('Invitation link'), [ E('div', { 'class': 'ikev2-page' }, [
   common.styles(), E('p', {}, [ _('Send it privately: the owner installs Waypoint on each device and pastes the link there. While the link waits it can be shown again under Active links.') ]), field,
@@ -438,21 +441,36 @@ function showLinkDialog(link, address) {
  ]) ]);
 }
 
-// The links that still wait for devices: whose, how many places are left and
-// until when. The router keeps a waiting link in memory, so it can be shown
-// again here until it ends, is withdrawn or the router restarts.
-function activeLinks(everyone, actions) {
+// The last letter that carried one of these places, or went to this address.
+function lastLetter(mail, places, address) {
+ var ids = {};
+ places.forEach(function(item) { ids[item.id] = true; });
+ return (mail || []).filter(function(letter) { return ids[letter.place] || (!letter.place && address && letter.to === address); })[0] || null;
+}
+
+// The links that still wait for devices: whose, how many places are left,
+// until when, and whether a letter with the link went out. The router keeps a
+// waiting link for as long as it works, so it can be shown again here.
+function activeLinks(everyone, actions, mail) {
  var rows = [];
  everyone.forEach(function(person) {
   var waiting = person.devices.filter(function(device) { return device.waiting; });
   if (!waiting.length) return;
   var said = common.inlineResult();
   var withdraw = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-remove', 'click': function() { return actions.withdraw(person, waiting, withdraw, said); } }, [ _('Revoke') ]);
-  var show = E('button', { 'type': 'button', 'class': 'cbi-button', 'click': function() { return actions.show(person, waiting, show, said); } }, [ _('Show') ]);
+  // A link from before the router kept links cannot be shown again; the
+  // button says so instead of failing when pressed.
+  var showable = waiting.some(function(item) { return item.kept !== false; });
+  var show = E('button', { 'type': 'button', 'class': 'cbi-button', 'disabled': showable ? null : '',
+   'title': showable ? '' : _('The router does not keep this link. Make a new link instead.'),
+   'click': function() { return actions.show(person, waiting.filter(function(item) { return item.kept !== false; }), show, said); } }, [ _('Show') ]);
+  var letter = lastLetter(mail, waiting, waiting[0].email || '');
   rows.push(E('tr', { 'class': 'tr' }, [
    E('td', { 'class': 'td' }, [ person.name ]),
    E('td', { 'class': 'td' }, [ String(waiting.length) ]),
    E('td', { 'class': 'td' }, [ span(Math.max.apply(null, waiting.map(function(item) { return item.expires_seconds || 0; }))) ]),
+   E('td', { 'class': 'td', 'title': letter ? letter.to : '' }, [ !letter ? _('not sent') :
+    (letter.accepted ? _('sent %s') : _('not accepted %s')).format(new Date(letter.at * 1000).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) ]),
    E('td', { 'class': 'td ikev2-link-cell' }, [
     E('div', { 'class': 'ikev2-link-actions' }, [ show, E('button', { 'type': 'button', 'class': 'cbi-button', 'click': function() { actions.link(person); } }, [ _('New link') ]), withdraw ]), said.node ])
   ]));
@@ -460,8 +478,22 @@ function activeLinks(everyone, actions) {
  if (!rows.length) return '';
  return E('details', { 'class': 'ikev2-fold', 'open': '', 'style': 'margin-bottom:.9rem' }, [ E('summary', {}, [ _('Active links: %d').format(rows.length) ]),
   E('table', { 'class': 'table cbi-section-table ikev2-active-links' }, [
-   E('tr', { 'class': 'tr' }, [ _('Person'), _('Places left'), _('Valid for'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+   E('tr', { 'class': 'tr' }, [ _('Person'), _('Places left'), _('Valid for'), _('Letter'), '' ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
   ].concat(rows)) ]);
+}
+
+// What became of the places that wait no longer: used, withdrawn or run out.
+function pastLinks(past) {
+ if (!(past || []).length) return '';
+ var words = { used: _('used'), withdrawn: _('withdrawn'), expired: _('expired') };
+ return E('details', { 'class': 'ikev2-fold', 'style': 'margin-bottom:.9rem' }, [ E('summary', {}, [ _('Past links: %d').format(past.length) ]),
+  E('table', { 'class': 'table cbi-section-table' }, [
+   E('tr', { 'class': 'tr' }, [ _('Person'), _('Place'), _('Issued'), _('Outcome') ].map(function(text) { return E('th', { 'class': 'th' }, [ text ]); }))
+  ].concat(past.map(function(item) {
+   return E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td' }, [ item.owner || '-' ]), E('td', { 'class': 'td' }, [ item.id ]),
+    E('td', { 'class': 'td' }, [ item.issued_at ? new Date(item.issued_at * 1000).toLocaleString() : '-' ]),
+    E('td', { 'class': 'td' }, [ words[item.outcome] || item.outcome ]) ]);
+  }))) ]);
 }
 
 // A person and their devices. Devices without a named owner stand alone.
@@ -536,7 +568,7 @@ function magnifier() { return sign('M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm10 3-4
 function pageStyles() {
  return E('style', {}, [
   '.ikev2-page .ikev2-people-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: .6rem; flex-wrap: nowrap; white-space: nowrap; } .ikev2-page .ikev2-people-actions .cbi-button { margin: 0; height: 2.4rem; display: inline-flex; align-items: center; } @media (max-width: 700px) { .ikev2-page .ikev2-people-actions { flex-wrap: wrap; } }' +
-  '.ikev2-page .ikev2-active-links { width: 100%; table-layout: fixed; } .ikev2-page .ikev2-active-links .td, .ikev2-page .ikev2-active-links .th { overflow-wrap: anywhere; white-space: normal; } .ikev2-page .ikev2-active-links .th:last-child { width: 55%; } .ikev2-page .ikev2-link-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: flex-end; } .ikev2-page .ikev2-link-actions .cbi-button { margin: 0; } .ikev2-page .ikev2-link-cell > .ikev2-result { display: flex; max-width: 100%; margin-top: .5rem; } @media (max-width: 600px) { .ikev2-page .ikev2-active-links .th:last-child { width: 48%; } }' +
+  '.ikev2-page .ikev2-active-links { width: 100%; table-layout: fixed; } .ikev2-page .ikev2-active-links .td, .ikev2-page .ikev2-active-links .th { overflow-wrap: anywhere; white-space: normal; } .ikev2-page .ikev2-active-links .th:last-child { width: 44%; } .ikev2-page .ikev2-link-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: flex-end; } .ikev2-page .ikev2-link-actions .cbi-button { margin: 0; } .ikev2-page .ikev2-link-cell > .ikev2-result { display: flex; max-width: 100%; margin-top: .5rem; } @media (max-width: 600px) { .ikev2-page .ikev2-active-links .th:last-child { width: 48%; } }' +
   '.ikev2-page .ikev2-report { width: 100%; box-sizing: border-box; margin-top: .5rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; line-height: 1.35; white-space: pre; resize: vertical; }' +
   '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
@@ -613,7 +645,7 @@ function pageStyles() {
 function people(devices, waiting, owners) {
  var list = [], byName = {};
  devices.concat((waiting || []).map(function(item) {
-  return { id: item.id, owner: item.owner, note: item.note, selected_services: item.selected_services, expires_seconds: item.expires_seconds, enabled: true, waiting: true };
+  return { id: item.id, owner: item.owner, note: item.note, selected_services: item.selected_services, expires_seconds: item.expires_seconds, enabled: true, waiting: true, email: item.email || '', kept: item.kept };
  })).sort(function(a, b) { return a.id.localeCompare(b.id, undefined, { numeric: true }); }).forEach(function(device) {
   var person = device.owner ? byName[device.owner] : null;
   if (!person) { person = { name: device.owner || device.id, owner: device.owner || '', devices: [] }; list.push(person); if (device.owner) byName[device.owner] = person; }
@@ -816,7 +848,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
   E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services'), choices.length ? '' : _('None is published yet. A Waypoint device registers with at least one: publish a service below first. An ordinary VPN profile needs none.')),
    choices.length ? checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) : '' ])
  ]);
- function showLink(link) { showLinkDialog(link, email.value.trim()); }
+ function showLink(link) { showLinkDialog(link, email.value.trim(), freePlaces() > 1 ? id.value + '-1' : id.value); }
  create = E('button', { type: 'button', 'class': 'cbi-button cbi-button-positive', click: function() {
   if (kind.value === 'profile') {
    var called;
@@ -1029,7 +1061,7 @@ return view.extend({
        return fs.exec(helper, [ 'client-admin-link', waiting[0].id ]).then(function(response) {
         var kept = response.code === 0 ? JSON.parse(response.stdout || 'null') : null;
         if (!kept || kept.version !== 1 || typeof kept.invitation !== 'string') throw new Error(_('The router no longer keeps this link: it was issued before a restart or by an earlier version. Make a new link instead.'));
-        showLinkDialog(kept.invitation, (waiting[0].email || person.email || ''));
+        showLinkDialog(kept.invitation, (waiting[0].email || person.email || ''), waiting[0].id);
        });
       }
      });
@@ -1042,6 +1074,9 @@ return view.extend({
    // Ordinary profiles only: the accounts of Waypoint devices are not offered.
    var taken = {};
    state.devices.forEach(function(device) { taken[device.id] = true; });
+   // Nor are the accounts Waypoint made and no device holds: a registration
+   // that failed half way used to appear here as a new person.
+   (state.waypoint_accounts || []).forEach(function(id) { taken[id] = true; });
    profileNames = allAccounts.filter(function(name) { return !taken[name]; });
    // Every ordinary profile stands under a person. One that nobody was
    // given to yet is placed by its name - "anna-phone" and "anna-laptop"
@@ -1053,7 +1088,7 @@ return view.extend({
    var everyone = people(state.devices, state.waiting, state.shown_owners);
    everyoneCount = everyone.length;
    everyoneNames = everyone.map(function(person) { return person.name; });
-   devices.replaceChildren(activeLinks(everyone, actions), everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
+   devices.replaceChildren(activeLinks(everyone, actions, state.mail), pastLinks(state.past), everyone.length ? E('div', { 'class': 'ikev2-user-list' }, everyone.map(function(person) {
     return personCard(person, labels, actions);
    })) : E('div', { 'class': 'ikev2-empty' }, [ _('Nobody yet. Add a person to get their link.') ]));
    var online = state.devices.filter(function(device) { return device.online; }).length;

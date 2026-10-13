@@ -149,17 +149,32 @@ generation="$(ucode "$control" inspect | jsonfilter -e '@.enrollment_generation'
 printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"extra","selected_services":["%s"],"lifetime_seconds":3600,"owner":"One Person","note":""}' \
 	"$generation" "$address" "$service" | ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue >/dev/null
 ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -qx extra
-# While it waits the link can be shown again: kept in memory for root alone,
-# never in the state on flash; a place nobody holds shows nothing.
+# While it waits the link can be shown again: kept for root alone in its own
+# directory and nowhere else - not in the state, the ledger or the journal; a
+# place nobody holds shows nothing.
 ucode "$control" link extra | jsonfilter -e '@.invitation' | grep -q "^https://$address:18443/client/v1/enroll#[a-f0-9]*$"
-[ "$(ls -ld /var/run/ikev2-client-links | cut -c1-10)" = drwx------ ] && [ "$(ls -l /var/run/ikev2-client-links/extra.json | cut -c1-10)" = -rw------- ]
+[ "$(ls -ld /etc/ikev2-manager/clients/links | cut -c1-10)" = drwx------ ] && [ "$(ls -l /etc/ikev2-manager/clients/links/extra.json | cut -c1-10)" = -rw------- ]
 shown="$(ucode "$control" link extra | jsonfilter -e '@.invitation')"
-! grep -rq "${shown##*#}" /etc/ikev2-manager
+# The page is told the place can be shown, and what became of earlier places.
+ucode "$control" inspect | jsonfilter -e '@.waiting[@.id="extra"].kept' | grep -qx true
+# A link an earlier version kept in memory moves over once and is shown the
+# same; a restart of the router no longer loses a link that still works.
+mkdir -m 700 /var/run/ikev2-client-links
+mv /etc/ikev2-manager/clients/links/extra.json /var/run/ikev2-client-links/extra.json
+[ "$(ucode "$control" link extra | jsonfilter -e '@.invitation')" = "$shown" ]
+[ -f /etc/ikev2-manager/clients/links/extra.json ] && [ ! -e /var/run/ikev2-client-links ]
+[ "$(grep -rl "${shown##*#}" /etc/ikev2-manager)" = /etc/ikev2-manager/clients/links/extra.json ]
 ! ucode "$control" link nobody >/dev/null 2>&1
 printf '{"version":1,"expected_generation":%s,"operation":"close-place","payload":{"id":"extra"}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
 ! ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -qx extra
 # A closed place takes the kept link with it.
-! ucode "$control" link extra >/dev/null 2>&1 && [ ! -e /var/run/ikev2-client-links/extra.json ]
+! ucode "$control" link extra >/dev/null 2>&1 && [ ! -e /etc/ikev2-manager/clients/links/extra.json ]
+ucode "$control" inspect | jsonfilter -e '@.past[@.id="extra"].outcome' | grep -qx withdrawn
+# Letters are remembered with whether the mail server took them and with the
+# link they carried; a refused one is remembered too.
+ucode -e 'import { record_client_event } from "/usr/libexec/ikev2-manager.d/client-access-journal.uc"; record_client_event("mail-sent", "one@example.com extra"); record_client_event("mail-failed", "two@example.com pair-1");'
+[ "$(ucode "$control" inspect | jsonfilter -e '@.mail[@.place="extra"].accepted')" = true ]
+[ "$(ucode "$control" inspect | jsonfilter -e '@.mail[@.to="two@example.com"].accepted')" = false ]
 # A whole link is withdrawn at once: both places close and the link registers nobody.
 generation="$(ucode "$control" inspect | jsonfilter -e '@.enrollment_generation')"
 pair="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"pair","selected_services":["%s"],"lifetime_seconds":3600,"count":2,"owner":"One Person","note":""}' \
@@ -181,11 +196,11 @@ done
 [ "$(ucode "$control" link pair-1 | jsonfilter -e '@.invitation')" = "$pair" ]
 [ "$(ucode "$control" link pair-2 | jsonfilter -e '@.places')" = 1 ]
 # A kept link others could read is not shown and not kept any longer.
-chmod 644 /var/run/ikev2-client-links/pair.json
-! ucode "$control" link pair-1 >/dev/null 2>&1 && [ ! -e /var/run/ikev2-client-links/pair.json ]
+chmod 644 /etc/ikev2-manager/clients/links/pair.json
+! ucode "$control" link pair-1 >/dev/null 2>&1 && [ ! -e /etc/ikev2-manager/clients/links/pair.json ]
 printf '{"version":1,"expected_generation":%s,"operation":"close-places","payload":{"ids":["pair-1","pair-2"]}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
 ! ucode "$control" inspect | jsonfilter -e '@.waiting[*].id' | grep -q '^pair-'
-! ucode "$control" link pair-1 >/dev/null 2>&1 && [ ! -e /var/run/ikev2-client-links/pair.json ]
+! ucode "$control" link pair-1 >/dev/null 2>&1 && [ ! -e /etc/ikev2-manager/clients/links/pair.json ]
 # Retrying withdrawal from the same old page is harmless; the used device stays.
 printf '{"version":1,"expected_generation":%s,"operation":"close-places","payload":{"ids":["pair-1","pair-2"]}}' "$(ucode "$control" inspect | jsonfilter -e '@.generation')" | ucode "$control" update >/dev/null
 ucode "$control" inspect | jsonfilter -e '@.devices[*].id' | grep -qx pair-1

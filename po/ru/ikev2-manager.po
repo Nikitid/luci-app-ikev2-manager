@@ -5465,3 +5465,42 @@ msgstr "Удалённые клиенты настроены для имени �
 
 msgid "Link opened."
 msgstr "Ссылка открыта."
+
+msgid "The mail server took the letter."
+msgstr "Почтовый сервер принял письмо."
+
+msgid "The router does not keep this link. Make a new link instead."
+msgstr "Роутер не хранит эту ссылку. Сделайте новую."
+
+msgid "not sent"
+msgstr "не отправлено"
+
+msgid "sent %s"
+msgstr "отправлено %s"
+
+msgid "not accepted %s"
+msgstr "не принято %s"
+
+msgid "Letter"
+msgstr "Письмо"
+
+msgid "used"
+msgstr "использована"
+
+msgid "withdrawn"
+msgstr "отозвана"
+
+msgid "expired"
+msgstr "истекла"
+
+msgid "Past links: %d"
+msgstr "Прошлые ссылки: %d"
+
+msgid "Place"
+msgstr "Место"
+
+msgid "Issued"
+msgstr "Выдана"
+
+msgid "Outcome"
+msgstr "Итог"

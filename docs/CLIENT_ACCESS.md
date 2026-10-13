@@ -237,13 +237,16 @@ The configured dedicated HTTPS listener is still required; the form does not
 establish or verify that listener.
 
 While a link waits for devices the router also keeps it in a root-only
-directory in memory (`/var/run/ikev2-client-links`), so the page can show it
-again from the list of active links. The link remains available while any of
-its places is still open, including when an older page asks through a place
-that has already registered. Revocation from that page closes only unused
-places and preserves registered devices. The kept link goes with a restart,
-with the link's own end, and the moment it is withdrawn or replaced. The state on flash still holds digests
-only.
+directory beside the client state (`/etc/ikev2-manager/clients/links`), so the
+page can show it again from the list of active links, a restart of the router
+included: a link lasts up to a week. Only a place the ledger still holds open
+is answered; the kept link goes with the link's own end and the moment it is
+withdrawn or replaced. The state, the ledger and the journal still hold
+digests only, and a backup does not carry the directory. The page also lists
+what became of the places that wait no longer - used, withdrawn, expired -
+for thirty days, and for each waiting link whether a letter with it was taken
+by the mail server, refused, or never sent. That the server took a letter is
+all the router knows; delivery is the mail server's affair.
 
 The root-only credential worker now stages a separate random EAP password per
 reserved device, retains it across retries and uses the manager's restrictive

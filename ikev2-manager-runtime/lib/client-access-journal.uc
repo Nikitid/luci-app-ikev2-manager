@@ -40,3 +40,16 @@ export function read_client_events(limit) {
 	}
 	return reverse(result);
 };
+
+// Every letter the journal still holds, newest first: when, to whom, whether
+// the mail server took it, and for which link. "Taken" is all a router can
+// know: whether the letter reached the person is the mail server's affair.
+export function read_client_mail() {
+	let result = [];
+	for (let event in read_client_events(500)) {
+		if (event.event != 'mail-sent' && event.event != 'mail-failed') continue;
+		let parts = split(event.detail, ' ');
+		push(result, { at: event.at, to: parts[0] ?? '', accepted: event.event == 'mail-sent', place: parts[1] ?? '' });
+	}
+	return result;
+};

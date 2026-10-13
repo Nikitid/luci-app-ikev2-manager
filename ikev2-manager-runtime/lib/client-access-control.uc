@@ -7,10 +7,10 @@ import { read_client_enrollment, write_client_enrollment } from './client-access
 import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
 import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights, read_person_limits, write_person_limit } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
-import { record_client_event, read_client_events } from './client-access-journal.uc';
+import { record_client_event, read_client_events, read_client_mail } from './client-access-journal.uc';
 import { client_views_generation, write_client_views } from './client-access-view.uc';
 import { request_client_report, read_client_report, describe_client_report, forget_client_report } from './client-access-report.uc';
-import { read_client_link, forget_client_link } from './client-access-link.uc';
+import { read_client_link, forget_client_link, kept_client_places } from './client-access-link.uc';
 
 let seen_directory = '/var/run/ikev2-client-seen';
 
@@ -37,10 +37,25 @@ try {
   let ledger = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? null : read_client_enrollment(directory).ledger;
   inspected.enrollment_generation = ledger == null ? 0 : ledger.generation;
   inspected.waiting = [];
+  let open_places = {};
+  for (let item in (ledger?.invitations ?? []))
+   if (item.status == 'issued' && item.expires_at > now) open_places[item.id] = true;
+  let showable = kept_client_places(now, open_places);
   for (let item in (ledger?.invitations ?? []))
    if (item.status == 'issued' && item.expires_at > now)
     push(inspected.waiting, { id: item.id, selected_services: item.selected_services, expires_seconds: item.expires_at - now,
-     owner: labels[item.id]?.owner ?? '', note: labels[item.id]?.note ?? '', mode: labels[item.id]?.full === true ? 'full' : 'services' });
+     owner: labels[item.id]?.owner ?? '', note: labels[item.id]?.note ?? '', mode: labels[item.id]?.full === true ? 'full' : 'services',
+     email: labels[item.id]?.email ?? '', kept: showable[item.id] === true });
+  // What became of the places that wait no longer, for the last thirty days:
+  // used by a device, withdrawn, or run out unused.
+  inspected.past = [];
+  for (let item in (ledger?.invitations ?? [])) {
+   if ((item.status == 'issued' && item.expires_at > now) || now - (item.issued_at ?? 0) > 2592000) continue;
+   push(inspected.past, { id: item.id, owner: labels[item.id]?.owner ?? '', issued_at: item.issued_at ?? 0,
+    outcome: item.status == 'completed' ? 'used' : item.status == 'cancelled' ? 'withdrawn' : 'expired' });
+  }
+  inspected.past = slice(sort(inspected.past, (a, b) => b.issued_at - a.issued_at), 0, 200);
+  inspected.mail = read_client_mail();
   let port_reader = popen('/sbin/uci -q get ikev2-manager.client_access.port', 'r');
   let port_raw = port_reader?.read(32), port_status = port_reader?.close();
   let api_port = port_status == 0 ? replace(port_raw ?? '', /\n$/, '') : '8443';
@@ -62,6 +77,18 @@ try {
    if (issued) used[issued[1]] = true;
   }
   inspected.used_ids = keys(used);
+  // Accounts Waypoint made for its own devices - a place a link held, a
+  // removed device, an issued credential. They are not ordinary VPN profiles
+  // and are not listed as somebody's: a registration that failed half way
+  // used to leave such an account, and it showed as a new person.
+  let own = {};
+  for (let id in state_now.retired_ids) own[id] = true;
+  for (let item in (ledger?.invitations ?? [])) own[item.id] = true;
+  for (let name in lsdir(directory + '/credentials') ?? []) {
+   let issued = match(name, /^([a-z][a-z0-9-]*)\.(issued|json)$/);
+   if (issued) own[issued[1]] = true;
+  }
+  inspected.waypoint_accounts = keys(own);
   inspected.events = read_client_events(40);
   inspected.profile_owners = read_profile_owners(directory);
   inspected.person_limits = read_person_limits(directory);

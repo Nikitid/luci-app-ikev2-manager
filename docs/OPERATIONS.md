@@ -842,8 +842,11 @@ A person gets one link for as many computers as their limit allows. The link
 opens a page with the installer for that system and the link in a field to
 copy; the person installs Waypoint, presses Registration and pastes it. Links
 that still wait are listed under Active links, each with Show, New link and
-Revoke. A waiting link is kept in the router's memory only: after a restart of
-the router Show has nothing to show, and New link replaces it. Mail for sending
+Revoke, and with whether a letter carrying it was taken by the mail server.
+A waiting link is kept on the router for as long as it works, a restart
+included; one issued by a version before 2.2.9 and lost in a restart cannot be
+shown, and New link replaces it. Past links lists what became of the places
+that wait no longer. Mail for sending
 links is set up at the bottom of the page and needs `msmtp`.
 
 A computer's row shows whether it is connected, its system, the version of its

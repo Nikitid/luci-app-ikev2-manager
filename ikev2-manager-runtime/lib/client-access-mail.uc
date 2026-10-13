@@ -75,6 +75,13 @@ try {
 	} else if (ARGV[0] == 'send' && length(ARGV) == 2) {
 		if (!(length(ARGV[1]) <= 64 ? match(ARGV[1], /^[0-9]+-[0-9]+$/) : null)) die('invalid mail job');
 		let request = json(open('/dev/stdin', 're').read(16385));
+		// Which link the letter carries may be named, by one of its places.
+		let place = '';
+		if (type(request) == 'object' && 'place' in request) {
+			place = request.place;
+			if (type(place) != 'string' || !(length(place) <= 48 ? match(place, /^[a-z][a-z0-9-]*$/) : null)) die('invalid mail message');
+			delete request.place;
+		}
 		fields(request, [ 'version', 'to', 'subject', 'body' ]);
 		if (request.version !== 1 || !address(request.to) || !line(request.subject, 200) ||
 			type(request.body) != 'string' || length(request.body) > 8192) die('invalid mail message');
@@ -103,11 +110,11 @@ try {
 			let encoded = b64enc(request.body);
 			for (let at = 0; at < length(encoded); at += 76) mail.write(substr(encoded, at, 76) + '\r\n');
 			status = mail.close();
-		} catch (error) { unlink(config); unlink(secret); die('mail was not sent'); }
+		} catch (error) { unlink(config); unlink(secret); record_client_event('mail-failed', request.to + ' ' + place); die('mail was not sent'); }
 		unlink(config);
 		unlink(secret);
-		if (status != 0) die('mail was not accepted');
-		record_client_event('mail-sent', request.to);
+		if (status != 0) { record_client_event('mail-failed', request.to + ' ' + place); die('mail was not accepted'); }
+		record_client_event('mail-sent', request.to + ' ' + place);
 	} else {
 		warn('usage: client-access-mail.uc show|save|send JOB\n'); exit(2);
 	}
