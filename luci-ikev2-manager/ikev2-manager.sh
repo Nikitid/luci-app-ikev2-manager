@@ -1766,6 +1766,7 @@ ensure_first_tunnel() {
 			return 0
 		fi
 	fi
+	discard_stalled_attempt proxy-out 1 || :
 	initiate_outbound || return 1
 	/usr/libexec/ikev2-sync-vips || return 1
 	/usr/libexec/ikev2-routing sync-all || return 1

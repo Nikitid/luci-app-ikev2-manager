@@ -143,6 +143,12 @@ run_restart() {
 	fi
 	trap - EXIT INT TERM
 	cleanup_restart
+	# The beginning is in the log; say how it ended, and why when it failed.
+	if [ "$result" = 0 ]; then
+		logger -t ikev2-action "end owner=pbr-restart pid=$$ state=ok" 2>/dev/null || true
+	else
+		logger -t ikev2-action "end owner=pbr-restart pid=$$ state=error message=$(tail -n 1 "$log_file" 2>/dev/null | cut -c1-160)" 2>/dev/null || true
+	fi
 	return "$result"
 }
 

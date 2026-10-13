@@ -114,6 +114,22 @@ any interface besides `ipsec-out`.
 
 Guarded by `scripts/test-package-lifecycle.sh`.
 
+## An attempt begun as the uplink comes up never finishes
+
+charon chooses the source address of an IKE_SA when it starts the attempt and
+repeats that first packet with its default backoff for about 165 seconds
+before it gives up. `start_action = start` fired one second after the WAN got
+its lease: the attempt was not bound to loopback, so the loopback detector did
+not match, and nothing came back until the give-up three and a half minutes
+later - when a fresh attempt succeeded at once. Every initiation the watcher
+made meanwhile only queued behind the stuck IKE_SA, and the selected services
+stayed closed for that long after every boot.
+
+`discard_stalled_attempt` (`lib/manager-tunnels.sh`) notes the id of a
+CONNECTING IKE_SA of an outbound tunnel and ends that same attempt by its id
+once it has been connecting for 30 seconds; a handshake that works takes a few.
+Guarded by `scripts/test-boot-recovery.sh` and `scripts/test-sa-reader.sh`.
+
 ## A strongSwan upgrade restarts charon, or leaves the old one running
 
 Every strongSwan package's post-upgrade script runs `/etc/init.d/swanctl start`.

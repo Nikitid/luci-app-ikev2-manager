@@ -81,6 +81,7 @@ done
 	call() { printf '%s\n' "$*" >>"$tmp/calls"; }
 	has_outbound_sa() { [ -e "$tmp/sa-up" ]; }
 	has_loopback_connecting_outbound() { [ -e "$tmp/loopback" ]; }
+	discard_stalled_attempt() { call discard-stalled "$@"; return 1; }
 	outbound_peer_resolves() { [ -e "$tmp/resolves" ]; }
 	swanctl_quiet() { call swanctl "$@"; }
 	initiate_outbound() { call initiate; : >"$tmp/sa-up"; }
@@ -130,6 +131,7 @@ done
 		exit 1
 	}
 	expect_calls initiate 'outage recovery'
+	expect_calls 'discard-stalled proxy-out 1' 'outage recovery'
 	expect_calls 'ikev2-sync-vips ' 'outage recovery'
 	expect_calls 'ikev2-routing sync-all' 'outage recovery'
 	# A tunnel that came up without its address is not reported recovered.
@@ -146,6 +148,44 @@ done
 		exit 1
 	}
 )
+
+# An attempt that does not finish: noted when first seen, left alone while it
+# may still be a slow handshake, discarded by its own id once it has had its
+# time, and forgotten when another attempt took its place.
+(
+	sed -n '/^stalled_attempt_seconds=/p; /^discard_stalled_attempt() {/,/^}/p' "$manager_source" >"$tmp/stalled.sh"
+	[ "$(grep -c . "$tmp/stalled.sh")" -gt 5 ] || { printf 'stalled-attempt recovery is missing\n' >&2; exit 1; }
+	tunnel_attempt_dir="$tmp/attempts"
+	sa_helper="$tmp/bin/sa"
+	printf '#!/bin/sh\n[ "$1 $2" = "connecting proxy-out-2" ] && cat "%s/connecting" 2>/dev/null\n' "$tmp" >"$sa_helper"
+	chmod 755 "$sa_helper"
+	clock=1000
+	date() { echo "$clock"; }
+	logger() { :; }
+	swanctl() { printf 'swanctl %s\n' "$*" >>"$tmp/stalled.calls"; }
+	. "$tmp/stalled.sh"
+	: >"$tmp/stalled.calls"
+	never() { if discard_stalled_attempt proxy-out-2 2; then printf '%s\n' "$1" >&2; exit 1; fi; }
+	never 'nothing connecting was treated as stalled'
+	echo 7 >"$tmp/connecting"
+	never 'an attempt was discarded the moment it was seen'
+	clock=1029
+	never 'an attempt was discarded before it had its time'
+	echo 9 >"$tmp/connecting"
+	clock=1035
+	never 'a new attempt inherited the age of the one before it'
+	clock=1064
+	never 'the new attempt was discarded early'
+	clock=1065
+	discard_stalled_attempt proxy-out-2 2 || { printf 'an attempt without an answer was left to retransmit\n' >&2; exit 1; }
+	[ "$(cat "$tmp/stalled.calls")" = 'swanctl --terminate --ike-id 9 --timeout 5' ] || {
+		printf 'the stalled attempt was not ended by its own id: %s\n' "$(cat "$tmp/stalled.calls")" >&2; exit 1; }
+	[ ! -e "$tmp/attempts/2.connecting" ] || { printf 'a discarded attempt is still remembered\n' >&2; exit 1; }
+	echo 'x; reboot' >"$tmp/connecting"
+	never 'an id that is not a number was acted on'
+	: >"$tmp/connecting"
+	never 'an established tunnel was treated as stalled'
+) || exit 1
 
 grep -Fq 'STOP=02' "$root/ikev2-manager-runtime/ikev2-health.init" || {
 	printf 'health watcher does not stop before dependent services\n' >&2

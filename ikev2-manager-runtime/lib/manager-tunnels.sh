@@ -154,6 +154,37 @@ EOF
 	atomic_install "$tmp" "$extra_tunnels_conf" 600
 }
 
+# An attempt that does not finish. charon repeats its first packet for close
+# to three minutes before it gives up, from the source address it chose when
+# the attempt began; one begun in the second the uplink came up never gets an
+# answer, and every later initiation only queues behind it. A handshake that
+# works takes a few seconds, so the same attempt still CONNECTING after
+# $stalled_attempt_seconds is discarded and a new one starts from scratch.
+# Seen once it is only noted: the state file holds "id first-seen".
+stalled_attempt_seconds=30
+discard_stalled_attempt() {
+	local conn="$1" index="$2" state id seen now known=''
+	state="$tunnel_attempt_dir/$index.connecting"
+	id="$("$sa_helper" connecting "$conn" 2>/dev/null | sed -n '1p')"
+	case "$id" in
+		'' | *[!0-9]*) rm -f "$state"; return 1 ;;
+	esac
+	now="$(date +%s)"
+	mkdir -p "$tunnel_attempt_dir" || return 1
+	[ ! -r "$state" ] || read -r known seen <"$state" || :
+	case "$seen" in '' | *[!0-9]*) known='' ;; esac
+	if [ "$known" != "$id" ]; then
+		printf '%s %s\n' "$id" "$now" >"$state"
+		return 1
+	fi
+	[ $((now - seen)) -ge "$stalled_attempt_seconds" ] || return 1
+	logger -t ikev2-health \
+		"discarding $conn attempt $id: no answer for $((now - seen)) s" || :
+	swanctl --terminate --ike-id "$id" --timeout 5 >/dev/null 2>&1 || :
+	rm -f "$state"
+	return 0
+}
+
 # Bring up every enabled tunnel after the first that has no CHILD_SA, each at
 # most once per its own cooldown. Called by ensure-client, which holds the
 # auto-connect lock.
@@ -181,6 +212,7 @@ ensure_extra_tunnels() {
 		fi
 		printf '%s\n' "$$" >"$tunnel_attempt_dir/$index.lock/pid"
 		printf '%s\n' "$now" >"$tunnel_attempt_dir/$index"
+		discard_stalled_attempt "$tunnel_conn" "$index" || :
 		swanctl --initiate --child "$tunnel_child" --timeout 20 >/dev/null 2>&1 || rc=1
 		rm -f "$tunnel_attempt_dir/$index.lock/pid"
 		rmdir "$tunnel_attempt_dir/$index.lock" 2>/dev/null || :

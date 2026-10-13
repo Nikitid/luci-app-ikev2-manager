@@ -89,6 +89,12 @@ snapshot '{"proxy-out":{"state":"CONNECTING","local-host":"192.0.2.7"}}'
 snapshot '{"proxy-out":{"state":"ESTABLISHED","local-host":"127.0.0.1"}}'
 [ "$(status loopback-connecting proxy-out)" = 1 ] || fail 'an established SA was treated as stalled'
 
+# Attempts still in progress, by their own id, and no other connection's.
+snapshot '{"proxy-out-2":{"uniqueid":"7","state":"CONNECTING","local-host":"192.0.2.7"}},{"proxy-out-2":{"uniqueid":"8","state":"ESTABLISHED"}},{"proxy-out":{"uniqueid":"9","state":"CONNECTING"}},{"proxy-out-2":{"uniqueid":"x; reboot","state":"CONNECTING"}}'
+[ "$(answers connecting proxy-out-2 | tr '\n' ' ')" = '7 ' ] || fail "attempts in progress were not listed by id: $(answers connecting proxy-out-2)"
+snapshot '{"proxy-out-2":{"uniqueid":"8","state":"ESTABLISHED"}}'
+[ -z "$(answers connecting proxy-out-2)" ] || fail 'an established tunnel was listed as an attempt'
+
 # A snapshot that cannot be read is an error, never an empty SA list: the
 # inbound policy would otherwise revoke every connected client.
 printf '{"errors":["connecting to charon failed"],"data":[]}\n' >"$tmp/sa.json"

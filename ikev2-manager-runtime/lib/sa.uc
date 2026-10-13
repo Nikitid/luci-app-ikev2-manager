@@ -12,6 +12,8 @@
 //   sessions IKE           "identity<TAB>address" for each EAP client
 //   loopback-connecting IKE
 //                          a CONNECTING IKE_SA bound to a loopback address
+//   connecting IKE         the unique id of each IKE_SA of that connection
+//                          still CONNECTING
 //   tunnels                "index<TAB>installed<TAB>address" for each outbound
 //                          tunnel with an IKE_SA: proxy-out is 1, proxy-out-N
 //                          is N; installed is 1 when its CHILD_SA is, address
@@ -62,7 +64,7 @@ function list(value) {
 let command = ARGV[0];
 let ike = ARGV[1];
 if (!command || (!ike && command != 'tunnels')) {
-	warn('usage: sa.uc {installed IKE CHILD|present IKE|local-vips IKE|sessions IKE|session-ids IKE IDENTITY|loopback-connecting IKE|tunnels}\n');
+	warn('usage: sa.uc {installed IKE CHILD|present IKE|local-vips IKE|sessions IKE|session-ids IKE IDENTITY|loopback-connecting IKE|connecting IKE|tunnels}\n');
 	exit(2);
 }
 
@@ -163,6 +165,15 @@ else if (command == 'loopback-connecting') {
 			exit(0);
 	}
 	exit(1);
+}
+
+else if (command == 'connecting') {
+	for (let sa in sas) {
+		let id = sa.uniqueid;
+		if (sa.state == 'CONNECTING' && type(id) == 'string' && match(id, /^[0-9]+$/))
+			print(id, '\n');
+	}
+	exit(0);
 }
 
 warn(sprintf('sa.uc: unknown command %s\n', command));
