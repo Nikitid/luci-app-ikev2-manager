@@ -710,6 +710,21 @@ after an hour, even when an earlier fetch that day succeeded.
 The cache TTL, scheduled refresh and source ledger are shared with community
 lists. User overrides remain complete definitions and disable provider updates.
 
+A user service may follow a list of its own. **Domain list address** in the
+service form takes an `https://` link to a text list, one domain per line;
+v2fly syntax is read the same way as for packaged sources. The address is kept
+in `services.d/<service>.source` and travels with backups. A new address is
+read once when the service is saved, and the save is refused if it does not
+answer with a list of domains; after that the list is fetched on the daily
+refresh. The domains typed
+into the service are joined with every revision and are not subject to the
+public-suffix check a downloaded list has to pass; the package's own `.omit`
+and `.extra` for the same name do not apply. If the address does not answer,
+the last fetched revision stays in use, and before the first one the typed
+domains alone. Clearing the address returns the service to its typed domains.
+A list that fails validation is rejected whole, so check **Sources for each service**
+after pointing a service at a new address.
+
 A `<service>.omit` file excludes suffixes from a provider, including their
 subdomains; a `<service>.extra` file adds the domains the project knows the
 service needs and the provider does not list. V2fly inputs accept ordinary suffix rules, take an exact
@@ -721,7 +736,7 @@ inherit same-named community subnet lists. The separate `hetzner_console`
 service therefore does not change the existing broad `hetzner` service.
 
 Wise, Shopify, Notion, Hetzner Console, OpenAI, Anthropic, Perplexity, xAI,
-LinkedIn and Spotify use v2fly. Revolut and Supabase fetch their
+LinkedIn, Spotify, TikTok and Hugging Face use v2fly. Revolut and Supabase fetch their
 project-maintained list from the main branch, so
 publishing a domain correction does not require a router package upgrade.
 This downloads maintained definitions; it does not discover new service

@@ -113,7 +113,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | --- | --- | --- |
 | Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v13.js` |
 | Outbound Tunnel | `luci-ikev2-manager/client.js` | `view/ikev2-manager/client-v13.js` |
-| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v12.js` |
+| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v13.js` |
 | Inbound Server | `luci-ikev2-manager/settings.js` | `view/ikev2-manager/settings-v10.js` |
 | Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v24.js` |
 | VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v2.js`, shown on the Users page |

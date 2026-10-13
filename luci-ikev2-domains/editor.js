@@ -1087,12 +1087,13 @@ return view.extend({
 			});
 		}
 
-		function serviceMeta(operation, id, label, mode) {
+		function serviceMeta(operation, id, label, mode, url) {
 			return 'operation=' + operation + '\n' +
 				'id=' + id + '\n' +
 				'label=' + label + '\n' +
 				'selected=' + (operation === 'delete' ? '0' : 'keep') + '\n' +
-				'mode=' + mode + '\n';
+				'mode=' + mode + '\n' +
+				'url=' + (url || '') + '\n';
 		}
 
 		function reconcileServiceRecord(operation, previous, id, label, hasCidrs) {
@@ -1154,6 +1155,14 @@ return view.extend({
 				'example.com\nstatic.example.com');
 			var cidrsField = listField(details ? details.cidrs.replace(/\n+$/, '') : '',
 				'203.0.113.0/24');
+			var listAddress = E('input', {
+				'class': 'cbi-input-text',
+				'type': 'url',
+				'autocomplete': 'off',
+				'spellcheck': 'false',
+				'placeholder': 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/example',
+				'value': details && details.url ? details.url : ''
+			});
 			var here = record && serviceSelection[record.id] ? placeOf(record.id) : (record ? '' : activeZone);
 			var place = E('select', { 'class': 'cbi-input-select' },
 				(record ? [ E('option', { 'value': '', 'selected': here === '' ? '' : null }, [ _('Not in use') ]) ] : [])
@@ -1170,7 +1179,7 @@ return view.extend({
 				E('button', { 'class': 'cbi-button cbi-button-reset', 'type': 'button' }, [ _('Restore prepared service') ]) : null;
 			var remove = record && record.origin === 'custom' ?
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, [ _('Delete service') ]) : null;
-			var fields = [ name, domainsField, cidrsField, place ];
+			var fields = [ name, domainsField, cidrsField, listAddress, place ];
 			dialogControls = fields.concat([ save, cancel, reset, remove ]);
 
 			function form() {
@@ -1178,6 +1187,7 @@ return view.extend({
 					name: (name.value || '').trim(),
 					domains: domainsField.value,
 					cidrs: cidrsField.value,
+					url: (listAddress.value || '').trim(),
 					place: place.value
 				};
 			}
@@ -1234,6 +1244,11 @@ return view.extend({
 							_('Optional; one IPv4 address or CIDR per line.')),
 						cidrsField
 					])
+				]),
+				E('div', { 'class': 'ikev2-dialog-field' }, [
+					common.fieldLabel(_('Domain list address'),
+						_('Optional; an https:// link to a text list of domains, one per line. It is read again every day and joined with the domains above.')),
+					listAddress
 				]),
 				E('div', { 'class': 'ikev2-dialog-field' }, [
 					common.fieldLabel(_('Where it goes'),
@@ -1305,8 +1320,11 @@ return view.extend({
 				catch (error) {
 					return Promise.reject(error);
 				}
-				if (!domains.length && !cidrs.length)
-					return Promise.reject(new Error(_('Add at least one domain or IPv4 network.')));
+				if (form.url && (form.url.length > 2048 ||
+				    !/^https:\/\/[A-Za-z0-9][A-Za-z0-9._~:\/?#@!$&()*+,;=%-]*$/.test(form.url)))
+					return Promise.reject(new Error(_('The list address must be an https:// link without spaces.')));
+				if (!domains.length && !cidrs.length && !form.url)
+					return Promise.reject(new Error(_('Add at least one domain, IPv4 network or list address.')));
 			}
 			var token = common.inputToken();
 			var prefix = '/tmp/ikev2-service-input-' + token;
@@ -1314,7 +1332,7 @@ return view.extend({
 				// The mark of an earlier release is kept as it is: where the
 				// service goes is the board's to say, and the board overrides it.
 				fs.write(prefix + '.meta', serviceMeta(operation, id, label,
-					previous && previous.mode === 'exclude' ? 'exclude' : 'route'), 384),
+					previous && previous.mode === 'exclude' ? 'exclude' : 'route', form.url), 384),
 				fs.write(prefix + '.domains', domains.join('\n') + (domains.length ? '\n' : ''), 384),
 				fs.write(prefix + '.cidrs', cidrs.join('\n') + (cidrs.length ? '\n' : ''), 384)
 			]).then(function() {
@@ -1464,11 +1482,12 @@ return view.extend({
 				bundled: _('Built into the package'),
 				community: _('Community list'),
 				vendor: _('Vendor list'),
-				user: _('Custom definition')
+				user: _('Custom definition'),
+				linked: _('Custom list by address')
 			}[origin] || origin;
 			var entries = record[kind + '_entries'] || record[kind + '_bundled'];
 			lines.push(entries ? _('%s, %s entries').format(label, entries) : label);
-			if (origin === 'vendor' && record[kind + '_url'])
+			if ((origin === 'vendor' || origin === 'linked') && record[kind + '_url'])
 				lines.push(_('from %s').format(record[kind + '_url'].replace(/^https?:\/\/([^\/]+).*$/, '$1')));
 			if (record[kind + '_fetched'])
 				lines.push(_('updated %s').format(sourceStamp(record[kind + '_fetched'])));

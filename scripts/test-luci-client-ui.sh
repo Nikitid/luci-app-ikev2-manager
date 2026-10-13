@@ -1015,8 +1015,9 @@ if (chipsIn(singlePage, '1') !== '@domains,@cidrs,openai,telegram')
 if (textOf(nodesOf(singlePage).find(function(node) { return node.attrs && node.attrs['data-lane'] === '1'; }))
 	.indexOf('Through the tunnel') < 0)
 	fail('the only tunnel is not simply the tunnel');
-// A new service: a window with its name, its domains, its addresses and
-// where it goes; the identifier comes from the name.
+// A new service: a window with its name, its domains, its addresses, the
+// address of a list it follows and where it goes; the identifier comes from
+// the name.
 const dialogOpener = nodesOf(singlePage).find(function(node) {
 	return node.tagName === 'BUTTON' && textOf(node).trim() === 'New service';
 });
@@ -1027,8 +1028,9 @@ if (!serviceDialog) fail('a new service has no window');
 const dialogFields = nodesOf(serviceDialog).filter(function(node) {
 	return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
 });
-if (dialogFields.length !== 4 || dialogFields[1].tagName !== 'TEXTAREA' || dialogFields[2].tagName !== 'TEXTAREA')
-	fail('the service window does not have a name, a list of domains, one of addresses and a place');
+if (dialogFields.length !== 5 || dialogFields[1].tagName !== 'TEXTAREA' || dialogFields[2].tagName !== 'TEXTAREA' ||
+    dialogFields[3].tagName !== 'INPUT' || dialogFields[4].tagName !== 'SELECT')
+	fail('the service window does not have a name, a list of domains, one of addresses, a list address and a place');
 // Each list as tall as the page's own list editors, not a few lines.
 if (hasClass(dialogFields[1], 'ikev2-domain-editor-small') || !hasClass(dialogFields[1], 'ikev2-domain-editor'))
 	fail('the lists of the service window are cut short');
@@ -1044,13 +1046,14 @@ function saveServiceDialog() {
 	dialogFields[0].value = 'Work Portal';
 	dialogFields[1].value = 'Portal.Example\n\nstatic.portal.example';
 	dialogFields[2].value = '203.0.113.0/24';
+	dialogFields[3].value = ' https://lists.example/portal?v=1 ';
 	nodesOf(serviceDialog).find(function(node) {
 		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save service';
 	}).listeners.click();
 	return new Promise(function(resolve) { setTimeout(resolve, 5); }).then(function() {
 		fsStub.write = writeBefore;
-		if (!/^operation=save\nid=work_portal\nlabel=Work Portal\nselected=keep\nmode=route\n$/.test(written.meta || ''))
-			fail('a new service is not stored under an identifier from its name: ' + JSON.stringify(written.meta));
+		if (!/^operation=save\nid=work_portal\nlabel=Work Portal\nselected=keep\nmode=route\nurl=https:\/\/lists\.example\/portal\?v=1\n$/.test(written.meta || ''))
+			fail('a new service is not stored under an identifier from its name, with the list it follows: ' + JSON.stringify(written.meta));
 		if (written.domains !== 'portal.example\nstatic.portal.example\n' || written.cidrs !== '203.0.113.0/24\n')
 			fail('the domains and the addresses of a service are not stored apart: ' + JSON.stringify(written));
 	}).then(editServiceDialog);

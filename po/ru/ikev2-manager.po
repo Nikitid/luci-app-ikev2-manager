@@ -136,8 +136,8 @@ msgstr "Добавить DoH-сервер"
 msgid "Add VPN user"
 msgstr "Добавить VPN-пользователя"
 
-msgid "Add at least one domain or IPv4 network."
-msgstr "Добавьте хотя бы один домен или IPv4-сеть."
+msgid "Add at least one domain, IPv4 network or list address."
+msgstr "Добавьте хотя бы один домен, IPv4-сеть или адрес списка."
 
 msgid "Add bootstrap server"
 msgstr "Добавить bootstrap-сервер"
@@ -5504,3 +5504,15 @@ msgstr "Выдана"
 
 msgid "Outcome"
 msgstr "Итог"
+
+msgid "Domain list address"
+msgstr "Адрес списка доменов"
+
+msgid "Optional; an https:// link to a text list of domains, one per line. It is read again every day and joined with the domains above."
+msgstr "Необязательно; ссылка https:// на текстовый список доменов, по одному в строке. Читается заново каждый день и объединяется с доменами выше."
+
+msgid "The list address must be an https:// link without spaces."
+msgstr "Адрес списка должен быть ссылкой https:// без пробелов."
+
+msgid "Custom list by address"
+msgstr "Свой список по адресу"

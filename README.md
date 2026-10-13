@@ -131,10 +131,13 @@ networks come from Zoom's official list instead and merge with the bundled
 snapshot. Selected services with a packaged `.source` definition refresh daily
 from their configured provider; a validated cache or packaged snapshot keeps
 routing available if the download fails. Wise, Shopify, Notion and Hetzner
-Console, OpenAI, Anthropic, Perplexity, xAI, LinkedIn and Spotify use v2fly;
+Console, OpenAI, Anthropic, Perplexity, xAI, LinkedIn, Spotify, TikTok and
+Hugging Face use v2fly;
 Revolut and Supabase use the project-maintained lists. Hetzner Console excludes customer hosting networks.
 Editing a service in LuCI creates a complete local override and stops its
-provider updates until the override is reset.
+provider updates until the override is reset. A service of your own can also
+follow a list at an `https://` address: the list is read again every day and
+joined with the domains typed into the service.
 
 ## Development
 

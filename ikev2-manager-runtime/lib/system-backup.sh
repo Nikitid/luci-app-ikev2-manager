@@ -158,7 +158,7 @@ backup_open() {
 			files/etc/ | files/etc/ikev2-manager/ ) ;;
 			services.d/*/* | *..* ) die 'The backup holds a file it should not' ;;
 			services.d/[a-z0-9_]*.lst | services.d/[a-z0-9_]*.cidrs | services.d/[a-z0-9_]*.name | \
-			services.d/[a-z0-9_]*.origin | services.d/[a-z0-9_]*.mode ) ;;
+			services.d/[a-z0-9_]*.origin | services.d/[a-z0-9_]*.mode | services.d/[a-z0-9_]*.source ) ;;
 			clients/ | clients/credentials/ | clients/state.json | clients/invitations.json | clients/labels.json | \
 			clients/initialized | clients/enrollment-initialized ) ;;
 			clients/credentials/*/* ) die 'The backup holds a file it should not' ;;

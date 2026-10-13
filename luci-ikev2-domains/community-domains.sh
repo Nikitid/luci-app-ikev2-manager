@@ -370,7 +370,13 @@ read_service() {
 	catalog_services | grep -Fxq "$service" || return 1
 	work="$(mktemp -d)" || return 1
 	failed=0
-	download_service "$service" "$work/domains" &
+	# A service that follows a list is edited as what was typed into it; the
+	# list itself is not copied into the form.
+	if [ -f "$user_services_dir/$service.source" ] && [ -f "$user_services_dir/$service.lst" ]; then
+		normalize_domains "$user_services_dir/$service.lst" >"$work/domains" &
+	else
+		download_service "$service" "$work/domains" &
+	fi
 	domains_pid=$!
 	download_service_cidrs "$service" "$work/cidrs" &
 	cidrs_pid=$!
@@ -385,6 +391,8 @@ read_service() {
 	printf 'id=%s\norigin=%s\ncustomized=%s\nlabel=%s\nmode=%s\n' \
 		"$service" "$origin" "$([ "$origin" = builtin ] && echo 0 || echo 1)" "$label" \
 		"$(service_mode "$service")"
+	[ ! -f "$user_services_dir/$service.lst" ] ||
+		printf 'url=%s\n' "$(service_domain_source "$service" 2>/dev/null || true)"
 	printf '%s\n' '---domains---'
 	cat "$work/domains"
 	printf '%s\n' '---cidrs---'
@@ -520,23 +528,55 @@ refresh_subnet_catalog() {
 	rm -f "$tmp_json" "$tmp_catalog" "$subnet_catalog_file.tmp"
 }
 
-# Only package-owned metadata selects an external provider. User overrides keep
-# their existing complete-definition semantics.
+# The file that names a service's external provider. A user service is the
+# complete definition: it follows the address the administrator gave it, or
+# none, and never the one the package ships for the same name.
+service_source_file() {
+	local service="$1"
+	if [ -f "$user_services_dir/$service.lst" ]; then
+		[ ! -f "$user_services_dir/$service.source" ] ||
+			printf '%s\n' "$user_services_dir/$service.source"
+		return 0
+	fi
+	[ ! -f "$local_services_dir/$service.source" ] ||
+		printf '%s\n' "$local_services_dir/$service.source"
+}
+
+valid_source_url() {
+	[ "${#1}" -le 2048 ] || return 1
+	case "$1" in
+		*[!A-Za-z0-9._~:/?#@!\$\&\(\)*+,\;=%-]*) return 1 ;;
+		https://[A-Za-z0-9]*) return 0 ;;
+	esac
+	return 1
+}
+
 service_domain_source() {
-	local service="$1" format url
-	[ -f "$local_services_dir/$service.source" ] || return 0
-	format="$(sed -n '1p' "$local_services_dir/$service.source")"
-	url="$(sed -n '2p' "$local_services_dir/$service.source")"
+	local service="$1" source format url
+	source="$(service_source_file "$service")"
+	[ -n "$source" ] || return 0
+	format="$(sed -n '1p' "$source")"
+	url="$(sed -n '2p' "$source")"
 	case "$format" in plain | v2fly) ;; *) return 1 ;; esac
-	case "$url" in https://* ) ;; *) return 1 ;; esac
+	valid_source_url "$url" || return 1
 	printf '%s\n' "$url"
 }
 
 normalize_service_domains() {
-	local service="$1" file="$2" format="$3" decoded normalized omitted rc
+	local service="$1" file="$2" format="$3" decoded normalized omitted extra typed rc
 	decoded="$(mktemp)" || return 1
 	normalized="$(mktemp)" || { rm -f "$decoded"; return 1; }
 	omitted="$local_services_dir/$service.omit"
+	extra="$local_services_dir/$service.extra"
+	# A user service adds the domains its administrator typed, and nothing
+	# the package holds for the same name. They are the administrator's own
+	# decision, so they join after the checks a downloaded list has to pass.
+	typed=''
+	if [ -f "$user_services_dir/$service.lst" ]; then
+		omitted=/dev/null
+		extra=/dev/null
+		typed="$user_services_dir/$service.lst"
+	fi
 	[ -f "$omitted" ] || omitted=/dev/null
 	if [ "$format" = v2fly ]; then
 		# Ads are not needed for service access. An exact host ("full:") is a
@@ -563,11 +603,18 @@ normalize_service_domains() {
 	fi
 	# What the project knows a service needs and its provider does not list
 	# is added to every revision, so taking a provider's list loses nothing.
-	[ ! -f "$local_services_dir/$service.extra" ] ||
-		grep -v '^[[:space:]]*\(#\|$\)' "$local_services_dir/$service.extra" >>"$decoded" || :
+	[ ! -f "$extra" ] ||
+		grep -v '^[[:space:]]*\(#\|$\)' "$extra" >>"$decoded" || :
 	if ! normalize_remote_domains "$decoded" >"$normalized"; then
 		rm -f "$decoded" "$normalized"
 		return 1
+	fi
+	if [ -n "$typed" ]; then
+		if ! normalize_domains "$typed" >>"$normalized" ||
+		   ! sort -u "$normalized" >"$decoded" || ! cp "$decoded" "$normalized"; then
+			rm -f "$decoded" "$normalized"
+			return 1
+		fi
 	fi
 	# Do not implicitly route customer hosting zones along with a provider's
 	# management portal. An empty exclusion file must work on BusyBox too.
@@ -590,11 +637,18 @@ normalize_service_domains() {
 download_service() {
 	local service="$1" destination="$2" cached
 	cached="$cache_dir/$service.lst"
-	local downloaded normalized downloaded_size url format
+	local downloaded normalized downloaded_size url format source snapshot
+
+	url="$(service_domain_source "$service")" || return 1
+	source="$(service_source_file "$service")"
+	snapshot="$local_services_dir/$service.lst"
 
 	# A user-owned service or override is the complete definition. It is never
-	# merged with a changing provider behind the administrator's back.
-	if [ -f "$user_services_dir/$service.lst" ]; then
+	# merged with a changing provider behind the administrator's back; it
+	# follows a list only at the address the administrator gave it.
+	if [ -f "$user_services_dir/$service.lst" ] && [ -n "$url" ]; then
+		snapshot=/dev/null
+	elif [ -f "$user_services_dir/$service.lst" ]; then
 		normalized="$(mktemp)"
 		if normalize_domains "$user_services_dir/$service.lst" \
 			>"$normalized"; then
@@ -605,9 +659,8 @@ download_service() {
 		return 1
 	fi
 
-	url="$(service_domain_source "$service")" || return 1
 	format=plain
-	[ -z "$url" ] || format="$(sed -n '1p' "$local_services_dir/$service.source")"
+	[ -z "$url" ] || format="$(sed -n '1p' "$source")"
 
 	# Check local bundled services first, but validate them exactly like remote
 	# content so a packaging mistake cannot poison the active ruleset.
@@ -666,9 +719,9 @@ download_service() {
 		echo "$service" >> "$destination.stale"
 		return 0
 	fi
-	# A first boot without network access still has the packaged snapshot.
-	if [ -s "$local_services_dir/$service.lst" ] &&
-	   normalize_service_domains "$service" "$local_services_dir/$service.lst" plain >"$destination" &&
+	# A first boot without network access still has the packaged snapshot, and
+	# a user service the domains typed into it.
+	if normalize_service_domains "$service" "$snapshot" plain >"$destination" 2>/dev/null &&
 	   [ -s "$destination" ]; then
 		echo "$service" >> "$destination.stale"
 		return 0
@@ -1290,7 +1343,7 @@ staged_destination() {
 restore_service_files() {
 	local backup="$1" service="$2" kind
 	mkdir -p "$user_services_dir"
-	for kind in lst cidrs name origin mode; do
+	for kind in lst cidrs name origin mode source; do
 		rm -f "$user_services_dir/$service.$kind"
 		[ ! -e "$backup/$kind" ] ||
 			cp "$backup/$kind" "$user_services_dir/$service.$kind"
@@ -1315,7 +1368,7 @@ set_service_selected() {
 }
 
 apply_staged_service() {
-	local action_id="$1" token="$2" meta domains cidrs operation service label
+	local action_id="$1" token="$2" meta domains cidrs operation service label url source_before
 	local selected origin work kind bytes extension mode
 	valid_input_token "$token" || {
 		apply_failed 'the submitted service token is malformed'
@@ -1344,6 +1397,17 @@ apply_staged_service() {
 	mode="$(sed -n 's/^mode=//p' "$meta" | sed -n '1p')"
 	[ -n "$mode" ] || mode="$(service_mode "$service")"
 	case "$mode" in route | exclude) ;; *) apply_failed 'invalid service mode'; return 1 ;; esac
+	# Absent from a page that predates followed lists: the service keeps the
+	# address it has. Present and empty: it follows none.
+	if grep -q '^url=' "$meta"; then
+		url="$(sed -n 's/^url=//p' "$meta" | sed -n '1p')"
+	else
+		url="$(sed -n '2p' "$user_services_dir/$service.source" 2>/dev/null || true)"
+	fi
+	[ -z "$url" ] || [ "$operation" != save ] || valid_source_url "$url" || {
+		apply_failed 'the list address must be an https:// link without spaces'
+		return 1
+	}
 	case "$operation" in save | reset | delete) ;; *) apply_failed 'invalid service operation'; return 1 ;; esac
 	valid_service_id "$service" || { apply_failed 'invalid service identifier'; return 1; }
 	case "$selected" in 0 | 1 | keep) ;; *) apply_failed 'invalid service selection state'; return 1 ;; esac
@@ -1352,9 +1416,10 @@ apply_staged_service() {
 		return 1
 	}
 
+	source_before="$(service_domain_source "$service" 2>/dev/null || true)"
 	work="$(mktemp -d)" || return 1
 	mkdir -p "$work/service-before"
-	for kind in lst cidrs name origin mode; do
+	for kind in lst cidrs name origin mode source; do
 		[ ! -e "$user_services_dir/$service.$kind" ] ||
 			cp "$user_services_dir/$service.$kind" "$work/service-before/$kind"
 	done
@@ -1364,9 +1429,9 @@ apply_staged_service() {
 		save)
 			if ! normalize_domains "$domains" >"$work/domains" ||
 		   ! normalize_cidrs "$cidrs" >"$work/cidrs" ||
-		   { [ ! -s "$work/domains" ] && [ ! -s "$work/cidrs" ]; }; then
+		   { [ ! -s "$work/domains" ] && [ ! -s "$work/cidrs" ] && [ -z "$url" ]; }; then
 			rm -rf "$work"
-			apply_failed 'a service needs at least one valid domain or IPv4 network'
+			apply_failed 'a service needs at least one valid domain, IPv4 network or list address'
 			return 1
 		fi
 		origin="$(service_origin "$service")"
@@ -1404,6 +1469,29 @@ apply_staged_service() {
 		else
 			rm -f "$user_services_dir/$service.mode"
 		fi
+		if [ -n "$url" ]; then
+			printf 'v2fly\n%s\n' "$url" >"$user_services_dir/$service.source.new" &&
+				chmod 600 "$user_services_dir/$service.source.new" &&
+				mv "$user_services_dir/$service.source.new" "$user_services_dir/$service.source"
+		else
+			rm -f "$user_services_dir/$service.source"
+		fi
+		# A new address is read once before it is accepted: a link that does
+		# not answer, or answers with something that is not a list of domains,
+		# is a mistake to report now, not a service that quietly routes less
+		# than it shows. Later failures of an accepted address keep the last
+		# revision instead.
+		if [ -n "$url" ] && [ "$url" != "$source_before" ]; then
+			if ! uclient-fetch -q -T 20 -O "$work/listed" "$url" ||
+			   [ "$(wc -c <"$work/listed" | tr -d ' ')" -gt "$max_service_bytes" ] ||
+			   ! normalize_service_domains "$service" "$work/listed" v2fly >"$work/listed.domains" 2>/dev/null ||
+			   [ ! -s "$work/listed.domains" ]; then
+				restore_service_files "$work/service-before" "$service"
+				rm -rf "$work"
+				apply_failed 'the list at this address could not be read as a list of domains'
+				return 1
+			fi
+		fi
 		;;
 	reset)
 		base_service_exists "$service" || {
@@ -1413,7 +1501,7 @@ apply_staged_service() {
 		}
 		rm -f "$user_services_dir/$service.lst" "$user_services_dir/$service.cidrs" \
 			"$user_services_dir/$service.name" "$user_services_dir/$service.origin" \
-			"$user_services_dir/$service.mode"
+			"$user_services_dir/$service.mode" "$user_services_dir/$service.source"
 		;;
 	delete)
 		[ "$(service_origin "$service")" = custom ] || {
@@ -1424,9 +1512,17 @@ apply_staged_service() {
 		selected=0
 		rm -f "$user_services_dir/$service.lst" "$user_services_dir/$service.cidrs" \
 			"$user_services_dir/$service.name" "$user_services_dir/$service.origin" \
-			"$user_services_dir/$service.mode"
+			"$user_services_dir/$service.mode" "$user_services_dir/$service.source"
 		;;
 	esac
+
+	# What was fetched for the previous definition says nothing about this
+	# one: a new address starts without a cache, and an edit of the typed
+	# domains is not hidden behind a still fresh revision.
+	if [ "$(service_domain_source "$service" 2>/dev/null)" != "$source_before" ]; then
+		rm -f "$cache_dir/$service.lst" "$cache_dir/$service.lst.meta" "$cache_dir/$service.lst.error"
+	fi
+	rm -f "$cache_dir/$service.lst.fetched"
 
 	if { [ "$selected" = keep ] || set_service_selected "$service" "$selected"; } &&
 	   apply_once "$action_id"; then
@@ -1576,7 +1672,10 @@ print_sources() {
 		printf '%s\n' '---service---'
 		printf 'service=%s\n' "$service"
 		printf 'label=%s\n' "$(service_label "$service")"
-		if [ -f "$user_services_dir/$service.lst" ]; then
+		if [ -f "$user_services_dir/$service.lst" ] && [ -f "$user_services_dir/$service.source" ]; then
+			url="$(service_domain_source "$service")" || return 1
+			print_list_source domains "$cache_dir/$service.lst" linked "$url" "$user_services_dir/$service.lst"
+		elif [ -f "$user_services_dir/$service.lst" ]; then
 			print_list_source domains "$cache_dir/$service.lst" user '' "$user_services_dir/$service.lst"
 		elif [ -f "$local_services_dir/$service.source" ]; then
 			url="$(service_domain_source "$service")" || return 1

@@ -396,7 +396,8 @@ Prepared service identifiers come from the package-owned catalog. A packaged
 definition has priority over its optional provider list. Editing a prepared
 service creates a complete local override in
 `/etc/ikev2-manager/services.d/`; it is never merged with later provider
-changes. User-created services use the same directory and remain distinct from
+changes. A user service follows an external list only at an address its
+administrator entered (`<service>.source`). User-created services use the same directory and remain distinct from
 the common manual domain list. Definition changes preserve the independently
 staged service selection; deleting a custom service also removes it from that
 selection. Saving, resetting or deleting a definition rebuilds the active
