@@ -539,13 +539,20 @@ normalize_service_domains() {
 	omitted="$local_services_dir/$service.omit"
 	[ -f "$omitted" ] || omitted=/dev/null
 	if [ "$format" = v2fly ]; then
-		# Exact-host rules cannot be broadened into suffix rules. Ads are not
-		# needed for service access; unsupported directives reject the revision.
+		# Ads are not needed for service access. An exact host ("full:") is a
+		# name on a shared platform - a storage bucket, a CDN endpoint - and is
+		# taken as it is: the names under it are the same tenant's. Other
+		# attributes only describe a domain and are dropped. A pattern
+		# ("regexp:", "keyword:") cannot be a list entry and is left out. A
+		# list that pulls in another ("include:") or carries anything else
+		# unknown rejects the revision rather than lose what it meant.
 		if ! awk '
 			{ sub(/\r$/, ""); sub(/[ \t]*#.*/, "") }
 			/^[ \t]*$/ { next }
-			/^[^ \t]+[ \t]+@ads([ \t]|$)/ { next }
-			/:|@/ { exit 1 }
+			/^[^ \t]+[ \t]+(.*[ \t])?@ads([ \t]|$)/ { next }
+			/^(regexp|keyword):/ { next }
+			{ sub(/^[ \t]+/, ""); sub(/[ \t]+@.*$/, ""); sub(/^(full|domain):/, "") }
+			/:|@|[ \t]/ { exit 1 }
 			{ print }
 		' "$file" >"$decoded"; then
 			rm -f "$decoded" "$normalized"
@@ -554,6 +561,10 @@ normalize_service_domains() {
 	else
 		cp "$file" "$decoded"
 	fi
+	# What the project knows a service needs and its provider does not list
+	# is added to every revision, so taking a provider's list loses nothing.
+	[ ! -f "$local_services_dir/$service.extra" ] ||
+		grep -v '^[[:space:]]*\(#\|$\)' "$local_services_dir/$service.extra" >>"$decoded" || :
 	if ! normalize_remote_domains "$decoded" >"$normalized"; then
 		rm -f "$decoded" "$normalized"
 		return 1

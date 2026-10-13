@@ -143,8 +143,8 @@ Relay в этой сети отключается.
 
 Сервисы с файлом `.source` обновляются ежедневно из указанного источника.
 При ошибке загрузки используется проверенный кеш или снимок из пакета.
-Wise, Shopify, Notion и Hetzner Console используют v2fly; Revolut, Supabase
-и Anthropic - списки проекта. Hetzner Console не включает сети
+Wise, Shopify, Notion, Hetzner Console, OpenAI, Anthropic, Perplexity, xAI,
+LinkedIn и Spotify используют v2fly; Revolut и Supabase - списки проекта. Hetzner Console не включает сети
 клиентского хостинга. Локальное переопределение в LuCI отключает обновление
 сервиса из источника до сброса переопределения.
 

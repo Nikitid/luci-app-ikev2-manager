@@ -131,8 +131,8 @@ networks come from Zoom's official list instead and merge with the bundled
 snapshot. Selected services with a packaged `.source` definition refresh daily
 from their configured provider; a validated cache or packaged snapshot keeps
 routing available if the download fails. Wise, Shopify, Notion and Hetzner
-Console use v2fly; Revolut, Supabase and Anthropic use the
-project-maintained lists. Hetzner Console excludes customer hosting networks.
+Console, OpenAI, Anthropic, Perplexity, xAI, LinkedIn and Spotify use v2fly;
+Revolut and Supabase use the project-maintained lists. Hetzner Console excludes customer hosting networks.
 Editing a service in LuCI creates a complete local override and stops its
 provider updates until the override is reset.
 

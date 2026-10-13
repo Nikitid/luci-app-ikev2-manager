@@ -27,16 +27,23 @@ printf 'safe.example\nsub.tenant.example\nfull:ads.example @ads\n' >"$work/provi
 # With an empty filter, BusyBox must retain every ordinary domain.
 : >"$work/local/probe.omit"
 [ "$(normalize_service_domains probe "$work/provider" v2fly | wc -l)" -eq 2 ]
-for bad in com 'include:another' 'regexp:.*' 'full:exact.example'; do
+for bad in com 'include:another' 'weird:thing.example' 'two words.example'; do
 	printf 'safe.example\n%s\n' "$bad" >"$work/provider"
 	if normalize_service_domains probe "$work/provider" v2fly >"$work/result" 2>/dev/null; then
 		printf 'provider accepted unsafe syntax: %s\n' "$bad" >&2
 		exit 1
 	fi
 done
+# An exact host is taken, an attribute that only describes a domain is
+# dropped, a pattern is left out, and what the project adds comes with every
+# revision.
+printf 'safe.example\nfull:bucket.storage.example\nregional.example @cn\nregexp:^x-.+\\.example$\nkeyword:safe\nfull:track.example @ads\n' >"$work/provider"
+printf '# ours\nadded.example\n' >"$work/local/probe.extra"
+[ "$(normalize_service_domains probe "$work/provider" v2fly | sort | tr '\n' ' ')" = 'added.example bucket.storage.example regional.example safe.example ' ]
+rm -f "$work/local/probe.extra"
 # These installed services must have valid snapshots and source definitions.
 local_services_dir=/usr/share/ikev2-domains/local-services
-for service in wise revolut shopify hetzner_console supabase notion anthropic_ai; do
+for service in wise revolut shopify hetzner_console supabase notion anthropic_ai openai perplexity x_ai linkedin spotify; do
 	[ -n "$(service_domain_source "$service")" ]
 	normalize_service_domains "$service" "$local_services_dir/$service.lst" plain >"$work/result"
 	[ -s "$work/result" ]

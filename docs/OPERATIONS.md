@@ -711,14 +711,18 @@ The cache TTL, scheduled refresh and source ledger are shared with community
 lists. User overrides remain complete definitions and disable provider updates.
 
 A `<service>.omit` file excludes suffixes from a provider, including their
-subdomains. V2fly inputs accept ordinary suffix rules and skip advertising
-rules; other directives reject the entire revision instead of broadening exact
-matches or silently losing included domains. Explicit domain sources never
+subdomains; a `<service>.extra` file adds the domains the project knows the
+service needs and the provider does not list. V2fly inputs accept ordinary suffix rules, take an exact
+host (`full:`) as it is, drop attributes that only describe a domain, and skip
+advertising rules and patterns (`regexp:`, `keyword:`), which a list of
+domains cannot express; `include:` and anything else unknown reject the
+entire revision instead of silently losing included domains. Explicit domain sources never
 inherit same-named community subnet lists. The separate `hetzner_console`
 service therefore does not change the existing broad `hetzner` service.
 
-Wise, Shopify, Notion and Hetzner Console use v2fly. Revolut, Supabase
-and Anthropic fetch their project-maintained list from the main branch, so
+Wise, Shopify, Notion, Hetzner Console, OpenAI, Anthropic, Perplexity, xAI,
+LinkedIn and Spotify use v2fly. Revolut and Supabase fetch their
+project-maintained list from the main branch, so
 publishing a domain correction does not require a router package upgrade.
 This downloads maintained definitions; it does not discover new service
 endpoints automatically. Review source changes and validate authenticated

@@ -15,7 +15,8 @@ Downloaded content is controlled by its upstream authors and is not covered by
 this project's MIT License. Users who enable the integration are responsible
 for determining whether their use of the external lists is permitted.
 
-Wise, Shopify, Notion and the Hetzner console can download domain lists from:
+Wise, Shopify, Notion, the Hetzner console, OpenAI, Anthropic, Perplexity, xAI,
+LinkedIn and Spotify can download domain lists from:
 
     https://github.com/v2fly/domain-list-community
 
