@@ -228,14 +228,25 @@ try {
    closed = true;
   }
   if (!closed) {
-  let ids = client_admin_catalog_ids(state, request), catalog = [];
+  let ids = client_admin_catalog_ids(state, request), catalog = [], kept = [];
   for (let id in ids) {
    // IDs have already passed the strict identifier grammar. No submitted
    // path, URL, credential or command can reach the child process.
    let child = popen('/usr/libexec/ikev2-domains-community client-service-domains ' + id, 'r');
    if (!child) die('catalog unavailable');
    let body = child.read(1048577), status = child.close();
-   if (status != 0 || type(body) != 'string' || length(body) > 1048576) die('catalog unavailable');
+   if (status != 0 || type(body) != 'string' || length(body) > 1048576) {
+    // A periodic refresh keeps what a service was published with when its
+    // list cannot be read now - a source that does not answer, a service
+    // removed from routing - so one such service does not stop the lists of
+    // every other from reaching the devices. Publishing a service is the
+    // administrator's own request and still needs its list.
+    let was = request.operation == 'refresh-catalog' ? filter(state.publication.services, service => service.id == id)[0] : null;
+    if (!was || type(was.domains) != 'array' || !length(was.domains)) die('catalog unavailable');
+    push(catalog, { id: id, domains: was.domains });
+    push(kept, id);
+    continue;
+   }
    push(catalog, { id: id, domains: filter(split(body, '\n'), name => length(name)) });
   }
   let prepared = prepare_client_admin(state, request, catalog);
@@ -278,6 +289,7 @@ try {
   else if (request.operation == 'assign-service') record_client_event('service-assigned', request.payload.id + ' devices ' + length(request.payload.devices));
   else if (request.operation == 'configure-service') record_client_event(request.payload.client_access ? 'service-published' : 'service-withdrawn', request.payload.id);
   print(`generation=${generation}\nchanged=${prepared.changed ? 1 : 0}\n`);
+  if (length(kept)) print(`unreadable=${join(' ', kept)}\n`);
   }
  } else if ((ARGV[0] == 'initialize' || ARGV[0] == 'publish') && length(ARGV) == 1) {
 		let raw = stdin.read(16777217);

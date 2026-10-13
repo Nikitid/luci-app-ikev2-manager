@@ -18,7 +18,8 @@ case "$interval:$retry" in *[!0-9:]* | 0:* | *:0 | :* | *:) exit 2 ;; esac
 . "$runtime_lib_dir/actions.sh"
 
 catalog_sync() {
- local rc=0
+ local rc=0 was now
+ was="$(sed -n 's/^unreadable=//p' "$runtime_dir/status" 2>/dev/null)"
  pkg_run_bounded 300 /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" refresh >"$runtime_dir/result.new" 2>/dev/null || rc=1
  if [ "$rc" = 0 ]; then
   { printf 'state=current\nupdated=%s\n' "$(date +%s)"; cat "$runtime_dir/result.new"; } >"$runtime_dir/status.new"
@@ -26,6 +27,15 @@ catalog_sync() {
   printf 'state=failed\nupdated=%s\n' "$(date +%s)" >"$runtime_dir/status.new"
  fi
  mv "$runtime_dir/status.new" "$runtime_dir/status" || rc=1
+ # Said once when it begins and once when it ends, not every hour.
+ now="$(sed -n 's/^unreadable=//p' "$runtime_dir/status" 2>/dev/null)"
+ if [ "$now" != "$was" ]; then
+  if [ -n "$now" ]; then
+   logger -p daemon.warning -t ikev2-client-catalog "lists not readable, devices keep the published ones: $now" 2>/dev/null || :
+  else
+   logger -t ikev2-client-catalog 'every published list is readable again' 2>/dev/null || :
+  fi
+ fi
  rm -f "$runtime_dir/result.new"
  return "$rc"
 }

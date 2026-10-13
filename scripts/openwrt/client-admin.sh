@@ -43,6 +43,15 @@ ucode -e 'import {readfile} from "fs"; let state=json(readfile(ARGV[0])); if(len
 ucode "$control" refresh >"$work/result"
 grep -qx 'generation=5' "$work/result"
 grep -qx 'changed=0' "$work/result"
+# A published service whose list cannot be read keeps what it was published
+# with, the refresh says which, and the others still update.
+mv "$service_dir/test_service.lst" "$work/test_service.held"
+ucode "$control" refresh >"$work/result"
+grep -qx 'changed=0' "$work/result"
+grep -qx 'unreadable=test_service' "$work/result"
+mv "$work/test_service.held" "$service_dir/test_service.lst"
+ucode "$control" refresh >"$work/result"
+! grep -q '^unreadable=' "$work/result"
 before="$(sha256sum "$state_dir/state.json")"
 if ucode "$control" update <"$work/request.json" >/dev/null 2>&1; then exit 1; fi
 [ "$(sha256sum "$state_dir/state.json")" = "$before" ]

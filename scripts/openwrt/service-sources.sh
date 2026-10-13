@@ -6,7 +6,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT INT TERM
 helper=/usr/libexec/ikev2-domains-community
 mkdir -p "$work/local" "$work/user" "$work/cache"
-for fn in normalize_domains normalize_remote_domains normalize_service_domains service_domain_source service_source_file valid_source_url download_service cache_is_fresh record_fetch_error fetch_failure_reason refresh_due meta_value numeric_or_zero; do
+for fn in normalize_domains normalize_remote_domains normalize_service_domains service_domain_source service_source_file valid_source_url service_published download_service cache_is_fresh record_fetch_error fetch_failure_reason refresh_due meta_value numeric_or_zero; do
 	sed -n "/^$fn() {/,/^}/p" "$helper" >>"$work/functions.sh"
 done
 # shellcheck disable=SC1091
@@ -113,4 +113,18 @@ if refresh_due probe; then
 fi
 printf 'last_success=%s\nlast_error=%s\nlast_attempt=%s\njitter=0\n' "$now" "$now" "$((now - 3601))" >"$refresh_state_file"
 refresh_due probe
+# Whether remote clients are offered a service, read with the real jsonfilter:
+# only one published now, not one withdrawn and not another.
+client_state_file="$work/state.json"
+printf '{"publication":{"services":[{"id":"offered","client_access":true},{"id":"withdrawn","client_access":false}]}}\n' >"$client_state_file"
+service_published offered
+if service_published withdrawn || service_published other; then
+	printf 'a service that is not published was reported as published\n' >&2
+	exit 1
+fi
+client_state_file="$work/absent.json"
+if service_published offered; then
+	printf 'a router without remote clients reported a published service\n' >&2
+	exit 1
+fi
 printf 'service provider scenarios OK\n'

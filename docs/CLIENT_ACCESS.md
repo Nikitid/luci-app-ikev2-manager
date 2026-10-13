@@ -93,8 +93,10 @@ enrollment uses separate invitation, provisioning and bootstrap endpoints;
 the native client flow and activation are not connected yet.
 
 `refresh` reloads client-published service domains from the existing catalog,
-validates the complete proposal and commits it atomically. Missing or invalid
-lists retain the previous publication. Unchanged lists do not write a new
+validates the complete proposal and commits it atomically. A service whose
+list cannot be read keeps the domains it was published with while the others
+update; the result names it (`unreadable=`) and the worker logs once when that
+begins and once when it ends. Unchanged lists do not write a new
 snapshot. A separate `ikev2-client-catalog` procd instance runs this every hour
 and retries failed attempts after a minute, independently from admission.
 It uses the existing catalog cache and freshness rules; source-fetch metadata
