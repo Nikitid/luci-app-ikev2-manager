@@ -58,6 +58,10 @@ chmod 755 "$tmp/curl"
 REC="$tmp/rec"; mkdir -p "$REC"; export REC
 
 sed -n '/^report_endpoint=/,$p' "$root/ikev2-manager-runtime/lib/system-report.sh" >"$tmp/report.sh"
+# Sourced by a helper that runs under set -e: a router without the setting
+# must still run every other command. Reading it once stopped them all.
+sh -eu -c 'uci() { return 1; }; . "$1"; printf "survived\n"' sh "$tmp/report.sh" 2>/dev/null | grep -qx survived ||
+	fail 'loading the report support without a service setting stopped its helper'
 statuses="$tmp/statuses"
 action_status() { printf '%s %s %s\n' "$1" "$2" "$3" >>"$statuses"; }
 diagnostics_report() { printf 'redacted state of <router>\n'; }

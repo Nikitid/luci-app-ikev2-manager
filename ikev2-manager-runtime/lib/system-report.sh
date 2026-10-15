@@ -10,7 +10,9 @@
 
 # Where reports go is a setting of the router (ikev2-manager.reports.endpoint),
 # not of the package: without one the router sends no report at all.
-report_endpoint="${IKEV2_REPORT_ENDPOINT:-$(uci -q get ikev2-manager.reports.endpoint 2>/dev/null)}"
+# Read with "|| true": this file is sourced by a helper that runs under set -e,
+# and a router without the option must not lose every other command for it.
+report_endpoint="${IKEV2_REPORT_ENDPOINT:-$(uci -q get ikev2-manager.reports.endpoint 2>/dev/null || true)}"
 report_project="${IKEV2_REPORT_PROJECT:-ikev2-manager}"
 report_dir="${IKEV2_REPORT_DIR:-/etc/ikev2-manager/reports}"
 report_curl="${IKEV2_REPORT_CURL:-curl}"
