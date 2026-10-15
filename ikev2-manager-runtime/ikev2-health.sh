@@ -314,7 +314,15 @@ check_runtimes() {
 	# its own reconciliation stops completing: procd only respawns a process
 	# that exits, so a watcher that keeps running while its sets go stale
 	# leaves every VPN client fail-closed and silent.
-	if [ -x "$user_policy_helper" ] && ! "$user_policy_helper" check >/dev/null 2>&1; then
+	if [ -x "$user_policy_helper" ] && ! "$user_policy_helper" check >/dev/null 2>&1 &&
+	   ! "$user_policy_helper" alive >/dev/null 2>&1; then
+		# Its loop stopped turning. A repair would refresh the very state the
+		# check reads and hide that the watcher is gone, as it did for hours
+		# on a router where the watcher sat blocked in a read: it is replaced.
+		logger -t ikev2-health -p daemon.warn 'The inbound policy watcher stopped; restarting it'
+		"$user_policy_init" restart >/dev/null 2>&1 || :
+		user_policy_stale=0
+	elif [ -x "$user_policy_helper" ] && ! "$user_policy_helper" check >/dev/null 2>&1; then
 		repair "$user_policy_helper" sync
 		# One repair covers a missed event. A second pass in a row that finds
 		# the state stale again means the watcher itself is not reconciling:

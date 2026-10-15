@@ -12,6 +12,10 @@ rules_out="${IKEV2_RULES_OUT:-}"
 signature_file="${IKEV2_USER_POLICY_SIGNATURE:-/var/run/ikev2-user-policy.signature}"
 session_state="${IKEV2_USER_POLICY_SESSIONS:-/var/run/ikev2-user-policy.sessions}"
 policy_state="${IKEV2_USER_POLICY_FINGERPRINTS:-/var/run/ikev2-user-policy.policy}"
+# The watcher's own pulse: touched by its loop and by nothing else. A sync run
+# from outside refreshes the session state too, so that state cannot tell a
+# live watcher from one stuck where only a repair keeps the sets current.
+alive_file="${IKEV2_USER_POLICY_ALIVE:-/var/run/ikev2-user-policy.alive}"
 sync_lock_dir="${IKEV2_USER_POLICY_LOCK:-/var/run/ikev2-user-policy.lock}"
 health_lock="${IKEV2_HEALTH_LOCK:-/var/run/ikev2-health.lock}"
 refresh_interval="${IKEV2_USER_POLICY_REFRESH_INTERVAL:-30}"
@@ -604,6 +608,7 @@ check_runtime() {
 	now="$(date +%s)" || return 1
 	age=$((now - last_sync))
 	[ "$age" -ge 0 ] && [ "$age" -le 75 ] || return 1
+	watcher_alive || return 1
 	sessions="${TMPDIR:-/tmp}/ikev2-user-policy-check.$$"
 	collect_sessions "$sessions" || {
 		rm -f "$sessions"
@@ -617,6 +622,16 @@ check_runtime() {
 	done <"$sessions"
 	rm -f "$sessions"
 	[ "$stale" -eq 0 ]
+}
+
+# Whether the watcher's loop is still turning. No pulse at all is a watcher
+# that has not started yet, which the session state above already covers.
+watcher_alive() {
+	local beat now
+	[ -f "$alive_file" ] || return 0
+	beat="$(date -r "$alive_file" +%s 2>/dev/null)" || return 1
+	now="$(date +%s)" || return 1
+	[ "$((now - beat))" -le "$((refresh_interval * 3))" ]
 }
 
 monitor_source() {
@@ -674,7 +689,7 @@ watch_runtime() {
 			monitor_pid=''
 		fi
 		exec 3>&- 3<&-
-		rm -f "$raw" "${raw}.new" "$events"
+		rm -f "$raw" "${raw}.new" "$events" "$alive_file"
 	}
 	reload_watcher() {
 		cleanup_watcher
@@ -731,6 +746,7 @@ watch_runtime() {
 		fi
 	}
 	while true; do
+		: >"$alive_file" 2>/dev/null || :
 		event=''
 		if ! IFS= read -r -t "$refresh_interval" event <&3; then
 			kill -0 "$monitor_pid" 2>/dev/null || {
@@ -767,7 +783,8 @@ case "${1:-sync}" in
 	sync) run_locked sync_runtime ;;
 	stop) run_locked stop_runtime ;;
 	check) check_runtime ;;
+	alive) watcher_alive ;;
 	watch) watch_runtime ;;
 	monitor-source) monitor_source ;;
-	*) printf 'usage: %s [sync|stop|check|watch|monitor-source]\n' "$0" >&2; exit 2 ;;
+	*) printf 'usage: %s [sync|stop|check|alive|watch|monitor-source]\n' "$0" >&2; exit 2 ;;
 esac

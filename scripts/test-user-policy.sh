@@ -919,6 +919,38 @@ if PATH="$tmp/bin:$PATH" \
 	exit 1
 fi
 
+# The watcher's pulse. A sync from outside refreshes the session state, so a
+# watcher stuck in its loop looked healthy for hours while repairs kept the
+# sets current; with the pulse gone stale the check fails anyway. No pulse at
+# all is a watcher not started yet, which the session state covers.
+touch "$tmp/state-fresh"
+check_with_pulse() {
+	PATH="$tmp/bin:$PATH" \
+	IKEV2_UCI_BIN="$tmp/bin/uci" \
+	IKEV2_UCI_CONFIG_DIR="$tmp/root/etc/config" \
+	IKEV2_USERS_DB="$tmp/root/etc/ikev2-manager/users.db" \
+	IKEV2_SESSIONS_FILE="$tmp/sessions-check" \
+	IKEV2_USER_POLICY_SESSIONS="$tmp/state-fresh" \
+	IKEV2_NFT="$tmp/bin/nft-healthy" \
+	IKEV2_USER_POLICY_SIGNATURE="$tmp/check.signature" \
+	IKEV2_USER_POLICY_ALIVE="$tmp/pulse" \
+	sh "$root/ikev2-manager-runtime/ikev2-user-policy.sh" "$1"
+}
+: >"$tmp/pulse"
+check_with_pulse check || { printf '%s\n' 'check rejected a watcher with a fresh pulse' >&2; exit 1; }
+check_with_pulse alive || { printf '%s\n' 'a fresh pulse was not read as alive' >&2; exit 1; }
+touch -t 202001010000 "$tmp/pulse"
+if check_with_pulse check; then
+	printf '%s\n' 'check accepted a watcher whose loop stopped' >&2
+	exit 1
+fi
+if check_with_pulse alive; then
+	printf '%s\n' 'a stale pulse was read as alive' >&2
+	exit 1
+fi
+rm -f "$tmp/pulse"
+check_with_pulse alive || { printf '%s\n' 'a watcher not started yet was read as stopped' >&2; exit 1; }
+
 # A failed or partial VICI listing is not an authoritative empty session set.
 # Sync must leave the previously installed rules untouched and report failure.
 cat >"$tmp/bin/swanmon-fail" <<'EOF'
@@ -1009,6 +1041,7 @@ PATH="$tmp/bin:$PATH" \
 	IKEV2_NFT="$tmp/bin/nft-healthy" \
 	IKEV2_USER_POLICY_SIGNATURE="$tmp/silent.signature" \
 	IKEV2_USER_POLICY_SESSIONS="$tmp/silent.sessions" \
+	IKEV2_USER_POLICY_ALIVE="$tmp/silent.pulse" \
 	IKEV2_SWANMON="$tmp/bin/swanmon-count" \
 	IKEV2_RULES_OUT="$tmp/rules-silent.nft" \
 	IKEV2_USER_POLICY_EVENT_SOURCE="$tmp/bin/event-source" \
@@ -1025,6 +1058,12 @@ passes_after="$(wc -l <"$tmp/silent.passes" 2>/dev/null || echo 0)"
 [ "$passes_after" -ge "$((passes_before + 2))" ] || {
 	kill "$silent_pid" 2>/dev/null || true
 	printf '%s\n' 'inbound watcher made no periodic pass without events' >&2
+	exit 1
+}
+# Its loop keeps its own pulse fresh while it waits.
+[ -f "$tmp/silent.pulse" ] && [ $(( $(date +%s) - $(date -r "$tmp/silent.pulse" +%s) )) -le 2 ] || {
+	kill "$silent_pid" 2>/dev/null || true
+	printf '%s\n' 'inbound watcher kept no pulse' >&2
 	exit 1
 }
 source_wrapper="$(pgrep -P "$silent_pid" | head -n 1)"

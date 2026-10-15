@@ -114,6 +114,23 @@ any interface besides `ipsec-out`.
 
 Guarded by `scripts/test-package-lifecycle.sh`.
 
+## A repair that refreshes what the check reads hides a dead watcher
+
+The inbound policy watcher sat blocked in a read on its event pipe for five
+hours (`/proc/<pid>/syscall` showed `read` on fd 0, no children left), while
+its check failed at the 75-second freshness limit. The health watcher repaired
+it every two minutes with `ikev2-user-policy sync`, which rewrites the very
+session state the check reads: the next check passed, the "stale twice, so
+replace it" counter went back to zero, and Kuma flapped between down and up all
+evening with no client connected. Nothing replaced the watcher.
+
+The watcher now touches its own pulse, `/var/run/ikev2-user-policy.alive`, on
+every turn of its loop and nothing else writes it. `check` fails on a pulse
+older than three refresh intervals, `alive` reports it alone, and the health
+watcher restarts the service instead of repairing when `alive` fails. Frozen
+with SIGSTOP on a router it was replaced within two minutes. Guarded by
+`scripts/test-user-policy.sh` and `scripts/test-health-loop.sh`.
+
 ## An attempt begun as the uplink comes up never finishes
 
 charon chooses the source address of an IKE_SA when it starts the attempt and

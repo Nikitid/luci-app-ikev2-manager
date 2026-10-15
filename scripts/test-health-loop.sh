@@ -67,9 +67,9 @@ case \"\$1\" in check) [ ! -e \"\$S/routing-broken\" ] ;; sync) rm -f \"\$S/rout
 stub device "$record"
 stub discord "$record"
 stub user-policy "$record
-case \"\$1\" in check) [ ! -e \"\$S/policy-stale\" ] ;; esac"
+case \"\$1\" in check) [ ! -e \"\$S/policy-stale\" ] && [ ! -e \"\$S/policy-stopped\" ] ;; alive) [ ! -e \"\$S/policy-stopped\" ] ;; esac"
 stub policy-init "$record
-[ \"\$1\" != restart ] || rm -f \"\$S/policy-stale\""
+[ \"\$1\" != restart ] || rm -f \"\$S/policy-stale\" \"\$S/policy-stopped\""
 stub domain-router "$record
 [ \"\$1\" != exits-apply ] || [ ! -e \"\$S/exits-refused\" ]"
 stub manager "$record"
@@ -166,6 +166,15 @@ wait_for '^policy-init restart' 1 'a watcher that stayed stale was not replaced'
 restarts="$(count '^policy-init restart')"
 wait_for '^routing check' $(($(count '^routing check') + 3)) 'the passes stopped after replacing the inbound watcher'
 [ "$(count '^policy-init restart')" = "$restarts" ] || fail 'a recovered inbound watcher kept being restarted'
+
+# A watcher whose loop stopped turning is replaced at once and not repaired in
+# its place: a repair refreshes what the check reads and hid such a watcher
+# for hours.
+syncs="$(count '^user-policy sync')"
+restarts="$(count '^policy-init restart')"
+: >"$S/policy-stopped"
+wait_for '^policy-init restart' $((restarts + 1)) 'a watcher that stopped was not replaced'
+[ "$(count '^user-policy sync')" = "$syncs" ] || fail 'a stopped watcher was covered for by a repair'
 
 # A runtime that drifted is repaired, under the router action lock.
 : >"$S/routing-broken"
