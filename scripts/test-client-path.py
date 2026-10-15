@@ -102,6 +102,41 @@ class PathTests(unittest.TestCase):
             self.assertTrue(rule['port'] and rule['network'])
         self.assertEqual(config['route']['rules'][-1]['action'], 'reject')
         self.assertTrue(config['experimental']['cache_file']['store_fakeip'])
+        # On flash, so an address a device still holds keeps its name across a reboot.
+        self.assertEqual(config['experimental']['cache_file']['path'], '/etc/ikev2-manager/clients/names.db')
+
+    def test_each_service_leaves_by_the_tunnel_policy_routing_gives_it(self):
+        # "chat" goes through tunnel 2 in Policy Routing; "api" is not routed
+        # there and keeps the exit of remote clients.
+        value = self.input()
+        value['exits'] = {'links': {'1': 'ipsec-out', '2': 'ipsec-out2'}, 'services': {'api': '1', 'chat': '2'}}
+        config = self.compile(value)['config']
+        fixed = {r['override_address']: r['outbound'] for r in config['route']['rules'] if 'override_address' in r and r.get('outbound') != 'names-front'}
+        self.assertEqual(fixed, {'api.example.com': 'managed-exit', 'chat.example.com': 'exit-2'})
+        named = {r['domain'][0]: r['outbound'] for r in config['route']['rules'] if r.get('rule_set')}
+        self.assertEqual(named, {'api.example.com': 'managed-exit', 'chat.example.com': 'exit-2'})
+        self.assertIn({'type': 'direct', 'tag': 'exit-2', 'bind_interface': 'ipsec-out2',
+                       'domain_resolver': {'server': 'dns-2', 'strategy': 'ipv4_only'}}, config['outbounds'])
+        self.assertIn({'type': 'tcp', 'tag': 'dns-2', 'server': '192.0.2.53', 'server_port': 53,
+                       'bind_interface': 'ipsec-out2'}, config['dns']['servers'])
+        # Bound to a tunnel that is down, without backup: refused, never sent
+        # out another way.
+        value['exits'] = {'links': {'1': 'ipsec-out', '2s': None}, 'services': {'api': '1', 'chat': '2s'}}
+        config = self.compile(value)['config']
+        chat = [r for r in config['route']['rules'] if r.get('override_address') == 'chat.example.com' or r.get('domain') == ['chat.example.com']]
+        self.assertTrue(chat)
+        for rule in chat:
+            self.assertEqual((rule['action'], rule.get('outbound')), ('reject', None))
+        self.assertNotIn('exit-2s', json.dumps(config['outbounds']))
+        # Nothing invented: an unknown exit, a bad link or a stray key is refused.
+        for exits in [{'links': {'1': 'ipsec-out'}, 'services': {'chat': '3'}},
+                      {'links': {'1': 'ipsec-out', '2': 'eth0'}, 'services': {}},
+                      {'links': {'9': 'ipsec-out2'}, 'services': {}},
+                      {'links': {'1': 'ipsec-out'}, 'services': {'Chat!': '1'}},
+                      {'links': {'1': 'ipsec-out'}, 'services': {}, 'extra': 1}]:
+            candidate = copy.deepcopy(value)
+            candidate['exits'] = exits
+            self.assertNotEqual(state_tests.run(candidate, 'path').returncode, 0, exits)
 
     def test_untrusted_or_unusable_path_inputs_are_refused(self):
         initial = self.input()

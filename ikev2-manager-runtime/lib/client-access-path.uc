@@ -13,8 +13,45 @@ export function client_sources_file(directory, service) {
 export const CLIENT_NAMES_LOCAL_PORT = 17897;
 export const CLIENT_NAMES_HTTPS_PORT = 17898;
 
+// The names handed out to devices, kept on flash beside the client state: a
+// device holds an address for as long as its own cache says, and after a
+// reboot of the router that address must still mean the same name. In memory
+// the table was gone with every reboot and such an address reached nothing.
+export const CLIENT_NAMES_DB = '/etc/ikev2-manager/clients/names.db';
+
+// Where each published service leaves: the tunnel Policy Routing gives it,
+// and the exit chosen for remote clients for a service Policy Routing does not
+// send through a tunnel. EXITS is { links: { token: link or null },
+// services: { id: token } }; a token whose link is null has no tunnel that may
+// carry it now - one bound to a tunnel that is down - and its services are
+// refused rather than sent another way.
+function client_path_exits(exits, publication, exit_link) {
+	let links = {}, services = {};
+	links[publication.exit] = exit_link;
+	if (exits == null) return { links: links, services: services };
+	if (type(exits) != 'object' || type(exits.links) != 'object' || type(exits.services) != 'object' ||
+		length(keys(exits)) != 2) die('invalid client path exits');
+	for (let token, link in exits.links) {
+		if (!match(token, /^[1-7]s?$/)) die('invalid client path exit');
+		if (link != null && (type(link) != 'string' || !match(link, /^ipsec-out([2-9]|[1-9][0-9])?$/)))
+			die('invalid client path exit link');
+		if (token != publication.exit) links[token] = link;
+	}
+	for (let id, token in exits.services) {
+		if (!(length(id) <= 48 ? match(id, /^[a-z0-9][a-z0-9_-]*$/) : null) || type(token) != 'string' || !(token in links))
+			die('invalid client path service exit');
+		services[id] = token;
+	}
+	return { links: links, services: services };
+}
+
+function exit_tag(token, publication) {
+	return token == publication.exit ? 'managed-exit' : `exit-${token}`;
+}
+
 export function compile_client_path(input) {
 	let names = [ 'version', 'state', 'exit_link', 'dns_address', 'dns_port', 'listen_port', 'runtime_dir' ];
+	if (type(input) == 'object' && 'exits' in input) push(names, 'exits');
 	if (type(input) != 'object' || length(keys(input)) != length(names))
 		die('invalid client path input');
 	for (let name in names)
@@ -41,6 +78,19 @@ export function compile_client_path(input) {
 	let selected = map(filter(publication.services, service => service.client_access), service => service.id);
 	let catalog = allocate_client_catalog({ version: 1, virtual_subnet: publication.virtual_subnet,
 		services: publication.services, allocations: publication.allocations, selected_services: selected });
+	let exits = client_path_exits(input.exits, publication, input.exit_link);
+	// The exit of each name: that of the first service, by identifier, that
+	// holds it. A name two services share leaves the way the first one does.
+	let name_exit = {};
+	for (let service in sort(filter(publication.services, s => s.client_access), (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+		for (let name in service.domains)
+			if (!(name in name_exit)) name_exit[name] = exits.services[service.id] ?? publication.exit;
+	// A rule towards a service whose exit cannot carry it now is a refusal.
+	function leave(rule, token) {
+		if (exits.links[token] == null) { delete rule.outbound; delete rule.override_address; rule.action = 'reject'; rule.method = 'drop'; }
+		else rule.outbound = exit_tag(token, publication);
+		return rule;
+	}
 	let rules = [ { inbound: [ 'tproxy-client-access-in' ], action: 'reject', method: 'drop' } ];
 	if (length(catalog.resources)) {
 		let policy = { version: 1, id: 'router', revision: state.generation,
@@ -48,7 +98,7 @@ export function compile_client_path(input) {
 			exit: publication.exit, resources: catalog.resources };
 		rules = compile_client_policy(policy).router_rules;
 		for (let rule in rules)
-			if (rule.action == 'route') rule.outbound = 'managed-exit';
+			if (rule.action == 'route') leave(rule, name_exit[rule.override_address] ?? publication.exit);
 	}
 	let subnet = publication.virtual_subnet, layout = client_names_plan(subnet);
 	// Names. A device asks the resolver address through its tunnel; a name
@@ -69,9 +119,10 @@ export function compile_client_path(input) {
 		push(dns_rules, { inbound: [ 'tproxy-client-access-in' ], rule_set: [ tag ], rule_set_ip_cidr_match_source: true,
 			domain: service.domains, domain_suffix: suffixes, action: 'predefined', rcode: 'NOERROR' });
 		for (let transport in service.transports)
-			push(named, { inbound: [ 'tproxy-client-access-in' ], rule_set: [ tag ], rule_set_ip_cidr_match_source: true,
+			push(named, leave({ inbound: [ 'tproxy-client-access-in' ], rule_set: [ tag ], rule_set_ip_cidr_match_source: true,
 				domain: service.domains, domain_suffix: suffixes,
-				network: [ transport.protocol ], port: transport.ports, action: 'route', outbound: 'managed-exit' });
+				network: [ transport.protocol ], port: transport.ports, action: 'route', outbound: 'managed-exit' },
+				exits.services[service.id] ?? publication.exit));
 	}
 	push(dns_rules, { inbound: [ 'tproxy-client-access-in' ], action: 'predefined', rcode: 'REFUSED' });
 	// Names over HTTPS. A device may ask the same resolver address on port 443
@@ -116,15 +167,26 @@ export function compile_client_path(input) {
   }
 }
 `;
+	// Every other exit a service leaves by has its own way out and resolves the
+	// names it carries through its own tunnel.
+	let extra_servers = [], extra_outbounds = [];
+	for (let token in sort(keys(exits.links))) {
+		if (token == publication.exit || exits.links[token] == null) continue;
+		push(extra_servers, { type: 'tcp', tag: `dns-${token}`, server: input.dns_address,
+			server_port: input.dns_port, bind_interface: exits.links[token] });
+		push(extra_outbounds, { type: 'direct', tag: exit_tag(token, publication), bind_interface: exits.links[token],
+			domain_resolver: { server: `dns-${token}`, strategy: 'ipv4_only' } });
+	}
 	return { version: 1, generation: state.generation, virtual_subnet: subnet,
 		exit: publication.exit, exit_link: input.exit_link, mark: '0x00800000',
+		exits: exits,
 		route: { priority: 10998, table: 1506, ingress: 'ipsec-in', destination: subnet },
 		nft: nft,
 		config: {
 			log: { level: 'warn' },
 			dns: { servers: [ { type: 'tcp', tag: 'managed-dns', server: input.dns_address,
 				server_port: input.dns_port, bind_interface: input.exit_link },
-				{ type: 'fakeip', tag: 'managed-names', inet4_range: layout.range } ],
+				{ type: 'fakeip', tag: 'managed-names', inet4_range: layout.range }, ...extra_servers ],
 				rules: dns_rules, final: 'managed-dns', strategy: 'ipv4_only' },
 			inbounds: [ { type: 'tproxy', tag: 'tproxy-client-access-in',
 				listen: '127.0.0.1', listen_port: input.listen_port },
@@ -133,11 +195,12 @@ export function compile_client_path(input) {
 				domain_resolver: { server: 'managed-dns', strategy: 'ipv4_only' } },
 				// It is only ever given a literal loopback address; the proxy asks
 				// every outbound to name its resolver all the same.
-				{ type: 'direct', tag: 'names-front', domain_resolver: { server: 'managed-dns', strategy: 'ipv4_only' } } ],
+				{ type: 'direct', tag: 'names-front', domain_resolver: { server: 'managed-dns', strategy: 'ipv4_only' } },
+				...extra_outbounds ],
 			route: { rule_set: sets, rules: rules, final: 'managed-exit' },
 			// The names handed out survive a restart of the proxy, so an
 			// address a device still holds keeps meaning the same name.
-			experimental: { cache_file: { enabled: true, path: input.runtime_dir + '/names.db', store_fakeip: true } }
+			experimental: { cache_file: { enabled: true, path: CLIENT_NAMES_DB, store_fakeip: true } }
 		},
 		services: map(published, service => service.id)
 	};

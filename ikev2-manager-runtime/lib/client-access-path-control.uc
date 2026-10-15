@@ -100,9 +100,11 @@ function route_slots(directory, plan, rules, routes) {
 
 try {
 	let mode = ARGV[0];
-	if (mode == 'prepare' && length(ARGV) == 7) {
-		print(sprintf('%J\n', compile_client_path({ version: 1, state: read_committed_client_state(ARGV[1]),
-			exit_link: ARGV[2], dns_address: ARGV[3], dns_port: +ARGV[4], listen_port: +ARGV[5], runtime_dir: ARGV[6] })));
+	if (mode == 'prepare' && (length(ARGV) == 7 || length(ARGV) == 8)) {
+		let input = { version: 1, state: read_committed_client_state(ARGV[1]),
+			exit_link: ARGV[2], dns_address: ARGV[3], dns_port: +ARGV[4], listen_port: +ARGV[5], runtime_dir: ARGV[6] };
+		if (length(ARGV) == 8) input.exits = json(protected_read(ARGV[7], 65536));
+		print(sprintf('%J\n', compile_client_path(input)));
 	} else if (mode == 'sources' && length(ARGV) == 3) {
 		// Which tunnel addresses belong, right now, to devices assigned each
 		// service. Written only on change: the proxy rereads a changed file.

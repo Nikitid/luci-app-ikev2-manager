@@ -95,7 +95,7 @@ function setupSection(settings, reload) {
    settings.initialized ? common.toggleRow(approve, _('Approve new devices by hand'), _('A registered device stays closed until you enable it. Off: a link is enough.')) : '',
    E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact', 'style': 'margin-top:1.15rem' }, [
     common.fieldLabel(_('Registration port')), port,
-    common.fieldLabel(_('Exit tunnel'), _('Selected services leave through it.')), exit,
+    common.fieldLabel(_('Exit tunnel'), _('Services Policy Routing does not send through a tunnel leave through it.')), exit,
     common.fieldLabel(_('Virtual subnet'), settings.initialized ?
      _('Fixed once set.') : _('Must not be used anywhere in your networks. Fixed once set.')), subnet
    ]),
@@ -1250,7 +1250,7 @@ return view.extend({
        vpnUsers.disconnectAll ? signButton('disconnectAll', _('Disconnect all'), 'cbi-button-negative', function(ev) { return vpnUsers.disconnectAll(ev.currentTarget); }) : '' ]) ]),
       devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), E('span', { 'class': 'ikev2-people-actions' }, [ windowsApp, invite ])),
     vpnMain,
-    common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks. A device reaches the names of the service on the ports listed, through the exit tunnel chosen under Settings - not the tunnel Policy Routing gives the service. A change of a list reaches the devices within an hour, or at once with the button.'),
+    common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks. A device reaches the names of the service on the ports listed. A service Policy Routing sends through a tunnel leaves that way for devices too; any other leaves through the exit tunnel chosen under Settings. A change of a list reaches the devices within an hour, or at once with the button.'),
      E('div', {}, [ services, E('div', { 'class': 'ikev2-actions end' }, [ serviceResult.node ]) ]), refresh),
    ), managed),
    more

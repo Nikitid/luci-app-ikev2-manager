@@ -899,6 +899,15 @@ recording and later removing only the values it wrote; on macOS as a separate
 configuration profile the person installs and removes. A system proxy takes
 browser traffic before any route does; both clients report it as a warning.
 
+Each service leaves the router the way Policy Routing sends it: a service
+placed in a tunnel there goes out through that tunnel for devices too, with
+or without backup as placed, and resolves its names through it; a service
+Policy Routing does not send through a tunnel leaves by the exit chosen for
+remote clients. A service bound to a tunnel that is down is refused, never
+sent another way. The table of names handed out is kept on flash
+(`/etc/ikev2-manager/clients/names.db`), so an address a device still holds
+keeps its name across a reboot.
+
 On the router the DNS enforcement redirect leaves questions arriving from the
 inbound tunnel for the virtual subnet alone, and the firewall admits marked
 traffic to the subnet when the inbound zone is closed.

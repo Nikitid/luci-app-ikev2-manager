@@ -1,6 +1,10 @@
 #!/bin/sh
 # Dedicated proxy lifecycle. Only the committed catalog and local exit watcher
 # may choose its path; unrelated routes, processes and tables are never replaced.
+# Policy Routing's choice of services and where each goes.
+routing_selected_file="${IKEV2_SELECTED_FILE:-/etc/pbr-ikev2-community-selected.txt}"
+routing_exits_file="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
+
 client_path_control() {
  "$ucode_bin" "$runtime_lib_dir/client-access-path-control.uc" "$@" 2>/dev/null
 }
@@ -40,6 +44,33 @@ client_path_routes() {
   [ "$(jsonfilter -i "$work/path-slots.json" -e '@.rule_present')" != true ] || path_inventory="$inventory"
 }
 
+# Where each published service leaves, as the compiler reads it: the tunnel
+# Policy Routing gives the service, or the exit chosen for remote clients for a
+# service Policy Routing does not send through a tunnel. Each exit is named
+# with the link that carries it now, or null when none may.
+client_path_exits() {
+ local exit="$1" service token tokens link index services='' links=''
+ tokens="$exit"
+ for service in $(jsonfilter -i "$state_dir/state.json" -e '@.publication.services[@.client_access=true].id' 2>/dev/null); do
+  token="$exit"
+  if grep -Fxq "$service" "$routing_selected_file" 2>/dev/null; then
+   token="$(awk -v s="$service" '$1 == s { print $2; exit }' "$routing_exits_file" 2>/dev/null)"
+   case "$token" in '') token=1 ;; [1-7] | [1-7]s) ;; *) token="$exit" ;; esac
+  fi
+  services="$services${services:+,}\"$service\":\"$token\""
+  case " $tokens " in *" $token "*) ;; *) tokens="$tokens $token" ;; esac
+ done
+ for token in $tokens; do
+  link=null
+  if index="$(tunnel_exit_selected "$token")"; then
+   tunnel_names "$index"
+   ip link show dev "$tunnel_link" up 2>/dev/null | grep -q . && link="\"$tunnel_link\""
+  fi
+  links="$links${links:+,}\"$token\":$link"
+ done
+ printf '{"links":{%s},"services":{%s}}\n' "$links" "$services"
+}
+
 client_path_sync() {
  [ "$require_path" = 1 ] && [ "$auto_path" = 1 ] || return 0
  local exit selected endpoint address port pid fingerprint remaining=5
@@ -77,12 +108,13 @@ SETTINGS
  # The plan follows from the published generation, the exit link and the
  # resolver; it is compiled again only when one of them changed, not every
  # two seconds.
- local planned
- planned="$(jsonfilter -i "$work/plan.json" -e '@.generation')|$tunnel_link|$address|$port"
+ local planned exit_link="$tunnel_link"
+ client_path_exits "$exit" >"$work/path-exits.json" || return 1
+ planned="$(jsonfilter -i "$work/plan.json" -e '@.generation')|$exit_link|$address|$port|$(cat "$work/path-exits.json")"
  if [ "$planned" != "${path_planned:-}" ] || [ ! -s "$work/path-plan.json" ]; then
   path_planned=''
   rm -f "$work/proxy.next.json"
-  client_path_control prepare "$state_dir" "$tunnel_link" "$address" "$port" 17896 "$runtime_dir" >"$work/path-plan.json" || return 1
+  client_path_control prepare "$state_dir" "$exit_link" "$address" "$port" 17896 "$runtime_dir" "$work/path-exits.json" >"$work/path-plan.json" || return 1
   path_planned="$planned"
  fi
  # The proxy reads these at start and whenever they change; they are
