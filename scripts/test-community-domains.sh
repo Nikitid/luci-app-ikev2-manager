@@ -640,6 +640,33 @@ fi
 [ ! -e "$tmp/service-input-spawn001.cidrs" ]
 [ -z "$(find "$tmp/pending.d" -type f -print -quit 2>/dev/null)" ]
 
+# Where a name goes: the exclusion wins, then the exit whose built list holds
+# a suffix of it, and the services that bring that suffix are named. A name
+# that is not one is refused.
+saved_final="$(cat "$tmp/domains" 2>/dev/null || :)"
+cp "$tmp/manual-exclude" "$tmp/manual-exclude.saved" 2>/dev/null || : >"$tmp/manual-exclude.saved"
+printf '%s\n' traced.example >"$tmp/domains"
+printf '%s\n' second.example >"$tmp/domains.exit-2s.txt"
+printf '%s\n' kept-out.example >"$tmp/manual-exclude"
+trace() { run_helper name-trace "$1"; }
+out="$(trace api.TRACED.example)"
+printf '%s\n' "$out" | grep -qx 'exit=1' || { printf 'a routed name was not traced to its exit: %s\n' "$out" >&2; exit 1; }
+printf '%s\n' "$out" | grep -qx 'matched=traced.example' || { printf 'the matching suffix was not named\n' >&2; exit 1; }
+printf '%s\n' "$(trace www.second.example)" | grep -qx 'exit=2s' || { printf 'a name of another exit was not found there\n' >&2; exit 1; }
+out="$(trace a.kept-out.example)"
+printf '%s\n' "$out" | grep -qx 'excluded=kept-out.example' || { printf 'an excluded name was not reported as excluded\n' >&2; exit 1; }
+! printf '%s\n' "$out" | grep -q '^exit=[0-9]' || { printf 'an excluded name was given a tunnel\n' >&2; exit 1; }
+! printf '%s\n' "$(trace unrouted.example)" | grep -q '^exit=' || { printf 'an unrouted name was given an exit\n' >&2; exit 1; }
+for bad in 'a b.example' '../etc' 'x;reboot' ''; do
+	if run_helper name-trace "$bad" >/dev/null 2>&1; then
+		printf 'a name that is not one was traced: %s\n' "$bad" >&2
+		exit 1
+	fi
+done
+printf '%s\n' "$saved_final" >"$tmp/domains"
+rm -f "$tmp/domains.exit-2s.txt"
+mv "$tmp/manual-exclude.saved" "$tmp/manual-exclude"
+
 # The project-owned TikTok manifest covers the image host observed in the
 # field without importing unrelated products or shared CDN parent domains.
 grep -Fxq ibyteimg.com "$root/luci-ikev2-domains/local-services/tiktok.lst"

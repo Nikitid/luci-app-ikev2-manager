@@ -5552,3 +5552,60 @@ msgstr "Список v2fly по имени, например youtube"
 
 msgid "A list from the v2fly catalogue"
 msgstr "Список из каталога v2fly"
+
+msgid "A name to check"
+msgstr "Имя для проверки"
+
+msgid "Never through the tunnel: %s is in the exclusions."
+msgstr "Никогда через туннель: %s в исключениях."
+
+msgid "Goes: %s, because the list holds %s."
+msgstr "Идёт: %s, потому что в списке есть %s."
+
+msgid "Not routed: it goes the ordinary way, outside the tunnel."
+msgstr "Не направляется: идёт обычным путём, мимо туннеля."
+
+msgid "Brought by the service %s (%s)."
+msgstr "Добавлено сервисом %s (%s)."
+
+msgid "Brought by your own domains (%s)."
+msgstr "Добавлено вашими доменами (%s)."
+
+msgid "The router has no answer for it."
+msgstr "Роутер не даёт для него ответа."
+
+msgid "The router answers %s."
+msgstr "Роутер отвечает %s."
+
+msgid "No tunnel can carry it now."
+msgstr "Сейчас его не может пропустить ни один туннель."
+
+msgid "Leaves through %s now."
+msgstr "Сейчас уходит через %s."
+
+msgid "HTTPS does not answer that way."
+msgstr "По этому пути HTTPS не отвечает."
+
+msgid "Not tried: no tunnel can carry it now."
+msgstr "Не проверялось: сейчас его не может пропустить ни один туннель."
+
+msgid "HTTPS answers that way (status %s)."
+msgstr "По этому пути HTTPS отвечает (код %s)."
+
+msgid "Enter a name like chat.openai.com."
+msgstr "Введите имя вида chat.openai.com."
+
+msgid "Checking..."
+msgstr "Проверка..."
+
+msgid "Unable to check the name"
+msgstr "Не удалось проверить имя"
+
+msgid "Where a name goes"
+msgstr "Куда идёт имя"
+
+msgid "What the router does with a name now: the list that holds it, the service that brings it, the answer it gives and the tunnel it leaves by."
+msgstr "Что роутер сейчас делает с именем: в каком оно списке, какой сервис его добавил, какой ответ он даёт и через какой туннель оно уходит."
+
+msgid "also try HTTPS that way"
+msgstr "проверить HTTPS по этому пути"

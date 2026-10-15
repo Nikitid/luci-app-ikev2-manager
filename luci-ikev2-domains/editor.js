@@ -1543,6 +1543,7 @@ return view.extend({
 				])
 			]) ]) ]),
 			dialogHost,
+			buildTraceSection(),
 			buildSourcesSection(data[7]),
 			E('div', { 'class': 'ikev2-destination-editors' }, [
 				common.section(_('Custom domains'),
@@ -1641,6 +1642,94 @@ return view.extend({
 					'style': 'display:grid;grid-template-columns:minmax(7rem,1fr) 2fr 2fr;gap:.6rem 1rem;align-items:start;padding-top:.75rem'
 				}, rows)
 			]));
+		}
+
+		// Where one name goes, and why: what the router itself would do with it
+		// now, read from the lists it built, not from what the page holds.
+		function buildTraceSection() {
+			var input = E('input', {
+				'class': 'cbi-input-text',
+				'type': 'text',
+				'autocomplete': 'off',
+				'spellcheck': 'false',
+				'placeholder': 'chat.openai.com',
+				'aria-label': _('A name to check')
+			});
+			var probe = E('input', { 'type': 'checkbox' });
+			var button = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button' }, [ _('Check') ]);
+			var answer = E('div', { 'class': 'ikev2-trace' });
+			var result = common.inlineResult();
+			function describe(st, services) {
+				var lines = [];
+				if (st.excluded)
+					lines.push(_('Never through the tunnel: %s is in the exclusions.').format(st.excluded));
+				else if (st.exit)
+					lines.push(_('Goes: %s, because the list holds %s.').format(zoneName(st.exit), st.matched || st.name));
+				else
+					lines.push(_('Not routed: it goes the ordinary way, outside the tunnel.'));
+				services.forEach(function(entry) {
+					var parts = entry.split('|');
+					lines.push(_('Brought by the service %s (%s).').format(parts[1] || parts[0], parts[2] || ''));
+				});
+				if (st.own)
+					lines.push(_('Brought by your own domains (%s).').format(st.own));
+				if (st.address)
+					lines.push(st.address === 'none' ? _('The router has no answer for it.') :
+						_('The router answers %s.').format(st.address));
+				if (st.link)
+					lines.push(st.link === 'none' ? _('No tunnel can carry it now.') : _('Leaves through %s now.').format(st.link));
+				if (st.reach)
+					lines.push(st.reach === 'failed' ? _('HTTPS does not answer that way.') :
+						(st.reach === 'no-link' ? _('Not tried: no tunnel can carry it now.') :
+						 _('HTTPS answers that way (status %s).').format(st.reach)));
+				return lines;
+			}
+			function run() {
+				var name = String(input.value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[\/:].*$/, '');
+				if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(name) || name.indexOf('..') >= 0) {
+					result.err(_('Enter a name like chat.openai.com.'));
+					return Promise.resolve();
+				}
+				common.setBusy(button, true, _('Checking...'));
+				result.clear();
+				answer.replaceChildren();
+				return common.execChecked(communityHelper, probe.checked ? [ 'name-trace', name, 'probe' ] : [ 'name-trace', name ],
+					_('Unable to check the name')).then(function(response) {
+					var st = {}, services = [];
+					String(response.stdout || '').split('\n').forEach(function(line) {
+						var eq = line.indexOf('=');
+						if (eq <= 0) return;
+						var key = line.slice(0, eq), value = line.slice(eq + 1);
+						if (key === 'service') services.push(value);
+						else st[key] = value;
+					});
+					answer.replaceChildren.apply(answer, describe(st, services).map(function(line) {
+						return E('div', {}, [ line ]);
+					}));
+				}, function(error) {
+					result.err(error.message);
+				}).finally(function() {
+					common.setBusy(button, false);
+				});
+			}
+			button.addEventListener('click', run);
+			input.addEventListener('keydown', function(ev) {
+				if (ev && ev.key === 'Enter') {
+					if (ev.preventDefault) ev.preventDefault();
+					run();
+				}
+			});
+			return common.section(_('Where a name goes'),
+				_('What the router does with a name now: the list that holds it, the service that brings it, the answer it gives and the tunnel it leaves by.'),
+				E('div', {}, [
+					E('div', { 'class': 'ikev2-actions' }, [
+						input,
+						E('label', { 'class': 'ikev2-trace-probe' }, [ probe, ' ', _('also try HTTPS that way') ]),
+						button
+					]),
+					result.node,
+					answer
+				]));
 		}
 
 		function buildSourcesSection(response) {

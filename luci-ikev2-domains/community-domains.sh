@@ -18,6 +18,7 @@ manual_file="${IKEV2_MANUAL_FILE:-/etc/pbr-ikev2-domains.manual.txt}"
 manual_cidr_file="${IKEV2_MANUAL_CIDR_FILE:-/etc/pbr-ikev2-addresses.manual.txt}"
 selected_file="${IKEV2_SELECTED_FILE:-/etc/pbr-ikev2-community-selected.txt}"
 final_file="${IKEV2_FINAL_FILE:-/etc/pbr-ikev2-domains.txt}"
+routing_status_helper="${IKEV2_ROUTING_HELPER:-/usr/libexec/ikev2-routing}"
 cidr_file="${IKEV2_CIDR_FILE:-/etc/pbr-ikev2-service-cidrs.txt}"
 # Never through the tunnel: the operator's two lists, and what they and the
 # exclusion services add up to. An excluded domain also takes its subdomains
@@ -561,6 +562,83 @@ service_domain_source() {
 	case "$format" in plain | v2fly) ;; *) return 1 ;; esac
 	valid_source_url "$url" || return 1
 	printf '%s\n' "$url"
+}
+
+# Where a name goes, and why, as key=value lines: the exclusion that keeps it
+# out of the tunnel, or the exit whose list holds it and the suffix that
+# matched; the services and the own list that bring that suffix; what the
+# router answers for it; the link that exit uses now; and, when asked,
+# whether HTTPS answers through that way. Read-only.
+trace_name() {
+	local name="$1" probe="${2:-}" suffix rest token file matched='' exit='' service list link answer code work
+	name="$(printf '%s' "$name" | tr 'A-Z' 'a-z')"
+	name="${name%.}"
+	case "$name" in '' | *[!a-z0-9.-]* | .* | *..* ) return 2 ;; esac
+	[ "${#name}" -le 253 ] || return 2
+	printf 'name=%s\n' "$name"
+	# Every suffix of the name, longest first: a list holds a domain for
+	# everything under it.
+	suffixes="$name"
+	rest="$name"
+	while [ "${rest#*.}" != "$rest" ]; do
+		rest="${rest#*.}"
+		suffixes="$suffixes $rest"
+	done
+	for suffix in $suffixes; do
+		if grep -Fxq "$suffix" "$bypass_file" 2>/dev/null || grep -Fxq "$suffix" "$manual_exclude_file" 2>/dev/null; then
+			printf 'excluded=%s\n' "$suffix"
+			exit=wan
+			break
+		fi
+	done
+	if [ -z "$exit" ]; then
+		for token in 1 1s 2 2s 3 3s 4 4s 5 5s 6 6s 7 7s; do
+			file="$(exit_file "$final_file" "$token")"
+			[ -s "$file" ] || continue
+			for suffix in $suffixes; do
+				if grep -Fxq "$suffix" "$file"; then
+					exit="$token"; matched="$suffix"; break
+				fi
+			done
+			[ -z "$exit" ] || break
+		done
+	fi
+	[ -z "$exit" ] || printf 'exit=%s\n' "$exit"
+	[ -z "$matched" ] || printf 'matched=%s\n' "$matched"
+	for suffix in $suffixes; do
+		grep -Fxq "$suffix" "$manual_file" 2>/dev/null && { printf 'own=%s\n' "$suffix"; break; }
+	done
+	work="$(mktemp -d)" || return 1
+	if [ -s "$selected_file" ]; then
+		for service in $(normalize_services "$selected_file" 2>/dev/null); do
+			download_service "$service" "$work/list" 2>/dev/null || continue
+			for suffix in $suffixes; do
+				if grep -Fxq "$suffix" "$work/list"; then
+					printf 'service=%s|%s|%s\n' "$service" "$(service_label "$service")" "$suffix"
+					break
+				fi
+			done
+		done
+	fi
+	rm -rf "$work"
+	answer="$(nslookup "$name" 127.0.0.1 2>/dev/null | awk '/^Address/ && $NF ~ /^[0-9.]+$/ && $NF != "127.0.0.1" { print $NF; exit }')"
+	printf 'address=%s\n' "${answer:-none}"
+	link=''
+	if [ -n "$exit" ] && [ "$exit" != wan ]; then
+		link="$("$routing_status_helper" status 2>/dev/null | sed -n "s/^exit_$exit=//p")"
+		printf 'link=%s\n' "${link:-none}"
+	fi
+	[ "$probe" = probe ] || return 0
+	# Through the way it goes: the tunnel's link, resolving through the tunnel
+	# too, or the WAN for a name that is not routed.
+	if [ -n "$exit" ] && [ "$exit" != wan ]; then
+		[ -n "$link" ] && [ "$link" != none ] || { printf 'reach=no-link\n'; return 0; }
+		code="$(curl -s -o /dev/null -m 8 --interface "$link" --doh-url https://1.1.1.1/dns-query \
+			-w '%{http_code}' "https://$name/" 2>/dev/null)"
+	else
+		code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "https://$name/" 2>/dev/null)"
+	fi
+	case "$code" in '' | 000) printf 'reach=failed\n' ;; *) printf 'reach=%s\n' "$code" ;; esac
 }
 
 # The names of every list in the v2fly catalogue, for the service window to
@@ -1925,6 +2003,9 @@ case "${1:-}" in
 		;;
 	v2fly-names)
 		v2fly_names
+		;;
+	name-trace)
+		trace_name "${2:-}" "${3:-}"
 		;;
 	ip-services)
 		if [ ! -s "$subnet_catalog_file" ] ||

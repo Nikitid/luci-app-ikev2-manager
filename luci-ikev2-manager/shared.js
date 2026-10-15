@@ -1798,6 +1798,9 @@ var CSS = `
 			.ikev2-dialog-field > input,
 			.ikev2-dialog-field > select,
 			.ikev2-dialog-field > textarea { width: 100%; max-width: none; }
+			/* Where a name goes: the answer as short lines under the field. */
+			.ikev2-trace { display: grid; gap: .3rem; margin-top: var(--ikev2-s3); font-size: .9rem; }
+			.ikev2-trace-probe { display: inline-flex; align-items: center; gap: .35rem; color: var(--ikev2-muted); font-size: .88rem; }
 			/* A list's address, and a name in the v2fly catalogue that fills it. */
 			.ikev2-dialog-source {
 				display: grid;

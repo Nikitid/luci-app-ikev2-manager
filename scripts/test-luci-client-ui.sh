@@ -1074,7 +1074,37 @@ function saveServiceDialog() {
 			fail('a new service is not stored under an identifier from its name, with the list it follows and where it goes: ' + JSON.stringify(written.meta));
 		if (written.domains !== 'portal.example\nstatic.portal.example\n' || written.cidrs !== '203.0.113.0/24\n')
 			fail('the domains and the addresses of a service are not stored apart: ' + JSON.stringify(written));
-	}).then(editServiceDialog).then(catalogServiceDialog);
+	}).then(editServiceDialog).then(catalogServiceDialog).then(traceSection);
+}
+// Where a name goes: the page asks the router and says it in words - the
+// tunnel, the suffix that matched, the service that brings it and the answer.
+function traceSection() {
+	const page = editor.render([
+		'', 'openai', policyStatus, { code: 0, stdout: 'openai|OpenAI|builtin|0|0|route\n' },
+		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
+		{ code: 0, stdout: '' }, ''
+	]);
+	const asked = [];
+	const execBefore = fsStub.exec;
+	fsStub.exec = function(file, args) {
+		asked.push((args || []).join(' '));
+		return Promise.resolve({ code: 0, stdout: 'name=chat.openai.com\nexit=1\nmatched=openai.com\nservice=openai|OpenAI|openai.com\naddress=198.18.0.86\nlink=ipsec-out\n' });
+	};
+	const input = nodesOf(page).find(function(node) { return node.attrs && node.attrs['aria-label'] === 'A name to check'; });
+	const check = nodesOf(page).find(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === 'Check'; });
+	if (!input || !check) fail('the policy page has no way to check where a name goes');
+	input.value = ' https://Chat.OpenAI.com/path ';
+	check.listeners.click();
+	return new Promise(function(resolve) { setTimeout(resolve, 20); }).then(function() {
+		fsStub.exec = execBefore;
+		if (asked.indexOf('name-trace chat.openai.com') < 0)
+			fail('the name was not asked of the router as a bare name: ' + JSON.stringify(asked));
+		const said = nodesOf(page).filter(function(node) { return hasClass(node, 'ikev2-trace'); }).map(textOf).join(' ');
+		[ 'Goes: Through the tunnel, because the list holds openai.com.', 'Brought by the service OpenAI (openai.com).',
+		  'The router answers 198.18.0.86.', 'Leaves through ipsec-out now.' ].forEach(function(line) {
+			if (said.indexOf(line) < 0) fail('the answer does not say: ' + line + ' / ' + said);
+		});
+	});
 }
 // A service that lies in the catalogue is opened by the button on its chip.
 // Given a place with its lists untouched it is only placed - a prepared
