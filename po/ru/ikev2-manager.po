@@ -5007,8 +5007,8 @@ msgstr "Кому"
 msgid "Sender address"
 msgstr "Адрес отправителя"
 
-msgid "Sending needs the msmtp package: install it under System - Software."
-msgstr "Для отправки нужен пакет msmtp: установите его в разделе Система - Программы."
+msgid "The mail program is not installed yet: it is installed when these settings are saved."
+msgstr "Программа отправки почты ещё не установлена: она установится при сохранении этих настроек."
 
 msgid "Sending..."
 msgstr "Отправка..."
@@ -5540,3 +5540,9 @@ msgstr "Исходящие туннели"
 
 msgid "How names are resolved: through the tunnel for what is routed there, the public upstream for everything else, and resolver groups of their own for chosen suffixes."
 msgstr "Как разрешаются имена: через туннель для того, что туда направлено, через публичный сервер для всего остального и отдельными группами серверов для выбранных суффиксов."
+
+msgid "Mail settings saved. The mail program is being installed; sending works in a minute or two."
+msgstr "Настройки почты сохранены. Устанавливается программа отправки; отправка заработает через минуту-две."
+
+msgid "Waiting for the package manager to finish..."
+msgstr "Ожидание завершения работы менеджера пакетов..."

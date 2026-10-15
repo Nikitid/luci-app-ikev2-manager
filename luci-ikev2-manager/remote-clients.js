@@ -167,7 +167,7 @@ function mailSection(mail, reload) {
    [ _('Sending...'), _('Test message sent.'), _('Could not send the test message.') ]);
  } }, [ _('Send test') ]);
  return common.section(_('Mail for invitation links'), _('Optional. Links can then be sent to a person by e-mail.'), E('div', {}, [
-  mail.available ? '' : E('div', { 'class': 'ikev2-note warn' }, [ _('Sending needs the msmtp package: install it under System - Software.') ]),
+  mail.available ? '' : E('div', { 'class': 'ikev2-note warn' }, [ _('The mail program is not installed yet: it is installed when these settings are saved.') ]),
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
    common.fieldLabel(_('Mail service')), preset,
    common.fieldLabel(_('SMTP server')), host,

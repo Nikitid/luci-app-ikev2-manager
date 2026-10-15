@@ -431,6 +431,9 @@ if [ "$$(uci -q get ikev2-manager.globals.configured)" = 1 ]; then
 	else
 		echo "Could not reconcile the active IKEv2 policy; open LuCI and apply the configuration." >&2
 	fi
+	# Packages this version needs and the router lacks arrive in the
+	# background, once this package manager run is over.
+	/usr/libexec/ikev2-manager-system _deps-reconcile >/dev/null 2>&1 || :
 fi
 # runtime-reconcile end
 # health-restart begin

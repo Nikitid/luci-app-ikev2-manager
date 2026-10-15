@@ -127,7 +127,8 @@ if 'show' not in a:
     print('audit: continuous fail-closed guard and netlink error propagation OK')
 
     # Missing any mandatory inbound guard must fail a runtime check.
-    policy = function('ikev2-manager-runtime/ikev2-user-policy.sh', 'check_runtime')
+    policy = function('ikev2-manager-runtime/ikev2-user-policy.sh', 'watcher_alive') + \
+        function('ikev2-manager-runtime/ikev2-user-policy.sh', 'check_runtime')
     nft = bindir / 'nft'
     nft.write_text('''#!/bin/sh
 case "$*" in

@@ -1829,6 +1829,10 @@ case "${1:-}" in
 	install-deps)
 		install_deps
 		;;
+	_deps-reconcile)
+		[ "$#" -eq 1 ] || die 'Expected no arguments'
+		reconcile_deps
+		;;
 	_install-deps-run)
 		doctor_ui_cache_invalidate
 		run_install_deps "${2:-}"

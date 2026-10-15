@@ -62,6 +62,42 @@ acme-acmesh-dnsapi
 EOF
 }
 
+# Packages a feature needs once it is in use, and not before: a router that
+# sends no mail carries no mail program. They are installed, repaired and
+# removed with the runtime packages above.
+feature_packages() {
+	[ ! -s "${IKEV2_MAIL_SETTINGS:-/etc/ikev2-manager/mail.json}" ] || printf '%s\n' msmtp
+}
+
+wanted_packages() {
+	runtime_packages
+	feature_packages
+}
+
+# Packages this version needs that the router does not have, on a router whose
+# dependencies this application installed. An upgrade or a feature switched on
+# hands them to the installer; a router whose packages someone else manages is
+# left alone.
+missing_wanted_packages() {
+	local package missing=''
+	deps_state_ready || return 0
+	for package in $(wanted_packages); do
+		pkg_installed "$package" || missing="${missing}${missing:+ }$package"
+	done
+	printf '%s' "$missing"
+}
+
+# Start the installer for what is missing, in the background. It waits for a
+# package manager that is still running - the upgrade that called this is one.
+reconcile_deps() {
+	local missing
+	[ "$(getv globals configured)" = 1 ] || return 0
+	missing="$(missing_wanted_packages)"
+	[ -n "$missing" ] || return 0
+	logger -t ikev2-manager "installing packages this router lacks: $missing" 2>/dev/null || :
+	install_deps >/dev/null
+}
+
 # Print the one version every installed strongSwan package shares. Fail when
 # they differ, when a version is unknown, or when plugins are installed without
 # the base package. One pass over the listing: a query per package cost more
@@ -112,7 +148,7 @@ runtime_install_arguments() {
 }
 
 verify_install_plan() {
-	package_names="$(runtime_packages | tr '\n' ' ')"
+	package_names="$(wanted_packages | tr '\n' ' ')"
 	packages="$(runtime_install_arguments $package_names | tr '\n' ' ')" || {
 		deps_status error 'Installed strongSwan packages do not form one version cohort'
 		return 1
@@ -162,6 +198,14 @@ run_install_deps() {
 	fi
 	trap 'rm -f "$action_lock_status"; rmdir "$action_lock_dir" 2>/dev/null || true' EXIT INT TERM
 	[ -r /etc/openwrt_release ] || { deps_status error 'This command must run on OpenWrt'; exit 1; }
+	# Started from a package upgrade, the package manager that runs it is still
+	# busy; a second one would only fail on its lock.
+	waited=0
+	while pidof apk opkg >/dev/null 2>&1 && [ "$waited" -lt 900 ]; do
+		[ "$waited" -gt 0 ] || deps_status running 'Waiting for the package manager to finish...'
+		sleep 5
+		waited=$((waited + 5))
+	done
 	. /etc/openwrt_release
 	package_manager="$(pkg_manager_name)"
 	case "$(openwrt_release_support "${DISTRIB_RELEASE:-}" "$package_manager")" in
@@ -211,7 +255,7 @@ run_install_deps() {
 	if ! verify_install_plan; then
 		exit 1
 	fi
-	packages="$(runtime_packages | tr '\n' ' ')"
+	packages="$(wanted_packages | tr '\n' ' ')"
 	if deps_state_ready; then
 		if ! pkg_installed dnsmasq-full || ! pkg_dnsmasq_has_nftset; then
 			deps_status error 'Installed dependency state is inconsistent with dnsmasq; use Remove Dependencies before reinstalling'

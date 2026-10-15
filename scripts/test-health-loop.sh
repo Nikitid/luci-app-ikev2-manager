@@ -61,7 +61,7 @@ stub curl 'link=
 while [ "$#" -gt 0 ]; do [ "$1" != --interface ] || link="$2"; shift; done
 [ ! -e "$S/silent-$link" ] || exit 28
 echo ip=192.0.2.1'
-stub logger ':'
+stub logger 'printf "logger %s\\n" "$*" >>"$S/logger.log"'
 stub routing "$record
 case \"\$1\" in check) [ ! -e \"\$S/routing-broken\" ] ;; sync) rm -f \"\$S/routing-broken\" ;; esac"
 stub device "$record"
@@ -175,6 +175,12 @@ restarts="$(count '^policy-init restart')"
 : >"$S/policy-stopped"
 wait_for '^policy-init restart' $((restarts + 1)) 'a watcher that stopped was not replaced'
 [ "$(count '^user-policy sync')" = "$syncs" ] || fail 'a stopped watcher was covered for by a repair'
+
+# What was repaired is in the log by name - once, not every pass.
+grep -q 'repaired inbound-policy (1 since the last report)' "$S/logger.log" ||
+	fail 'a repair of the inbound policy was not named in the log'
+[ "$(grep -c 'repaired inbound-policy' "$S/logger.log")" = 1 ] ||
+	fail 'a repair repeated within ten minutes was logged again'
 
 # A runtime that drifted is repaired, under the router action lock.
 : >"$S/routing-broken"

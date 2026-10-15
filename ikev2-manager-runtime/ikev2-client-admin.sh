@@ -81,6 +81,10 @@ run_action() {
   pkg_run_bounded 300 /usr/bin/ucode "$runtime_lib_dir/client-access-control.uc" refresh >"$admin_dir/result" 2>/dev/null || rc=1
  fi
  if [ "$rc" != 0 ] && [ "$kind" = invite ]; then action_status "$id" error 'The link was not created. The identifier may have been used before, or a device is registering right now; try another identifier or wait a minute.'
+ elif [ "$rc" = 0 ] && [ "$kind" = mail-save ] && [ ! -x /usr/bin/msmtp ]; then
+  # The mail program comes with the first saved settings.
+  /usr/libexec/ikev2-manager-system _deps-reconcile >/dev/null 2>&1 || :
+  action_status "$id" ok 'Mail settings saved. The mail program is being installed; sending works in a minute or two.'
  elif [ "$rc" = 0 ] && [ "$kind" = mail-save ]; then action_status "$id" ok 'Mail settings saved.'
  elif [ "$kind" = mail-save ]; then action_status "$id" error 'Mail settings were refused. Check the server, the port and the sender address.'
  elif [ "$rc" = 0 ] && [ "$kind" = mail-send ]; then action_status "$id" ok 'Mail sent.'

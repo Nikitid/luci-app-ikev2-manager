@@ -167,6 +167,18 @@ preparation path. Prepared mode checks the exact mediatek/filogic target values
 rather than timestamps because registering a feed can touch `.config` without
 changing the already-prepared target toolchain.
 
+### Packages after an upgrade
+
+On a router whose dependencies were installed from the Overview page, a
+package upgrade ends with `ikev2-manager-system _deps-reconcile`. It compares
+the packages this version needs with what is installed and, if anything is
+missing, starts the dependency installer in the background once the package
+manager has finished; the installer only adds what is missing and records it
+as owned, so Remove takes it away again. A feature's own package comes with
+the feature: saving the mail settings installs `msmtp` the same way. A router
+whose packages someone else manages is left alone. Progress is in
+`/tmp/ikev2-manager-deps.log`.
+
 ## Diagnostics
 
 `ikev2-manager-system diagnostics` prints a text report for a bug report; the
@@ -406,6 +418,15 @@ address and retries after gateway DNS is available. A handshake already using
 a real local address is left alone. During shutdown the watcher stops before
 the DNS, domain-router, XFRM and network services, with a five-second procd
 termination bound, so it cannot recreate dependencies while the router stops.
+
+### What the watcher repaired
+
+The health watcher logs each repair by name - `repaired inbound-policy`,
+`policy-routing`, `device-routing`, `discord-voice`, `pause-block`,
+`xfrm-links` - the first time and then once every ten minutes with the number
+since. A name that keeps appearing is a fault coming back, not noise. An
+inbound policy watcher whose loop stopped is restarted instead
+(`The inbound policy watcher stopped; restarting it`).
 
 ### Own policy routing
 

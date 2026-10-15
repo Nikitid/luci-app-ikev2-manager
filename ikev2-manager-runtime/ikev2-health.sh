@@ -267,6 +267,32 @@ repair() {
 	release_action_lock
 }
 
+# A repair of something found broken, with what it was named in the log. The
+# log says what was repaired the first time and then once every ten minutes
+# with the number since, so a fault that keeps coming back is visible without
+# a line every pass. Hours of repairs once went by with nothing saying which.
+repair_reported() {
+	local label="$1" state count logged now rc=0
+	shift
+	action_lock_try_acquire watcher "watcher-$$" || return 0
+	"$@" >/dev/null 2>&1 || rc=$?
+	release_action_lock
+	state="$run_dir/ikev2-health.repairs/$label"
+	mkdir -p "${state%/*}" 2>/dev/null || return 0
+	count=0
+	logged=0
+	[ ! -r "$state" ] || read -r logged count <"$state" || :
+	case "$logged:$count" in *[!0-9:]*) logged=0; count=0 ;; esac
+	count=$((count + 1))
+	now="$(date +%s)"
+	if [ $((now - logged)) -ge 600 ]; then
+		logger -t ikev2-health "repaired $label ($count since the last report)$([ "$rc" = 0 ] || printf ', the repair failed')" 2>/dev/null || :
+		logged="$now"
+		count=0
+	fi
+	printf '%s %s\n' "$logged" "$count" >"$state" 2>/dev/null || :
+}
+
 # The XFRM links the configuration needs are up, and the inbound one is down
 # while the server is off. Checked from sysfs every pass; the init script
 # also puts the inbound gateway address back, so it runs once a minute too.
@@ -301,14 +327,14 @@ pause_current() {
 check_runtimes() {
 	routing_policy_state=ok
 	if ! "$routing_helper" check >/dev/null 2>&1; then
-		repair "$routing_helper" sync
+		repair_reported policy-routing "$routing_helper" sync
 		"$routing_helper" check >/dev/null 2>&1 || routing_policy_state=degraded
 	fi
 	if [ -x "$device_routing_helper" ] && ! "$device_routing_helper" check >/dev/null 2>&1; then
-		repair "$device_routing_helper" sync
+		repair_reported device-routing "$device_routing_helper" sync
 	fi
 	if [ -x "$discord_voice_helper" ] && ! "$discord_voice_helper" check >/dev/null 2>&1; then
-		repair "$discord_voice_helper" sync
+		repair_reported discord-voice "$discord_voice_helper" sync
 	fi
 	# The inbound watcher owns this runtime, but it cannot repair itself once
 	# its own reconciliation stops completing: procd only respawns a process
@@ -323,7 +349,7 @@ check_runtimes() {
 		"$user_policy_init" restart >/dev/null 2>&1 || :
 		user_policy_stale=0
 	elif [ -x "$user_policy_helper" ] && ! "$user_policy_helper" check >/dev/null 2>&1; then
-		repair "$user_policy_helper" sync
+		repair_reported inbound-policy "$user_policy_helper" sync
 		# One repair covers a missed event. A second pass in a row that finds
 		# the state stale again means the watcher itself is not reconciling:
 		# repairing in its place every pass would hide that for days, so it is
@@ -438,11 +464,11 @@ while true; do
 	# A pause changes nothing but the block at the tunnel, so everything else is
 	# looked after as usual.
 	if ! pause_current; then
-		repair "$system_helper" _pause-sync
+		repair_reported pause-block "$system_helper" _pause-sync
 		pause_current ||
 			logger -t ikev2-health 'the tunnel pause block could not be restored' 2>/dev/null || :
 	fi
-	links_current || repair "$xfrm_init" start
+	links_current || repair_reported xfrm-links "$xfrm_init" start
 
 	# One SA snapshot a pass, whatever the number of tunnels: those with an
 	# installed CHILD_SA, and of them those whose link is up to carry traffic.
