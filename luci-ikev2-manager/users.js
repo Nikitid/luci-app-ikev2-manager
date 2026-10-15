@@ -4,7 +4,7 @@
 'require ui';
 'require poll';
 'require uqr';
-'require ikev2-manager.shared-v17 as common';
+'require ikev2-manager.shared-v18 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 

@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v17 as common';
+'require ikev2-manager.shared-v18 as common';
 
 var helper = '/usr/libexec/ikev2-manager-system';
 var devicesHelper = '/usr/libexec/ikev2-devices';
@@ -798,6 +798,103 @@ return view.extend({
 				}
 			});
 		});
+		// A problem report to the developer: the administrator's words, an
+		// optional address for a reply, and the diagnostics report above if
+		// asked - shown in full before anything leaves the router.
+		var problemText = E('textarea', { 'class': 'cbi-input-textarea', 'rows': '5', 'maxlength': '20000',
+			'placeholder': _('What happened, what you expected, and what you did just before.') });
+		var problemContact = input('text', '', { 'placeholder': 'name@example.com', 'autocomplete': 'email' });
+		var problemAttach = E('input', { 'type': 'checkbox', 'checked': '' });
+		var problemPreview = E('pre', { 'class': 'ikev2-report-preview', 'style': 'display:none' });
+		var problemShow = E('button', { 'class': 'cbi-button', 'type': 'button' }, [ _('Show what is attached') ]);
+		var problemSend = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button' }, [ _('Send report') ]);
+		var problemResult = common.inlineResult();
+		var problemSent = E('div', { 'class': 'ikev2-report-list' });
+		var problemNote = E('div', { 'class': 'ikev2-note warn', 'style': 'display:none' }, [
+			_('No report service is set up on this router, so reports cannot be sent from here. Download the diagnostics report instead and attach it to your message.') ]);
+		var problemPanel = E('div', { 'class': 'ikev2-report-panel', 'style': 'display:none' });
+		var problemOpen = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button' }, [ _('Report a problem') ]);
+		function drawSentReports() {
+			return L.resolveDefault(fs.exec(helper, [ 'reports-list' ]), { stdout: '' }).then(function(response) {
+				var rows = String(response.stdout || '').split('\n').map(function(line) {
+					try { return JSON.parse(line); } catch (error) { return null; }
+				});
+				// No report service on this router: nothing can be sent.
+				var configured = !rows.some(function(row) { return row && row.configured === false; });
+				problemSend.disabled = !configured;
+				problemNote.style.display = configured ? 'none' : '';
+				rows = rows.filter(function(row) { return row && row.report_id; });
+				problemSent.replaceChildren.apply(problemSent, rows.length ? [ E('strong', {}, [ _('Sent reports') ]) ].concat(rows.map(function(row) {
+					var state = { received: _('received'), in_progress: _('being looked at'), resolved: _('resolved'), closed: _('closed') }[row.state] ||
+						(row.state ? row.state : _('status unknown'));
+					return E('div', { 'class': 'ikev2-report-row' }, [
+						E('div', {}, [ E('span', { 'class': 'ikev2-toggle-sub' }, [ common.formatDate(Number(row.sent) * 1000) + ' · ' + state ]), ' ', row.title || row.report_id ]),
+						E('div', {}, (row.replies || []).map(function(reply) {
+							return E('div', { 'class': 'ikev2-report-reply' }, [ E('span', { 'class': 'ikev2-toggle-sub' }, [ _('Reply:') ]), ' ', reply.body ]);
+						}))
+					]);
+				})) : []);
+			});
+		}
+		problemOpen.addEventListener('click', function() {
+			var open = problemPanel.style.display === 'none';
+			problemPanel.style.display = open ? '' : 'none';
+			if (open) drawSentReports();
+		});
+		problemShow.addEventListener('click', function() {
+			if (problemPreview.style.display !== 'none') {
+				problemPreview.style.display = 'none';
+				return;
+			}
+			common.setBusy(problemShow, true, _('Collecting...'));
+			return common.execChecked(helper, [ 'diagnostics' ], _('Could not collect the diagnostics report')).then(function(response) {
+				problemPreview.textContent = response.stdout || '';
+				problemPreview.style.display = '';
+			}, function(error) {
+				problemResult.err(error.message);
+			}).finally(function() { common.setBusy(problemShow, false); });
+		});
+		problemSend.addEventListener('click', function() {
+			var text = String(problemText.value || '').trim(), contact = String(problemContact.value || '').trim();
+			if (!text)
+				return common.refuse(problemSend, problemResult, _('Describe the problem first.'));
+			if (contact && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]+$/.test(contact))
+				return common.refuse(problemSend, problemResult, _('Enter an e-mail address like name@example.com, or leave it empty.'));
+			var token = common.inputToken();
+			return fs.write('/tmp/ikev2-manager-report-' + token + '.in', JSON.stringify({ version: 1, description: text,
+				contact: contact, diagnostics: !!problemAttach.checked }), 384).then(function() {
+				return common.runJob({
+					button: problemSend,
+					result: problemResult,
+					busy: _('Sending...'),
+					success: _('Report sent. Replies appear below.'),
+					failure: _('The report was not sent'),
+					startPath: helper,
+					startArgs: [ 'report-send-async', token ],
+					statusPath: helper,
+					statusArgs: [ 'action-status' ],
+					timeout: 180000,
+					onSuccess: function() {
+						problemText.value = '';
+						return drawSentReports();
+					}
+				});
+			}, function(error) {
+				problemResult.err(error.message || String(error));
+			});
+		});
+		problemPanel.replaceChildren(
+			problemNote,
+			E('div', { 'class': 'ikev2-form-grid' }, [
+				common.fieldLabel(_('What went wrong')), problemText,
+				common.fieldLabel(_('Your e-mail'), _('Optional, for a reply. Replies are also shown here.')), problemContact
+			]),
+			common.toggleRow(problemAttach, _('Attach the diagnostics report'),
+				_('The same text as the file above: passwords, keys and tokens left out, addresses and names replaced. Read it before sending.')),
+			problemPreview,
+			E('div', { 'class': 'ikev2-actions end' }, [ problemResult.node, problemShow, problemSend ]),
+			problemSent
+		);
 		// Pause is the reversible counterpart of the reset below: nothing is
 		// deleted, only the three things that put traffic into the tunnel stop.
 		var routingPaused = value.routing_paused === '1';
@@ -1117,8 +1214,9 @@ return view.extend({
 								E('span', { 'class': 'ikev2-toggle-sub' }, [
 									_('A text file of the router state for a bug report. Passwords, keys and tokens are left out; public and MAC addresses and host and user names are replaced.') ])
 							]),
-							E('div', { 'class': 'ikev2-actions' }, [ reportResult.node, reportButton ])
-						])
+							E('div', { 'class': 'ikev2-actions' }, [ reportResult.node, reportButton, problemOpen ])
+						]),
+						problemPanel
 					]),
 					depsPill),
 				common.section(_('Network integration'),

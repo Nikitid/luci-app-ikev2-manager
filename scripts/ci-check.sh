@@ -48,6 +48,7 @@ python3 ./scripts/test-audit-regressions.py
 ./scripts/test-upnp-compatibility.sh
 ./scripts/test-dependency-state.sh
 ./scripts/test-deps-reconcile.sh
+./scripts/test-report-send.sh
 ./scripts/test-device-state.sh
 ./scripts/test-feed-migration.sh
 ./scripts/test-health-restart.sh

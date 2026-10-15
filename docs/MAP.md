@@ -35,7 +35,7 @@ rpcd `file exec` ACL in `luci-ikev2-manager/acl.json`.
 
 | helper | source | owns |
 | --- | --- | --- |
-| `ikev2-manager-system` | `ikev2-manager-runtime/ikev2-manager-system.sh` | system state, dependencies, DNS transactions, DNS segments, device policy, routing pause, the redacted diagnostics report (`lib/system-diagnostics.sh`) |
+| `ikev2-manager-system` | `ikev2-manager-runtime/ikev2-manager-system.sh` | system state, dependencies, DNS transactions, DNS segments, device policy, routing pause, the redacted diagnostics report (`lib/system-diagnostics.sh`), problem reports to the report service (`lib/system-report.sh`) |
 | `ikev2-manager` | `luci-ikev2-manager/ikev2-manager.sh` | inbound server, VPN users, ACME, client profile, the outbound tunnels and their passwords (`lib/manager-tunnels.sh`), raw swanctl config |
 | `ikev2-domain-router` | `ikev2-manager-runtime/ikev2-domain-router.sh` | sing-box FakeIP engine, tunnel DNS, nftables rules |
 | `ikev2-device-routing` | `ikev2-manager-runtime/ikev2-device-routing.sh` | per-device policy marks and their nft chains |
@@ -111,18 +111,18 @@ upgraded, so a stable name would serve stale code to the browser.
 
 | page | source | installed as |
 | --- | --- | --- |
-| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v16.js` |
-| Tunnels | `luci-ikev2-manager/tunnels.js` | `view/ikev2-manager/tunnels-v2.js`: the two panels below under two tabs |
-| DNS | `luci-ikev2-manager/dns.js` | `view/ikev2-manager/dns-v2.js`: the DNS part of the outbound panel |
-| Outbound tunnels and DNS panel | `luci-ikev2-manager/client.js` | `ikev2-manager/outbound-panel-v2.js`; `parts()` returns `tunnel` and `dns` |
-| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v16.js` |
-| Inbound server panel | `luci-ikev2-manager/settings.js` | `ikev2-manager/inbound-panel-v2.js`; `parts()` returns `server` |
-| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v27.js` |
-| VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v5.js`, shown on the Users page |
+| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v17.js` |
+| Tunnels | `luci-ikev2-manager/tunnels.js` | `view/ikev2-manager/tunnels-v3.js`: the two panels below under two tabs |
+| DNS | `luci-ikev2-manager/dns.js` | `view/ikev2-manager/dns-v3.js`: the DNS part of the outbound panel |
+| Outbound tunnels and DNS panel | `luci-ikev2-manager/client.js` | `ikev2-manager/outbound-panel-v3.js`; `parts()` returns `tunnel` and `dns` |
+| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v17.js` |
+| Inbound server panel | `luci-ikev2-manager/settings.js` | `ikev2-manager/inbound-panel-v3.js`; `parts()` returns `server` |
+| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v28.js` |
+| VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v6.js`, shown on the Users page |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
 `luci-ikev2-manager/shared.js` is the design system and the action lifecycle
-used by all of them; it installs as `shared-v17.js`. Russian strings live in
+used by all of them; it installs as `shared-v18.js`. Russian strings live in
 `po/ru/ikev2-manager.po`, compiled by `scripts/po2lmo.py` into
 `/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo`, which LuCI's own `_()` reads.
 `luci-ikev2-manager/menu.json` wires the pages, `acl.json` grants every helper

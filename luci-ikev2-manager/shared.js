@@ -1798,6 +1798,16 @@ var CSS = `
 			.ikev2-dialog-field > input,
 			.ikev2-dialog-field > select,
 			.ikev2-dialog-field > textarea { width: 100%; max-width: none; }
+			/* A problem report: its form, what is attached, what was sent. */
+			.ikev2-report-panel { margin-top: var(--ikev2-s4); padding-top: var(--ikev2-s4); border-top: 1px solid var(--ikev2-border); }
+			.ikev2-report-preview {
+				max-height: 18rem; overflow: auto; margin: var(--ikev2-s3) 0;
+				padding: var(--ikev2-s3); border-radius: var(--ikev2-radius-sm);
+				background: var(--ikev2-surface-2); font-size: .78rem; white-space: pre-wrap; word-break: break-word;
+			}
+			.ikev2-report-list { display: grid; gap: .5rem; margin-top: var(--ikev2-s4); }
+			.ikev2-report-row { padding: .5rem .7rem; border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }
+			.ikev2-report-reply { margin-top: .35rem; padding-left: .6rem; border-left: 2px solid var(--ikev2-accent); }
 			/* Where a name goes: the answer as short lines under the field. */
 			.ikev2-trace { display: grid; gap: .3rem; margin-top: var(--ikev2-s3); font-size: .9rem; }
 			.ikev2-trace-probe { display: inline-flex; align-items: center; gap: .35rem; color: var(--ikev2-muted); font-size: .88rem; }

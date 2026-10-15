@@ -427,6 +427,19 @@ again when it is back, when the inbound policy watcher had to be restarted,
 and when one repair was needed ten times in ten minutes. Each kind is sent at
 most once an hour; without an address nothing is sent.
 
+### Problem reports
+
+**Report a problem** on the Overview page sends the administrator's text, an
+optional address for a reply and, when the box is ticked, the redacted
+diagnostics report to the developer's report service (project
+`ikev2-manager`). **Show what is attached** shows that text before anything
+is sent. Each report has its own random claim token, kept with its report
+number in `/etc/ikev2-manager/reports/` (root only); it opens that report's
+status and the replies to it and nothing else. Sent reports and replies are
+listed under the form. Sending takes no router lock and needs nothing but
+HTTPS to the service; a service that does not take the project's reports, is
+busy or cannot be reached is said so under the button.
+
 ### What the watcher repaired
 
 The health watcher logs each repair by name - `repaired inbound-policy`,

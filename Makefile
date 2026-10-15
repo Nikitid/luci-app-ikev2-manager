@@ -210,6 +210,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-doctor.sh $(1)/usr/libexec/ikev2-manager.d/system-doctor.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-diagnostics.sh $(1)/usr/libexec/ikev2-manager.d/system-diagnostics.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-backup.sh $(1)/usr/libexec/ikev2-manager.d/system-backup.sh
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/system-report.sh $(1)/usr/libexec/ikev2-manager.d/system-report.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-users.sh $(1)/usr/libexec/ikev2-manager.d/manager-users.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-server.sh $(1)/usr/libexec/ikev2-manager.d/manager-server.sh
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/manager-acme.sh $(1)/usr/libexec/ikev2-manager.d/manager-acme.sh
@@ -266,23 +267,23 @@ define Package/luci-app-ikev2-manager/install
 	python3 ./scripts/po2lmo.py ./po/ru/ikev2-manager.po $(1)/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/ikev2-manager
-	$(INSTALL_DATA) ./luci-ikev2-manager/shared.js $(1)/www/luci-static/resources/ikev2-manager/shared-v17.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/shared.js $(1)/www/luci-static/resources/ikev2-manager/shared-v18.js
 	$(INSTALL_BIN) ./windows-profile-installer/bin/Nikitid-IKEv2-Setup.exe $(1)/www/luci-static/resources/ikev2-manager/Nikitid-IKEv2-Setup.exe
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/status/include
 	$(INSTALL_DATA) ./luci-ikev2-manager/status-widget.js $(1)/www/luci-static/resources/view/status/include/06_ikev2-manager.js
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-manager
-	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v16.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/ikev2-manager/users-panel-v5.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v27.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/ikev2-manager/inbound-panel-v2.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/ikev2-manager/outbound-panel-v2.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/tunnels.js $(1)/www/luci-static/resources/view/ikev2-manager/tunnels-v2.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/dns.js $(1)/www/luci-static/resources/view/ikev2-manager/dns-v2.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v17.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/ikev2-manager/users-panel-v6.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v28.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/ikev2-manager/inbound-panel-v3.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/ikev2-manager/outbound-panel-v3.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/tunnels.js $(1)/www/luci-static/resources/view/ikev2-manager/tunnels-v3.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/dns.js $(1)/www/luci-static/resources/view/ikev2-manager/dns-v3.js
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-domains
-	$(INSTALL_DATA) ./luci-ikev2-domains/editor.js $(1)/www/luci-static/resources/view/ikev2-domains/editor-v16.js
+	$(INSTALL_DATA) ./luci-ikev2-domains/editor.js $(1)/www/luci-static/resources/view/ikev2-domains/editor-v17.js
 endef
 
 define Package/luci-app-ikev2-manager/postinst
@@ -389,7 +390,16 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/tunnels-v1.js \
 	/www/luci-static/resources/view/ikev2-manager/dns-v1.js \
 	/www/luci-static/resources/ikev2-manager/outbound-panel-v1.js \
-	/www/luci-static/resources/ikev2-manager/inbound-panel-v1.js
+	/www/luci-static/resources/ikev2-manager/inbound-panel-v1.js \
+	/www/luci-static/resources/ikev2-manager/shared-v17.js \
+	/www/luci-static/resources/view/ikev2-manager/setup-v16.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v27.js \
+	/www/luci-static/resources/ikev2-manager/users-panel-v5.js \
+	/www/luci-static/resources/view/ikev2-domains/editor-v16.js \
+	/www/luci-static/resources/view/ikev2-manager/tunnels-v2.js \
+	/www/luci-static/resources/view/ikev2-manager/dns-v2.js \
+	/www/luci-static/resources/ikev2-manager/outbound-panel-v2.js \
+	/www/luci-static/resources/ikev2-manager/inbound-panel-v2.js
 # Refresh rpcd's ACL registry without restarting the daemon or invalidating
 # active LuCI sessions. New file/exec permissions otherwise remain unavailable
 # until rpcd is reloaded manually or the router is rebooted.

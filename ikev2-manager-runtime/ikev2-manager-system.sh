@@ -567,6 +567,7 @@ runtime_lib_dir="${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}"
 . "$runtime_lib_dir/system-doctor.sh"
 . "$runtime_lib_dir/system-diagnostics.sh"
 . "$runtime_lib_dir/system-backup.sh"
+. "$runtime_lib_dir/system-report.sh"
 
 sync_network() {
 	uci -q delete network.ikev2out || true
@@ -1905,6 +1906,27 @@ case "${1:-}" in
 		[ "$#" -eq 2 ] || die 'Expected a backup input token'
 		backup_export "$2"
 		;;
+	report-send-async)
+		# Not a router action: sending a report takes no router lock and
+		# keeps nothing else waiting.
+		[ "$#" -eq 2 ] || die 'Expected a report input token'
+		[ -f "$(report_input_file "$2")" ] || die 'The report text is missing'
+		id="$(date +%s)-$$"
+		action_status "$id" running 'Queued...'
+		if ! start-stop-daemon -b -q -S -x "$0" -- _report-run "$id" "$2"; then
+			action_status "$id" error 'Unable to start background action.'
+			die 'Unable to start background action'
+		fi
+		printf 'action_id=%s\n' "$id"
+		;;
+	_report-run)
+		[ "$#" -eq 3 ] || die 'Expected an action id and a report input token'
+		report_send "$2" "$3"
+		;;
+	reports-list)
+		[ "$#" -eq 1 ] || die 'Expected no arguments'
+		reports_list
+		;;
 	backup-import-async)
 		[ "$#" -eq 2 ] || die 'Expected a backup input token'
 		backup_input_file "$2" in >/dev/null
@@ -2106,6 +2128,6 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|diagnostics|backup-export|backup-import-async|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
+		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|diagnostics|backup-export|backup-import-async|report-send-async|reports-list|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
 		;;
 esac

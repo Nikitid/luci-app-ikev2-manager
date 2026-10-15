@@ -655,6 +655,32 @@ function textOf(node) {
 }
 function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved ]); }
 
+// A problem report: opened from the diagnostics row, refused without words,
+// and staged for the router as the page shows it, the diagnostics on request.
+(function() {
+	const open = nodesOf(setupPage).find(function(n) { return n.tagName === 'BUTTON' && textOf(n).trim() === 'Report a problem'; });
+	if (!open) fail('the overview has no way to report a problem');
+	const panel = nodesOf(setupPage).find(function(n) { return hasClass(n, 'ikev2-report-panel'); });
+	if (!panel || !/display:none/.test(panel.attrs.style || '')) fail('the report form is not folded until asked for');
+	const area = nodesOf(panel).find(function(n) { return n.tagName === 'TEXTAREA'; });
+	const send = nodesOf(panel).find(function(n) { return n.tagName === 'BUTTON' && textOf(n).trim() === 'Send report'; });
+	if (!area || !send) fail('the report form has no text or no send button');
+	const writes = [];
+	const writeBefore = fsStub.write;
+	fsStub.write = function(file, content) { writes.push([ file, content ]); return Promise.resolve(); };
+	area.value = '   ';
+	send.listeners.click();
+	if (writes.length) fail('an empty report was staged');
+	area.value = 'Steam stalls in the evening';
+	send.listeners.click();
+	fsStub.write = writeBefore;
+	const staged = writes.filter(function(w) { return /^\/tmp\/ikev2-manager-report-[A-Za-z0-9-]+\.in$/.test(w[0]); })[0];
+	if (!staged) fail('the report was not staged for the router: ' + JSON.stringify(writes));
+	const body = JSON.parse(staged[1]);
+	if (body.version !== 1 || body.description !== 'Steam stalls in the evening' || body.contact !== '' || body.diagnostics !== true)
+		fail('the staged report is not what the form says: ' + staged[1]);
+})();
+
 // A strongSwan upgraded on disk but not restarted is explained, not shown as
 // a code.
 const pendingPage = setupView.render([
