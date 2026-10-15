@@ -20,6 +20,7 @@
 				"/usr/libexec/ikev2-domains-community services": [ "exec" ],
 				"/usr/libexec/ikev2-domains-community sources": [ "exec" ],
 				"/usr/libexec/ikev2-domains-community service-read *": [ "exec" ],
+				"/usr/libexec/ikev2-domains-community v2fly-names": [ "exec" ],
 				"/usr/libexec/ikev2-domains-community status *": [ "exec" ],
 				"/usr/libexec/ikev2-domain-router status": [ "exec" ],
 				"/usr/libexec/ikev2-manager users-show": [ "exec" ],

@@ -1038,9 +1038,17 @@ if (!serviceDialog) fail('a new service has no window');
 const dialogFields = nodesOf(serviceDialog).filter(function(node) {
 	return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
 });
-if (dialogFields.length !== 5 || dialogFields[1].tagName !== 'TEXTAREA' || dialogFields[2].tagName !== 'TEXTAREA' ||
-    dialogFields[3].tagName !== 'INPUT' || dialogFields[4].tagName !== 'SELECT')
-	fail('the service window does not have a name, a list of domains, one of addresses, a list address and a place');
+if (dialogFields.length !== 6 || dialogFields[1].tagName !== 'TEXTAREA' || dialogFields[2].tagName !== 'TEXTAREA' ||
+    dialogFields[3].tagName !== 'INPUT' || dialogFields[4].tagName !== 'INPUT' || dialogFields[5].tagName !== 'SELECT')
+	fail('the service window does not have a name, a list of domains, one of addresses, a catalogue name, a list address and a place');
+// A name from the v2fly catalogue fills in the address of its list and the
+// name of the new service.
+dialogFields[3].value = 'youtube';
+dialogFields[3].listeners.change();
+if (dialogFields[4].value !== 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/youtube' ||
+    dialogFields[0].value !== 'Youtube')
+	fail('a v2fly name did not fill in the list address and the service name: ' + dialogFields[4].value + ' / ' + dialogFields[0].value);
+dialogFields[0].value = ''; dialogFields[3].value = ''; dialogFields[4].value = '';
 // Each list as tall as the page's own list editors, not a few lines.
 if (hasClass(dialogFields[1], 'ikev2-domain-editor-small') || !hasClass(dialogFields[1], 'ikev2-domain-editor'))
 	fail('the lists of the service window are cut short');
@@ -1056,7 +1064,7 @@ function saveServiceDialog() {
 	dialogFields[0].value = 'Work Portal';
 	dialogFields[1].value = 'Portal.Example\n\nstatic.portal.example';
 	dialogFields[2].value = '203.0.113.0/24';
-	dialogFields[3].value = ' https://lists.example/portal?v=1 ';
+	dialogFields[4].value = ' https://lists.example/portal?v=1 ';
 	nodesOf(serviceDialog).find(function(node) {
 		return node.tagName === 'BUTTON' && textOf(node).trim() === 'Save service';
 	}).listeners.click();
@@ -1130,9 +1138,9 @@ function catalogServiceDialog() {
 		if (chipsIn(page, 'catalog') !== 'openai')
 			fail('opening a catalogue service put it into a field');
 		const fields = fieldsOf(dialog);
-		if (fields[1].value !== 'openai.com' || fields[4].value !== '')
+		if (fields[1].value !== 'openai.com' || fields[5].value !== '')
 			fail('the window of a catalogue service does not show its list and that it is not in use');
-		fields[4].value = '1';
+		fields[5].value = '1';
 		return save(dialog);
 	}).then(function() {
 		if (!/^operation=place\nid=openai\n(.*\n)*place=1\n$/.test(written.meta || ''))

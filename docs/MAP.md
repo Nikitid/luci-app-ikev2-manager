@@ -111,18 +111,18 @@ upgraded, so a stable name would serve stale code to the browser.
 
 | page | source | installed as |
 | --- | --- | --- |
-| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v15.js` |
-| Tunnels | `luci-ikev2-manager/tunnels.js` | `view/ikev2-manager/tunnels-v1.js`: the two panels below under two tabs |
-| DNS | `luci-ikev2-manager/dns.js` | `view/ikev2-manager/dns-v1.js`: the DNS part of the outbound panel |
-| Outbound tunnels and DNS panel | `luci-ikev2-manager/client.js` | `ikev2-manager/outbound-panel-v1.js`; `parts()` returns `tunnel` and `dns` |
-| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v15.js` |
-| Inbound server panel | `luci-ikev2-manager/settings.js` | `ikev2-manager/inbound-panel-v1.js`; `parts()` returns `server` |
-| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v26.js` |
-| VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v4.js`, shown on the Users page |
+| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v16.js` |
+| Tunnels | `luci-ikev2-manager/tunnels.js` | `view/ikev2-manager/tunnels-v2.js`: the two panels below under two tabs |
+| DNS | `luci-ikev2-manager/dns.js` | `view/ikev2-manager/dns-v2.js`: the DNS part of the outbound panel |
+| Outbound tunnels and DNS panel | `luci-ikev2-manager/client.js` | `ikev2-manager/outbound-panel-v2.js`; `parts()` returns `tunnel` and `dns` |
+| Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v16.js` |
+| Inbound server panel | `luci-ikev2-manager/settings.js` | `ikev2-manager/inbound-panel-v2.js`; `parts()` returns `server` |
+| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v27.js` |
+| VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v5.js`, shown on the Users page |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
 `luci-ikev2-manager/shared.js` is the design system and the action lifecycle
-used by all of them; it installs as `shared-v16.js`. Russian strings live in
+used by all of them; it installs as `shared-v17.js`. Russian strings live in
 `po/ru/ikev2-manager.po`, compiled by `scripts/po2lmo.py` into
 `/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo`, which LuCI's own `_()` reads.
 `luci-ikev2-manager/menu.json` wires the pages, `acl.json` grants every helper

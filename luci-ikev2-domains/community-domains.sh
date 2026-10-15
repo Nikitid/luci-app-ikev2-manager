@@ -563,6 +563,71 @@ service_domain_source() {
 	printf '%s\n' "$url"
 }
 
+# The names of every list in the v2fly catalogue, for the service window to
+# offer. Read from the repository index at most once a day and kept in memory,
+# never on flash; an index that cannot be read leaves the last one in use.
+v2fly_names() {
+	local list="${IKEV2_V2FLY_NAMES:-/var/run/ikev2-v2fly-names}" index stamp now
+	now="$(date +%s)"
+	stamp="$(date -r "$list" +%s 2>/dev/null || echo 0)"
+	if [ ! -s "$list" ] || [ $((now - stamp)) -ge 86400 ]; then
+		index="$(mktemp)" || return 1
+		if fetch_list "${IKEV2_V2FLY_INDEX:-https://api.github.com/repos/v2fly/domain-list-community/git/trees/master?recursive=1}" "$index" &&
+		   [ "$(wc -c <"$index" | tr -d ' ')" -le 4194304 ]; then
+			jsonfilter -i "$index" -e '@.tree[*].path' 2>/dev/null |
+				sed -n 's#^data/\([a-z0-9][a-z0-9!-]*\)$#\1#p' | sort -u >"$list.new" &&
+				[ -s "$list.new" ] && mv "$list.new" "$list"
+		fi
+		rm -f "$index" "$list.new"
+	fi
+	[ -s "$list" ] && cat "$list"
+}
+
+# Fetch URL into FILE; one place, so the expansion below is tried without a
+# network.
+fetch_list() {
+	uclient-fetch -q -T 20 -O "$2" "$1"
+}
+
+# A v2fly list may pull in others by name ("include:youtube"), from the same
+# directory. They are fetched and joined into FILE in place, recursively, at
+# most three levels deep and 32 lists in all, within the size limit of one
+# list. Any of them missing rejects the revision: a list that silently lost
+# what it included would route less than it says. An include that selects
+# entries by attribute is not something this list format can express here
+# and is refused the same way.
+expand_v2fly_includes() {
+	local url="$1" file="$2" base parts queue name depth seen=' ' count=0 next line size
+	base="${url%/*}"
+	parts="$(mktemp -d)" || return 1
+	cp "$file" "$parts/joined" || { rm -rf "$parts"; return 1; }
+	queue="$(sed -n 's/^[[:blank:]]*include:\([^[:blank:]#]*\)[[:blank:]]*\(#.*\)\{0,1\}$/\1/p' "$file")"
+	if grep -q '^[[:blank:]]*include:[^[:blank:]#]*[[:blank:]]\{1,\}@' "$file"; then rm -rf "$parts"; return 1; fi
+	depth=1
+	while [ -n "$queue" ]; do
+		[ "$depth" -le 3 ] || { rm -rf "$parts"; return 1; }
+		next=''
+		for name in $queue; do
+			case "$name" in '' | *[!a-z0-9!-]* | -*) rm -rf "$parts"; return 1 ;; esac
+			case "$seen" in *" $name "*) continue ;; esac
+			seen="$seen$name "
+			count=$((count + 1))
+			[ "$count" -le 32 ] || { rm -rf "$parts"; return 1; }
+			fetch_list "$base/$name" "$parts/part" || { rm -rf "$parts"; return 1; }
+			[ -s "$parts/part" ] || { rm -rf "$parts"; return 1; }
+			if grep -q '^[[:blank:]]*include:[^[:blank:]#]*[[:blank:]]\{1,\}@' "$parts/part"; then rm -rf "$parts"; return 1; fi
+			next="$next $(sed -n 's/^[[:blank:]]*include:\([^[:blank:]#]*\)[[:blank:]]*\(#.*\)\{0,1\}$/\1/p' "$parts/part" | tr '\n' ' ')"
+			cat "$parts/part" >>"$parts/joined" || { rm -rf "$parts"; return 1; }
+			size="$(wc -c <"$parts/joined" | tr -d ' ')"
+			[ "$size" -le "$max_service_bytes" ] || { rm -rf "$parts"; return 1; }
+		done
+		queue="$next"
+		depth=$((depth + 1))
+	done
+	grep -v '^[[:blank:]]*include:' "$parts/joined" >"$file" || :
+	rm -rf "$parts"
+}
+
 normalize_service_domains() {
 	local service="$1" file="$2" format="$3" decoded normalized omitted extra typed rc
 	decoded="$(mktemp)" || return 1
@@ -686,10 +751,17 @@ download_service() {
 		return 0
 	fi
 
-	if uclient-fetch -q -T 20 -O "$downloaded" "$url"; then
+	if fetch_list "$url" "$downloaded"; then
 		downloaded_size="$(wc -c < "$downloaded" | tr -d ' ')"
 	else
 		downloaded_size=0
+	fi
+	# What a v2fly list includes arrives with it, or the revision is refused.
+	if [ "$downloaded_size" -gt 0 ] && [ "$format" = v2fly ] &&
+	   grep -q '^[[:blank:]]*include:' "$downloaded" &&
+	   ! expand_v2fly_includes "$url" "$downloaded"; then
+		downloaded_size=1
+		: >"$downloaded"
 	fi
 
 	if [ "$downloaded_size" -gt 0 ] &&
@@ -1523,7 +1595,8 @@ apply_staged_service() {
 		# than it shows. Later failures of an accepted address keep the last
 		# revision instead.
 		if [ -n "$url" ] && [ "$url" != "$source_before" ]; then
-			if ! uclient-fetch -q -T 20 -O "$work/listed" "$url" ||
+			if ! fetch_list "$url" "$work/listed" ||
+			   { grep -q '^[[:blank:]]*include:' "$work/listed" && ! expand_v2fly_includes "$url" "$work/listed"; } ||
 			   [ "$(wc -c <"$work/listed" | tr -d ' ')" -gt "$max_service_bytes" ] ||
 			   ! normalize_service_domains "$service" "$work/listed" v2fly >"$work/listed.domains" 2>/dev/null ||
 			   [ ! -s "$work/listed.domains" ]; then
@@ -1842,6 +1915,9 @@ case "${1:-}" in
   ;;
 	service-read)
 		read_service "${2:-}"
+		;;
+	v2fly-names)
+		v2fly_names
 		;;
 	ip-services)
 		if [ ! -s "$subnet_catalog_file" ] ||

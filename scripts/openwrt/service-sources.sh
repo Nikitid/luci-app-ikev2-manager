@@ -6,7 +6,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT INT TERM
 helper=/usr/libexec/ikev2-domains-community
 mkdir -p "$work/local" "$work/user" "$work/cache"
-for fn in normalize_domains normalize_remote_domains normalize_service_domains service_domain_source service_source_file valid_source_url service_published download_service cache_is_fresh record_fetch_error fetch_failure_reason refresh_due meta_value numeric_or_zero; do
+for fn in normalize_domains normalize_remote_domains normalize_service_domains service_domain_source service_source_file valid_source_url service_published fetch_list expand_v2fly_includes download_service cache_is_fresh record_fetch_error fetch_failure_reason refresh_due meta_value numeric_or_zero; do
 	sed -n "/^$fn() {/,/^}/p" "$helper" >>"$work/functions.sh"
 done
 # shellcheck disable=SC1091
@@ -125,6 +125,37 @@ fi
 client_state_file="$work/absent.json"
 if service_published offered; then
 	printf 'a router without remote clients reported a published service\n' >&2
+	exit 1
+fi
+# A v2fly list that includes others: they are fetched from the same directory
+# and joined, recursively and once each; one missing, one selected by an
+# attribute, or a chain deeper than three levels refuses the revision.
+mkdir -p "$work/v2"
+fetch_list() {
+	case "$1" in https://lists.example/data/*) ;; *) return 1 ;; esac
+	[ -f "$work/v2/${1##*/}" ] && cp "$work/v2/${1##*/}" "$2"
+}
+printf 'top.example\ninclude:alpha\n' >"$work/v2/top"
+printf 'alpha.example\ninclude:beta # with a note\ninclude:top\n' >"$work/v2/alpha"
+printf 'full:beta.example\n' >"$work/v2/beta"
+cp "$work/v2/top" "$work/joined"
+expand_v2fly_includes https://lists.example/data/top "$work/joined"
+[ "$(grep -c . "$work/joined")" = 4 ] || { cat "$work/joined" >&2; printf 'includes were not joined once each\n' >&2; exit 1; }
+! grep -q include: "$work/joined" || { printf 'an include line was left in the list\n' >&2; exit 1; }
+[ "$(normalize_service_domains joined "$work/joined" v2fly | sort | tr '\n' ' ')" = 'alpha.example beta.example top.example ' ] ||
+	{ printf 'a joined list did not read as its domains\n' >&2; exit 1; }
+for broken in 'include:missing' 'include:beta @cn'; do
+	printf 'top.example\n%s\n' "$broken" >"$work/joined"
+	if expand_v2fly_includes https://lists.example/data/top "$work/joined"; then
+		printf 'accepted a list with %s\n' "$broken" >&2
+		exit 1
+	fi
+done
+printf 'include:l2\n' >"$work/v2/l1"; printf 'include:l3\n' >"$work/v2/l2"
+printf 'include:l4\n' >"$work/v2/l3"; printf 'deep.example\n' >"$work/v2/l4"
+printf 'top.example\ninclude:l1\n' >"$work/joined"
+if expand_v2fly_includes https://lists.example/data/top "$work/joined"; then
+	printf 'accepted includes deeper than three levels\n' >&2
 	exit 1
 fi
 printf 'service provider scenarios OK\n'

@@ -737,8 +737,14 @@ after an hour, even when an earlier fetch that day succeeded.
 The cache TTL, scheduled refresh and source ledger are shared with community
 lists. User overrides remain complete definitions and disable provider updates.
 
+V2fly lists that include others (`include:youtube`) are fetched with what
+they include, from the same directory, at most three levels deep and 32 lists
+in all; if one of them cannot be read, or an include selects entries by
+attribute, the whole revision is refused and the last good one stays in use.
+
 A user service may follow a list of its own. **Domain list address** in the
-service form takes an `https://` link to a text list, one domain per line;
+service form, or a name picked from the v2fly catalogue beside it (the
+catalogue's index is read at most once a day and kept in memory), takes an `https://` link to a text list, one domain per line;
 v2fly syntax is read the same way as for packaged sources. The address is kept
 in `services.d/<service>.source` and travels with backups. A new address is
 read once when the service is saved, and the save is refused if it does not

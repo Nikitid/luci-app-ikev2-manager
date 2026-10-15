@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v16 as common';
+'require ikev2-manager.shared-v17 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -14,6 +14,7 @@ var communityHelper = '/usr/libexec/ikev2-domains-community';
 var domainRouterHelper = '/usr/libexec/ikev2-domain-router';
 var exitsFile = '/etc/pbr-ikev2-exits.txt';
 var managerHelper = '/usr/libexec/ikev2-manager';
+var V2FLY_DATA = 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/';
 var serviceSelection = {};
 var serviceRecords = [];
 // Where each selected service and the two custom lists go, as the page holds
@@ -1203,6 +1204,35 @@ return view.extend({
 				'placeholder': 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/example',
 				'value': details && details.url ? details.url : ''
 			});
+			// The whole v2fly catalogue by name: picking one fills in the address
+			// of its list, and the name of a new service.
+			var catalogueNames = E('datalist', { 'id': 'ikev2-v2fly-names' });
+			var fromCatalogue = E('input', {
+				'class': 'cbi-input-text',
+				'type': 'text',
+				'list': 'ikev2-v2fly-names',
+				'autocomplete': 'off',
+				'spellcheck': 'false',
+				'placeholder': _('A v2fly list by name, for example youtube'),
+				'aria-label': _('A list from the v2fly catalogue')
+			});
+			L.resolveDefault(fs.exec(communityHelper, [ 'v2fly-names' ]), { stdout: '' }).then(function(response) {
+				var names = String((response && response.stdout) || '').split('\n').filter(function(line) {
+					return /^[a-z0-9][a-z0-9!-]*$/.test(line);
+				});
+				catalogueNames.replaceChildren.apply(catalogueNames, names.map(function(line) {
+					return E('option', { 'value': line });
+				}));
+			});
+			fromCatalogue.addEventListener('change', function() {
+				var picked = String(fromCatalogue.value || '').trim().toLowerCase();
+				if (!/^[a-z0-9][a-z0-9!-]*$/.test(picked))
+					return;
+				listAddress.value = V2FLY_DATA + picked;
+				if (!record && !String(name.value || '').trim())
+					name.value = picked.charAt(0).toUpperCase() + picked.slice(1);
+				listAddress.dispatchEvent && listAddress.dispatchEvent(new Event('input', { bubbles: true }));
+			});
 			var here = record && serviceSelection[record.id] ? placeOf(record.id) : (record ? '' : activeZone);
 			var place = E('select', { 'class': 'cbi-input-select' },
 				(record ? [ E('option', { 'value': '', 'selected': here === '' ? '' : null }, [ _('Not in use') ]) ] : [])
@@ -1219,7 +1249,7 @@ return view.extend({
 				E('button', { 'class': 'cbi-button cbi-button-reset', 'type': 'button' }, [ _('Restore prepared service') ]) : null;
 			var remove = record && record.origin === 'custom' ?
 				E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, [ _('Delete service') ]) : null;
-			var fields = [ name, domainsField, cidrsField, listAddress, place ];
+			var fields = [ name, domainsField, cidrsField, fromCatalogue, listAddress, place ];
 			dialogControls = fields.concat([ save, cancel, reset, remove ]);
 
 			function form() {
@@ -1299,7 +1329,7 @@ return view.extend({
 				E('div', { 'class': 'ikev2-dialog-field' }, [
 					common.fieldLabel(_('Domain list address'),
 						_('Optional; an https:// link to a text list of domains, one per line. It is read again every day and joined with the domains above.')),
-					listAddress
+					E('div', { 'class': 'ikev2-dialog-source' }, [ fromCatalogue, catalogueNames, listAddress ])
 				]),
 				E('div', { 'class': 'ikev2-dialog-field' }, [
 					common.fieldLabel(_('Where it goes'),

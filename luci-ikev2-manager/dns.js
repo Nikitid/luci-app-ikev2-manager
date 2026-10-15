@@ -1,7 +1,7 @@
 'use strict';
 'require view';
-'require ikev2-manager.shared-v16 as common';
-'require ikev2-manager.outbound-panel-v1 as outbound';
+'require ikev2-manager.shared-v17 as common';
+'require ikev2-manager.outbound-panel-v2 as outbound';
 
 // DNS on a page of its own: the resolver behind the tunnel, the router's
 // public upstream and the resolver groups for chosen suffixes. The panel that

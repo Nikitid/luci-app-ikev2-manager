@@ -1798,6 +1798,16 @@ var CSS = `
 			.ikev2-dialog-field > input,
 			.ikev2-dialog-field > select,
 			.ikev2-dialog-field > textarea { width: 100%; max-width: none; }
+			/* A list's address, and a name in the v2fly catalogue that fills it. */
+			.ikev2-dialog-source {
+				display: grid;
+				grid-template-columns: minmax(10rem, 16rem) minmax(0, 1fr);
+				gap: .5rem;
+			}
+			.ikev2-dialog-source > input { width: 100%; max-width: none; }
+			@media (max-width: 720px) {
+				.ikev2-dialog-source { grid-template-columns: 1fr; }
+			}
 			.ikev2-dialog-lists {
 				display: grid;
 				grid-template-columns: repeat(2, minmax(0, 1fr));
