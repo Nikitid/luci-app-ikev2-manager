@@ -126,8 +126,9 @@ the router resolver and iCloud Private Relay is turned off on this network.
 Project lists are stored in `luci-ikev2-domains/local-services/`. Optional
 lists are downloaded from
 [`itdoginfo/allow-domains`](https://github.com/itdoginfo/allow-domains) and are
-not included in the IPK. See [NOTICE](NOTICE) for their terms. Zoom Meetings
-networks come from Zoom's official list instead and merge with the bundled
+not included in the IPK. See [NOTICE](NOTICE) for their terms. Zoom Meetings,
+Telegram and Cloudflare networks come from the official lists those vendors
+publish instead and merge with the bundled
 snapshot. Selected services with a packaged `.source` definition refresh daily
 from their configured provider; a validated cache or packaged snapshot keeps
 routing available if the download fails. Wise, Shopify, Notion and Hetzner

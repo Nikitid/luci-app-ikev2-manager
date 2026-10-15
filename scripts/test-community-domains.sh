@@ -47,6 +47,9 @@ case "$url" in
 		;;
 	# A vendor-published network list: one public range, and a private range
 	# the unsafe filter must drop.
+	*/telegram-cidr.txt)
+		printf '%s\n' 91.108.4.0/22 2001:b28:f23d::/48 149.154.160.0/20 >"$output"
+		;;
 	*/ZoomMeetings.txt)
 		printf '%s\n' 170.114.0.0/16 10.0.0.0/8 >"$output"
 		;;
@@ -676,6 +679,15 @@ printf '%s\n' "$out" | grep -Fxq 170.114.0.0/16
 printf '%s\n' "$out" | grep -Fxq 3.7.35.0/25
 rm -f "$tmp/local/zoom.lst" "$tmp/local/zoom.cidrs"
 : >"$tmp/subnet-catalog"
+
+# A vendor that publishes IPv6 networks in the same list: the IPv4 ones are
+# taken and the list is not refused for the others.
+printf '%s\n' telegram.example >"$tmp/local/telegram.lst"
+out="$(IKEV2_TELEGRAM_CIDR_URL=https://vendor.invalid/telegram-cidr.txt run_helper service-read telegram | sed -n '/^---cidrs---$/,$p')"
+printf '%s\n' "$out" | grep -Fxq 91.108.4.0/22 || { printf 'an IPv4 network of a mixed vendor list was lost\n' >&2; exit 1; }
+printf '%s\n' "$out" | grep -Fxq 149.154.160.0/20 || { printf 'a mixed vendor list was refused\n' >&2; exit 1; }
+! printf '%s\n' "$out" | grep -q ':' || { printf 'an IPv6 network reached the IPv4 policy\n' >&2; exit 1; }
+rm -f "$tmp/local/telegram.lst"
 
 # The packaged Zoom manifest covers the site, web client and app hosts, keeps
 # shared third-party hosts out, and ships a snapshot that is pure IPv4 CIDR.

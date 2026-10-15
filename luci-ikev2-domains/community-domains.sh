@@ -813,6 +813,9 @@ download_service() {
 service_cidr_source() {
 	case "$1" in
 		zoom) printf '%s\n' "${IKEV2_ZOOM_CIDR_URL:-https://assets.zoom.us/docs/ipranges/ZoomMeetings.txt}" ;;
+		# Published by Telegram and Cloudflare themselves.
+		telegram) printf '%s\n' "${IKEV2_TELEGRAM_CIDR_URL:-https://core.telegram.org/resources/cidr.txt}" ;;
+		cloudflare) printf '%s\n' "${IKEV2_CLOUDFLARE_CIDR_URL:-https://www.cloudflare.com/ips-v4}" ;;
 	esac
 }
 
@@ -872,6 +875,10 @@ download_service_cidrs() {
 
 	if uclient-fetch -q -T 20 -O "$downloaded" "$source_url"; then
 		downloaded_size="$(wc -c < "$downloaded" | tr -d ' ')"
+		# A vendor's list may carry its IPv6 networks beside the IPv4 ones;
+		# the policy is IPv4, and they would otherwise refuse the whole list.
+		grep -v ':' "$downloaded" >"$downloaded.v4" 2>/dev/null || :
+		mv "$downloaded.v4" "$downloaded"
 	fi
 
 	if [ "$downloaded_size" -gt 0 ] &&
