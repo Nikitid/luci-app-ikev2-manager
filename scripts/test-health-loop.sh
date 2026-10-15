@@ -62,6 +62,8 @@ while [ "$#" -gt 0 ]; do [ "$1" != --interface ] || link="$2"; shift; done
 [ ! -e "$S/silent-$link" ] || exit 28
 echo ip=192.0.2.1'
 stub logger 'printf "logger %s\\n" "$*" >>"$S/logger.log"'
+stub alert 'printf "alert %s\\n" "$1" >>"$S/alerts.log"'
+printf '{"version":1,"alerts":"admin@example.com"}\n' >"$S/mail.json"
 stub routing "$record
 case \"\$1\" in check) [ ! -e \"\$S/routing-broken\" ] ;; sync) rm -f \"\$S/routing-broken\" ;; esac"
 stub device "$record"
@@ -120,6 +122,10 @@ IKEV2_QUALITY_HELPER="$tmp/bin/quality" \
 IKEV2_COMMUNITY_HELPER="$tmp/bin/community" \
 IKEV2_XFRM_INIT="$tmp/bin/xfrm" \
 IKEV2_TUNNEL_RETURN_HOLD=3 \
+IKEV2_MAIL_SETTINGS="$S/mail.json" \
+IKEV2_ALERT_SENDER="$tmp/bin/alert" \
+IKEV2_ALERT_INTERVAL=0 \
+IKEV2_TUNNEL_DOWN_ALERT=2 \
 	sh "$root/ikev2-manager-runtime/ikev2-health.sh" &
 watcher=$!
 }
@@ -170,11 +176,16 @@ wait_for '^routing check' $(($(count '^routing check') + 3)) 'the passes stopped
 # A watcher whose loop stopped turning is replaced at once and not repaired in
 # its place: a repair refreshes what the check reads and hid such a watcher
 # for hours.
+# A repair already under way from the step before is let finish first.
+sleep 1.5
 syncs="$(count '^user-policy sync')"
 restarts="$(count '^policy-init restart')"
 : >"$S/policy-stopped"
 wait_for '^policy-init restart' $((restarts + 1)) 'a watcher that stopped was not replaced'
 [ "$(count '^user-policy sync')" = "$syncs" ] || fail 'a stopped watcher was covered for by a repair'
+i=0
+while ! grep -qx 'alert inbound-watcher' "$S/alerts.log" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+grep -qx 'alert inbound-watcher' "$S/alerts.log" || fail 'a restarted inbound watcher was not mailed'
 
 # What was repaired is in the log by name - once, not every pass.
 grep -q 'repaired inbound-policy (1 since the last report)' "$S/logger.log" ||
@@ -203,10 +214,20 @@ sleep 2
 [ "$(count 'data-plane-check')" = "$plane" ] || fail 'the data plane was checked while the tunnel was down'
 grep -q '^state=down ' "$tmp/run/ikev2-health.status" || fail 'the status does not say the tunnel is down'
 
+# Down for longer than the alert delay: mailed once, and its return too.
+i=0
+while ! grep -qx 'alert tunnel-1-down' "$S/alerts.log" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.1; i=$((i + 1)); done
+grep -qx 'alert tunnel-1-down' "$S/alerts.log" || fail 'a tunnel down for long was not mailed'
+sleep 1.5
+[ "$(grep -cx 'alert tunnel-1-down' "$S/alerts.log")" = 1 ] || fail 'a tunnel down was mailed again on every pass'
+
 # It comes back: the address first, then the routes, then the data plane.
 : >"$S/sa-up"
 wait_for '^domain-router data-plane-check now' 2 'the data plane was not checked when the tunnel returned'
 wait_for '^sync-vips' 1 'the tunnel address was not reconciled when the tunnel returned'
+i=0
+while ! grep -qx 'alert tunnel-1-up' "$S/alerts.log" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.1; i=$((i + 1)); done
+grep -qx 'alert tunnel-1-up' "$S/alerts.log" || fail 'the return of a tunnel reported down was not mailed'
 
 # A router action holds back the passes, but not the quality sample, which
 # only pings.

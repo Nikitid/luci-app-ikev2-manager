@@ -140,6 +140,9 @@ function mailSection(mail, reload) {
   placeholder: mail.has_password ? _('Stored. Leave empty to keep it.') : '' });
  var from = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Sender address'), value: mail.from || '' });
  var to = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Test recipient'), placeholder: 'name@example.com' });
+ // Where the router's own alerts go: a tunnel down for minutes, a fault that
+ // keeps coming back. Empty: none are sent.
+ var alerts = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Send alerts to'), placeholder: 'admin@example.com', value: mail.alerts || '' });
  preset.addEventListener('change', function() {
   var chosen = mailPresets.filter(function(item) { return item[0] === preset.value; })[0];
   if (chosen) { host.value = chosen[2]; port.value = String(chosen[3]); security.value = chosen[4]; }
@@ -152,8 +155,9 @@ function mailSection(mail, reload) {
    if (!/^[0-9]{1,5}$/.test(port.value.trim()) || Number(port.value) < 1 || Number(port.value) > 65535) throw new Error(_('Enter a port from 1 to 65535.'));
    if (!/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host.value.trim())) throw new Error(_('Enter the SMTP server name, for example smtp.example.com.'));
    request = { version: 1, host: host.value.trim(), port: Number(port.value), security: security.value, user: user.value.trim(),
-    password: password.value ? password.value : null, from: mailText(from.value) };
+    password: password.value ? password.value : null, from: mailText(from.value), alerts: alerts.value.trim() ? mailText(alerts.value) : '' };
    if (!request.from) throw new Error(_('Enter the sender address.'));
+   if (alerts.value.trim() && !request.alerts) throw new Error(_('Enter an e-mail address like name@example.com.'));
   } catch (error) { result.err(error.message); return; }
   return mailJob(save, result, 'client-admin-mail-save', request,
    [ _('Saving mail settings...'), _('Mail settings saved.'), _('Could not save mail settings.') ], function() { password.value = ''; return reload(); });
@@ -176,7 +180,8 @@ function mailSection(mail, reload) {
    common.fieldLabel(_('Login')), user,
    common.fieldLabel(_('Password'), _('For Gmail, Yandex and Mail.ru: an app password.')), password,
    common.fieldLabel(_('Sender address')), from,
-   common.fieldLabel(_('Test recipient')), to
+   common.fieldLabel(_('Test recipient')), to,
+   common.fieldLabel(_('Send alerts to'), _('Optional. The router writes here when a tunnel stays down for five minutes and comes back, and when something keeps breaking.')), alerts
   ]),
   E('div', { 'class': 'ikev2-actions end' }, [ result.node, test, save ])
  ]));

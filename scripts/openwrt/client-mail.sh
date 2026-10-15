@@ -68,4 +68,20 @@ step=refused-message
 for bad in '"to":"two@example.com, other@example.com","subject":"s","body":"b"' '"to":"person@example.com","subject":"s\r\nBcc: x@example.com","body":"b"'; do
  if printf '{"version":1,%s}' "$bad" | ucode "$mail" send 7-2 2>/dev/null; then exit 1; fi
 done
-printf '%s\n' 'client-mail: private settings, kept password, refusals, a message with its link and no secret in arguments passed'
+step=alerts
+# Alerts need an address of their own; without one the router sends none.
+if printf '{"version":1,"subject":"Tunnel 2 down","body":"b"}' | ucode "$mail" alert 9-1 2>/dev/null; then exit 1; fi
+for bad in '"alerts":"not an address"' '"alerts":"a@example.com, b@example.com"'; do
+ if printf '{"version":1,"host":"smtp.example.com","port":587,"security":"starttls","user":"sender@example.com","password":null,"from":"sender@example.com",%s}' "$bad" | ucode "$mail" save 2>/dev/null; then exit 1; fi
+done
+printf '{"version":1,"host":"smtp.example.com","port":587,"security":"starttls","user":"sender@example.com","password":null,"from":"sender@example.com","alerts":"admin@example.com"}' | ucode "$mail" save
+[ "$(ucode "$mail" show | jsonfilter -e '@.alerts')" = admin@example.com ]
+# A page that does not know alerts keeps where they go.
+printf '{"version":1,"host":"smtp.example.com","port":587,"security":"starttls","user":"sender@example.com","password":null,"from":"sender@example.com"}' | ucode "$mail" save
+[ "$(ucode "$mail" show | jsonfilter -e '@.alerts')" = admin@example.com ]
+printf '{"version":1,"subject":"Tunnel 2 down","body":"It has been down for 5 minutes."}' | ucode "$mail" alert 9-2
+grep -q '^To: admin@example.com' "$work/message"
+grep -q 'admin@example.com' "$work/arguments"
+! grep -q 'correct horse' "$work/arguments"
+if printf '{"version":1,"subject":"s\r\nBcc: x@example.com","body":"b"}' | ucode "$mail" alert 9-3 2>/dev/null; then exit 1; fi
+printf '%s\n' 'client-mail: private settings, kept password, refusals, a message with its link and no secret in arguments, and alerts to their own address passed'

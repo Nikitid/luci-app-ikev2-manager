@@ -28,12 +28,19 @@ function line(value, limit) {
 	return true;
 }
 
+// The settings, and where the router's own alerts go: an address of its own,
+// optional, and absent from settings saved before alerts existed.
+const NAMES = [ 'version', 'host', 'port', 'security', 'user', 'password', 'from' ];
+function settings_fields(object) {
+	fields(object, ('alerts' in (object ?? {})) ? [ ...NAMES, 'alerts' ] : NAMES);
+}
+
 function stored() {
 	let info = lstat(STORE);
 	if (info == null) return null;
 	if (info.type != 'file' || info.uid != 0 || (info.mode & 0077) != 0 || info.size > 8192) die('unsafe mail settings');
 	let settings = json(readfile(STORE));
-	fields(settings, [ 'version', 'host', 'port', 'security', 'user', 'password', 'from' ]);
+	settings_fields(settings);
 	return settings;
 }
 
@@ -43,10 +50,12 @@ function validate(settings) {
 		type(settings.port) != 'int' || settings.port < 1 || settings.port > 65535 ||
 		index([ 'starttls', 'ssl' ], settings.security) < 0 ||
 		!line(settings.user, 254) || !line(settings.password, 512) || index(settings.password, '"') >= 0 ||
-		index(settings.user, '"') >= 0 || !address(settings.from))
+		index(settings.user, '"') >= 0 || !address(settings.from) ||
+		('alerts' in settings && settings.alerts !== '' && !address(settings.alerts)))
 		die('invalid mail settings');
 	return settings;
 }
+
 
 function write_private(path, text) {
 	unlink(path);
@@ -60,17 +69,53 @@ function header(text) {
 	return text;
 }
 
+// One letter handed to msmtp, under the files of job JOB. PLACE names the link
+// a letter carries, for the journal; empty for anything else.
+function deliver(settings, to, subject, body, job, place) {
+	validate(settings);
+	if (access(TOOL, 'x') != true) die('mail tool is not installed');
+	let config = '/var/run/ikev2-client-admin/mail-' + job + '.conf';
+	// The password is read from its own file, as it is, and never parsed
+	// as part of the configuration: a backslash in it used to escape the
+	// quote that closed it there.
+	let secret = '/var/run/ikev2-client-admin/mail-' + job + '.pass';
+	write_private(secret, settings.password);
+	try { write_private(config, 'account default\nhost ' + settings.host + '\nport ' + settings.port +
+		'\ntls on\ntls_starttls ' + (settings.security == 'starttls' ? 'on' : 'off') +
+		'\ntls_trust_file /etc/ssl/certs/ca-certificates.crt\ntimeout 30\nfrom ' + settings.from +
+		(length(settings.user) ? '\nauth on\nuser ' + settings.user + '\npasswordeval "cat ' + secret + '"' : '\nauth off') + '\n'); }
+	catch (error) { unlink(secret); die('unable to write mail file'); }
+	let status = 1;
+	try {
+		// Addresses are in the checked form above and the paths are ours.
+		let mail = popen(TOOL + ' --file=' + config + ' -- ' + to + ' >/dev/null 2>&1', 'w');
+		if (mail == null) die('mail tool unavailable');
+		mail.write('From: ' + settings.from + '\r\nTo: ' + to + '\r\nSubject: ' + header(subject) +
+			'\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n');
+		let encoded = b64enc(body);
+		for (let at = 0; at < length(encoded); at += 76) mail.write(substr(encoded, at, 76) + '\r\n');
+		status = mail.close();
+	} catch (error) { unlink(config); unlink(secret); record_client_event('mail-failed', to + ' ' + place); die('mail was not sent'); }
+	unlink(config);
+	unlink(secret);
+	if (status != 0) { record_client_event('mail-failed', to + ' ' + place); die('mail was not accepted'); }
+	record_client_event('mail-sent', to + ' ' + place);
+}
+
 try {
 	if (ARGV[0] == 'show' && length(ARGV) == 1) {
 		let settings = stored();
 		print(sprintf('%J\n', { version: 1, available: access(TOOL, 'x') == true, configured: settings != null,
 			host: settings?.host ?? '', port: settings?.port ?? 587, security: settings?.security ?? 'starttls',
-			user: settings?.user ?? '', from: settings?.from ?? '', has_password: length(settings?.password ?? '') > 0 }));
+			user: settings?.user ?? '', from: settings?.from ?? '', has_password: length(settings?.password ?? '') > 0,
+			alerts: settings?.alerts ?? '' }));
 	} else if (ARGV[0] == 'save' && length(ARGV) == 1) {
 		let request = json(open('/dev/stdin', 're').read(8193));
-		fields(request, [ 'version', 'host', 'port', 'security', 'user', 'password', 'from' ]);
-		// An empty password field keeps the one already stored.
+		settings_fields(request);
+		// An empty password field keeps the one already stored, and a page that
+		// does not know alerts keeps where they go.
 		if (request.password == null) request.password = stored()?.password ?? '';
+		if (!('alerts' in request) && stored()?.alerts) request.alerts = stored().alerts;
 		write_private(STORE, sprintf('%J\n', validate(request)));
 	} else if (ARGV[0] == 'send' && length(ARGV) == 2) {
 		if (!(length(ARGV[1]) <= 64 ? match(ARGV[1], /^[0-9]+-[0-9]+$/) : null)) die('invalid mail job');
@@ -87,36 +132,19 @@ try {
 			type(request.body) != 'string' || length(request.body) > 8192) die('invalid mail message');
 		let settings = stored();
 		if (settings == null) die('mail is not set up');
-		validate(settings);
-		if (access(TOOL, 'x') != true) die('mail tool is not installed');
-		let config = '/var/run/ikev2-client-admin/mail-' + ARGV[1] + '.conf';
-		// The password is read from its own file, as it is, and never parsed
-		// as part of the configuration: a backslash in it used to escape the
-		// quote that closed it there.
-		let secret = '/var/run/ikev2-client-admin/mail-' + ARGV[1] + '.pass';
-		write_private(secret, settings.password);
-		try { write_private(config, 'account default\nhost ' + settings.host + '\nport ' + settings.port +
-			'\ntls on\ntls_starttls ' + (settings.security == 'starttls' ? 'on' : 'off') +
-			'\ntls_trust_file /etc/ssl/certs/ca-certificates.crt\ntimeout 30\nfrom ' + settings.from +
-			(length(settings.user) ? '\nauth on\nuser ' + settings.user + '\npasswordeval "cat ' + secret + '"' : '\nauth off') + '\n'); }
-		catch (error) { unlink(secret); die('unable to write mail file'); }
-		let status = 1;
-		try {
-			// Addresses are in the checked form above and the paths are ours.
-			let mail = popen(TOOL + ' --file=' + config + ' -- ' + request.to + ' >/dev/null 2>&1', 'w');
-			if (mail == null) die('mail tool unavailable');
-			mail.write('From: ' + settings.from + '\r\nTo: ' + request.to + '\r\nSubject: ' + header(request.subject) +
-				'\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n');
-			let encoded = b64enc(request.body);
-			for (let at = 0; at < length(encoded); at += 76) mail.write(substr(encoded, at, 76) + '\r\n');
-			status = mail.close();
-		} catch (error) { unlink(config); unlink(secret); record_client_event('mail-failed', request.to + ' ' + place); die('mail was not sent'); }
-		unlink(config);
-		unlink(secret);
-		if (status != 0) { record_client_event('mail-failed', request.to + ' ' + place); die('mail was not accepted'); }
-		record_client_event('mail-sent', request.to + ' ' + place);
+		deliver(settings, request.to, request.subject, request.body, ARGV[1], place);
+	} else if (ARGV[0] == 'alert' && length(ARGV) == 2) {
+		// The router's own alert, to the address set for alerts.
+		if (!(length(ARGV[1]) <= 64 ? match(ARGV[1], /^[0-9]+-[0-9]+$/) : null)) die('invalid mail job');
+		let request = json(open('/dev/stdin', 're').read(16385));
+		fields(request, [ 'version', 'subject', 'body' ]);
+		if (request.version !== 1 || !line(request.subject, 200) || type(request.body) != 'string' || length(request.body) > 8192)
+			die('invalid alert');
+		let settings = stored();
+		if (settings == null || !address(settings.alerts ?? '')) die('alerts are not set up');
+		deliver(settings, settings.alerts, request.subject, request.body, ARGV[1], '');
 	} else {
-		warn('usage: client-access-mail.uc show|save|send JOB\n'); exit(2);
+		warn('usage: client-access-mail.uc show|save|send JOB|alert JOB\n'); exit(2);
 	}
 } catch (error) {
 	warn('client-access-mail: refused or unavailable\n'); exit(1);

@@ -235,6 +235,23 @@ async function main() {
  const running = page.render([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}], null]);
  assert(nodes(running).find(n => n.attrs['aria-label'] === 'Virtual subnet').attrs.disabled != null, 'the subnet of enrolled devices is fixed');
  assert(text(running).includes('ALICE-PC') && text(running).includes('https://vpn.example.com:8443'));
+ // Mail: where the router's alerts go is saved with the settings, and an
+ // address that is not one is refused before anything is written.
+ const mailShown = { version: 1, available: true, configured: true, host: 'smtp.example.com', port: 587, security: 'starttls',
+  user: 'sender@example.com', from: 'sender@example.com', has_password: true, alerts: '' };
+ const withMail = page.render([[data()[0], data()[1], {code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))},
+  {code:0,stdout:JSON.stringify(mailShown)}], null]);
+ const alertsField = nodes(withMail).find(n => n.attrs['aria-label'] === 'Send alerts to');
+ assert(alertsField, 'the mail settings have no address for alerts');
+ const writtenBefore = written.length;
+ alertsField.value = 'not an address';
+ const saves = nodes(withMail).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Save');
+ const saveMail = saves[saves.length - 1];
+ await click(saveMail);
+ assert.strictEqual(written.length, writtenBefore, 'an alert address that is not one was written');
+ alertsField.value = ' admin@example.com ';
+ await click(saveMail);
+ assert.strictEqual(written[written.length - 1].body.alerts, 'admin@example.com', 'the alert address was not saved with the mail settings');
  console.log('remote clients UI: render, forms, validation, queued requests, generations, setup and unavailable state OK');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

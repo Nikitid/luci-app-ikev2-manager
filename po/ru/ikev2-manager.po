@@ -5609,3 +5609,9 @@ msgstr "Что роутер сейчас делает с именем: в как
 
 msgid "also try HTTPS that way"
 msgstr "проверить HTTPS по этому пути"
+
+msgid "Send alerts to"
+msgstr "Оповещения на адрес"
+
+msgid "Optional. The router writes here when a tunnel stays down for five minutes and comes back, and when something keeps breaking."
+msgstr "Необязательно. Роутер пишет сюда, когда туннель пять минут не работает и когда он вернулся, а также когда что-то ломается снова и снова."

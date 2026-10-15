@@ -261,6 +261,65 @@ data_plane_ok() {
 # Repairs run under the router action lock, so that a page action cannot run
 # beside one. With the lock taken by someone else nothing is repaired; the
 # next pass looks again.
+# Mail to the address set for alerts, about something that needs a person:
+# once per kind an hour at most, in the background, never in the pass's way.
+# Without mail set up, or without an address for alerts, nothing is sent.
+mail_settings="${IKEV2_MAIL_SETTINGS:-/etc/ikev2-manager/mail.json}"
+alert_sender="${IKEV2_ALERT_SENDER:-}"
+alert_interval="${IKEV2_ALERT_INTERVAL:-3600}"
+tunnel_down_alert="${IKEV2_TUNNEL_DOWN_ALERT:-300}"
+alert() {
+	local kind="$1" subject="$2" body="$3" stamp last now host
+	grep -q '"alerts": *"[^"]*@' "$mail_settings" 2>/dev/null || return 0
+	stamp="$run_dir/ikev2-alerts/$kind"
+	mkdir -p "${stamp%/*}" 2>/dev/null || return 0
+	now="$(date +%s)"
+	last="$(cat "$stamp" 2>/dev/null)"
+	case "$last" in '' | *[!0-9]*) last=0 ;; esac
+	[ $((now - last)) -ge "$alert_interval" ] || return 0
+	printf '%s\n' "$now" >"$stamp" 2>/dev/null || :
+	host="$(uci -q get system.@system[0].hostname 2>/dev/null || echo router)"
+	if [ -n "$alert_sender" ]; then
+		"$alert_sender" "$kind" "IKEv2 Manager, $host: $subject" "$body" >/dev/null 2>&1 &
+		return 0
+	fi
+	( /usr/bin/ucode -e 'print(sprintf("%J", { version: 1, subject: ARGV[0], body: ARGV[1] }))' \
+		"IKEv2 Manager, $host: $subject" "$body" |
+		/usr/bin/ucode "$runtime_lib_dir/client-access-mail.uc" alert "$now-$$" >/dev/null 2>&1 ) &
+}
+
+# A tunnel that is enabled but has carried nothing for five minutes - no SA,
+# or one through which nothing crosses - is reported once, and so is its
+# return. Keeps "index:since:reported" for each such tunnel in tunnels_down.
+tunnels_down=''
+watch_tunnels_down() {
+	local now="$1" index entry since reported next='' down
+	for index in $tunnel_on; do
+		down=0
+		case " $sa_up " in *" $index "*) ;; *) down=1 ;; esac
+		case " $tunnel_silent " in *" $index "*) down=1 ;; esac
+		entry=''
+		for item in $tunnels_down; do
+			case "$item" in "$index":*) entry="$item" ;; esac
+		done
+		if [ "$down" = 1 ]; then
+			since="${entry#*:}"; since="${since%%:*}"
+			reported="${entry##*:}"
+			[ -n "$entry" ] || { since="$now"; reported=0; }
+			if [ "$reported" = 0 ] && [ $((now - since)) -ge "$tunnel_down_alert" ]; then
+				alert "tunnel-$index-down" "tunnel $index is down" \
+					"Tunnel $index has carried nothing for $(( (now - since) / 60 )) minutes. Its services move to another tunnel where they may; those bound to it are refused until it is back."
+				reported=1
+			fi
+			next="$next $index:$since:$reported"
+		elif [ -n "$entry" ] && [ "${entry##*:}" = 1 ]; then
+			alert "tunnel-$index-up" "tunnel $index is back" \
+				"Tunnel $index carries traffic again."
+		fi
+	done
+	tunnels_down="$next"
+}
+
 repair() {
 	action_lock_try_acquire watcher "watcher-$$" || return 0
 	"$@" >/dev/null 2>&1 || :
@@ -287,6 +346,9 @@ repair_reported() {
 	now="$(date +%s)"
 	if [ $((now - logged)) -ge 600 ]; then
 		logger -t ikev2-health "repaired $label ($count since the last report)$([ "$rc" = 0 ] || printf ', the repair failed')" 2>/dev/null || :
+		# Ten in ten minutes is a fault that keeps coming back.
+		[ "$count" -lt 10 ] || alert "repair-$label" "$label keeps being repaired" \
+			"The health watcher repaired $label $count times in the last ten minutes. Something keeps breaking it; see the system log for ikev2-health."
 		logged="$now"
 		count=0
 	fi
@@ -346,6 +408,8 @@ check_runtimes() {
 		# check reads and hide that the watcher is gone, as it did for hours
 		# on a router where the watcher sat blocked in a read: it is replaced.
 		logger -t ikev2-health -p daemon.warn 'The inbound policy watcher stopped; restarting it'
+		alert inbound-watcher 'the inbound policy watcher stopped' \
+			'The service that admits VPN clients stopped turning and was restarted. If this repeats, see the system log for ikev2-health.'
 		"$user_policy_init" restart >/dev/null 2>&1 || :
 		user_policy_stale=0
 	elif [ -x "$user_policy_helper" ] && ! "$user_policy_helper" check >/dev/null 2>&1; then
@@ -527,6 +591,7 @@ EOF
 	# Which tunnel each exit uses; a tunnel coming back takes its exit back
 	# only after it has stayed up, so this can change with no SA changing.
 	tunnel_select "$now" "$tunnel_carrying" "$tunnel_silent"
+	[ "$client_enabled" != 1 ] || [ "$paused" = 1 ] || watch_tunnels_down "$now"
 	[ -z "$tunnel_changes" ] || routing_due=1
 	[ "$routing_due" = 0 ] || repair "$routing_helper" sync
 	if [ -n "$tunnel_changes" ] && tunnel_several; then

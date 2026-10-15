@@ -419,6 +419,14 @@ a real local address is left alone. During shutdown the watcher stops before
 the DNS, domain-router, XFRM and network services, with a five-second procd
 termination bound, so it cannot recreate dependencies while the router stops.
 
+### Alerts by mail
+
+With mail set up (Users page, Mail) and an address in **Send alerts to**, the
+health watcher writes when a tunnel has carried nothing for five minutes and
+again when it is back, when the inbound policy watcher had to be restarted,
+and when one repair was needed ten times in ten minutes. Each kind is sent at
+most once an hour; without an address nothing is sent.
+
 ### What the watcher repaired
 
 The health watcher logs each repair by name - `repaired inbound-policy`,
