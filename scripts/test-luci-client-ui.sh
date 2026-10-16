@@ -1105,6 +1105,25 @@ function saveServiceDialog() {
 // Where a name goes: the page asks the router and says it in words - the
 // tunnel, the suffix that matched, the service that brings it and the answer.
 function traceSection() {
+	// The lower part of the page is tabs; a click on one's own list on the
+	// board brings its tab forward.
+	const tabbed = editor.render([
+		'example.com\n', '', policyStatus, { code: 0, stdout: '' },
+		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
+		{ code: 0, stdout: '' }, ''
+	]);
+	const row = nodesOf(tabbed).find(function(node) { return hasClass(node, 'ikev2-tabs-row'); });
+	if (!row || row.children.map(function(node) { return textOf(node).trim(); }).join('|') !== 'Your lists|Never through the tunnel|Where a name goes|List sources')
+		fail('the lower part of the policy page is not under its tabs');
+	row.children[3].listeners.click();
+	const panelsOf = function() { return nodesOf(tabbed).filter(function(node) { return hasClass(node, 'ikev2-tabs-panel'); })
+		.map(function(node) { return node.style.display === 'none' ? 0 : 1; }).join(''); };
+	if (panelsOf() !== '0001') fail('a tab did not open its panel: ' + panelsOf());
+	const own = nodesOf(tabbed).find(function(node) { return node.attrs && node.attrs['data-target'] === '@domains'; });
+	own.listeners.click();
+	const editButton = nodesOf(tabbed).find(function(node) { return node.attrs && node.attrs['data-act'] === 'edit'; });
+	editButton.listeners.click();
+	if (panelsOf() !== '1000') fail('editing one\'s own domains did not bring their tab forward: ' + panelsOf());
 	const page = editor.render([
 		'', 'openai', policyStatus, { code: 0, stdout: 'openai|OpenAI|builtin|0|0|route\n' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
@@ -1403,6 +1422,10 @@ windowStub.location = locationBefore;
 const dnsHeadings = headings(dnsPage.render(data));
 if (dnsHeadings.join('|') !== 'Tunnel DNS|Router DNS upstream|Destination DNS segments')
 	fail('the DNS page does not hold the three DNS sections alone: ' + dnsHeadings.join('|'));
+const dnsTree = dnsPage.render(data);
+if (tabButtons(dnsTree).map(function(node) { return textOf(node).trim(); }).join('|') !== 'Tunnel DNS|Router DNS upstream|Destination DNS segments' ||
+    shownPanels(dnsTree) !== '100')
+	fail('the DNS page does not show its three subjects as tabs, the first open: ' + shownPanels(dnsTree));
 if (!nodesOf(tunnelsPage.render([ { ready: false }, { ready: false } ])).some(function(node) { return hasClass(node, 'ikev2-empty'); }))
 	fail('the Tunnels page has nothing to say while strongSwan is missing');
 if (!settingsPage || !settingsPage.children || !settingsPage.children.length)

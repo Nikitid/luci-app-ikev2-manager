@@ -5714,3 +5714,6 @@ msgstr "На этом роутере не настроен сервис отчё
 
 msgid "No report service is set up on this router."
 msgstr "На этом роутере не настроен сервис отчётов."
+
+msgid "Your lists"
+msgstr "Свои списки"

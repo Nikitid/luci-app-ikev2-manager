@@ -1,7 +1,7 @@
 'use strict';
 'require baseclass';
 'require fs';
-'require ikev2-manager.shared-v18 as common';
+'require ikev2-manager.shared-v19 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var swanmon = '/usr/sbin/swanmon';

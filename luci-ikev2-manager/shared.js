@@ -2161,7 +2161,10 @@ var CSS = `
 				background: transparent;
 				box-shadow: none;
 			}
-			.ikev2-page .ikev2-tabs.ikev2-section > .ikev2-tabs-panel > div > .ikev2-section + .ikev2-section {
+			/* The tab names the section; its own heading would only repeat it. */
+			.ikev2-page .ikev2-tabs.ikev2-section > .ikev2-tabs-panel > .ikev2-section > .ikev2-section-head h3,
+			.ikev2-page .ikev2-tabs.ikev2-section > .ikev2-tabs-panel > div > .ikev2-section:only-child > .ikev2-section-head h3 { display: none; }
+			.ikev2-page .ikev2-tabs.ikev2-section > .ikev2-tabs-panel > div:not(.ikev2-destination-editors) > .ikev2-section + .ikev2-section {
 				margin-top: var(--ikev2-s5);
 				padding-top: var(--ikev2-s5);
 				border-top: 1px solid var(--ikev2-border);
@@ -2647,6 +2650,15 @@ function section(title, description, content, actions) {
 function tabs(items, options) {
 	options = options || {};
 	var current = options.collapsible ? -1 : (options.open || 0);
+	// The tab a viewer last opened, per group, in this browser only: a
+	// convenience that may be missing and is never relied on.
+	var remembered = null;
+	if (options.key) {
+		try { remembered = window.localStorage.getItem('ikev2-tab-' + options.key); } catch (error) { remembered = null; }
+		items.forEach(function(item, index) {
+			if (item.id && item.id === remembered) current = index;
+		});
+	}
 	var buttons = [], panels = [];
 	function draw() {
 		items.forEach(function(item, index) {
@@ -2659,6 +2671,9 @@ function tabs(items, options) {
 		button.addEventListener('click', function() {
 			current = options.collapsible && current === index ? -1 : index;
 			draw();
+			if (options.key && items[index].id) {
+				try { window.localStorage.setItem('ikev2-tab-' + options.key, current === index ? items[index].id : ''); } catch (error) { }
+			}
 			if (options.onShow)
 				options.onShow(current);
 		});
@@ -2668,6 +2683,11 @@ function tabs(items, options) {
 	var node = E('div', { 'class': 'ikev2-tabs' + (options.bare ? '' : ' ikev2-section') }, [
 		E('div', { 'class': 'ikev2-seg ikev2-tabs-row', 'role': 'group' }, buttons)
 	].concat(panels));
+	// Bring a panel forward from outside, for a link that leads into it.
+	node.showTab = function(index) {
+		current = index;
+		draw();
+	};
 	node.hideTab = function(index, hidden) {
 		buttons[index].style.display = hidden ? 'none' : '';
 		if (hidden && current === index)

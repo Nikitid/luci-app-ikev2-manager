@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v18 as common';
+'require ikev2-manager.shared-v19 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -703,6 +703,7 @@ return view.extend({
 		/* ── The four lists of one's own ────────────────────────────────── */
 		// Created here: the board shows how many entries the two routed ones
 		// hold, and a click on their chips leads to them.
+		var lowerTabs = null;
 		var listText = {
 			'@domains': manual, '@cidrs': manualAddresses,
 			'@xdomains': excludedDomains, '@xcidrs': excludedAddresses
@@ -733,6 +734,9 @@ return view.extend({
 		}
 		function showList(key) {
 			var area = listAreas[key];
+			// The list lives under a tab: that tab comes forward first.
+			if (lowerTabs)
+				lowerTabs.showTab(key === '@domains' || key === '@cidrs' ? 0 : 1);
 			if (area.scrollIntoView)
 				area.scrollIntoView({ block: 'center' });
 			area.focus();
@@ -1475,6 +1479,27 @@ return view.extend({
 		});
 		drawBoard();
 
+		// What is looked at now and then sits under one row of tabs: one's own
+		// lists, the exclusions, where a name goes, and where lists come from.
+		lowerTabs = common.tabs([
+			{ id: 'own', title: _('Your lists'), content: E('div', { 'class': 'ikev2-destination-editors' }, [
+				common.section(_('Custom domains'),
+					_('One plain domain per line. Custom entries are never overwritten by service updates.'),
+					listAreas['@domains']),
+				common.section(_('Custom IP addresses and networks'),
+					_('One IPv4 address or CIDR network per line. A single address is stored as /32.'),
+					listAreas['@cidrs']) ]) },
+			{ id: 'exclusions', title: _('Never through the tunnel'), content: E('div', { 'class': 'ikev2-destination-editors' }, [
+				common.section(_('Domains never through the tunnel'),
+					_('One domain per line; its subdomains are excluded too. It wins over every selected service and custom domain.'),
+					listAreas['@xdomains']),
+				common.section(_('Addresses never through the tunnel'),
+					_('One IPv4 address or CIDR network per line. Traffic to them never takes the tunnel, whatever selects it.'),
+					listAreas['@xcidrs']) ]) },
+			{ id: 'trace', title: _('Where a name goes'), content: buildTraceSection() },
+			{ id: 'sources', title: _('List sources'), content: buildSourcesSection(data[7]) }
+		], { key: 'routing' });
+
 		var domainsContent = E('div', {}, [
 			common.section(_('Domain routing'),
 				_('Selected domains go through the IKEv2 tunnel. Other traffic continues through the normal WAN.'),
@@ -1543,22 +1568,7 @@ return view.extend({
 				])
 			]) ]) ]),
 			dialogHost,
-			buildTraceSection(),
-			buildSourcesSection(data[7]),
-			E('div', { 'class': 'ikev2-destination-editors' }, [
-				common.section(_('Custom domains'),
-					_('One plain domain per line. Custom entries are never overwritten by service updates.'),
-					listAreas['@domains']),
-				common.section(_('Custom IP addresses and networks'),
-					_('One IPv4 address or CIDR network per line. A single address is stored as /32.'),
-					listAreas['@cidrs']),
-				common.section(_('Domains never through the tunnel'),
-					_('One domain per line; its subdomains are excluded too. It wins over every selected service and custom domain.'),
-					listAreas['@xdomains']),
-				common.section(_('Addresses never through the tunnel'),
-					_('One IPv4 address or CIDR network per line. Traffic to them never takes the tunnel, whatever selects it.'),
-					listAreas['@xcidrs'])
-			])
+			lowerTabs
 		]);
 
 		var refreshSourcesButton;
