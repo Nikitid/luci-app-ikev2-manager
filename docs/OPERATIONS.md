@@ -431,8 +431,10 @@ most once an hour; without an address nothing is sent.
 
 **Report a problem** on the Overview page sends the administrator's text, an
 optional address for a reply and, when the box is ticked, the redacted
-diagnostics report to the developer's report service (project
-`ikev2-manager`). **Show what is attached** shows that text before anything
+diagnostics report to the developer's report service
+(`https://reports.nikitid.ru`, project `ikev2-manager`). Another service is
+set with `uci set ikev2-manager.reports.endpoint=https://...`, and `none`
+sends nothing. **Show what is attached** shows that text before anything
 is sent. Each report has its own random claim token, kept with its report
 number in `/etc/ikev2-manager/reports/` (root only); it opens that report's
 status and the replies to it and nothing else. Sent reports and replies are

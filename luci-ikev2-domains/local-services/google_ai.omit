@@ -1,0 +1,4 @@
+# Shared endpoints of every Google service, not Google AI: the web front of
+# many Google products and the installation service of every Firebase app.
+clients6.google.com
+firebaseinstallations.googleapis.com

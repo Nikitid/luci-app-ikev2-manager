@@ -35,9 +35,14 @@ rm -f /tmp/ikev2-public-tree-findings
 printf '%s\n' "$tracked" | while IFS= read -r file; do
 	[ -f "$file" ] || continue
 	[ "$file" = scripts/check-public-tree.sh ] && continue
+	# The report service is the one public address of the developer's that the
+	# package names on purpose: applications send their problem reports there.
+	# Every other name of the owner's hosts stays out.
 	grep -IHnE \
 		'nikitid\.com|nikitid\.ru|nikitid-phone|nikitid-proxy|flint2|ikev2-pbr-glinet|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}' \
-		"$file" >>/tmp/ikev2-public-tree-findings 2>/dev/null || true
+		"$file" 2>/dev/null | sed 's#https://reports\.nikitid\.ru##g' |
+		grep -E 'nikitid\.com|nikitid\.ru|nikitid-phone|nikitid-proxy|flint2|ikev2-pbr-glinet|PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}' \
+		>>/tmp/ikev2-public-tree-findings || true
 done
 if [ -s /tmp/ikev2-public-tree-findings ]; then
 	cat /tmp/ikev2-public-tree-findings >&2
