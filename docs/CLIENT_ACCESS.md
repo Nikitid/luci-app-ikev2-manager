@@ -1196,3 +1196,19 @@ session. The packet filter does not keep rules across a boot. The
 daemon is a launchd job started at boot, before any user session, and loads
 the denial before it touches names; until then managed names point at virtual
 addresses that lead nowhere, so nothing reaches the real service.
+
+## Problem reports to the developer
+
+The **Report** window of both clients, beside the state report it shows,
+sends a problem report to the developer's report service
+(`https://reports.nikitid.ru`, project `waypoint`): the person's text, an
+optional address for a reply and, when ticked, that state report as a file.
+Context carries the application and system versions, the processor, the
+language and the current state code. Each report has its own random claim
+token, kept with its report number in the person's profile
+(`~/Library/Application Support/Waypoint/reports.json`,
+`%LOCALAPPDATA%\Waypoint\reports.json`); it opens that report's status and
+the replies, which the window lists. Text alone is one request that submits
+it; with the file the client registers it with its size and SHA-256, uploads
+it and finalizes. `ProblemReports.swift` and `ProblemReports.cs` hold this,
+tested against a recorder of the service contract.

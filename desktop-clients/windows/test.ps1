@@ -44,6 +44,12 @@ $statusExecutable = Join-Path $output 'ClientStatusTests.exe'
 if ($LASTEXITCODE -ne 0) { throw 'Status tests failed to compile' }
 & $statusExecutable
 if ($LASTEXITCODE -ne 0) { throw 'Client status tests failed' }
+$reportsExecutable = Join-Path $output 'ProblemReportsTests.exe'
+& $compiler /nologo /platform:x64 "/out:$reportsExecutable" /r:System.Web.Extensions.dll `
+    (Join-Path $PSScriptRoot 'ProblemReports.cs') (Join-Path $PSScriptRoot 'ProblemReportsTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Problem report tests failed to compile' }
+& $reportsExecutable
+if ($LASTEXITCODE -ne 0) { throw 'Problem report tests failed' }
 $policyExecutable = Join-Path $output 'ClientPolicyTests.exe'
 & $compiler /nologo /platform:x64 "/out:$policyExecutable" /r:System.Web.Extensions.dll `
     (Join-Path $PSScriptRoot 'ManagedHosts.cs') `

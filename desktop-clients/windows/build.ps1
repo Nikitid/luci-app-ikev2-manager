@@ -50,7 +50,8 @@ if ($runtime -eq 0 -or $flags -eq $null -or ($flags -band 0x1) -eq 0 -or ($flags
 $image[$header + 4] = 0x64; $image[$header + 5] = 0xAA
 [IO.File]::WriteAllBytes($serviceArm, $image)
 & $compiler /nologo /platform:x64 /optimize+ /target:winexe "/out:$appBinary" "/win32icon:$icon" `
-    /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll $stamp $common (Join-Path $PSScriptRoot 'ClientApp.cs')
+    /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll $stamp $common `
+    (Join-Path $PSScriptRoot 'ProblemReports.cs') (Join-Path $PSScriptRoot 'ClientApp.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Client application build failed' }
 # The one file a user receives: both binaries travel inside it.
 & $compiler /nologo /platform:x64 /optimize+ /target:winexe "/out:$(Join-Path $Output 'WaypointSetup.exe')" `

@@ -659,7 +659,7 @@ namespace IkeV2Manager.Client
             var serializer = new JavaScriptSerializer();
             var fields = serializer.Deserialize<Dictionary<string, object>>(current.Report());
             string json = "{\r\n" + String.Join(",\r\n", fields.Select(pair => "  " + serializer.Serialize(pair.Key) + ": " + serializer.Serialize(pair.Value))) + "\r\n}";
-            var preview = new Form { Text = "Отчёт", ClientSize = new Size(600, 320), StartPosition = FormStartPosition.CenterParent };
+            var preview = new Form { Text = "Отчёт", ClientSize = new Size(640, 600), StartPosition = FormStartPosition.CenterParent };
             var content = new TextBox { Text = json, Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
                 ScrollBars = ScrollBars.Both, Font = new Font(FontFamily.GenericMonospace, 10), WordWrap = false };
             var save = new Button { Text = "Сохранить…", Dock = DockStyle.Bottom, Height = 40 };
@@ -675,7 +675,106 @@ namespace IkeV2Manager.Client
             };
             preview.Controls.Add(content);
             preview.Controls.Add(save);
+            // Docked last, so it takes the bottom first and the state report
+            // fills what is left above the save button.
+            preview.Controls.Add(ProblemReportPanel(preview, json));
             return preview;
+        }
+
+        // A problem report to the developer: the person's words, an address for
+        // a reply if they give one, and the state report above if they tick it.
+        // What was sent and the replies to it are listed under the form.
+        private Control ProblemReportPanel(Form owner, string state)
+        {
+            var panel = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 300, ColumnCount = 1, Padding = new Padding(8) };
+            panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
+            panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            var heading = new Label { Text = "Сообщить о проблеме разработчику", AutoSize = true, Font = new Font(Font, FontStyle.Bold) };
+            var text = new TextBox { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical };
+            var contact = new TextBox { Dock = DockStyle.Top };
+            var contactRow = new TableLayoutPanel { ColumnCount = 2, Dock = DockStyle.Top, AutoSize = true };
+            contactRow.Controls.Add(new Label { Text = "Почта для ответа (необязательно):", AutoSize = true, Anchor = AnchorStyles.Left });
+            contactRow.Controls.Add(contact);
+            contactRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            contactRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            var attach = new CheckBox { Text = "Приложить отчёт выше", Checked = true, AutoSize = true };
+            var send = new Button { Text = "Отправить", AutoSize = true };
+            var result = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
+            var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = false };
+            actions.Controls.Add(attach);
+            actions.Controls.Add(send);
+            actions.Controls.Add(result);
+            var sent = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = SystemColors.Control };
+            panel.Controls.Add(heading);
+            panel.Controls.Add(text);
+            panel.Controls.Add(contactRow);
+            panel.Controls.Add(actions);
+            panel.Controls.Add(new Label { AutoSize = true });
+            panel.Controls.Add(sent);
+            var book = new ProblemReportBook();
+            Action showSent = () => Task.Run(() =>
+            {
+                var lines = new List<string>();
+                foreach (var report in book.Load().Where(item => !String.IsNullOrEmpty(item.ReportId)))
+                {
+                    var stateOf = new ProblemReporter().StateOf(report);
+                    string label = stateOf == null || stateOf.State == null ? "статус неизвестен" :
+                        stateOf.State == "received" ? "получен" : stateOf.State == "in_progress" ? "в работе" :
+                        stateOf.State == "resolved" ? "решён" : stateOf.State == "closed" ? "закрыт" : stateOf.State;
+                    lines.Add(report.SentUtc.ToLocalTime().ToString("dd.MM HH:mm") + " \u00B7 " + label + " \u00B7 " + report.Title);
+                    if (stateOf != null) foreach (string reply in stateOf.Replies) lines.Add("    Ответ: " + reply);
+                }
+                if (!owner.IsDisposed) owner.BeginInvoke((Action)(() => { sent.Text = lines.Count > 0 ? "Отправленные отчёты:\r\n" + String.Join("\r\n", lines) : ""; }));
+            });
+            send.Click += (sender, args) =>
+            {
+                string description = text.Text.Trim(), address = contact.Text.Trim();
+                if (description.Length == 0) { result.Text = "Сначала опишите проблему."; return; }
+                if (address.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(address, "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]+$"))
+                { result.Text = "Введите адрес вида name@example.com или оставьте поле пустым."; return; }
+                var own = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                var context = new Dictionary<string, string> {
+                    { "app_version", own.Major + "." + own.Minor + "." + Math.Max(own.Build, 0) },
+                    { "os_version", Environment.OSVersion.VersionString },
+                    { "architecture", Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432") ?? Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "" },
+                    { "language", System.Globalization.CultureInfo.CurrentUICulture.Name },
+                    { "failure_code", current.State ?? "" } };
+                byte[] file = attach.Checked ? new UTF8Encoding(false).GetBytes(state) : null;
+                var draft = ProblemReport.Fresh(description);
+                book.Keep(draft);
+                send.Enabled = false;
+                result.Text = "Отправка…";
+                Task.Run(() =>
+                {
+                    string outcome;
+                    try
+                    {
+                        new ProblemReporter().Send(draft, description, address, context, file, book.Keep);
+                        outcome = "Отчёт отправлен. Ответы появятся здесь.";
+                    }
+                    catch (ProblemReportException error)
+                    {
+                        outcome = error.Kind == "unavailable" ? "Сервис отчётов сейчас не принимает отчёты Waypoint." :
+                            error.Kind == "busy" ? "Сервис отчётов занят; отправьте снова через несколько минут." :
+                            error.Kind == "unreachable" ? "Сервис отчётов недоступен. Проверьте интернет и отправьте снова." :
+                            "Сервис отклонил отчёт: " + error.Message;
+                    }
+                    catch (Exception) { outcome = "Отчёт не отправлен."; }
+                    if (owner.IsDisposed) return;
+                    owner.BeginInvoke((Action)(() =>
+                    {
+                        result.Text = outcome;
+                        send.Enabled = true;
+                        if (outcome.StartsWith("Отчёт отправлен")) { text.Text = ""; showSent(); }
+                    }));
+                });
+            };
+            owner.Shown += (sender, args) => showSent();
+            return panel;
         }
 
         [STAThread]

@@ -180,6 +180,70 @@ final class ClientModel: ObservableObject {
         guard let status, let data = try? JSONEncoder.pretty.encode(status) else { return "{\n  \"state\" : \"service_unavailable\"\n}" }
         return String(data: data, encoding: .utf8) ?? ""
     }
+
+    // Problem reports to the developer: the person's words, an address for a
+    // reply if they give one, and the state report above if they tick it.
+    @Published var reportMessage = ""
+    @Published var reportSending = false
+    @Published var sentReports: [SentReport] = []
+    private let reportBook = ProblemReportBook()
+
+    struct SentReport: Identifiable {
+        let report: ProblemReport
+        let state: ProblemReportState?
+        var id: String { report.clientID }
+    }
+
+    func loadSentReports() {
+        let reports = reportBook.load().filter { $0.reportID != nil }
+        sentReports = reports.map { SentReport(report: $0, state: nil) }
+        Task {
+            var read: [SentReport] = []
+            for report in reports { read.append(SentReport(report: report, state: await ProblemReporter().state(of: report))) }
+            await MainActor.run { sentReports = read }
+        }
+    }
+
+    func sendReport(_ text: String, contact: String, attach: Bool) {
+        guard !reportSending else { return }
+        reportSending = true
+        reportMessage = "Отправка…"
+        let book = reportBook
+        var draft = ProblemReport.fresh(title: text)
+        book.keep(draft)
+        var context: [String: String] = ["app_version": version.replacingOccurrences(of: "v", with: ""),
+                                         "os_version": "macOS " + ProcessInfo.processInfo.operatingSystemVersionString,
+                                         "language": Locale.preferredLanguages.first ?? ""]
+        #if arch(arm64)
+        context["architecture"] = "arm64"
+        #else
+        context["architecture"] = "x86_64"
+        #endif
+        if let state = status?.state { context["failure_code"] = state }
+        let attachment = attach ? Data(report.utf8) : nil
+        Task {
+            do {
+                draft = try await ProblemReporter().send(draft, description: text, contact: contact, context: context,
+                                                         attachment: attachment) { book.keep($0) }
+                await MainActor.run {
+                    reportMessage = "Отчёт отправлен. Ответы появятся здесь."
+                    reportSending = false
+                    loadSentReports()
+                }
+            } catch let error as ProblemReportError {
+                let text: String
+                switch error {
+                case .unavailable: text = "Сервис отчётов сейчас не принимает отчёты Waypoint."
+                case .busy: text = "Сервис отчётов занят; отправьте снова через несколько минут."
+                case .unreachable: text = "Сервис отчётов недоступен. Проверьте интернет и отправьте снова."
+                case .refused(let status, let code): text = "Сервис отклонил отчёт (" + String(status) + (code.isEmpty ? "" : ", " + code) + ")."
+                }
+                await MainActor.run { reportMessage = text; reportSending = false }
+            } catch {
+                await MainActor.run { reportMessage = "Отчёт не отправлен."; reportSending = false }
+            }
+        }
+    }
 }
 
 extension JSONEncoder {
@@ -307,6 +371,9 @@ struct ClientView: View {
     @State private var invitation = ""
     @State private var registering = false
     @State private var reporting = false
+    @State private var problem = ""
+    @State private var problemContact = ""
+    @State private var problemAttach = true
     @State private var browsing = false
     @State private var removing = false
     /// "system", "light" or "dark": the look the user chose for this window.
@@ -441,14 +508,50 @@ struct ClientView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Отчёт").font(.headline)
                 ScrollView { Text(model.report).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                    .frame(width: 480, height: 260)
+                    .frame(width: 520, height: 200)
+                Divider()
+                Text("Сообщить о проблеме разработчику").font(.subheadline).bold()
+                TextEditor(text: $problem).font(.body).frame(width: 520, height: 80)
+                    .overlay(alignment: .topLeading) {
+                        if problem.isEmpty { Text("Что случилось и что вы делали перед этим").foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
+                    }
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
+                TextField("Почта для ответа (необязательно)", text: $problemContact).frame(width: 520)
+                Toggle("Приложить отчёт выше", isOn: $problemAttach)
+                if !model.reportMessage.isEmpty { Text(model.reportMessage).font(.callout).foregroundStyle(.secondary) }
+                if !model.sentReports.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Отправленные отчёты").font(.caption).foregroundStyle(.secondary)
+                        ForEach(model.sentReports) { sent in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(sent.report.sent.formatted(date: .abbreviated, time: .shortened) + " · " + (sent.state?.state.map(Self.reportState) ?? "статус неизвестен") + " · " + sent.report.title)
+                                    .font(.caption)
+                                ForEach(sent.state?.replies ?? [], id: \.self) { reply in
+                                    Text("Ответ: " + reply).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }.frame(width: 520, alignment: .leading)
+                }
                 HStack {
                     Button("Скопировать") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(model.report, forType: .string) }
                     Spacer()
-                    Button("Закрыть") { reporting = false }.keyboardShortcut(.defaultAction)
+                    Button("Закрыть") { reporting = false }
+                    Button("Отправить") {
+                        let contact = problemContact.trimmingCharacters(in: .whitespaces)
+                        model.sendReport(problem.trimmingCharacters(in: .whitespacesAndNewlines), contact: contact, attach: problemAttach)
+                        problem = ""
+                    }.keyboardShortcut(.defaultAction)
+                        .disabled(model.reportSending || problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                  !(problemContact.isEmpty || problemContact.range(of: "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]+$", options: .regularExpression) != nil))
                 }
             }.padding(20)
+            .onAppear { model.loadSentReports() }
         }
+    }
+
+    static func reportState(_ state: String) -> String {
+        ["received": "получен", "in_progress": "в работе", "resolved": "решён", "closed": "закрыт"][state] ?? state
     }
 
     /// The whole application takes the look at once. Asking SwiftUI to go back
