@@ -71,8 +71,8 @@ function tunnels() {
 function tunnel_names() {
 	let names = {};
 	for (let line in split(command('/sbin/uci -q show ikev2-manager') ?? '', '\n')) {
-		let named = match(line, /^ikev2-manager\.tunnel_([2-7])\.name='([^']{1,64})'$/);
-		if (named) names[named[1]] = named[2];
+		let named = match(line, /^ikev2-manager\.tunnel_([2-7])\.name='([^']+)'$/);
+		if (named && length(named[2]) <= 64) names[named[1]] = named[2];
 	}
 	return names;
 }
