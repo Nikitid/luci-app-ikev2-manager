@@ -1019,6 +1019,8 @@ var CSS = `
 			}
 			.ikev2-choice-custom > select,
 			.ikev2-choice-custom > input { max-width: none; }
+			/* As wide as the plain fields beside it, so a card keeps one edge. */
+			.ikev2-form-grid:not(.ikev2-form-grid-compact) > .ikev2-choice-custom { max-width: 34rem; }
 			.ikev2-choice-list {
 				display: grid;
 				grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
@@ -1799,7 +1801,8 @@ var CSS = `
 			.ikev2-dialog-field > select,
 			.ikev2-dialog-field > textarea { width: 100%; max-width: none; }
 			/* A problem report: its form, what is attached, what was sent. */
-			.ikev2-report-panel { margin-top: var(--ikev2-s4); padding-top: var(--ikev2-s4); border-top: 1px solid var(--ikev2-border); }
+			.ikev2-report-panel { margin-top: var(--ikev2-s4); }
+			.ikev2-report-panel textarea { font-family: inherit; max-width: none; width: 100%; box-sizing: border-box; }
 			.ikev2-report-preview {
 				max-height: 18rem; overflow: auto; margin: var(--ikev2-s3) 0;
 				padding: var(--ikev2-s3); border-radius: var(--ikev2-radius-sm);

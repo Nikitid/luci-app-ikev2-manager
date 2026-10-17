@@ -203,7 +203,13 @@ function serviceLabel(name) {
 		google_play: 'Google Play',
 		google_meet: 'Google Meet',
 		digitalocean: 'DigitalOcean',
-		cloudfront: 'CloudFront'
+		cloudfront: 'CloudFront',
+		huggingface: 'Hugging Face',
+		linkedin: 'LinkedIn',
+		tiktok: 'TikTok',
+		stability_ai: 'Stability AI',
+		ovh: 'OVH',
+		youtube: 'YouTube'
 	};
 	if (labels[name])
 		return labels[name];
