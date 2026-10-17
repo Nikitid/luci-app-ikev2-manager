@@ -229,11 +229,12 @@ const data = [
 		'speed_wan_down_bps=16000', 'speed_wan_down_stalled=1',
 		'speed_tunnel_up_bps=unavailable', 'speed_wan_up_bps=50000000'
 	].join('\n') },
-	// A second tunnel, down, while the main one carries both exits.
+	// A second tunnel, up, carrying its own exit.
 	{ stdout: [ 'tunnel=2', 'name=NL', 'enabled=1', 'remote_address=nl.example.net',
 		'remote_id=nl.example.net', 'username=proxy', 'dpd=30', 'mtu=1400', 'backup=1',
 		'password_set=1' ].join('\n') },
-	{ stdout: 'tunnel=1 up=1 address=10.20.20.10 carries=1,2\ntunnel=2 up=0 address= carries=\n' }
+	// The pinned part of an exit ("2s") is the same tunnel, named once.
+	{ stdout: 'tunnel=1 up=1 address=10.20.20.10 carries=1,1s\ntunnel=2 up=1 address=10.20.20.14 carries=2,2s\n' }
 ];
 data.ready = true;
 
@@ -264,6 +265,8 @@ const source = fs.readFileSync(path.join(root, 'luci-ikev2-manager', 'client.js'
 		fail('a stored tunnel has no block of its own');
 	if (all.indexOf('NL') < 0)
 		fail('a stored tunnel is not named');
+	if (/Tunnel \d+s/.test(all) || all.indexOf('Carries: NL') < 0 || /Carries: NL, NL/.test(all))
+		fail('the pinned part of an exit is not shown as its own tunnel, once');
 })();
 
 // Connection quality: the verdict, four tiles, and a curve rather than bars.

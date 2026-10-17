@@ -2167,7 +2167,11 @@ return baseclass.extend({
 			else
 				common.setPill(view.pill, state.up === '1' ? _('Connected') : _('Disconnected'),
 					state.up === '1' ? 'good' : 'bad');
-			var carries = (state.carries || '').split(',').filter(Boolean).map(tunnelName);
+			// "2s" is the part of tunnel 2's traffic that may not move: still
+			// tunnel 2, named once.
+			var carries = (state.carries || '').split(',').filter(Boolean).map(function(exit) {
+				return tunnelName(exit.replace(/s$/, ''));
+			}).filter(function(name, at, all) { return all.indexOf(name) === at; });
 			view.detail.textContent = [
 				state.address ? _('Address %s').format(state.address) : '',
 				carries.length ? _('Carries: %s').format(carries.join(', ')) : ''
