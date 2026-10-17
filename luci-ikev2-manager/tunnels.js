@@ -25,9 +25,10 @@ return view.extend({
 		var where = (typeof window !== 'undefined' && window.location) || {};
 		var serverOpen = /\/server\/?$/.test(where.pathname || '') || where.hash === '#inbound';
 		var tunnelHash = /^#tunnel-[2-7]$/.test(where.hash || '') ? where.hash.slice(1) : null;
+		// The state in the header is the main tunnel's: shown on its tab only.
 		function shown(index, item) {
 			var server = !!item && item.id === 'inbound';
-			out.pill.style.display = server ? 'none' : '';
+			out.pill.style.display = item && item.id === 'tunnel-1' ? '' : 'none';
 			if (typeof window !== 'undefined' && window.history && window.history.replaceState && item)
 				window.history.replaceState(null, '', server ? '#inbound' : '#' + item.id);
 		}
@@ -45,7 +46,7 @@ return view.extend({
 			panels.setTabs(1, list, select);
 			panels.setAddDisabled(full);
 		});
-		out.pill.style.display = serverOpen ? 'none' : '';
+		out.pill.style.display = serverOpen || tunnelHash ? 'none' : '';
 
 		return E([
 			common.styles(),

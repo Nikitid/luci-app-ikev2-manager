@@ -1419,9 +1419,20 @@ if (tunnelTabs() !== 'Main tunnel|NL|+||Inbound server')
 	fail('the Tunnels page does not offer each tunnel, a plus and the inbound server set apart: ' + tunnelTabs());
 if (shownPanels(tunnelsTree) !== '100')
 	fail('the Tunnels page does not open on the main tunnel: ' + shownPanels(tunnelsTree));
+// The header's state is the main tunnel's, shown on its tab alone.
+function headerPillShown() {
+	const head = nodesOf(tunnelsTree).find(function(node) { return hasClass(node, 'ikev2-header'); });
+	const pill = nodesOf(head).find(function(node) { return hasClass(node, 'ikev2-pill'); });
+	if (!pill) fail('the Tunnels page has no state in its header');
+	return pill.style.display !== 'none';
+}
+if (!headerPillShown())
+	fail('the main tunnel\'s state is not in the header on its tab');
 tabButtons(tunnelsTree)[1].listeners.click();
 if (shownPanels(tunnelsTree) !== '010')
 	fail('the tab of the second tunnel does not show its panel alone: ' + shownPanels(tunnelsTree));
+if (headerPillShown())
+	fail('the main tunnel\'s state stays in the header on another tunnel\'s tab');
 tabButtons(tunnelsTree)[2].listeners.click();
 if (tunnelTabs() !== 'Main tunnel|NL|New tunnel|+||Inbound server' || shownPanels(tunnelsTree) !== '0010')
 	fail('the "+" does not open a new tunnel on a tab of its own: ' + tunnelTabs() + ' ' + shownPanels(tunnelsTree));
