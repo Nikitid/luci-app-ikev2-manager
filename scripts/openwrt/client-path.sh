@@ -119,6 +119,8 @@ ip netns exec "$server" sing-box check -c "$work/runtime/proxy.json" >"$work/pro
 ip netns exec "$server" nft -f "$work/path.nft" || fail 'managed interception rejected'
 ip -n "$server" route add local 172.31.254.0/24 dev lo table 1506
 ip -n "$server" rule add iif ipsec-in to 172.31.254.0/24 lookup 1506 priority 10998
+# The runtime makes the directory of the name table before it starts sing-box.
+mkdir -p /etc/ikev2-manager/clients
 ip netns exec "$server" sing-box run -c "$work/runtime/proxy.json" >"$work/proxy.log" 2>&1 &
 path_proxy_pid=$!
 path_proof() {

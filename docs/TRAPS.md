@@ -173,6 +173,25 @@ needs the same.
 
 Guarded by `scripts/openwrt/scenarios.sh`.
 
+## A watcher killed outright leaves its monitor running
+
+procd stops a service with SIGTERM and, after `term_timeout`, SIGKILL. A
+SIGKILL runs no trap, so the inbound watcher's cleanup never stopped its event
+subshell, socat and `swanctl --monitor-sa`. Reparented to init, they lived on
+beside the next watcher, holding the dead watcher's FIFO open at both ends,
+and charon kept sending SA events to a monitor nobody read.
+The subshell now checks that the watcher is alive and ends the monitor when it
+is not. A second `swanctl --monitor-sa` in `ps` is this.
+
+Guarded by `scripts/openwrt/scenarios.sh`.
+
+## uhttpd refuses a /ubus request larger than 64 KB
+
+A `fs.write` from a page goes through `/ubus` as one JSON request, and uhttpd
+resets the connection when the body passes 64 KB; the page sees "XHR request
+aborted by browser" or "No related RPC reply". Anything larger - a pasted
+picture - is written in parts and joined on the router.
+
 ## LuCI trims a translation key before looking it up
 
 `_()` collapses whitespace in the string before hashing it, so a catalog entry

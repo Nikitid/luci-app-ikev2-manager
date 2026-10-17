@@ -639,6 +639,28 @@ setsid sh -c '
 [ ! -s /tmp/group-signals ] || fail 'the SA monitor signalled the process group the watcher runs in'
 rm -f /tmp/swanctl-sigint /tmp/group-signals /tmp/monitor-ran
 
+step 'a watcher killed outright does not leave its SA monitor behind'
+# procd ends a watcher that does not stop in time with SIGKILL, which runs no
+# trap. Its monitor once lived on beside the next watcher until a reboot.
+printf '#!/bin/sh\necho $$ >/tmp/monitor-pid\nexec sleep 300\n' >/tmp/swanctl-idle
+chmod 755 /tmp/swanctl-idle
+rm -f /tmp/monitor-pid
+IKEV2_SESSIONS_FILE=/tmp/sessions IKEV2_SWANCTL=/tmp/swanctl-idle IKEV2_USER_POLICY_REFRESH_INTERVAL=60 \
+	/usr/libexec/ikev2-user-policy watch >/dev/null 2>&1 &
+watcher=$!
+i=0
+while [ ! -s /tmp/monitor-pid ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+monitor="$(cat /tmp/monitor-pid 2>/dev/null)"
+[ -n "$monitor" ] && kill -0 "$monitor" 2>/dev/null || fail 'the SA monitor did not start'
+kill -KILL "$watcher"
+i=0
+while kill -0 "$monitor" 2>/dev/null && [ "$i" -lt 15 ]; do sleep 1; i=$((i + 1)); done
+if kill -0 "$monitor" 2>/dev/null; then
+	kill "$monitor" 2>/dev/null
+	fail 'the SA monitor outlived its killed watcher'
+fi
+rm -f /tmp/swanctl-idle /tmp/monitor-pid /tmp/ikev2-user-policy-watch.*
+
 # --- downloaded lists, filtered with BusyBox awk ---------------------------
 
 step 'public suffixes are refused by the BusyBox tools'

@@ -155,6 +155,11 @@ SETTINGS
  client_path_stop || return 1
  cp "$work/proxy.next.json" "$runtime_dir/proxy.next.json" &&
   chmod 600 "$runtime_dir/proxy.next.json" && mv "$runtime_dir/proxy.next.json" "$runtime_dir/proxy.json" || return 1
+ # The name table sing-box keeps lives with the device records; on a router
+ # where no device has registered yet its directory is not there, and
+ # sing-box refuses to start without it.
+ mkdir -p "${IKEV2_CLIENT_NAMES_DIR:-/etc/ikev2-manager/clients}" &&
+  chmod 700 "${IKEV2_CLIENT_NAMES_DIR:-/etc/ikev2-manager/clients}" || return 1
  /usr/bin/sing-box run -c "$runtime_dir/proxy.json" >/dev/null 2>&1 &
  pid=$!
  until client_path_control record "$runtime_dir" "$pid"; do

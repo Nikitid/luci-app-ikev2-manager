@@ -706,6 +706,8 @@ watch_runtime() {
 	# Preserve the boot-time fail-closed guard even if charon is not ready yet.
 	sync_once || true
 	(
+		# $$ is the watcher's own process here, not this subshell's.
+		watcher=$$
 		source_pid=''
 		stop_source() {
 			[ -z "$source_pid" ] || kill "$source_pid" 2>/dev/null || true
@@ -714,6 +716,16 @@ watch_runtime() {
 		trap 'stop_source; exit 0' INT TERM
 		run_event_source &
 		source_pid=$!
+		# A watcher killed outright - procd's SIGKILL after its stop timeout -
+		# runs no trap, and this subshell, the monitor and the FIFO it holds
+		# open lived on beside the next watcher until the router restarted.
+		# So the subshell watches the watcher. The sleep runs in the background
+		# so that a TERM is taken at once, not after it.
+		while kill -0 "$source_pid" 2>/dev/null; do
+			kill -0 "$watcher" 2>/dev/null || { stop_source; exit 0; }
+			sleep 5 &
+			wait $!
+		done
 		wait "$source_pid"
 		rc=$?
 		source_pid=''
