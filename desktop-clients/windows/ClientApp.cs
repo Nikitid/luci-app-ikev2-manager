@@ -681,6 +681,29 @@ namespace IkeV2Manager.Client
             return preview;
         }
 
+        // The system as a person would name it. Environment.OSVersion answers
+        // 6.2 on every Windows since 8 to a program without a compatibility
+        // manifest; the registry says what is installed. Windows 11 still calls
+        // itself Windows 10 there, and only its build tells them apart.
+        private static string WindowsVersion()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                {
+                    string product = key == null ? null : key.GetValue("ProductName") as string;
+                    string release = key == null ? null : key.GetValue("DisplayVersion") as string;
+                    string build = key == null ? null : key.GetValue("CurrentBuild") as string;
+                    object revision = key == null ? null : key.GetValue("UBR");
+                    int number;
+                    if (product == null || build == null) return Environment.OSVersion.VersionString;
+                    if (Int32.TryParse(build, out number) && number >= 22000) product = product.Replace("Windows 10", "Windows 11");
+                    return product + (String.IsNullOrEmpty(release) ? "" : " " + release) + " (build " + build + (revision is int ? "." + revision : "") + ")";
+                }
+            }
+            catch (Exception) { return Environment.OSVersion.VersionString; }
+        }
+
         // A problem report to the developer: the person's words, an address for
         // a reply if they give one, and the state report above if they tick it.
         // What was sent and the replies to it are listed under the form.
@@ -739,7 +762,7 @@ namespace IkeV2Manager.Client
                 var own = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
                 var context = new Dictionary<string, string> {
                     { "app_version", own.Major + "." + own.Minor + "." + Math.Max(own.Build, 0) },
-                    { "os_version", Environment.OSVersion.VersionString },
+                    { "os_version", WindowsVersion() },
                     { "architecture", Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432") ?? Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "" },
                     { "language", System.Globalization.CultureInfo.CurrentUICulture.Name },
                     { "failure_code", current.State ?? "" } };
