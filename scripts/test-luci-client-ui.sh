@@ -179,7 +179,8 @@ const view = {
 	render: function(data) {
 		const parts = outboundPanel.parts(data);
 		return parts.unavailable ? E('div', {}, []) :
-			E('div', {}, [ parts.pill ].concat(parts.tunnel, parts.dns));
+			E('div', {}, [ parts.pill ].concat(parts.tunnel, parts.dns,
+				parts.segments.panels().map(function(panel) { return panel.content; })));
 	}
 };
 
@@ -323,10 +324,8 @@ const cutOff = collect(page, function(node) { return node.tagName === 'B' && has
 if (!cutOff.length)
 	fail('a transfer the path cut off is not reported as cut');
 
-// The tunnel DNS block applies on its own, and destination segments are their
-// own section rather than a disclosure inside the router resolver.
-if (source.indexOf("common.section(_('Destination DNS segments')") < 0)
-	fail('destination segments are not their own section');
+// The tunnel DNS block applies on its own; destination segments are tabs of
+// the DNS page of their own (checked with that page below).
 if (/E\('details'[^\n]*\n\s*E\('summary', \{\}, \[ _\('Destination DNS segments'\)/.test(source))
 	fail('destination segments are still hidden behind a disclosure');
 if (source.indexOf('tunnelDnsApply.addEventListener') < 0)
@@ -564,13 +563,7 @@ if (segmentCount() !== 1)
 	fail('expected one rendered block for the one configured segment, got ' + segmentCount());
 if (countClass('ikev2-tunnel-block') !== 1)
 	fail('expected one rendered block for the one stored tunnel, got ' + countClass('ikev2-tunnel-block'));
-const addButton = walk(page, []).find(function(node) {
-	return node.attrs['class'].indexOf('ikev2-wide-button') >= 0 && textOf(node).trim() === 'Add DNS segment';
-});
-if (!addButton) fail('there is no full-width button to add a DNS segment');
-addButton.listeners.click();
-if (segmentCount() !== 2)
-	fail('the add button did not append another segment block');
+// Adding a segment is a tab of the DNS page, checked with that page below.
 const addTunnel = walk(page, []).find(function(node) {
 	return node.attrs['class'].indexOf('ikev2-wide-button') >= 0 && textOf(node).trim() === 'Add tunnel';
 });
@@ -1430,12 +1423,22 @@ if (shownPanels(tunnelsPage.render([ data, settingsData ])) !== '01')
 	fail('the address of the inbound server does not open its tab');
 windowStub.location = locationBefore;
 const dnsHeadings = headings(dnsPage.render(data));
-if (dnsHeadings.join('|') !== 'Tunnel DNS|Router DNS upstream|Destination DNS segments')
-	fail('the DNS page does not hold the three DNS sections alone: ' + dnsHeadings.join('|'));
+if (dnsHeadings.join('|') !== 'Tunnel DNS|Router DNS upstream|RU')
+	fail('the DNS page does not hold the two DNS sections and one per segment: ' + dnsHeadings.join('|'));
+// Each segment is a tab in the same row as the global settings, and the row
+// ends with a "+" that opens a new segment on a tab of its own.
 const dnsTree = dnsPage.render(data);
-if (tabButtons(dnsTree).map(function(node) { return textOf(node).trim(); }).join('|') !== 'Tunnel DNS|Router DNS upstream|Destination DNS segments' ||
-    shownPanels(dnsTree) !== '100')
-	fail('the DNS page does not show its three subjects as tabs, the first open: ' + shownPanels(dnsTree));
+function dnsTabs() { return tabButtons(dnsTree).map(function(node) { return textOf(node).trim(); }).join('|'); }
+if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream|RU|+' || shownPanels(dnsTree) !== '100')
+	fail('the DNS page does not show the global settings and each segment as tabs, the first open: ' + dnsTabs() + ' ' + shownPanels(dnsTree));
+tabButtons(dnsTree)[3].listeners.click();
+if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream|RU|New segment|+' || shownPanels(dnsTree) !== '0001')
+	fail('the "+" does not open a new segment on a tab of its own: ' + dnsTabs() + ' ' + shownPanels(dnsTree));
+const discard = nodesOf(dnsTree).filter(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === 'Discard segment'; })[0];
+if (!discard) fail('a new segment cannot be discarded');
+discard.listeners.click();
+if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream|RU|+' || shownPanels(dnsTree) !== '001')
+	fail('a discarded segment keeps its tab, or the one before it is not shown: ' + dnsTabs() + ' ' + shownPanels(dnsTree));
 if (!nodesOf(tunnelsPage.render([ { ready: false }, { ready: false } ])).some(function(node) { return hasClass(node, 'ikev2-empty'); }))
 	fail('the Tunnels page has nothing to say while strongSwan is missing');
 if (!settingsPage || !settingsPage.children || !settingsPage.children.length)

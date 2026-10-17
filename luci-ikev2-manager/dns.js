@@ -17,12 +17,19 @@ return view.extend({
 		var parts = outbound.parts(data);
 		if (parts.unavailable)
 			return E([ common.styles(), common.gate(title, about) ]);
-		// Three subjects of their own, one shown at a time.
-		var ids = [ 'tunnel', 'upstream', 'segments' ];
-		var titles = [ _('Tunnel DNS'), _('Router DNS upstream'), _('Destination DNS segments') ];
+		// The global settings, then one tab per destination segment, and a "+"
+		// at the end of the row that opens a new one.
+		var ids = [ 'tunnel', 'upstream' ];
+		var titles = [ _('Tunnel DNS'), _('Router DNS upstream') ];
 		var panels = common.tabs(parts.dns.map(function(node, index) {
 			return { id: ids[index], title: titles[index] || '', content: node };
-		}), { key: 'dns' });
+		}).concat(parts.segments.panels()), {
+			key: 'dns',
+			add: { label: _('Add DNS segment'), click: parts.segments.add }
+		});
+		parts.segments.watch(function(list, select) {
+			panels.setTabs(ids.length, list, select);
+		});
 		return E([
 			common.styles(),
 			E('div', { 'class': 'ikev2-page' }, [ common.header(title, about), panels ])

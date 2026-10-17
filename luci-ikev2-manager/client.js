@@ -1723,18 +1723,35 @@ return baseclass.extend({
 				_('Adds the resolvers your WAN provider hands out to the fallback group above. They are not a further tier: they are used on equal terms with the ones you configured. These queries are unencrypted and visible to the provider, and are never used for tunnel-routed destinations.'))
 		]);
 		var dnsManagedRows = E('div', { 'class': 'ikev2-dns-managed' }, [ dnsRows ]);
-		var segmentStatus = common.pill('', 'neutral');
+		// Whether segments can run: they need managed DNS. Every segment's tab
+		// shows it, so the pills are kept to be set together.
+		var segmentStatusPills = [];
+		function segmentStatusPill() {
+			var pill = common.pill('', 'neutral');
+			segmentStatusPills.push(pill);
+			drawSegmentStatus();
+			return pill;
+		}
 		// Segments are their own section rather than a disclosure inside the
 		// router resolver: they resolve independently of it, and stay in the path
 		// even when every other name is sent through the tunnel. Each configured
 		// segment is its own block so the page opens on what exists instead of on
 		// an empty creation form.
-		var segmentList = E('div', { 'class': 'ikev2-segment-list' });
-		var segmentAdd = E('button', {
-			'class': 'cbi-button cbi-button-add ikev2-wide-button', 'type': 'button'
-		}, [ _('Add DNS segment') ]);
-		var segmentRows = E('div', {}, [ segmentList, segmentAdd ]);
+		// Each segment is a tab of the DNS page next to the global settings;
+		// the page draws the tabs, this panel says what they are.
+		var segmentPanels = [];
+		var segmentWatchers = [];
 		var segmentSeq = 0;
+		function publishSegments(select) {
+			segmentWatchers.forEach(function(watch) { watch(segmentPanels.slice(), select); });
+		}
+		function segmentPanel(block, id) {
+			return { id: id, title: block.segmentTitle, block: block,
+				content: common.section(block.segmentTitle,
+					_('Send explicit domain suffixes to an independent resolver group. A segment resolves on its own terms whatever the rest of the policy does — including while every other name goes through the tunnel. Each has its own protocol and query strategy; unlisted names keep the global policy. Suffixes cannot overlap between enabled segments, at most eight run at once, and lists are stored locally rather than rebuilt with domain policy.'),
+					block,
+					E('span', { 'class': 'ikev2-pill-row' }, [ block.segmentPill, segmentStatusPill() ])) };
+		}
 
 		// One block per segment. Everything a block needs - fields,
 		// validation, result line, Save and Delete - lives in this closure, so
@@ -1882,21 +1899,16 @@ return baseclass.extend({
 			// rather than a transaction against the router.
 			remove.addEventListener('click', function() {
 				if (!item) {
-					node.remove();
-					renderSegments();
+					segmentPanels = segmentPanels.filter(function(panel) { return panel.block !== node; });
+					publishSegments(null);
 					return;
 				}
 				if (!window.confirm(_('Delete this DNS segment?'))) return;
 				return runSegment('delete', remove);
 			});
 
-			var title = item ? (item.name || item.id) : _('New segment');
+			// The name and state go on the tab and its heading, not in the block.
 			var node = E('div', { 'class': 'ikev2-segment-block' }, [
-				E('div', { 'class': 'ikev2-segment-title' }, [
-					E('strong', {}, [ title ]),
-					common.pill(item && item.enabled !== '1' ? _('Disabled') : _('Enabled'),
-						item && item.enabled !== '1' ? 'neutral' : 'good')
-				]),
 				E('div', { 'class': 'ikev2-form-grid' }, [
 					common.fieldLabel(_('Name')), name,
 					common.toggleRow(enabled, _('Enabled')),
@@ -1923,29 +1935,33 @@ return baseclass.extend({
 			common.trackChanges(save, [ name, enabled, via, httpsCompat, wanFallback, domains, mode,
 				upstream.node, bootstrap.node, fallback.node ]);
 			node.saveButton = save;
+			node.segmentTitle = item ? (item.name || item.id) : _('New segment');
+			node.segmentPill = common.pill(item && item.enabled !== '1' ? _('Disabled') : _('Enabled'),
+				item && item.enabled !== '1' ? 'neutral' : 'good');
 			return node;
 		}
 
 		var flashSegment = null;
 		function renderSegments() {
-			segmentList.replaceChildren();
-			if (!dnsSegments.length)
-				segmentList.appendChild(E('div', { 'class': 'ikev2-dns-empty' }, [
-					_('No DNS segments configured.')
-				]));
-			dnsSegments.forEach(function(item) {
+			var saved = flashSegment;
+			segmentStatusPills = [];
+			segmentPanels = dnsSegments.map(function(item) {
 				var block = segmentBlock(item);
-				segmentList.appendChild(block);
-				if (item.id === flashSegment)
+				if (item.id === saved)
 					common.flashButton(block.saveButton, 'ok', _('Saved'), _('DNS segment applied.'));
+				return segmentPanel(block, 'segment-' + item.id);
 			});
 			flashSegment = null;
+			syncSegmentBlocks();
+			publishSegments(saved ? 'segment-' + saved : null);
 		}
-		segmentAdd.addEventListener('click', function() {
-			var empty = segmentList.querySelector('.ikev2-dns-empty');
-			if (empty) empty.remove();
-			segmentList.appendChild(segmentBlock(null));
-		});
+		function addSegment() {
+			var block = segmentBlock(null);
+			var panel = segmentPanel(block, 'segment-new-' + segmentSeq);
+			segmentPanels.push(panel);
+			syncSegmentBlocks();
+			publishSegments(panel.id);
+		}
 
 		function refreshSegments() {
 			return common.execChecked(systemHelper, [ 'dns-segments-get' ],
@@ -1961,10 +1977,19 @@ return baseclass.extend({
 		function syncDnsVisibility() {
 			var managed = dnsManaged.value === '1';
 			dnsManagedRows.style.display = managed ? '' : 'none';
-			// Segment workers only run under managed DNS, so the editor follows it.
-			segmentRows.style.display = managed ? '' : 'none';
-			common.setPill(segmentStatus, managed ? _('Independent') : _('Requires managed DNS'),
-				managed ? 'good' : 'neutral');
+			syncSegmentBlocks();
+		}
+		// Segment workers only run under managed DNS, so the editors follow it.
+		function drawSegmentStatus() {
+			var managed = dnsManaged.value === '1';
+			segmentStatusPills.forEach(function(pill) {
+				common.setPill(pill, managed ? _('Independent') : _('Requires managed DNS'), managed ? 'good' : 'neutral');
+			});
+		}
+		function syncSegmentBlocks() {
+			var managed = dnsManaged.value === '1';
+			segmentPanels.forEach(function(panel) { panel.block.style.display = managed ? '' : 'none'; });
+			drawSegmentStatus();
 		}
 
 		function updateDnsState(next) {
@@ -2489,12 +2514,14 @@ return baseclass.extend({
 						dnsManagedRows,
 						E('div', { 'class': 'ikev2-actions bar' }, [ dnsResult.node, dnsSave ])
 					]),
-					dnsStatus),
-				common.section(_('Destination DNS segments'),
-					_('Send explicit domain suffixes to an independent resolver group. A segment resolves on its own terms whatever the rest of the policy does — including while every other name goes through the tunnel. Each has its own protocol and query strategy; unlisted names keep the global policy. Suffixes cannot overlap between enabled segments, at most eight run at once, and lists are stored locally rather than rebuilt with domain policy.'),
-					segmentRows,
-					segmentStatus)
-			]
+					dnsStatus)
+			],
+			// One tab per segment after the global ones, and a way to add one.
+			segments: {
+				panels: function() { return segmentPanels.slice(); },
+				watch: function(fn) { segmentWatchers.push(fn); },
+				add: addSegment
+			}
 		};
 	}
 });

@@ -2150,6 +2150,7 @@ var CSS = `
 				color: inherit;
 				box-shadow: var(--ikev2-e2);
 			}
+			.ikev2-page .ikev2-seg button.ikev2-tabs-add { min-width: 2.2rem; font-size: 1rem; line-height: 1; }
 			.ikev2-page .ikev2-seg button:focus-visible {
 				outline: 2px solid var(--ikev2-accent);
 				outline-offset: 1px;
@@ -2653,9 +2654,12 @@ function section(title, description, content, actions) {
 // Several panels under one row of tabs, in one card, one panel shown at a
 // time. With `collapsible` none is open until asked for and a second click
 // closes it: for what is looked at now and then, kept out of the way. The
-// node carries hideTab(index, hidden) for a panel that does not apply.
+// node carries hideTab(index, hidden) for a panel that does not apply, and
+// setTabs(from, items, select) for tabs that come and go - one per DNS
+// segment, say - after the fixed ones. `add` puts a "+" at the end of the row.
 function tabs(items, options) {
 	options = options || {};
+	items = items.slice();
 	var current = options.collapsible ? -1 : (options.open || 0);
 	// The tab a viewer last opened, per group, in this browser only: a
 	// convenience that may be missing and is never relied on.
@@ -2667,29 +2671,43 @@ function tabs(items, options) {
 		});
 	}
 	var buttons = [], panels = [];
+	var row = E('div', { 'class': 'ikev2-seg ikev2-tabs-row', 'role': 'group' });
+	var add = options.add ? E('button', {
+		'type': 'button', 'class': 'ikev2-tabs-add', 'title': options.add.label, 'aria-label': options.add.label
+	}, [ '+' ]) : null;
+	if (add)
+		add.addEventListener('click', function() { options.add.click(); });
+	var node = E('div', { 'class': 'ikev2-tabs' + (options.bare ? '' : ' ikev2-section') });
 	function draw() {
 		items.forEach(function(item, index) {
 			buttons[index].setAttribute('aria-pressed', index === current ? 'true' : 'false');
 			panels[index].style.display = index === current ? '' : 'none';
 		});
 	}
-	items.forEach(function(item, index) {
-		var button = E('button', { 'type': 'button', 'aria-pressed': 'false' }, [ item.title ]);
-		button.addEventListener('click', function() {
-			current = options.collapsible && current === index ? -1 : index;
-			draw();
-			if (options.key && items[index].id) {
-				try { window.localStorage.setItem('ikev2-tab-' + options.key, current === index ? items[index].id : ''); } catch (error) { }
-			}
-			if (options.onShow)
-				options.onShow(current);
+	function remember() {
+		if (!options.key)
+			return;
+		try { window.localStorage.setItem('ikev2-tab-' + options.key, current >= 0 && items[current].id ? items[current].id : ''); } catch (error) { }
+	}
+	function build() {
+		buttons = items.map(function(item, index) {
+			var button = E('button', { 'type': 'button', 'aria-pressed': 'false' }, [ item.title ]);
+			button.addEventListener('click', function() {
+				current = options.collapsible && current === index ? -1 : index;
+				draw();
+				remember();
+				if (options.onShow)
+					options.onShow(current);
+			});
+			return button;
 		});
-		buttons.push(button);
-		panels.push(E('div', { 'class': 'ikev2-tabs-panel', 'style': 'display:none' }, [ item.content ]));
-	});
-	var node = E('div', { 'class': 'ikev2-tabs' + (options.bare ? '' : ' ikev2-section') }, [
-		E('div', { 'class': 'ikev2-seg ikev2-tabs-row', 'role': 'group' }, buttons)
-	].concat(panels));
+		panels = items.map(function(item) {
+			return E('div', { 'class': 'ikev2-tabs-panel', 'style': 'display:none' }, [ item.content ]);
+		});
+		row.replaceChildren.apply(row, buttons.concat(add ? [ add ] : []));
+		node.replaceChildren.apply(node, [ row ].concat(panels));
+		draw();
+	}
 	// Bring a panel forward from outside, for a link that leads into it.
 	node.showTab = function(index) {
 		current = index;
@@ -2701,7 +2719,25 @@ function tabs(items, options) {
 			current = options.collapsible ? -1 : 0;
 		draw();
 	};
-	draw();
+	// Replace the tabs from FROM on. The tab with id SELECT is shown; else
+	// the one shown stays if it is still there, else its neighbour before.
+	node.setTabs = function(from, next, select) {
+		var shown = current >= 0 && items[current] ? items[current].id : null;
+		items = items.slice(0, from).concat(next);
+		var find = function(id) {
+			for (var i = 0; id != null && i < items.length; i++)
+				if (items[i].id === id) return i;
+			return -1;
+		};
+		var index = find(select);
+		if (index < 0) index = find(shown);
+		if (index < 0) index = Math.min(current, items.length - 1);
+		current = options.collapsible && index < 0 ? -1 : Math.max(index, 0);
+		build();
+		if (select != null)
+			remember();
+	};
+	build();
 	return node;
 }
 

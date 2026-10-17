@@ -1558,8 +1558,6 @@ msgstr "Новый сегмент"
 msgid "New service"
 msgstr "Новый сервис"
 
-msgid "No DNS segments configured."
-msgstr "DNS-сегменты не настроены."
 
 msgid "No DNS servers added"
 msgstr "DNS-серверы не добавлены"
