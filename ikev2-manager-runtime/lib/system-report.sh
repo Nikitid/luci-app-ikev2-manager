@@ -135,12 +135,12 @@ report_send() {
 	# only PNG and JPEG of a reasonable size go further.
 	n=1
 	while [ "$n" -le "$pictures" ]; do
-		# The page writes a picture in parts: one write through LuCI is limited
-		# to well under a megabyte.
+		# The page writes a picture in parts of 48000 characters: uhttpd refuses
+		# a /ubus request larger than 64 KB. 150 parts hold 5 MB.
 		file="$(report_picture_file "$token" "$n")"
 		: >"$work/picture$n.b64"
 		part=1
-		while [ -f "$file.$part" ] && [ ! -L "$file.$part" ] && [ "$part" -le 12 ]; do
+		while [ -f "$file.$part" ] && [ ! -L "$file.$part" ] && [ "$part" -le 150 ]; do
 			cat "$file.$part" >>"$work/picture$n.b64"
 			part=$((part + 1))
 		done

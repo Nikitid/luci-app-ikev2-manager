@@ -857,15 +857,15 @@ return view.extend({
 			if (addPictures(Array.prototype.slice.call((ev.dataTransfer && ev.dataTransfer.files) || [])))
 				ev.preventDefault();
 		});
-		// One write through LuCI stays well under its message limit, so a
-		// picture goes in parts the router joins in order.
+		// uhttpd refuses a /ubus request larger than 64 KB, so a picture goes
+		// in parts the router joins in order.
 		function writePictures(token) {
 			var writes = [];
 			problemPictures.forEach(function(picture, index) {
 				var data = picture.url.replace(/^data:[^,]*,/, '');
-				for (var part = 0; part * 600000 < data.length; part++)
+				for (var part = 0; part * 48000 < data.length; part++)
 					writes.push([ '/tmp/ikev2-manager-report-' + token + '.picture' + (index + 1) + '.' + (part + 1),
-						data.substr(part * 600000, 600000) ]);
+						data.substr(part * 48000, 48000) ]);
 			});
 			return writes.reduce(function(chain, write) {
 				return chain.then(function() { return fs.write(write[0], write[1], 384); });
