@@ -1685,7 +1685,9 @@ return view.extend({
 					lines.push(_('Not routed: it goes the ordinary way, outside the tunnel.'));
 				services.forEach(function(entry) {
 					var parts = entry.split('|');
-					lines.push(_('Brought by the service %s (%s).').format(parts[1] || parts[0], parts[2] || ''));
+					// A prepared service carries its id as its name; show it as the catalogue does.
+					var label = parts[1] && parts[1] !== parts[0] ? parts[1] : serviceLabel(parts[0]);
+					lines.push(_('Brought by the service %s (%s).').format(label, parts[2] || ''));
 				});
 				if (st.own)
 					lines.push(_('Brought by your own domains (%s).').format(st.own));
@@ -1693,7 +1695,9 @@ return view.extend({
 					lines.push(st.address === 'none' ? _('The router has no answer for it.') :
 						_('The router answers %s.').format(st.address));
 				if (st.link)
-					lines.push(st.link === 'none' ? _('No tunnel can carry it now.') : _('Leaves through %s now.').format(st.link));
+					// ipsec-out is the main tunnel, ipsec-outN tunnel N.
+					lines.push(st.link === 'none' ? _('No tunnel can carry it now.') : _('Leaves through %s now.').format(
+						/^ipsec-out([2-7])?$/.test(st.link) ? tunnelName(st.link.replace(/^ipsec-out/, '') || '1') : st.link));
 				if (st.reach)
 					lines.push(st.reach === 'failed' ? _('HTTPS does not answer that way.') :
 						(st.reach === 'no-link' ? _('Not tried: no tunnel can carry it now.') :

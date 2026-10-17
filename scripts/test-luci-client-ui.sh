@@ -1156,7 +1156,7 @@ function traceSection() {
 			fail('the name was not asked of the router as a bare name: ' + JSON.stringify(asked));
 		const said = nodesOf(page).filter(function(node) { return hasClass(node, 'ikev2-trace'); }).map(textOf).join(' ');
 		[ 'Goes: Through the tunnel, because the list holds openai.com.', 'Brought by the service OpenAI (openai.com).',
-		  'The router answers 198.18.0.86.', 'Leaves through ipsec-out now.' ].forEach(function(line) {
+		  'The router answers 198.18.0.86.', 'Leaves through Main tunnel now.' ].forEach(function(line) {
 			if (said.indexOf(line) < 0) fail('the answer does not say: ' + line + ' / ' + said);
 		});
 	});
