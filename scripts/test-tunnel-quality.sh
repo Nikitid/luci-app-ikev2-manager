@@ -175,6 +175,31 @@ sample_at 1000
 grep -qx 'wan9 1.1.1.1' "$stub/ping-calls" || fail 'the WAN path was not pinged on the default route device'
 [ ! -s "$tmp/quality/events" ] || fail 'a first healthy sample produced an event'
 
+# A second tunnel keeps a history of its own, read with its number; the main
+# tunnel's is not touched by it. One that is down is recorded, not pinged.
+setup
+printf 'tunnel_2=tunnel\ntunnel_2.enabled=1\n' >>"$tmp/uci/ikev2-manager"
+mkdir -p "$tmp/net/ipsec-out2/statistics"
+printf '0\n' >"$tmp/net/ipsec-out2/statistics/rx_bytes"
+printf '0\n' >"$tmp/net/ipsec-out2/statistics/tx_bytes"
+printf '%s\n' '{"errors":[],"data":[{"proxy-out":{"uniqueid":"5","state":"ESTABLISHED","child-sas":{"proxy4-3":{"name":"proxy4","uniqueid":"3","state":"INSTALLED","mode":"TUNNEL"}}}},{"proxy-out-2":{"uniqueid":"6","state":"ESTABLISHED","child-sas":{"proxy4-2-4":{"name":"proxy4-2","uniqueid":"4","state":"INSTALLED","mode":"TUNNEL"}}}}]}' >"$stub/sas"
+printf '90\n90\n90\n' >"$stub/ping-ipsec-out2-1.1.1.1"
+sample_at 1000
+[ "$(last_sample)" = '1000 up 5 5 50.0 54.0 5.0 5 5 2.0 2.0 0.0 0 0 -' ] ||
+	fail "the main tunnel's sample changed with a second tunnel: $(last_sample)"
+[ "$(tail -n1 "$tmp/quality/samples-2")" = '1000 up 5 3 90.0 90.0 0.0 5 5 2.0 2.0 0.0 0 0 -' ] ||
+	fail "the second tunnel was not sampled on its own: $(tail -n1 "$tmp/quality/samples-2" 2>/dev/null)"
+"$helper" summary 1h 2 >"$tmp/summary"
+expect loss 40.0
+"$helper" summary 1h >"$tmp/summary"
+expect loss 0.0
+printf '%s\n' "$installed_sa" >"$stub/sas"
+: >"$stub/ping-calls"
+sample_at 1060
+! grep -q '^ipsec-out2 ' "$stub/ping-calls" || fail 'a second tunnel that is down was pinged'
+case "$(tail -n1 "$tmp/quality/samples-2")" in '1060 down '*) ;; *) fail "a second tunnel that is down was not recorded: $(tail -n1 "$tmp/quality/samples-2")" ;; esac
+if "$helper" summary 1h 9 >/dev/null 2>&1; then fail 'a tunnel number out of range was accepted'; fi
+
 # Partial loss is kept as sent and received counts.
 setup
 printf '50\n50\n' >"$stub/ping-ipsec-out-1.1.1.1"

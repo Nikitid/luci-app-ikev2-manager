@@ -286,6 +286,18 @@ if (verdictNodes.length !== 1)
 	fail('the connection quality section is missing');
 if (verdictNodes[0].children[0].textContent !== 'Good')
 	fail('the quality verdict does not show the summary verdict');
+// With a second tunnel the quality card offers each tunnel's own history, and
+// choosing one asks the router for that tunnel's.
+const tunnelGroup = collect(page, function(node) { return node.attrs && node.attrs['aria-label'] === 'Tunnel' && hasClass(node, 'ikev2-seg'); }, [])[0];
+if (!tunnelGroup || tunnelGroup.children.map(function(node) { return textOf(node).trim(); }).join('|') !== 'Main tunnel|NL')
+	fail('the quality card does not offer each tunnel: ' + (tunnelGroup ? tunnelGroup.children.map(function(node) { return textOf(node).trim(); }).join('|') : 'none'));
+const qualityAsked = [];
+const execBefore = fsStub.exec;
+fsStub.exec = function(file, args) { qualityAsked.push([ file ].concat(args || []).join(' ')); return execBefore.apply(this, arguments); };
+tunnelGroup.children[1].listeners.click();
+fsStub.exec = execBefore;
+if (qualityAsked.indexOf('/usr/libexec/ikev2-tunnel-quality summary 1h 2') < 0)
+	fail('choosing the second tunnel does not ask for its history: ' + JSON.stringify(qualityAsked));
 const qualityGrid = collect(page, function(node) { return hasClass(node, 'ikev2-quality-grid'); }, [])[0];
 if (!qualityGrid || qualityGrid.children.length !== 4)
 	fail('the quality section does not show four tiles');

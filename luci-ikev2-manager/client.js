@@ -946,8 +946,11 @@ function qualityChart() {
 	};
 }
 
-function qualitySection(initial) {
+// INITIAL is the main tunnel's hour; TUNNELS the ones that can be shown, each
+// { index, name }, the main one first.
+function qualitySection(initial, tunnels) {
 	var windowId = '1h';
+	var tunnelId = '1';
 	var summary = initial || {};
 	var generation = 0;
 	var busy = {};
@@ -1090,6 +1093,23 @@ function qualitySection(initial) {
 		return button;
 	});
 	var switcher = E('div', { 'class': 'ikev2-seg', 'role': 'group', 'aria-label': _('Period') }, segments);
+	// With more than one tunnel, each has its own history to look at.
+	var tunnelButtons = (tunnels || []).length > 1 ? tunnels.map(function(item) {
+		var button = E('button', { 'type': 'button', 'aria-pressed': String(item.index === tunnelId) }, [ item.name ]);
+		button.addEventListener('click', function() {
+			if (tunnelId === item.index)
+				return;
+			tunnelId = item.index;
+			tunnelButtons.forEach(function(other, i) {
+				other.setAttribute('aria-pressed', String(tunnels[i].index === tunnelId));
+			});
+			chart.node.classList.add('loading');
+			refresh();
+		});
+		return button;
+	}) : [];
+	var tunnelSwitcher = tunnelButtons.length ?
+		E('div', { 'class': 'ikev2-seg', 'role': 'group', 'aria-label': _('Tunnel') }, tunnelButtons) : '';
 
 	function renderEvents(events) {
 		var shown = eventsExpanded ? events : events.slice(0, 6);
@@ -1247,7 +1267,8 @@ function qualitySection(initial) {
 				tick: windowInfo.tick,
 				points: parseQualityPoints(summary.points),
 				events: parseQualityEvents(summary.events),
-				label: _('Tunnel latency over the last %s').format(windowInfo.label)
+				label: _('Tunnel latency over the last %s').format(windowInfo.label) +
+					(tunnelButtons.length ? ' · ' + tunnels.filter(function(item) { return item.index === tunnelId; })[0].name : '')
 			});
 		chart.node.classList.remove('loading');
 		renderEvents(parseQualityEvents(summary.events));
@@ -1256,7 +1277,7 @@ function qualitySection(initial) {
 
 	function refresh() {
 		var mine = ++generation;
-		return L.resolveDefault(fs.exec(qualityHelper, [ 'summary', windowId ]), { stdout: '' })
+		return L.resolveDefault(fs.exec(qualityHelper, [ 'summary', windowId, tunnelId ]), { stdout: '' })
 			.then(function(response) {
 				// A slower answer for a window the user has already left.
 				if (mine !== generation)
@@ -1330,7 +1351,7 @@ function qualitySection(initial) {
 				])
 			])
 		]),
-		switcher);
+		E('span', { 'class': 'ikev2-pill-row' }, [ tunnelSwitcher, switcher ]));
 	var background = pageBackground();
 	if (background)
 		node.style.setProperty('--ikev2-bg', background);
@@ -1444,7 +1465,11 @@ return baseclass.extend({
 		}
 		updateConnectionView();
 		poll.add(refreshClientState, 5);
-		var quality = qualitySection(common.parseKeyValues((data[6] && data[6].stdout) || ''));
+		// The main tunnel and every extra one that is switched on.
+		var quality = qualitySection(common.parseKeyValues((data[6] && data[6].stdout) || ''),
+			[ { index: '1', name: _('Main tunnel') } ].concat(parseTunnels((data[7] && data[7].stdout) || '')
+				.filter(function(item) { return item.enabled === '1'; })
+				.map(function(item) { return { index: item.index, name: item.name || _('Tunnel %s').format(item.index) }; })));
 		quality.start();
 		var enabled = input('checkbox', value.enabled);
 		var address = input('text', value.remote_address, {

@@ -345,8 +345,11 @@ so the watcher does not act on the runtime in the meantime. From a shell:
 ```
 
 The watcher also records tunnel quality once a minute: five pings through
-`ipsec-out` and five over the WAN default route, side by side, plus the tunnel
-device counters. A tunnel that answers no ICMP counts as up when HTTPS still
+each tunnel that is up (`ipsec-out`, `ipsec-out2`...) and five over the WAN
+default route, all side by side, plus each tunnel device's counters. Every
+tunnel has a history of its own - the main one in `samples` and `events`, the
+others in `samples-N` and `events-N` - and the Tunnels page offers each of
+them beside the period. A tunnel that is down is recorded, not pinged. A tunnel that answers no ICMP counts as up when HTTPS still
 crosses it. Outages, reconnects (charon's `established` log lines, dated from
 the log, not rekeys) and restores are kept as events. History lives in
 `/var/run/ikev2-quality`, holds a day and starts empty after a reboot.
@@ -366,6 +369,7 @@ marked.
 
 ```sh
 /usr/libexec/ikev2-tunnel-quality summary 1h     # also 6h, 24h
+/usr/libexec/ikev2-tunnel-quality summary 1h 2   # the second tunnel
 /usr/libexec/ikev2-tunnel-quality speed-test-async cloudflare both 4
 /usr/libexec/ikev2-tunnel-quality action-status <action_id>
 ```

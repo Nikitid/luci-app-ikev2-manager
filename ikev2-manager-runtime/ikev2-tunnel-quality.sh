@@ -95,6 +95,28 @@ ping_stats() {
 	printf '%s\n' "$result"
 }
 
+# Each tunnel keeps a history of its own. The main tunnel's files keep the
+# names they always had, so an upgrade loses none of its day.
+use_tunnel() {
+	tunnel_names "$1"
+	tunnel_if="$tunnel_link"
+	if [ "$1" = 1 ]; then
+		samples_file="$quality_dir/samples"
+		events_file="$quality_dir/events"
+		sample_state="$quality_dir/sample.state"
+	else
+		samples_file="$quality_dir/samples-$1"
+		events_file="$quality_dir/events-$1"
+		sample_state="$quality_dir/sample-$1.state"
+	fi
+}
+
+# The tunnels that are switched on: the main one and each extra one.
+enabled_tunnels() {
+	[ "$(uci -q get ikev2-manager.client.enabled || echo 0)" != 1 ] || printf '1\n'
+	uci -q show ikev2-manager 2>/dev/null | sed -n "s/^ikev2-manager\.tunnel_\([2-7]\)\.enabled='1'$/\1/p"
+}
+
 counter() {
 	local value
 	value="$(cat "$net_dir/$tunnel_if/statistics/$1" 2>/dev/null || true)"
@@ -103,7 +125,7 @@ counter() {
 }
 
 child_installed() {
-	"${IKEV2_SA_HELPER:-/usr/libexec/ikev2-sa}" installed proxy-out proxy4
+	"${IKEV2_SA_HELPER:-/usr/libexec/ikev2-sa}" installed "$tunnel_conn" "$tunnel_child"
 }
 
 add_event() {
@@ -167,7 +189,7 @@ trim_marks() {
 new_connections() {
 	local since="$1" stamp at
 	command -v logread >/dev/null 2>&1 || return 0
-	logread -l 2000 2>/dev/null | grep 'IKE_SA proxy-out\[[0-9]*\] established between' |
+	logread -l 2000 2>/dev/null | grep "IKE_SA $tunnel_conn\\[[0-9]*\\] established between" |
 		awk '
 			BEGIN { split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec", m, " "); for (i = 1; i <= 12; i++) mon[m[i]] = i }
 			{ printf "%s-%02d-%02d %s\n", $5, mon[$2], $3, $4 }' | while read -r stamp; do
@@ -177,34 +199,30 @@ new_connections() {
 	return 0
 }
 
+# One sample of tunnel INDEX taken at NOW, beside the WAN line measured once
+# for every tunnel. LINK is off, down or up: whether the tunnel is switched on
+# and, if so, whether its SA and interface are there.
 take_sample() {
-	local now started finished client state tun wan wan_pid tun_recv rx tx previous down_since
+	local index="$1" now="$2" wan="$3" link="$4" finished state tun tun_recv rx tx previous down_since
 	local since output maintenance at
-	mkdir -p "$quality_dir"
-	now="$(date +%s)"
-	client="$(uci -q get ikev2-manager.client.enabled || echo 0)"
+	use_tunnel "$index"
 	tun="0 0 - - -"
-	# Both paths take the ping time; measure them side by side.
-	ping_stats "$(wan_device)" >"$quality_dir/wan.$$" &
-	wan_pid=$!
-	if [ "$client" != 1 ]; then
+	if [ "$link" = off ]; then
 		state=off
-	elif ! child_installed || [ ! -d "$net_dir/$tunnel_if" ]; then
+	elif [ "$link" = down ]; then
 		state=down
 	else
-		tun="$(ping_stats "$tunnel_if")"
+		# Pinged beside the others by sample(), before the samples are written.
+		tun="$(cat "$quality_dir/tun.$$.$index" 2>/dev/null)"
+		[ -n "$tun" ] || tun="0 0 - - -"
 		tun_recv="$(printf '%s\n' "$tun" | awk '{ print $2 }')"
 		state=up
 		# No ICMP reply is not proof of a dead tunnel: the far end may filter it.
 		# Only a failed HTTPS request through the same device is.
-		if [ "$tun_recv" = 0 ] && ! tunnel_https_reachable 2 3; then
+		if [ "$tun_recv" = 0 ] && ! tunnel_https_reachable 2 3 "$tunnel_if"; then
 			state=noreply
 		fi
 	fi
-	wait "$wan_pid" 2>/dev/null || :
-	wan="$(cat "$quality_dir/wan.$$" 2>/dev/null)"
-	rm -f "$quality_dir/wan.$$"
-	[ -n "$wan" ] || wan="0 0 - - -"
 	finished="$(date +%s)"
 	rx="$(counter rx_bytes)"
 	tx="$(counter tx_bytes)"
@@ -254,11 +272,32 @@ take_sample() {
 	mv "${sample_state}.new" "$sample_state"
 }
 
+# Every tunnel that is on, and the main one even when off so its history
+# shows the gap; all of them and the WAN measured side by side.
 sample() {
+	local now wan index tunnels up
 	mkdir -p "$quality_dir"
 	pid_lock_acquire "$sample_lock" || return 0
 	trap 'pid_lock_release "$sample_lock"' EXIT
-	take_sample
+	now="$(date +%s)"
+	ping_stats "$(wan_device)" >"$quality_dir/wan.$$" &
+	tunnels="$(enabled_tunnels | tr '\n' ' ')"
+	# A tunnel that is down is not pinged: nothing would answer.
+	up=''
+	for index in $tunnels; do
+		use_tunnel "$index"
+		child_installed && [ -d "$net_dir/$tunnel_if" ] || continue
+		up="$up $index"
+		ping_stats "$tunnel_if" >"$quality_dir/tun.$$.$index" &
+	done
+	wait
+	wan="$(cat "$quality_dir/wan.$$" 2>/dev/null)"
+	[ -n "$wan" ] || wan="0 0 - - -"
+	case " $tunnels " in *' 1 '*) ;; *) take_sample 1 "$now" "$wan" off ;; esac
+	for index in $tunnels; do
+		case "$up " in *" $index "*) take_sample "$index" "$now" "$wan" up ;; *) take_sample "$index" "$now" "$wan" down ;; esac
+	done
+	rm -f "$quality_dir/wan.$$" "$quality_dir"/tun.$$.*
 }
 
 percentile() {
@@ -798,14 +837,18 @@ window_seconds() {
 	esac
 }
 
+# The main tunnel unless a command names another.
+use_tunnel 1
+
 case "${1:-}" in
 	sample)
 		[ "$#" -eq 1 ] || die 'Expected no arguments'
 		sample
 		;;
 	summary)
-		[ "$#" -le 2 ] || die 'Expected: summary [1h|6h|24h]'
-		spec="$(window_seconds "${2:-1h}")" || die 'Expected: summary [1h|6h|24h]'
+		[ "$#" -le 3 ] || die 'Expected: summary [1h|6h|24h] [tunnel]'
+		spec="$(window_seconds "${2:-1h}")" || die 'Expected: summary [1h|6h|24h] [tunnel]'
+		case "${3:-1}" in [1-7]) use_tunnel "${3:-1}" ;; *) die 'Expected: summary [1h|6h|24h] [tunnel]' ;; esac
 		set -- $spec
 		summary "$1" "$2"
 		;;
@@ -836,6 +879,6 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		die 'Usage: ikev2-tunnel-quality {sample|summary [1h|6h|24h]|speed-test-async tunnel_service wan_service direction streams [tunnel_url] [wan_url]|action-status [id]}'
+		die 'Usage: ikev2-tunnel-quality {sample|summary [1h|6h|24h] [tunnel]|speed-test-async tunnel_service wan_service direction streams [tunnel_url] [wan_url]|action-status [id]}'
 		;;
 esac
