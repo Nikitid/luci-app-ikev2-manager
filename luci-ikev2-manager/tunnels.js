@@ -19,20 +19,33 @@ return view.extend({
 		if (out.unavailable || server.unavailable)
 			return E([ common.styles(), common.gate(title, about) ]);
 
-		// The inbound server is reached by its own address as well, and a
-		// reload returns to the tab that was open.
+		// The main tunnel, one tab for each extra one and a "+" to add one, then
+		// the inbound server set apart. The server is reached by its own address
+		// as well, and a reload returns to the tab that was open.
 		var where = (typeof window !== 'undefined' && window.location) || {};
-		var open = /\/server\/?$/.test(where.pathname || '') || where.hash === '#inbound' ? 1 : 0;
-		function shown(index) {
-			out.pill.style.display = index === 0 ? '' : 'none';
-			if (typeof window !== 'undefined' && window.history && window.history.replaceState)
-				window.history.replaceState(null, '', index === 1 ? '#inbound' : '#outbound');
+		var serverOpen = /\/server\/?$/.test(where.pathname || '') || where.hash === '#inbound';
+		var tunnelHash = /^#tunnel-[2-7]$/.test(where.hash || '') ? where.hash.slice(1) : null;
+		function shown(index, item) {
+			var server = !!item && item.id === 'inbound';
+			out.pill.style.display = server ? 'none' : '';
+			if (typeof window !== 'undefined' && window.history && window.history.replaceState && item)
+				window.history.replaceState(null, '', server ? '#inbound' : '#' + item.id);
 		}
 		var panels = common.tabs([
-			{ title: _('Outbound tunnels'), content: E('div', {}, out.tunnel) },
-			{ title: _('Inbound server'), content: E('div', {}, server.server) }
-		], { bare: true, open: open, onShow: shown });
-		out.pill.style.display = open === 0 ? '' : 'none';
+			{ id: 'tunnel-1', title: _('Main tunnel'), content: E('div', {}, out.tunnel) }
+		].concat(out.tunnels.panels()), {
+			bare: true,
+			openId: serverOpen ? 'inbound' : (tunnelHash || 'tunnel-1'),
+			trailing: [ { id: 'inbound', title: _('Inbound server'), content: E('div', {}, server.server) } ],
+			add: { label: _('Add tunnel'), click: out.tunnels.add },
+			onShow: shown
+		});
+		panels.setAddDisabled(out.tunnels.full());
+		out.tunnels.watch(function(list, select, full) {
+			panels.setTabs(1, list, select);
+			panels.setAddDisabled(full);
+		});
+		out.pill.style.display = serverOpen ? 'none' : '';
 
 		return E([
 			common.styles(),

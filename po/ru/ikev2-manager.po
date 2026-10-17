@@ -4357,8 +4357,6 @@ msgstr "Когда другой туннель падает, его трафик
 msgid "Not saved"
 msgstr "Не сохранён"
 
-msgid "Only the main tunnel is configured."
-msgstr "Настроен только основной туннель."
 
 msgid "Could not refresh the tunnels"
 msgstr "Не удалось обновить список туннелей"
@@ -5533,8 +5531,6 @@ msgstr "DNS"
 msgid "The tunnels this router opens to VPN servers, and the server it runs for the devices that connect to it."
 msgstr "Туннели, которые роутер открывает к VPN-серверам, и сервер, который он держит для подключающихся к нему устройств."
 
-msgid "Outbound tunnels"
-msgstr "Исходящие туннели"
 
 msgid "How names are resolved: through the tunnel for what is routed there, the public upstream for everything else, and resolver groups of their own for chosen suffixes."
 msgstr "Как разрешаются имена: через туннель для того, что туда направлено, через публичный сервер для всего остального и отдельными группами серверов для выбранных суффиксов."

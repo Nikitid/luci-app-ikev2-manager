@@ -946,11 +946,13 @@ function qualityChart() {
 	};
 }
 
-// INITIAL is the main tunnel's hour; TUNNELS the ones that can be shown, each
-// { index, name }, the main one first.
-function qualitySection(initial, tunnels) {
+// The quality of one tunnel: INITIAL is its last hour if already read;
+// OPTIONS.tunnel its number, OPTIONS.speed whether its card has the speed
+// test, which measures the main tunnel only.
+function qualitySection(initial, options) {
+	options = options || {};
 	var windowId = '1h';
-	var tunnelId = '1';
+	var tunnelId = options.tunnel || '1';
 	var summary = initial || {};
 	var generation = 0;
 	var busy = {};
@@ -1093,23 +1095,7 @@ function qualitySection(initial, tunnels) {
 		return button;
 	});
 	var switcher = E('div', { 'class': 'ikev2-seg', 'role': 'group', 'aria-label': _('Period') }, segments);
-	// With more than one tunnel, each has its own history to look at.
-	var tunnelButtons = (tunnels || []).length > 1 ? tunnels.map(function(item) {
-		var button = E('button', { 'type': 'button', 'aria-pressed': String(item.index === tunnelId) }, [ item.name ]);
-		button.addEventListener('click', function() {
-			if (tunnelId === item.index)
-				return;
-			tunnelId = item.index;
-			tunnelButtons.forEach(function(other, i) {
-				other.setAttribute('aria-pressed', String(tunnels[i].index === tunnelId));
-			});
-			chart.node.classList.add('loading');
-			refresh();
-		});
-		return button;
-	}) : [];
-	var tunnelSwitcher = tunnelButtons.length ?
-		E('div', { 'class': 'ikev2-seg', 'role': 'group', 'aria-label': _('Tunnel') }, tunnelButtons) : '';
+
 
 	function renderEvents(events) {
 		var shown = eventsExpanded ? events : events.slice(0, 6);
@@ -1267,8 +1253,7 @@ function qualitySection(initial, tunnels) {
 				tick: windowInfo.tick,
 				points: parseQualityPoints(summary.points),
 				events: parseQualityEvents(summary.events),
-				label: _('Tunnel latency over the last %s').format(windowInfo.label) +
-					(tunnelButtons.length ? ' · ' + tunnels.filter(function(item) { return item.index === tunnelId; })[0].name : '')
+				label: _('Tunnel latency over the last %s').format(windowInfo.label)
 			});
 		chart.node.classList.remove('loading');
 		renderEvents(parseQualityEvents(summary.events));
@@ -1332,9 +1317,9 @@ function qualitySection(initial, tunnels) {
 			chart.node,
 			empty,
 			legend,
-			E('div', { 'class': 'ikev2-quality-lower' }, [
+			E('div', { 'class': 'ikev2-quality-lower' + (options.speed === false ? ' single' : '') }, [
 				E('div', {}, [ E('h4', {}, [ _('Events') ]), eventList, eventsQuiet, eventsMore ]),
-				E('div', {}, [
+				options.speed === false ? '' : E('div', {}, [
 					E('h4', {}, [ _('Speed') ]),
 					speedResults,
 					speedMeta,
@@ -1351,7 +1336,7 @@ function qualitySection(initial, tunnels) {
 				])
 			])
 		]),
-		E('span', { 'class': 'ikev2-pill-row' }, [ tunnelSwitcher, switcher ]));
+		switcher);
 	var background = pageBackground();
 	if (background)
 		node.style.setProperty('--ikev2-bg', background);
@@ -1361,7 +1346,8 @@ function qualitySection(initial, tunnels) {
 		start: function() {
 			renderSummary();
 			poll.add(refresh, 60);
-		}
+		},
+		refresh: refresh
 	};
 }
 
@@ -1465,11 +1451,7 @@ return baseclass.extend({
 		}
 		updateConnectionView();
 		poll.add(refreshClientState, 5);
-		// The main tunnel and every extra one that is switched on.
-		var quality = qualitySection(common.parseKeyValues((data[6] && data[6].stdout) || ''),
-			[ { index: '1', name: _('Main tunnel') } ].concat(parseTunnels((data[7] && data[7].stdout) || '')
-				.filter(function(item) { return item.enabled === '1'; })
-				.map(function(item) { return { index: item.index, name: item.name || _('Tunnel %s').format(item.index) }; })));
+		var quality = qualitySection(common.parseKeyValues((data[6] && data[6].stdout) || ''), { tunnel: '1' });
 		quality.start();
 		var enabled = input('checkbox', value.enabled);
 		var address = input('text', value.remote_address, {
@@ -2191,11 +2173,24 @@ return baseclass.extend({
 		// block without a stored counterpart.
 		var tunnels = parseTunnels((data[7] && data[7].stdout) || '');
 		var tunnelStatus = parseTunnelStatus((data[8] && data[8].stdout) || '');
-		var tunnelList = E('div', { 'class': 'ikev2-segment-list' });
-		var tunnelAdd = E('button', {
-			'class': 'cbi-button cbi-button-add ikev2-wide-button', 'type': 'button'
-		}, [ _('Add tunnel') ]);
-		var tunnelRows = E('div', {}, [ tunnelList, tunnelAdd ]);
+		// Each extra tunnel is a tab of the Tunnels page beside the main one,
+		// with its own quality; the page draws the tabs.
+		var tunnelPanels = [];
+		var tunnelWatchers = [];
+		var tunnelQualities = {};
+		var tunnelSeq = 0;
+		function publishTunnels(select) {
+			tunnelWatchers.forEach(function(watch) { watch(tunnelPanels.slice(), select, tunnels.length >= 6); });
+		}
+		// Kept across redraws: each polls its tunnel's history once a minute.
+		function tunnelQuality(index) {
+			if (!tunnelQualities[index]) {
+				tunnelQualities[index] = qualitySection(null, { tunnel: index, speed: false });
+				tunnelQualities[index].start();
+				tunnelQualities[index].refresh();
+			}
+			return tunnelQualities[index];
+		}
 		var tunnelStates = {};
 		var flashTunnel = null;
 		// The tunnel a save stored without managing to apply it, and why.
@@ -2296,7 +2291,7 @@ return baseclass.extend({
 							_('Tunnel settings failed.'), 180000, function(st) {
 								if (st && st.state === 'timeout')
 									return;
-								flashTunnel = action === 'delete' ? null : 'saved';
+								flashTunnel = action === 'delete' ? null : (item ? item.index : 'new');
 								return refreshTunnels();
 							});
 					}, function(error) {
@@ -2340,8 +2335,8 @@ return baseclass.extend({
 			});
 			removeTunnel.addEventListener('click', function() {
 				if (!item) {
-					node.remove();
-					renderTunnels();
+					tunnelPanels = tunnelPanels.filter(function(panel) { return panel.block !== node; });
+					publishTunnels(null);
 					return;
 				}
 				if (!window.confirm(_('Delete this tunnel? Services, lists and devices sent through it go back to the main tunnel.')))
@@ -2351,11 +2346,8 @@ return baseclass.extend({
 
 			var pill = common.pill('', 'neutral');
 			var detail = E('div', { 'class': 'cbi-value-description' });
+			// The name and state go on the tab and its heading, not in the block.
 			var node = E('div', { 'class': 'ikev2-segment-block ikev2-tunnel-block' }, [
-				E('div', { 'class': 'ikev2-segment-title' }, [
-					E('strong', {}, [ item ? (item.name || _('Tunnel %s').format(item.index)) : _('New tunnel') ]),
-					pill
-				]),
 				detail,
 				E('div', { 'class': 'ikev2-form-grid' }, [
 					common.fieldLabel(_('Name')), name,
@@ -2402,31 +2394,42 @@ return baseclass.extend({
 				common.flashButton(saveTunnel, 'err', _('Failed'), failedTunnel.text);
 			}
 			node.saveButton = saveTunnel;
+			node.tunnelTitle = item ? (item.name || _('Tunnel %s').format(item.index)) : _('New tunnel');
+			node.tunnelPill = pill;
 			return node;
 		}
 
+		function tunnelPanel(block, id, index) {
+			return { id: id, title: block.tunnelTitle, block: block,
+				content: E('div', {}, [
+					index ? tunnelQuality(index).node : '',
+					common.section(block.tunnelTitle, null, block, block.tunnelPill)
+				]) };
+		}
 		function renderTunnels() {
-			tunnelList.replaceChildren();
+			// A tunnel just saved is shown and its button says so; a new one is
+			// the last there is.
+			var saved = flashTunnel === 'new' && tunnels.length ? tunnels[tunnels.length - 1].index : flashTunnel;
 			tunnelStates = {};
-			if (!tunnels.length)
-				tunnelList.appendChild(E('div', { 'class': 'ikev2-dns-empty' }, [
-					_('Only the main tunnel is configured.')
-				]));
-			tunnels.forEach(function(item) {
-				tunnelList.appendChild(tunnelBlock(item));
+			tunnelPanels = tunnels.map(function(item) {
+				var block = tunnelBlock(item);
+				if (item.index === saved)
+					common.flashButton(block.saveButton, 'ok', _('Saved'), _('Tunnel saved.'));
+				return tunnelPanel(block, 'tunnel-' + item.index, item.index);
 			});
-			if (flashTunnel && tunnelList.lastChild && tunnelList.lastChild.saveButton)
-				common.flashButton(tunnelList.lastChild.saveButton, 'ok', _('Saved'), _('Tunnel saved.'));
 			flashTunnel = null;
 			failedTunnel = null;
-			tunnelAdd.disabled = tunnels.length >= 7;
+			publishTunnels(saved ? 'tunnel-' + saved : null);
 		}
-		tunnelAdd.addEventListener('click', function() {
-			var empty = tunnelList.querySelector('.ikev2-dns-empty');
-			if (empty)
-				empty.remove();
-			tunnelList.appendChild(tunnelBlock(null));
-		});
+		// The router takes seven tunnels, the main one with them.
+		function addTunnel() {
+			if (tunnels.length >= 6)
+				return;
+			var block = tunnelBlock(null);
+			var panel = tunnelPanel(block, 'tunnel-new-' + (++tunnelSeq), null);
+			tunnelPanels.push(panel);
+			publishTunnels(panel.id);
+		}
 
 		function refreshTunnels() {
 			return Promise.all([
@@ -2501,10 +2504,16 @@ return baseclass.extend({
 					E('div', {}, [
 						common.toggleRow(mainBackup, _('The main tunnel stands in for the others'),
 							_('When another tunnel drops, its traffic moves to the main one until it is back. Off: only what is sent to the main tunnel uses it.'),
-							mainBackupResult.node),
-						tunnelRows
+							mainBackupResult.node)
 					]))
 			],
+			// One tab per extra tunnel after the main one, and a way to add one.
+			tunnels: {
+				panels: function() { return tunnelPanels.slice(); },
+				watch: function(fn) { tunnelWatchers.push(fn); },
+				add: addTunnel,
+				full: function() { return tunnels.length >= 6; }
+			},
 			dns: [
 				common.section(_('Tunnel DNS'),
 					_('Resolves VPN-routed destinations through the outbound tunnel. Servers are tried in order; failover occurs only after two failed checks and a successful probe of the next server.'),

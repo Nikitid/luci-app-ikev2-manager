@@ -179,7 +179,8 @@ const view = {
 	render: function(data) {
 		const parts = outboundPanel.parts(data);
 		return parts.unavailable ? E('div', {}, []) :
-			E('div', {}, [ parts.pill ].concat(parts.tunnel, parts.dns,
+			E('div', {}, [ parts.pill ].concat(parts.tunnel,
+				parts.tunnels.panels().map(function(panel) { return panel.content; }), parts.dns,
 				parts.segments.panels().map(function(panel) { return panel.content; })));
 	}
 };
@@ -281,23 +282,24 @@ function hasClass(node, name) {
 	const value = (node.attrs && node.attrs['class']) || node.className || '';
 	return String(value).split(/\s+/).indexOf(name) >= 0;
 }
+// One quality card for each tunnel: the main one's, then the second's.
 const verdictNodes = collect(page, function(node) { return hasClass(node, 'ikev2-quality-verdict'); }, []);
-if (verdictNodes.length !== 1)
-	fail('the connection quality section is missing');
+if (verdictNodes.length !== 2)
+	fail('each tunnel does not have a connection quality card of its own: ' + verdictNodes.length);
 if (verdictNodes[0].children[0].textContent !== 'Good')
 	fail('the quality verdict does not show the summary verdict');
-// With a second tunnel the quality card offers each tunnel's own history, and
-// choosing one asks the router for that tunnel's.
-const tunnelGroup = collect(page, function(node) { return node.attrs && node.attrs['aria-label'] === 'Tunnel' && hasClass(node, 'ikev2-seg'); }, [])[0];
-if (!tunnelGroup || tunnelGroup.children.map(function(node) { return textOf(node).trim(); }).join('|') !== 'Main tunnel|NL')
-	fail('the quality card does not offer each tunnel: ' + (tunnelGroup ? tunnelGroup.children.map(function(node) { return textOf(node).trim(); }).join('|') : 'none'));
+// The second tunnel's card reads that tunnel's history, and only the main
+// tunnel's card has the speed test, which measures the main tunnel.
 const qualityAsked = [];
 const execBefore = fsStub.exec;
 fsStub.exec = function(file, args) { qualityAsked.push([ file ].concat(args || []).join(' ')); return execBefore.apply(this, arguments); };
-tunnelGroup.children[1].listeners.click();
+const secondPage = view.render(data);
 fsStub.exec = execBefore;
 if (qualityAsked.indexOf('/usr/libexec/ikev2-tunnel-quality summary 1h 2') < 0)
-	fail('choosing the second tunnel does not ask for its history: ' + JSON.stringify(qualityAsked));
+	fail('the second tunnel\'s card does not read its history: ' + JSON.stringify(qualityAsked));
+const speedHeads = collect(secondPage, function(node) { return node.tagName === 'H4' && textOf(node).trim() === 'Speed'; }, []);
+if (speedHeads.length !== 1)
+	fail('the speed test is not on the main tunnel\'s card alone: ' + speedHeads.length);
 const qualityGrid = collect(page, function(node) { return hasClass(node, 'ikev2-quality-grid'); }, [])[0];
 if (!qualityGrid || qualityGrid.children.length !== 4)
 	fail('the quality section does not show four tiles');
@@ -576,13 +578,7 @@ if (segmentCount() !== 1)
 if (countClass('ikev2-tunnel-block') !== 1)
 	fail('expected one rendered block for the one stored tunnel, got ' + countClass('ikev2-tunnel-block'));
 // Adding a segment is a tab of the DNS page, checked with that page below.
-const addTunnel = walk(page, []).find(function(node) {
-	return node.attrs['class'].indexOf('ikev2-wide-button') >= 0 && textOf(node).trim() === 'Add tunnel';
-});
-if (!addTunnel) fail('there is no button to add a tunnel');
-addTunnel.listeners.click();
-if (countClass('ikev2-tunnel-block') !== 2)
-	fail('the add tunnel button did not append a draft block');
+// Adding a tunnel is a tab of the Tunnels page, checked with that page below.
 
 // The router takes at most four tunnel DoH servers; a fifth row only led to
 // a refusal on save. Two are configured, so two more fill the list.
@@ -1416,22 +1412,36 @@ function shownPanels(tree) {
 const locationBefore = windowStub.location;
 windowStub.location = { pathname: '/cgi-bin/luci/admin/services/ikev2-manager/client', hash: '' };
 const tunnelsTree = tunnelsPage.render([ data, settingsData ]);
-if (tabButtons(tunnelsTree).map(function(node) { return textOf(node).trim(); }).join('|') !== 'Outbound tunnels|Inbound server')
-	fail('the Tunnels page does not offer the outbound tunnels and the inbound server as its two tabs');
-if (shownPanels(tunnelsTree) !== '10')
-	fail('the Tunnels page does not open on the outbound tunnels: ' + shownPanels(tunnelsTree));
+// The main tunnel and each extra one are tabs, a "+" adds one, and the
+// inbound server stands apart after a divider.
+function tunnelTabs() { return tabButtons(tunnelsTree).map(function(node) { return textOf(node).trim(); }).join('|'); }
+if (tunnelTabs() !== 'Main tunnel|NL|+||Inbound server')
+	fail('the Tunnels page does not offer each tunnel, a plus and the inbound server set apart: ' + tunnelTabs());
+if (shownPanels(tunnelsTree) !== '100')
+	fail('the Tunnels page does not open on the main tunnel: ' + shownPanels(tunnelsTree));
+tabButtons(tunnelsTree)[1].listeners.click();
+if (shownPanels(tunnelsTree) !== '010')
+	fail('the tab of the second tunnel does not show its panel alone: ' + shownPanels(tunnelsTree));
+tabButtons(tunnelsTree)[2].listeners.click();
+if (tunnelTabs() !== 'Main tunnel|NL|New tunnel|+||Inbound server' || shownPanels(tunnelsTree) !== '0010')
+	fail('the "+" does not open a new tunnel on a tab of its own: ' + tunnelTabs() + ' ' + shownPanels(tunnelsTree));
+const discardTunnel = nodesOf(tunnelsTree).filter(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === 'Discard tunnel'; })[0];
+if (!discardTunnel) fail('a new tunnel cannot be discarded');
+discardTunnel.listeners.click();
+if (tunnelTabs() !== 'Main tunnel|NL|+||Inbound server' || shownPanels(tunnelsTree) !== '010')
+	fail('a discarded tunnel keeps its tab, or the one before it is not shown: ' + tunnelTabs() + ' ' + shownPanels(tunnelsTree));
 const tunnelsHeadings = headings(tunnelsTree);
-[ 'Connection', 'More tunnels', 'Service' ].forEach(function(title) {
+[ 'Connection', 'More tunnels', 'NL', 'Service' ].forEach(function(title) {
 	if (tunnelsHeadings.indexOf(title) < 0) fail('the Tunnels page lost its section: ' + title);
 });
 [ 'Tunnel DNS', 'Router DNS upstream', 'Destination DNS segments' ].forEach(function(title) {
 	if (tunnelsHeadings.indexOf(title) >= 0) fail('DNS is still on the Tunnels page: ' + title);
 });
-tabButtons(tunnelsTree)[1].listeners.click();
-if (shownPanels(tunnelsTree) !== '01')
+tabButtons(tunnelsTree)[4].listeners.click();
+if (shownPanels(tunnelsTree) !== '001')
 	fail('the inbound server tab does not show its panel alone: ' + shownPanels(tunnelsTree));
 windowStub.location = { pathname: '/cgi-bin/luci/admin/services/ikev2-manager/server', hash: '' };
-if (shownPanels(tunnelsPage.render([ data, settingsData ])) !== '01')
+if (shownPanels(tunnelsPage.render([ data, settingsData ])) !== '001')
 	fail('the address of the inbound server does not open its tab');
 windowStub.location = locationBefore;
 const dnsHeadings = headings(dnsPage.render(data));
@@ -1574,8 +1584,13 @@ const backupSaved = exitStored.then(function() {
 // stored tunnel. The page kept showing it as a draft, where Save tunnel stored
 // it a second time and Discard only took it off the page.
 const tunnelAdopted = backupSaved.then(function() {
+	// On the Tunnels page as it is drawn: "+" opens the draft on its own tab.
+	const adoptTree = tunnelsPage.render([ data, settingsData ]);
+	const plus = tabButtons(adoptTree).find(function(node) { return textOf(node).trim() === '+'; });
+	if (!plus) fail('the Tunnels page has no "+" to add a tunnel');
+	plus.listeners.click();
 	const blocks = function() {
-		return nodesOf(page).filter(function(node) { return hasClass(node, 'ikev2-tunnel-block'); });
+		return nodesOf(adoptTree).filter(function(node) { return hasClass(node, 'ikev2-tunnel-block'); });
 	};
 	const draft = blocks().find(function(node) { return textOf(node).indexOf('Discard tunnel') >= 0; });
 	if (!draft) fail('there is no draft tunnel to save');
@@ -1613,7 +1628,10 @@ const tunnelAdopted = backupSaved.then(function() {
 		L.resolveDefault = resolveBefore;
 		if (blocks().some(function(node) { return textOf(node).indexOf('Discard tunnel') >= 0; }))
 			fail('a tunnel stored but not applied is still shown as a draft');
-		const kept = blocks().find(function(node) { return textOf(node).indexOf('DE') >= 0; });
+		const tabsNow = tabButtons(adoptTree).map(function(node) { return textOf(node).trim(); }).join('|');
+		if (tabsNow !== 'Main tunnel|NL|DE|+||Inbound server')
+			fail('a tunnel stored but not applied has no tab of its own: ' + tabsNow);
+		const kept = blocks().find(function(node) { return textOf(node).indexOf('de.example.net') >= 0 || nodesOf(node).some(function(n) { return n.value === 'DE'; }); });
 		if (!kept || textOf(kept).indexOf('Delete tunnel') < 0)
 			fail('a tunnel stored but not applied has no block of its own');
 		if (textOf(kept).indexOf('The apply failed.') < 0)

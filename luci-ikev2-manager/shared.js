@@ -2308,6 +2308,7 @@ var CSS = `
 				gap: var(--ikev2-s5);
 				align-items: start;
 			}
+			.ikev2-page .ikev2-quality-lower.single { grid-template-columns: minmax(0, 1fr); }
 			.ikev2-page .ikev2-quality-lower h4 {
 				margin: 0 0 .55rem;
 				font-size: .72rem;
@@ -2660,12 +2661,18 @@ function section(title, description, content, actions) {
 // closes it: for what is looked at now and then, kept out of the way. The
 // node carries hideTab(index, hidden) for a panel that does not apply, and
 // setTabs(from, items, select) for tabs that come and go - one per DNS
-// segment, say - after the fixed ones. `add` puts a "+" at the end of the row;
-// `split` draws a divider before that tab, between fixed tabs and the rest.
+// segment, say - after the fixed ones. `add` puts a "+" after those tabs;
+// `split` draws a divider before that tab, between fixed tabs and the rest;
+// `trailing` are fixed tabs after the "+", set apart by a divider of their own.
+// `openId` opens the tab with that id.
 function tabs(items, options) {
 	options = options || {};
-	items = items.slice();
+	var trailing = (options.trailing || []).length;
+	items = items.concat(options.trailing || []);
 	var current = options.collapsible ? -1 : (options.open || 0);
+	items.forEach(function(item, index) {
+		if (options.openId != null && item.id === options.openId) current = index;
+	});
 	// The tab a viewer last opened, per group, in this browser only: a
 	// convenience that may be missing and is never relied on.
 	var remembered = null;
@@ -2702,16 +2709,20 @@ function tabs(items, options) {
 				draw();
 				remember();
 				if (options.onShow)
-					options.onShow(current);
+					options.onShow(current, items[current]);
 			});
 			return button;
 		});
 		panels = items.map(function(item) {
 			return E('div', { 'class': 'ikev2-tabs-panel', 'style': 'display:none' }, [ item.content ]);
 		});
-		var cells = buttons.concat(add ? [ add ] : []);
+		var lead = buttons.slice(0, buttons.length - trailing);
+		var cells = lead.concat(add ? [ add ] : []);
 		if (options.split != null && options.split < cells.length)
 			cells.splice(options.split, 0, E('span', { 'class': 'ikev2-tabs-split', 'aria-hidden': 'true' }));
+		if (trailing)
+			cells = cells.concat([ E('span', { 'class': 'ikev2-tabs-split', 'aria-hidden': 'true' }) ],
+				buttons.slice(buttons.length - trailing));
 		row.replaceChildren.apply(row, cells);
 		node.replaceChildren.apply(node, [ row ].concat(panels));
 		draw();
@@ -2719,6 +2730,14 @@ function tabs(items, options) {
 	// Bring a panel forward from outside, for a link that leads into it.
 	node.showTab = function(index) {
 		current = index;
+		draw();
+	};
+	// The "+" can be greyed out, when there is no room for another.
+	node.setAddDisabled = function(disabled) {
+		if (add) add.disabled = !!disabled;
+	};
+	node.showTabId = function(id) {
+		items.forEach(function(item, index) { if (item.id === id) current = index; });
 		draw();
 	};
 	node.hideTab = function(index, hidden) {
@@ -2731,7 +2750,7 @@ function tabs(items, options) {
 	// the one shown stays if it is still there, else its neighbour before.
 	node.setTabs = function(from, next, select) {
 		var shown = current >= 0 && items[current] ? items[current].id : null;
-		items = items.slice(0, from).concat(next);
+		items = items.slice(0, from).concat(next, items.slice(items.length - trailing));
 		var find = function(id) {
 			for (var i = 0; id != null && i < items.length; i++)
 				if (items[i].id === id) return i;
@@ -2739,7 +2758,7 @@ function tabs(items, options) {
 		};
 		var index = find(select);
 		if (index < 0) index = find(shown);
-		if (index < 0) index = Math.min(current, items.length - 1);
+		if (index < 0) index = Math.min(Math.max(current - 1, 0), items.length - 1);
 		current = options.collapsible && index < 0 ? -1 : Math.max(index, 0);
 		build();
 		if (select != null)
