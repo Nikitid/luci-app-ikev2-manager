@@ -430,17 +430,17 @@ most once an hour; without an address nothing is sent.
 ### Problem reports
 
 **Report a problem** on the Overview page sends the administrator's text, an
-optional address for a reply and, when the box is ticked, the redacted
-diagnostics report to the developer's report service
+optional address for a reply, up to five PNG or JPEG pictures pasted into the
+form with Ctrl+V or dropped on it (5 MB each) and, when the box is ticked, the
+redacted diagnostics report to the developer's report service
 (`https://reports.nikitid.ru`, project `ikev2-manager`). Another service is
 set with `uci set ikev2-manager.reports.endpoint=https://...`, and `none`
 sends nothing. **Show what is attached** shows that text before anything
-is sent. Each report has its own random claim token, kept with its report
-number in `/etc/ikev2-manager/reports/` (root only); it opens that report's
-status and the replies to it and nothing else. Sent reports and replies are
-listed under the form. Sending takes no router lock and needs nothing but
-HTTPS to the service; a service that does not take the project's reports, is
-busy or cannot be reached is said so under the button.
+is sent. A report is sent and forgotten: the router keeps no copy, number or
+status of it, and an answer, if one is asked for, comes by mail. Sending takes
+no router lock and needs nothing but HTTPS to the service; a service that
+does not take the project's reports, is busy or cannot be reached is said so
+under the button.
 
 ### What the watcher repaired
 

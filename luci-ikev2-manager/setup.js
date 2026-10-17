@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v19 as common';
+'require ikev2-manager.shared-v20 as common';
 
 var helper = '/usr/libexec/ikev2-manager-system';
 var devicesHelper = '/usr/libexec/ikev2-devices';
@@ -799,8 +799,9 @@ return view.extend({
 			});
 		});
 		// A problem report to the developer: the administrator's words, an
-		// optional address for a reply, and the diagnostics report above if
-		// asked - shown in full before anything leaves the router.
+		// optional address for a reply, pictures pasted into the form and the
+		// diagnostics report above if asked - shown in full before anything
+		// leaves the router. It is sent and forgotten: nothing is kept here.
 		var problemText = E('textarea', { 'class': 'cbi-input-textarea', 'rows': '5', 'maxlength': '20000',
 			'placeholder': _('What happened, what you expected, and what you did just before.') });
 		var problemContact = input('text', '', { 'placeholder': 'name@example.com', 'autocomplete': 'email' });
@@ -809,37 +810,69 @@ return view.extend({
 		var problemShow = E('button', { 'class': 'cbi-button', 'type': 'button' }, [ _('Show what is attached') ]);
 		var problemSend = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button' }, [ _('Send report') ]);
 		var problemResult = common.inlineResult();
-		var problemSent = E('div', { 'class': 'ikev2-report-list' });
-		var problemNote = E('div', { 'class': 'ikev2-note warn', 'style': 'display:none' }, [
-			_('No report service is set up on this router, so reports cannot be sent from here. Download the diagnostics report instead and attach it to your message.') ]);
+		var problemPictures = [];
+		var problemShots = E('div', { 'class': 'ikev2-report-shots' });
 		var problemPanel = E('div', { 'class': 'ikev2-report-panel', 'style': 'display:none' });
 		var problemOpen = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button' }, [ _('Report a problem') ]);
-		function drawSentReports() {
-			return L.resolveDefault(fs.exec(helper, [ 'reports-list' ]), { stdout: '' }).then(function(response) {
-				var rows = String(response.stdout || '').split('\n').map(function(line) {
-					try { return JSON.parse(line); } catch (error) { return null; }
+		// The router takes five PNG or JPEG pictures of up to 5 MB each.
+		function drawPictures() {
+			problemShots.replaceChildren.apply(problemShots, problemPictures.map(function(picture, index) {
+				var remove = E('button', { 'class': 'ikev2-report-shot-remove', 'type': 'button', 'title': _('Remove'),
+					'aria-label': _('Remove') }, [ '\u00d7' ]);
+				remove.addEventListener('click', function() {
+					problemPictures.splice(index, 1);
+					drawPictures();
 				});
-				// No report service on this router: nothing can be sent.
-				var configured = !rows.some(function(row) { return row && row.configured === false; });
-				problemSend.disabled = !configured;
-				problemNote.style.display = configured ? 'none' : '';
-				rows = rows.filter(function(row) { return row && row.report_id; });
-				problemSent.replaceChildren.apply(problemSent, rows.length ? [ E('strong', {}, [ _('Sent reports') ]) ].concat(rows.map(function(row) {
-					var state = { received: _('received'), in_progress: _('being looked at'), resolved: _('resolved'), closed: _('closed') }[row.state] ||
-						(row.state ? row.state : _('status unknown'));
-					return E('div', { 'class': 'ikev2-report-row' }, [
-						E('div', {}, [ E('span', { 'class': 'ikev2-toggle-sub' }, [ common.formatDate(Number(row.sent) * 1000) + ' · ' + state ]), ' ', row.title || row.report_id ]),
-						E('div', {}, (row.replies || []).map(function(reply) {
-							return E('div', { 'class': 'ikev2-report-reply' }, [ E('span', { 'class': 'ikev2-toggle-sub' }, [ _('Reply:') ]), ' ', reply.body ]);
-						}))
-					]);
-				})) : []);
+				return E('div', { 'class': 'ikev2-report-shot' }, [ E('img', { 'src': picture.url, 'alt': '' }), remove ]);
+			}));
+		}
+		function addPictures(files) {
+			files = files.filter(function(file) { return file && /^image\/(png|jpeg)$/.test(file.type); });
+			if (!files.length)
+				return false;
+			files.forEach(function(file) {
+				if (problemPictures.length >= 5)
+					return problemResult.err(_('At most five pictures can be attached.'));
+				if (file.size > 5242880)
+					return problemResult.err(_('A picture larger than 5 MB cannot be attached.'));
+				var reader = new FileReader();
+				var picture = { url: '' };
+				problemPictures.push(picture);
+				reader.onload = function() {
+					picture.url = String(reader.result || '');
+					drawPictures();
+				};
+				reader.readAsDataURL(file);
 			});
+			drawPictures();
+			return true;
+		}
+		problemPanel.addEventListener('paste', function(ev) {
+			var items = Array.prototype.slice.call((ev.clipboardData && ev.clipboardData.items) || []);
+			if (addPictures(items.filter(function(item) { return item.kind === 'file'; }).map(function(item) { return item.getAsFile(); })))
+				ev.preventDefault();
+		});
+		problemPanel.addEventListener('dragover', function(ev) { ev.preventDefault(); });
+		problemPanel.addEventListener('drop', function(ev) {
+			if (addPictures(Array.prototype.slice.call((ev.dataTransfer && ev.dataTransfer.files) || [])))
+				ev.preventDefault();
+		});
+		// One write through LuCI stays well under its message limit, so a
+		// picture goes in parts the router joins in order.
+		function writePictures(token) {
+			var writes = [];
+			problemPictures.forEach(function(picture, index) {
+				var data = picture.url.replace(/^data:[^,]*,/, '');
+				for (var part = 0; part * 600000 < data.length; part++)
+					writes.push([ '/tmp/ikev2-manager-report-' + token + '.picture' + (index + 1) + '.' + (part + 1),
+						data.substr(part * 600000, 600000) ]);
+			});
+			return writes.reduce(function(chain, write) {
+				return chain.then(function() { return fs.write(write[0], write[1], 384); });
+			}, Promise.resolve());
 		}
 		problemOpen.addEventListener('click', function() {
-			var open = problemPanel.style.display === 'none';
-			problemPanel.style.display = open ? '' : 'none';
-			if (open) drawSentReports();
+			problemPanel.style.display = problemPanel.style.display === 'none' ? '' : 'none';
 		});
 		problemShow.addEventListener('click', function() {
 			if (problemPreview.style.display !== 'none') {
@@ -860,14 +893,20 @@ return view.extend({
 				return common.refuse(problemSend, problemResult, _('Describe the problem first.'));
 			if (contact && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]+$/.test(contact))
 				return common.refuse(problemSend, problemResult, _('Enter an e-mail address like name@example.com, or leave it empty.'));
+			if (problemPictures.some(function(picture) { return !picture.url; }))
+				return common.refuse(problemSend, problemResult, _('A picture is still being read. Try again in a moment.'));
 			var token = common.inputToken();
-			return fs.write('/tmp/ikev2-manager-report-' + token + '.in', JSON.stringify({ version: 1, description: text,
-				contact: contact, diagnostics: !!problemAttach.checked }), 384).then(function() {
+			common.setBusy(problemSend, true, _('Sending...'));
+			return writePictures(token).then(function() {
+				return fs.write('/tmp/ikev2-manager-report-' + token + '.in', JSON.stringify({ version: 1, description: text,
+					contact: contact, diagnostics: !!problemAttach.checked, pictures: problemPictures.length }), 384);
+			}).then(function() {
+				common.setBusy(problemSend, false);
 				return common.runJob({
 					button: problemSend,
 					result: problemResult,
 					busy: _('Sending...'),
-					success: _('Report sent. Replies appear below.'),
+					success: _('Report sent.'),
 					failure: _('The report was not sent'),
 					startPath: helper,
 					startArgs: [ 'report-send-async', token ],
@@ -876,24 +915,26 @@ return view.extend({
 					timeout: 180000,
 					onSuccess: function() {
 						problemText.value = '';
-						return drawSentReports();
+						problemContact.value = '';
+						problemPictures = [];
+						drawPictures();
 					}
 				});
 			}, function(error) {
+				common.setBusy(problemSend, false);
 				problemResult.err(error.message || String(error));
 			});
 		});
 		problemPanel.replaceChildren(
-			problemNote,
 			E('div', { 'class': 'ikev2-form-grid' }, [
-				common.fieldLabel(_('What went wrong')), problemText,
-				common.fieldLabel(_('Your e-mail'), _('Optional, for a reply. Replies are also shown here.')), problemContact
+				common.fieldLabel(_('What went wrong'), _('Paste a screenshot here with Ctrl+V, or drop it on the form.')), problemText,
+				common.fieldLabel(_('Your e-mail'), _('Optional, if you want an answer by mail.')), problemContact
 			]),
+			problemShots,
 			common.toggleRow(problemAttach, _('Attach the diagnostics report'),
 				_('The same text as the file above: passwords, keys and tokens left out, addresses and names replaced. Read it before sending.')),
 			problemPreview,
-			E('div', { 'class': 'ikev2-actions end' }, [ problemResult.node, problemShow, problemSend ]),
-			problemSent
+			E('div', { 'class': 'ikev2-actions end' }, [ problemResult.node, problemShow, problemSend ])
 		);
 		// Pause is the reversible counterpart of the reset below: nothing is
 		// deleted, only the three things that put traffic into the tunnel stop.

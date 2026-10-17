@@ -657,7 +657,7 @@ function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved
 
 // A problem report: opened from the diagnostics row, refused without words,
 // and staged for the router as the page shows it, the diagnostics on request.
-(function() {
+const problemStaged = (function() {
 	const open = nodesOf(setupPage).find(function(n) { return n.tagName === 'BUTTON' && textOf(n).trim() === 'Report a problem'; });
 	if (!open) fail('the overview has no way to report a problem');
 	const panel = nodesOf(setupPage).find(function(n) { return hasClass(n, 'ikev2-report-panel'); });
@@ -667,18 +667,25 @@ function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved
 	if (!area || !send) fail('the report form has no text or no send button');
 	const writes = [];
 	const writeBefore = fsStub.write;
-	fsStub.write = function(file, content) { writes.push([ file, content ]); return Promise.resolve(); };
+	const capture = function(file, content) {
+		if (!/^\/tmp\/ikev2-manager-report-/.test(file)) return writeBefore.apply(this, arguments);
+		writes.push([ file, content ]);
+		return Promise.resolve();
+	};
+	fsStub.write = capture;
 	area.value = '   ';
 	send.listeners.click();
 	if (writes.length) fail('an empty report was staged');
 	area.value = 'Steam stalls in the evening';
-	send.listeners.click();
-	fsStub.write = writeBefore;
-	const staged = writes.filter(function(w) { return /^\/tmp\/ikev2-manager-report-[A-Za-z0-9-]+\.in$/.test(w[0]); })[0];
-	if (!staged) fail('the report was not staged for the router: ' + JSON.stringify(writes));
-	const body = JSON.parse(staged[1]);
-	if (body.version !== 1 || body.description !== 'Steam stalls in the evening' || body.contact !== '' || body.diagnostics !== true)
-		fail('the staged report is not what the form says: ' + staged[1]);
+	return Promise.resolve(send.listeners.click()).catch(function() {}).then(function() {
+		if (fsStub.write === capture) fsStub.write = writeBefore;
+		const staged = writes.filter(function(w) { return /^\/tmp\/ikev2-manager-report-[A-Za-z0-9-]+\.in$/.test(w[0]); })[0];
+		if (!staged) fail('the report was not staged for the router: ' + JSON.stringify(writes));
+		const body = JSON.parse(staged[1]);
+		if (body.version !== 1 || body.description !== 'Steam stalls in the evening' || body.contact !== '' ||
+		    body.diagnostics !== true || body.pictures !== 0)
+			fail('the staged report is not what the form says: ' + staged[1]);
+	});
 })();
 
 // A strongSwan upgraded on disk but not restarted is explained, not shown as
@@ -1594,7 +1601,7 @@ const tunnelAdopted = backupSaved.then(function() {
 	});
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted ]).then(function() {
+Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted, problemStaged ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

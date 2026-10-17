@@ -1923,10 +1923,6 @@ case "${1:-}" in
 		[ "$#" -eq 3 ] || die 'Expected an action id and a report input token'
 		report_send "$2" "$3"
 		;;
-	reports-list)
-		[ "$#" -eq 1 ] || die 'Expected no arguments'
-		reports_list
-		;;
 	backup-import-async)
 		[ "$#" -eq 2 ] || die 'Expected a backup input token'
 		backup_input_file "$2" in >/dev/null
@@ -2128,6 +2124,6 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|diagnostics|backup-export|backup-import-async|report-send-async|reports-list|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
+		die 'Usage: ikev2-manager-system {preflight|deps-plan|doctor|doctor-ui|diagnostics|backup-export|backup-import-async|report-send-async|failclosed-check|install-deps|remove-deps|deps-status|get|dns-get|dns-buffer-status|routing-pause-async|routing-resume-async|recover-reliable-async|pbr-restart-async|dns-set-async|set|set-async|apply|server-apply|validate-server-zones|strongswan-security|access-apply|disable|gateway-network|coverage-add|coverage-remove|coverage-async|device-async|action-status}'
 		;;
 esac

@@ -111,7 +111,7 @@ upgraded, so a stable name would serve stale code to the browser.
 
 | page | source | installed as |
 | --- | --- | --- |
-| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v18.js` |
+| Overview | `luci-ikev2-manager/setup.js` | `view/ikev2-manager/setup-v19.js` |
 | Tunnels | `luci-ikev2-manager/tunnels.js` | `view/ikev2-manager/tunnels-v4.js`: the two panels below under two tabs |
 | DNS | `luci-ikev2-manager/dns.js` | `view/ikev2-manager/dns-v4.js`: the DNS part of the outbound panel |
 | Outbound tunnels and DNS panel | `luci-ikev2-manager/client.js` | `ikev2-manager/outbound-panel-v4.js`; `parts()` returns `tunnel` and `dns` |
@@ -122,7 +122,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
 `luci-ikev2-manager/shared.js` is the design system and the action lifecycle
-used by all of them; it installs as `shared-v19.js`. Russian strings live in
+used by all of them; it installs as `shared-v20.js`. Russian strings live in
 `po/ru/ikev2-manager.po`, compiled by `scripts/po2lmo.py` into
 `/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo`, which LuCI's own `_()` reads.
 `luci-ikev2-manager/menu.json` wires the pages, `acl.json` grants every helper

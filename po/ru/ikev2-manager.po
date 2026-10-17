@@ -5628,26 +5628,12 @@ msgstr "Отправить отчёт"
 msgid "Report a problem"
 msgstr "Сообщить о проблеме"
 
-msgid "Sent reports"
-msgstr "Отправленные отчёты"
 
-msgid "received"
-msgstr "получен"
 
-msgid "being looked at"
-msgstr "в работе"
 
-msgid "resolved"
-msgstr "решён"
 
-msgid "closed"
-msgstr "закрыт"
 
-msgid "status unknown"
-msgstr "статус неизвестен"
 
-msgid "Reply:"
-msgstr "Ответ:"
 
 msgid "Describe the problem first."
 msgstr "Сначала опишите проблему."
@@ -5655,8 +5641,6 @@ msgstr "Сначала опишите проблему."
 msgid "Enter an e-mail address like name@example.com, or leave it empty."
 msgstr "Введите адрес вида name@example.com или оставьте поле пустым."
 
-msgid "Report sent. Replies appear below."
-msgstr "Отчёт отправлен. Ответы появятся ниже."
 
 msgid "The report was not sent"
 msgstr "Отчёт не отправлен"
@@ -5667,8 +5651,6 @@ msgstr "Что пошло не так"
 msgid "Your e-mail"
 msgstr "Ваша почта"
 
-msgid "Optional, for a reply. Replies are also shown here."
-msgstr "Необязательно, для ответа. Ответы также показываются здесь."
 
 msgid "Attach the diagnostics report"
 msgstr "Приложить отчёт диагностики"
@@ -5709,11 +5691,42 @@ msgstr "Сервис отчётов занят; отправьте снова ч
 msgid "The report service could not be reached."
 msgstr "Сервис отчётов недоступен."
 
-msgid "No report service is set up on this router, so reports cannot be sent from here. Download the diagnostics report instead and attach it to your message."
-msgstr "На этом роутере не настроен сервис отчётов, поэтому отсюда отчёт не отправить. Скачайте отчёт диагностики и приложите его к своему сообщению."
 
 msgid "No report service is set up on this router."
 msgstr "На этом роутере не настроен сервис отчётов."
 
 msgid "Your lists"
 msgstr "Свои списки"
+
+msgid "At most five pictures can be attached."
+msgstr "Можно приложить не больше пяти картинок."
+
+msgid "A picture larger than 5 MB cannot be attached."
+msgstr "Картинку больше 5 МБ приложить нельзя."
+
+msgid "A picture is still being read. Try again in a moment."
+msgstr "Картинка ещё загружается. Повторите через секунду."
+
+msgid "Report sent."
+msgstr "Отчёт отправлен."
+
+msgid "Paste a screenshot here with Ctrl+V, or drop it on the form."
+msgstr "Скриншот можно вставить сюда через Ctrl+V или перетащить на форму."
+
+msgid "Optional, if you want an answer by mail."
+msgstr "Необязательно, если нужен ответ по почте."
+
+msgid "A pasted picture could not be read."
+msgstr "Вставленную картинку не удалось прочитать."
+
+msgid "A pasted picture is larger than 5 MB."
+msgstr "Вставленная картинка больше 5 МБ."
+
+msgid "A pasted picture is missing."
+msgstr "Вставленная картинка не найдена."
+
+msgid "Attaching files..."
+msgstr "Прикладываю файлы..."
+
+msgid "Only PNG and JPEG pictures can be attached."
+msgstr "Приложить можно только картинки PNG и JPEG."

@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require ui';
-'require ikev2-manager.shared-v19 as common';
+'require ikev2-manager.shared-v20 as common';
 'require ikev2-manager.users-panel-v7 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
