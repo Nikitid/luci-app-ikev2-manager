@@ -290,6 +290,11 @@ IKEV2_DOMAIN_WORK_DIR="$tmp/work" \
 IKEV2_TUNNEL_DNS_STATE="$tmp/tunnel-dns.state" \
 	sh "$root/ikev2-manager-runtime/ikev2-domain-router.sh" render
 jq -e . "$tmp/domain-router.json" >/dev/null
+# FakeIP answers outlive a restart of sing-box: kept in its cache file, an
+# address a client still holds is not refused as an unknown record.
+jq -e '.experimental.cache_file.enabled == true and .experimental.cache_file.store_fakeip == true and
+	.experimental.cache_file.path == "/tmp/fakeip-cache.db"' "$tmp/domain-router.json" >/dev/null ||
+	{ printf '%s\n' 'FakeIP answers are not kept across a sing-box restart' >&2; exit 1; }
 [ -z "${IKEV2_TEST_SING_BOX:-}" ] ||
 	"$IKEV2_TEST_SING_BOX" check -c "$tmp/domain-router.json"
 
