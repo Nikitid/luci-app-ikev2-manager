@@ -1028,6 +1028,29 @@ return view.extend({
 			}
 			routeBar.replaceChildren.apply(routeBar, nodes);
 		}
+		// The whole v2fly catalogue, read once, the first time something is
+		// searched for: a search names lists from it beside the prepared ones.
+		var v2flyNames = null, v2flyAsked = false;
+		function v2flyMatches(query) {
+			if (!v2flyNames) {
+				if (!v2flyAsked) {
+					v2flyAsked = true;
+					L.resolveDefault(fs.exec(communityHelper, [ 'v2fly-names' ]), { stdout: '' }).then(function(response) {
+						v2flyNames = String((response && response.stdout) || '').split('\n').filter(function(line) {
+							return /^[a-z0-9][a-z0-9!-]*$/.test(line);
+						});
+						drawCatalog();
+					});
+				}
+				return [];
+			}
+			var known = {};
+			serviceRecords.forEach(function(record) { known[record.id] = true; known[record.id.replace(/_/g, '-')] = true; });
+			var found = v2flyNames.filter(function(line) { return !known[line] && line.indexOf(query) >= 0; });
+			// Names that start with what was typed come first.
+			found.sort(function(a, b) { return (a.indexOf(query) === 0 ? 0 : 1) - (b.indexOf(query) === 0 ? 0 : 1) || (a < b ? -1 : a > b ? 1 : 0); });
+			return found.slice(0, 16);
+		}
 		function drawCatalog() {
 			var query = String(catalogSearch.value || '').trim().toLowerCase();
 			var nodes = [];
@@ -1043,6 +1066,20 @@ return view.extend({
 					}))
 				]));
 			});
+			var lists = query.length >= 2 ? v2flyMatches(query) : [];
+			if (lists.length)
+				nodes.push(E('div', { 'class': 'ikev2-chip-group' }, [
+					E('h4', {}, [ _('From the v2fly catalogue') ]),
+					E('div', { 'class': 'ikev2-chips' }, lists.map(function(line) {
+						var add = E('button', { 'class': 'ikev2-chip ikev2-chip-new', 'type': 'button',
+							'title': _('Make a service of this list') }, [ '+ ' + line ]);
+						add.addEventListener('click', function() {
+							if (!serviceBusy)
+								showServiceDialog(null, null, line);
+						});
+						return add;
+					}))
+				]));
 			if (!serviceRecords.length)
 				nodes.push(E('p', { 'class': 'alert-message warning' }, [
 					_('The service catalog is unavailable. Saved selections and local services are preserved.') ]));
@@ -1161,7 +1198,8 @@ return view.extend({
 
 		// One window for a new service and for an existing one: its name, what
 		// it covers and where it goes. The identifier comes from the name.
-		function showServiceDialog(record, details) {
+		// LIST, for a new service, is a v2fly list it is made of.
+		function showServiceDialog(record, details, list) {
 			editingService = record || null;
 			var name = E('input', {
 				'class': 'cbi-input-text',
@@ -1217,15 +1255,20 @@ return view.extend({
 					return E('option', { 'value': line });
 				}));
 			});
-			fromCatalogue.addEventListener('change', function() {
+			function pickCatalogue() {
 				var picked = String(fromCatalogue.value || '').trim().toLowerCase();
 				if (!/^[a-z0-9][a-z0-9!-]*$/.test(picked))
 					return;
 				listAddress.value = V2FLY_DATA + picked;
 				if (!record && !String(name.value || '').trim())
-					name.value = picked.charAt(0).toUpperCase() + picked.slice(1);
+					name.value = serviceLabel(picked);
 				listAddress.dispatchEvent && listAddress.dispatchEvent(new Event('input', { bubbles: true }));
-			});
+			}
+			fromCatalogue.addEventListener('change', pickCatalogue);
+			if (!record && list) {
+				fromCatalogue.value = list;
+				pickCatalogue();
+			}
 			var here = record && serviceSelection[record.id] ? placeOf(record.id) : (record ? '' : activeZone);
 			var place = E('select', { 'class': 'cbi-input-select' },
 				(record ? [ E('option', { 'value': '', 'selected': here === '' ? '' : null }, [ _('Not in use') ]) ] : [])

@@ -990,6 +990,34 @@ if (!nodesOf(boardChip(boardPage, '@cidrs')).some(function(node) { return node.t
 	if (textOf(lanes[2]).indexOf('Excluded domains') < 0)
 		fail('the lists that stay out of the tunnel are not shown where they belong');
 })();
+// The catalogue search finds lists of the whole v2fly catalogue beside the
+// prepared services, and one click opens a new service made of the list.
+const v2flySearched = new Promise(function(resolve) { setTimeout(resolve, 0); }).then(function() {
+	const search = nodesOf(boardPage).find(function(node) { return node.tagName === 'INPUT' && node.attrs.placeholder === 'Find a service'; });
+	if (!search) fail('the catalogue has no search');
+	const execBefore = fsStub.exec, resolveBefore = L.resolveDefault;
+	L.resolveDefault = function(promise, fallback) { return Promise.resolve(promise).catch(function() { return fallback; }); };
+	fsStub.exec = function(file, args) {
+		if ((args || [])[0] === 'v2fly-names')
+			return Promise.resolve({ code: 0, stdout: 'openai\ntiktok\ntiktok-ads\ngoogle\nbad name\n' });
+		return execBefore.apply(this, arguments);
+	};
+	search.value = 'tik';
+	search.listeners.input();
+	return new Promise(function(resolve) { setTimeout(resolve, 5); }).then(function() {
+		fsStub.exec = execBefore;
+		L.resolveDefault = resolveBefore;
+		const offered = nodesOf(boardPage).filter(function(node) { return hasClass(node, 'ikev2-chip-new'); });
+		if (offered.map(function(node) { return textOf(node).trim(); }).join('|') !== '+ tiktok|+ tiktok-ads')
+			fail('the catalogue search does not offer the v2fly lists that match: ' + offered.map(function(node) { return textOf(node).trim(); }).join('|'));
+		offered[0].listeners.click();
+		const address = nodesOf(boardPage).find(function(node) { return node.tagName === 'INPUT' && /domain-list-community/.test(node.attrs.placeholder || ''); });
+		if (!address || address.value !== 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/tiktok')
+			fail('a v2fly list picked from the search does not fill in the new service: ' + (address && address.value));
+		search.value = '';
+		search.listeners.input();
+	});
+});
 // A click in the catalogue adds the service to the highlighted field.
 boardChip(boardPage, 'spotify').listeners.click();
 if (chipsIn(boardPage, '1') !== '@domains,spotify,telegram' || chipsIn(boardPage, 'catalog') !== '')
@@ -1653,7 +1681,7 @@ const tunnelAdopted = backupSaved.then(function() {
 	});
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted, problemStaged ]).then(function() {
+Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted, problemStaged, v2flySearched ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

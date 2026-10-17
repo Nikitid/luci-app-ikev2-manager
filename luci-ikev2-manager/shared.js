@@ -2308,6 +2308,8 @@ var CSS = `
 				gap: var(--ikev2-s5);
 				align-items: start;
 			}
+			/* A list that is not a service yet: a click makes one of it. */
+			.ikev2-chip.ikev2-chip-new { border-style: dashed; background: transparent; cursor: pointer; font: inherit; color: inherit; }
 			.ikev2-page .ikev2-quality-lower.single { grid-template-columns: minmax(0, 1fr); }
 			.ikev2-page .ikev2-quality-lower h4 {
 				margin: 0 0 .55rem;
