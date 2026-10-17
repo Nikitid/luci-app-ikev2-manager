@@ -1202,13 +1202,13 @@ addresses that lead nowhere, so nothing reaches the real service.
 The **Report** window of both clients, beside the state report it shows,
 sends a problem report to the developer's report service
 (`https://reports.nikitid.ru`, project `waypoint`): the person's text, an
-optional address for a reply and, when ticked, that state report as a file.
-Context carries the application and system versions, the processor, the
-language and the current state code. Each report has its own random claim
-token, kept with its report number in the person's profile
-(`~/Library/Application Support/Waypoint/reports.json`,
-`%LOCALAPPDATA%\Waypoint\reports.json`); it opens that report's status and
-the replies, which the window lists. Text alone is one request that submits
-it; with the file the client registers it with its size and SHA-256, uploads
-it and finalizes. `ProblemReports.swift` and `ProblemReports.cs` hold this,
+optional address for a reply, up to five PNG or JPEG pictures pasted with
+Cmd+V or Ctrl+V or dropped on the window (5 MB each) and, when ticked, that
+state report as a file. Context carries the application and system versions,
+the processor, the language and the current state code. A report is sent and
+forgotten: the client keeps no copy, number or status of it, and an answer,
+if one is asked for, comes by mail. Each report has its own random claim
+token, used only while it is sent. Text alone is one request that submits it;
+with files the client registers each with its size and SHA-256, uploads it
+and finalizes. `ProblemReports.swift` and `ProblemReports.cs` hold this,
 tested against a recorder of the service contract.

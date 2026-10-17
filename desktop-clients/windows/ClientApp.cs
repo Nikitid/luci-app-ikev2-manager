@@ -659,7 +659,7 @@ namespace IkeV2Manager.Client
             var serializer = new JavaScriptSerializer();
             var fields = serializer.Deserialize<Dictionary<string, object>>(current.Report());
             string json = "{\r\n" + String.Join(",\r\n", fields.Select(pair => "  " + serializer.Serialize(pair.Key) + ": " + serializer.Serialize(pair.Value))) + "\r\n}";
-            var preview = new Form { Text = "Отчёт", ClientSize = new Size(640, 600), StartPosition = FormStartPosition.CenterParent };
+            var preview = new Form { Text = "Отчёт", ClientSize = new Size(640, 680), StartPosition = FormStartPosition.CenterParent };
             var content = new TextBox { Text = json, Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
                 ScrollBars = ScrollBars.Both, Font = new Font(FontFamily.GenericMonospace, 10), WordWrap = false };
             var save = new Button { Text = "Сохранить…", Dock = DockStyle.Bottom, Height = 40 };
@@ -705,19 +705,22 @@ namespace IkeV2Manager.Client
         }
 
         // A problem report to the developer: the person's words, an address for
-        // a reply if they give one, and the state report above if they tick it.
-        // What was sent and the replies to it are listed under the form.
+        // a reply if they give one, pictures pasted with Ctrl+V or dropped on the
+        // window, and the state report above if they tick it. Sent and
+        // forgotten: nothing of it is kept on this computer.
         private Control ProblemReportPanel(Form owner, string state)
         {
             var panel = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 300, ColumnCount = 1, Padding = new Padding(8) };
             panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
             panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
             panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var heading = new Label { Text = "Сообщить о проблеме разработчику", AutoSize = true, Font = new Font(Font, FontStyle.Bold) };
             var text = new TextBox { Multiline = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical };
+            var hint = new Label { Text = "Скриншот можно вставить через Ctrl+V или перетащить в это окно.", AutoSize = true, ForeColor = SystemColors.GrayText };
+            var shots = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true };
             var contact = new TextBox { Dock = DockStyle.Top };
             var contactRow = new TableLayoutPanel { ColumnCount = 2, Dock = DockStyle.Top, AutoSize = true };
             contactRow.Controls.Add(new Label { Text = "Почта для ответа (необязательно):", AutoSize = true, Anchor = AnchorStyles.Left });
@@ -731,28 +734,81 @@ namespace IkeV2Manager.Client
             actions.Controls.Add(attach);
             actions.Controls.Add(send);
             actions.Controls.Add(result);
-            var sent = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = SystemColors.Control };
             panel.Controls.Add(heading);
             panel.Controls.Add(text);
+            panel.Controls.Add(hint);
+            panel.Controls.Add(shots);
             panel.Controls.Add(contactRow);
             panel.Controls.Add(actions);
-            panel.Controls.Add(new Label { AutoSize = true });
-            panel.Controls.Add(sent);
-            var book = new ProblemReportBook();
-            Action showSent = () => Task.Run(() =>
+
+            // The service takes PNG and JPEG; five of up to 5 MB each.
+            var pictures = new List<byte[]>();
+            Action drawShots = null;
+            drawShots = () =>
             {
-                var lines = new List<string>();
-                foreach (var report in book.Load().Where(item => !String.IsNullOrEmpty(item.ReportId)))
+                foreach (Control old in shots.Controls.Cast<Control>().ToList()) { old.Dispose(); }
+                shots.Controls.Clear();
+                for (int i = 0; i < pictures.Count; i++)
                 {
-                    var stateOf = new ProblemReporter().StateOf(report);
-                    string label = stateOf == null || stateOf.State == null ? "статус неизвестен" :
-                        stateOf.State == "received" ? "получен" : stateOf.State == "in_progress" ? "в работе" :
-                        stateOf.State == "resolved" ? "решён" : stateOf.State == "closed" ? "закрыт" : stateOf.State;
-                    lines.Add(report.SentUtc.ToLocalTime().ToString("dd.MM HH:mm") + " \u00B7 " + label + " \u00B7 " + report.Title);
-                    if (stateOf != null) foreach (string reply in stateOf.Replies) lines.Add("    Ответ: " + reply);
+                    int index = i;
+                    var frame = new Panel { Width = 96, Height = 72, Margin = new Padding(0, 4, 8, 4), BorderStyle = BorderStyle.FixedSingle };
+                    var image = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom };
+                    using (var stream = new MemoryStream(pictures[i])) image.Image = new Bitmap(Image.FromStream(stream));
+                    var remove = new Button { Text = "\u00D7", Width = 22, Height = 22, Location = new Point(72, 0), FlatStyle = FlatStyle.Flat, BackColor = SystemColors.Control };
+                    remove.FlatAppearance.BorderSize = 0;
+                    new ToolTip().SetToolTip(remove, "Убрать");
+                    remove.Click += (sender, args) => { pictures.RemoveAt(index); drawShots(); };
+                    frame.Controls.Add(remove);
+                    frame.Controls.Add(image);
+                    shots.Controls.Add(frame);
                 }
-                if (!owner.IsDisposed) owner.BeginInvoke((Action)(() => { sent.Text = lines.Count > 0 ? "Отправленные отчёты:\r\n" + String.Join("\r\n", lines) : ""; }));
-            });
+            };
+            Action<byte[]> addPicture = data =>
+            {
+                bool png = data.Length > 3 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4e && data[3] == 0x47;
+                bool jpeg = data.Length > 2 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff;
+                if (!png && !jpeg) { result.Text = "Приложить можно только картинки PNG и JPEG."; return; }
+                if (pictures.Count >= 5) { result.Text = "Можно приложить не больше пяти картинок."; return; }
+                if (data.Length > 5 * 1024 * 1024) { result.Text = "Картинку больше 5 МБ приложить нельзя."; return; }
+                pictures.Add(data);
+                result.Text = "";
+                drawShots();
+            };
+            // Ctrl+V with a picture on the clipboard and no text: the picture goes
+            // to the report, wherever the cursor is in the window.
+            owner.KeyPreview = true;
+            owner.KeyDown += (sender, args) =>
+            {
+                if (args.KeyCode != Keys.V || args.Modifiers != Keys.Control) return;
+                try
+                {
+                    if (Clipboard.ContainsText() || !Clipboard.ContainsImage()) return;
+                    using (var image = Clipboard.GetImage())
+                    using (var stream = new MemoryStream())
+                    {
+                        if (image == null) return;
+                        image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                        addPicture(stream.ToArray());
+                    }
+                    args.SuppressKeyPress = true;
+                    args.Handled = true;
+                }
+                catch (System.Runtime.InteropServices.ExternalException) { }
+            };
+            owner.AllowDrop = true;
+            owner.DragEnter += (sender, args) => { if (args.Data.GetDataPresent(DataFormats.FileDrop)) args.Effect = DragDropEffects.Copy; };
+            owner.DragDrop += (sender, args) =>
+            {
+                var dropped = args.Data.GetData(DataFormats.FileDrop) as string[];
+                if (dropped == null) return;
+                foreach (string path in dropped)
+                {
+                    try { if (new FileInfo(path).Length <= 5 * 1024 * 1024) addPicture(File.ReadAllBytes(path)); else result.Text = "Картинку больше 5 МБ приложить нельзя."; }
+                    catch (IOException) { result.Text = "Файл не удалось прочитать."; }
+                    catch (UnauthorizedAccessException) { result.Text = "Нет доступа к файлу."; }
+                }
+            };
+
             send.Click += (sender, args) =>
             {
                 string description = text.Text.Trim(), address = contact.Text.Trim();
@@ -766,18 +822,24 @@ namespace IkeV2Manager.Client
                     { "architecture", Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432") ?? Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "" },
                     { "language", System.Globalization.CultureInfo.CurrentUICulture.Name },
                     { "failure_code", current.State ?? "" } };
-                byte[] file = attach.Checked ? new UTF8Encoding(false).GetBytes(state) : null;
-                var draft = ProblemReport.Fresh(description);
-                book.Keep(draft);
+                var files = new List<ReportFile>();
+                for (int i = 0; i < pictures.Count; i++)
+                {
+                    bool jpeg = pictures[i][0] == 0xff;
+                    files.Add(new ReportFile("picture-" + (i + 1) + (jpeg ? ".jpg" : ".png"), jpeg ? "image/jpeg" : "image/png", pictures[i]));
+                }
+                if (attach.Checked) files.Add(new ReportFile("waypoint-state.json", "application/json", new UTF8Encoding(false).GetBytes(state)));
                 send.Enabled = false;
                 result.Text = "Отправка…";
                 Task.Run(() =>
                 {
                     string outcome;
+                    bool done = false;
                     try
                     {
-                        new ProblemReporter().Send(draft, description, address, context, file, book.Keep);
-                        outcome = "Отчёт отправлен. Ответы появятся здесь.";
+                        new ProblemReporter().Send(description, address, context, files);
+                        outcome = "Отчёт отправлен.";
+                        done = true;
                     }
                     catch (ProblemReportException error)
                     {
@@ -792,11 +854,10 @@ namespace IkeV2Manager.Client
                     {
                         result.Text = outcome;
                         send.Enabled = true;
-                        if (outcome.StartsWith("Отчёт отправлен")) { text.Text = ""; showSent(); }
+                        if (done) { text.Text = ""; contact.Text = ""; pictures.Clear(); drawShots(); }
                     }));
                 });
             };
-            owner.Shown += (sender, args) => showSent();
             return panel;
         }
 

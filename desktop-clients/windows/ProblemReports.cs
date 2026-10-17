@@ -11,41 +11,31 @@ namespace IkeV2Manager.Client
 {
     // Problem reports from this computer to the developer's report service.
     //
-    // A report carries what the person wrote, an optional address for a reply
-    // and, if they ask, the same state report the window shows. Each report has
-    // its own random claim token: it opens that report's status and the replies
-    // to it and nothing else. The client ID and the claim are kept before the
-    // first request, so a send that was cut off is taken up again and returns
-    // the same report instead of a second one.
+    // A report carries what the person wrote, an optional address for a reply,
+    // pictures they pasted and, if they ask, the same state report the window
+    // shows. It is sent and forgotten: nothing of it is kept on this computer.
+    // Each report has its own random claim token, which the service takes as
+    // the proof that the files and the finishing step belong to it.
     internal sealed class ProblemReport
     {
         public string ClientId { get; set; }
         public string Claim { get; set; }
-        public string Title { get; set; }
-        public DateTime SentUtc { get; set; }
-        public string ReportId { get; set; }
-        public bool Finished { get; set; }
 
-        public static ProblemReport Fresh(string title)
+        public static ProblemReport Fresh()
         {
             var bytes = new byte[32];
             using (var random = new RNGCryptoServiceProvider()) random.GetBytes(bytes);
-            string first = (title ?? "").Split('\n')[0].Trim();
-            if (first.Length > 120) first = first.Substring(0, 120);
-            return new ProblemReport
-            {
-                ClientId = Guid.NewGuid().ToString(),
-                Claim = String.Concat(bytes.Select(b => b.ToString("x2"))),
-                Title = first,
-                SentUtc = DateTime.UtcNow
-            };
+            return new ProblemReport { ClientId = Guid.NewGuid().ToString(), Claim = String.Concat(bytes.Select(b => b.ToString("x2"))) };
         }
     }
 
-    internal sealed class ProblemReportState
+    // A file sent with a report.
+    internal sealed class ReportFile
     {
-        public string State;
-        public List<string> Replies = new List<string>();
+        public string Name;
+        public string ContentType;
+        public byte[] Data;
+        public ReportFile(string name, string contentType, byte[] data) { Name = name; ContentType = contentType; Data = data; }
     }
 
     // One HTTP exchange, so the protocol can be followed without a network.
@@ -150,93 +140,43 @@ namespace IkeV2Manager.Client
             return id;
         }
 
-        // Sends REPORT with the person's text, contact and context, and the
-        // attachment when given. KEEP is called each time the report learns
-        // more, so the caller holds it before the next step.
-        public ProblemReport Send(ProblemReport report, string description, string contact, IDictionary<string, string> context,
-            byte[] attachment, Action<ProblemReport> keep)
+        // Sends a fresh report with the person's text, contact and context, and
+        // FILES in their order. Returns the service's report number.
+        public string Send(string description, string contact, IDictionary<string, string> context, IList<ReportFile> files)
         {
+            var report = ProblemReport.Fresh();
             var create = new Dictionary<string, object> { { "project", Project }, { "client_id", report.ClientId },
                 { "claim_token", report.Claim }, { "description", description }, { "context", context } };
             if (!String.IsNullOrEmpty(contact)) create["contact"] = contact;
-            // Without a file the report is submitted in this one request.
-            if (attachment == null) create["submit"] = true;
+            // Without files the report is submitted in this one request.
+            if (files.Count == 0) create["submit"] = true;
             Dictionary<string, object> answer;
             int status = Call("POST", "api/v1/reports", report.Claim, create, null, null, out answer);
             if (status != 200 && status != 201) throw Fail(status, answer);
             string id = Id(answer);
             if (id == null) throw new ProblemReportException("refused", "The service gave no report number.");
-            report.ReportId = id;
-            keep(report);
-            if (attachment != null)
+            if (files.Count == 0) return id;
+            foreach (var file in files)
             {
                 string sum;
-                using (var sha = SHA256.Create()) sum = String.Concat(sha.ComputeHash(attachment).Select(b => b.ToString("x2")));
+                using (var sha = SHA256.Create()) sum = String.Concat(sha.ComputeHash(file.Data).Select(b => b.ToString("x2")));
                 status = Call("POST", "api/v1/reports/" + id + "/attachments", report.Claim, new Dictionary<string, object> {
-                    { "filename", "waypoint-state.json" }, { "content_type", "application/json" },
-                    { "size", attachment.Length }, { "sha256", sum } }, null, null, out answer);
+                    { "filename", file.Name }, { "content_type", file.ContentType },
+                    { "size", file.Data.Length }, { "sha256", sum } }, null, null, out answer);
                 if (status != 200 && status != 201) throw Fail(status, answer);
-                string file = Id(answer);
-                if (file == null) throw new ProblemReportException("refused", "The service gave no attachment number.");
-                // Created once; a creation that already happened answers 409.
+                string attachment = Id(answer);
+                if (attachment == null) throw new ProblemReportException("refused", "The service gave no attachment number.");
                 status = Call("POST", "api/v1/uploads/", report.Claim, null, null, new Dictionary<string, string> {
-                    { "Tus-Resumable", "1.0.0" }, { "Upload-Length", attachment.Length.ToString() },
-                    { "Upload-Metadata", "attachment_id " + Convert.ToBase64String(Encoding.UTF8.GetBytes(file)) } }, out answer);
-                if (status != 201 && status != 409) throw Fail(status, answer);
-                status = Call("PATCH", "api/v1/uploads/" + file, report.Claim, null, attachment, new Dictionary<string, string> {
+                    { "Tus-Resumable", "1.0.0" }, { "Upload-Length", file.Data.Length.ToString() },
+                    { "Upload-Metadata", "attachment_id " + Convert.ToBase64String(Encoding.UTF8.GetBytes(attachment)) } }, out answer);
+                if (status != 201) throw Fail(status, answer);
+                status = Call("PATCH", "api/v1/uploads/" + attachment, report.Claim, null, file.Data, new Dictionary<string, string> {
                     { "Tus-Resumable", "1.0.0" }, { "Upload-Offset", "0" }, { "Content-Type", "application/offset+octet-stream" } }, out answer);
-                if (status != 204 && status != 409) throw Fail(status, answer);
-                status = Call("POST", "api/v1/reports/" + id + "/finalize", report.Claim, new Dictionary<string, object>(), null, null, out answer);
-                if (status != 200 && status != 201) throw Fail(status, answer);
+                if (status != 204) throw Fail(status, answer);
             }
-            report.Finished = true;
-            keep(report);
-            return report;
-        }
-
-        // What the service says of a sent report and the replies to it.
-        public ProblemReportState StateOf(ProblemReport report)
-        {
-            if (String.IsNullOrEmpty(report.ReportId)) return null;
-            Dictionary<string, object> answer;
-            try { if (Call("GET", "api/v1/reports/" + report.ReportId, report.Claim, null, null, null, out answer) != 200 || answer == null) return null; }
-            catch (ProblemReportException) { return null; }
-            var state = new ProblemReportState();
-            object value;
-            if (answer.TryGetValue("state", out value)) state.State = value as string;
-            if (answer.TryGetValue("replies", out value) && value is System.Collections.ArrayList)
-                foreach (var reply in (System.Collections.ArrayList)value)
-                {
-                    var fields = reply as Dictionary<string, object>;
-                    object body;
-                    if (fields != null && fields.TryGetValue("body", out body) && body is string) state.Replies.Add((string)body);
-                }
-            return state;
-        }
-    }
-
-    // The reports this person sent from this computer, kept with the claim
-    // that reads them, in their own profile.
-    internal sealed class ProblemReportBook
-    {
-        private readonly string file;
-        public ProblemReportBook() : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Waypoint", "reports.json")) { }
-        public ProblemReportBook(string file) { this.file = file; }
-
-        public List<ProblemReport> Load()
-        {
-            try { return new JavaScriptSerializer().Deserialize<List<ProblemReport>>(File.ReadAllText(file, Encoding.UTF8)) ?? new List<ProblemReport>(); }
-            catch (Exception) { return new List<ProblemReport>(); }
-        }
-
-        public void Keep(ProblemReport report)
-        {
-            var all = Load().Where(item => item.ClientId != report.ClientId).ToList();
-            all.Insert(0, report);
-            Directory.CreateDirectory(Path.GetDirectoryName(file));
-            string temporary = file + ".new";
-            File.WriteAllText(temporary, new JavaScriptSerializer().Serialize(all.Take(20).ToList()), new UTF8Encoding(false));
-            if (File.Exists(file)) File.Replace(temporary, file, null); else File.Move(temporary, file);
+            status = Call("POST", "api/v1/reports/" + id + "/finalize", report.Claim, new Dictionary<string, object>(), null, null, out answer);
+            if (status != 200 && status != 201) throw Fail(status, answer);
+            return id;
         }
     }
 }

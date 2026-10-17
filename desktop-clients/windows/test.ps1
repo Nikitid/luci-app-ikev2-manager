@@ -14,7 +14,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Client behavior tests failed' }
 # Compile native enforcement on every run; execute only when explicitly selected.
 $guardExecutable = Join-Path $output 'WfpGuardTests.exe'
 & $compiler /nologo "/resource:$(Join-Path $PSScriptRoot 'ManagedVpnProfile.ps1'),ManagedVpnProfile.ps1" /platform:x64 "/out:$guardExecutable" /r:System.Web.Extensions.dll /r:System.ServiceProcess.dll /r:System.Security.dll `
-    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') `
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProblemReports.cs') `
     (Join-Path $PSScriptRoot 'WfpGuard.cs') (Join-Path $PSScriptRoot 'GuardStore.cs') (Join-Path $PSScriptRoot 'GuardRuntime.cs') (Join-Path $PSScriptRoot 'SystemHosts.cs') (Join-Path $PSScriptRoot 'OwnedRasConnection.cs') (Join-Path $PSScriptRoot 'OwnedTunnelRoutes.cs') (Join-Path $PSScriptRoot 'ManagedVpnProfile.cs') (Join-Path $PSScriptRoot 'PolicyTransport.cs') `
     (Join-Path $PSScriptRoot 'EnrollmentRegistration.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
     (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'ServiceIntegrationTests.cs') (Join-Path $PSScriptRoot 'RestrictedAccessTests.cs') `
@@ -25,7 +25,7 @@ $guardExecutable = Join-Path $output 'WfpGuardTests.exe'
 if ($LASTEXITCODE -ne 0) { throw 'WFP tests failed to compile' }
 $serviceExecutable = Join-Path $output 'ClientService.exe'
 & $compiler /nologo "/resource:$(Join-Path $PSScriptRoot 'ManagedVpnProfile.ps1'),ManagedVpnProfile.ps1" /platform:x64 "/out:$serviceExecutable" /r:System.Web.Extensions.dll /r:System.ServiceProcess.dll /r:System.Security.dll `
-    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') `
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProblemReports.cs') `
     (Join-Path $PSScriptRoot 'WfpGuard.cs') (Join-Path $PSScriptRoot 'GuardStore.cs') `
     (Join-Path $PSScriptRoot 'GuardRuntime.cs') (Join-Path $PSScriptRoot 'SystemHosts.cs') (Join-Path $PSScriptRoot 'OwnedRasConnection.cs') (Join-Path $PSScriptRoot 'OwnedTunnelRoutes.cs') (Join-Path $PSScriptRoot 'RasTunnel.cs') (Join-Path $PSScriptRoot 'RouteObservation.cs') (Join-Path $PSScriptRoot 'ManagedVpnProfile.cs') (Join-Path $PSScriptRoot 'PolicyTransport.cs') `
     (Join-Path $PSScriptRoot 'EnrollmentRegistration.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'ClientCommandServer.cs') `
@@ -73,7 +73,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Enrollment transport tests failed to compile' 
 if ($LASTEXITCODE -ne 0) { throw 'Enrollment transport tests failed' }
 $commandsExecutable = Join-Path $output 'ClientCommandsTests.exe'
 & $compiler /nologo /platform:x64 "/out:$commandsExecutable" /r:System.Web.Extensions.dll `
-    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') `
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProblemReports.cs') `
     (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') (Join-Path $PSScriptRoot 'ClientCommands.cs') `
     (Join-Path $PSScriptRoot 'ClientCommandsTests.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Control protocol tests failed to compile' }
@@ -113,21 +113,21 @@ $appExecutable = Join-Path $output 'IKEv2ManagerClient.exe'
     /r:System.Windows.Forms.dll /r:System.Drawing.dll `
     (Join-Path $PSScriptRoot 'ClientStatusReader.cs') (Join-Path $PSScriptRoot 'ClientApp.cs') `
     (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
-    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs')
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProblemReports.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Client application failed to compile' }
 $browserExecutable = Join-Path $output 'BrowserNamesTests.exe'
 & $compiler /nologo /platform:x64 /main:BrowserNamesTests "/out:$browserExecutable" /r:System.Web.Extensions.dll `
     /r:System.Windows.Forms.dll /r:System.Drawing.dll `
     (Join-Path $PSScriptRoot 'ClientStatusReader.cs') (Join-Path $PSScriptRoot 'ClientApp.cs') `
     (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
-    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'BrowserNamesTests.cs')
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProblemReports.cs') (Join-Path $PSScriptRoot 'BrowserNamesTests.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Browser names test failed to compile' }
 & $browserExecutable
 if ($LASTEXITCODE -ne 0) { throw 'Browser names test failed' }
 # Drives an installed product; compiled here, run only by the integration fixture.
 & $compiler /nologo /platform:x64 "/out:$(Join-Path $output 'ProductIntegrationTests.exe')" /r:System.Web.Extensions.dll /r:System.ServiceProcess.dll `
     (Join-Path $PSScriptRoot 'ClientStatusReader.cs') (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'EnrollmentTransport.cs') `
-    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProductIntegrationTests.cs')
+    (Join-Path $PSScriptRoot 'ClientPolicy.cs') (Join-Path $PSScriptRoot 'ManagedHosts.cs') (Join-Path $PSScriptRoot 'ProblemReports.cs') (Join-Path $PSScriptRoot 'ProductIntegrationTests.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Installed product check failed to compile' }
 if ($Wfp) {
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())

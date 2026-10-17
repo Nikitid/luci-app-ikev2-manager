@@ -20,8 +20,6 @@ final class RecordingService: ReportTransport, @unchecked Sendable {
         case ("POST", "/api/v1/uploads"): return (201, Data())
         case ("PATCH", "/api/v1/uploads/att_1"): return (204, Data())
         case ("POST", "/api/v1/reports/rep_1/finalize"): return (200, Data(#"{"id":"rep_1","state":"received"}"#.utf8))
-        case ("GET", "/api/v1/reports/rep_1"):
-            return (200, Data(#"{"id":"rep_1","state":"in_progress","replies":[{"body":"Thanks, looking.","created_at":"2026-10-16T10:00:00Z"}]}"#.utf8))
         default: return (404, Data(#"{"error":"not_found"}"#.utf8))
         }
     }
@@ -35,69 +33,49 @@ final class RecordingService: ReportTransport, @unchecked Sendable {
 
     @Test func textAloneIsOneRequestThatSubmits() async throws {
         let service = RecordingService()
-        let report = ProblemReport.fresh(title: "Tunnel drops\nmore text")
-        #expect(report.claim.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil)
-        #expect(UUID(uuidString: report.clientID) != nil && report.title == "Tunnel drops")
-        let sent = try await ProblemReporter(endpoint: endpoint, transport: service)
-            .send(report, description: "Tunnel drops", contact: "", context: ["app_version": "2.3.0"], attachment: nil) { _ in }
-        #expect(sent.reportID == "rep_1" && sent.finished)
+        let id = try await ProblemReporter(endpoint: endpoint, transport: service)
+            .send(description: "Tunnel drops", contact: "", context: ["app_version": "2.3.0"], files: [])
+        #expect(id == "rep_1")
         #expect(service.calls.map { "\($0.method) \($0.path)" } == ["POST /api/v1/reports"])
         let body = service.json(0)
         #expect(body["project"] as? String == "waypoint" && body["submit"] as? Bool == true && body["contact"] == nil)
-        #expect(body["claim_token"] as? String == report.claim && body["client_id"] as? String == report.clientID)
-        #expect(service.calls[0].headers["Authorization"] == "Bearer " + report.claim)
+        let claim = body["claim_token"] as? String ?? ""
+        #expect(claim.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil)
+        #expect(UUID(uuidString: body["client_id"] as? String ?? "") != nil)
+        #expect(service.calls[0].headers["Authorization"] == "Bearer " + claim)
     }
 
-    @Test func aFileFollowsTheUploadContractAndIsSubmittedLast() async throws {
+    @Test func eachFileFollowsTheUploadContractAndTheReportIsSubmittedLast() async throws {
         let service = RecordingService()
-        let file = Data(#"{"state":"blocked"}"#.utf8)
-        let box = OSAllocatedUnfairLock(initialState: [ProblemReport]())
+        let picture = ReportFile(name: "picture-1.png", contentType: "image/png", data: Data([0x89, 0x50, 0x4e, 0x47]))
+        let state = ReportFile(name: "waypoint-state.json", contentType: "application/json", data: Data(#"{"state":"blocked"}"#.utf8))
         _ = try await ProblemReporter(endpoint: endpoint, transport: service)
-            .send(.fresh(title: "x"), description: "x", contact: "me@example.com", context: [:], attachment: file) { report in box.withLock { $0.append(report) } }
-        let seen = box.withLock { $0 }
-        #expect(service.calls.map { "\($0.method) \($0.path)" } == ["POST /api/v1/reports", "POST /api/v1/reports/rep_1/attachments",
-                                                                     "POST /api/v1/uploads", "PATCH /api/v1/uploads/att_1",
-                                                                     "POST /api/v1/reports/rep_1/finalize"])
+            .send(description: "x", contact: "me@example.com", context: [:], files: [picture, state])
+        let upload = ["POST /api/v1/reports/rep_1/attachments", "POST /api/v1/uploads", "PATCH /api/v1/uploads/att_1"]
+        #expect(service.calls.map { "\($0.method) \($0.path)" } == ["POST /api/v1/reports"] + upload + upload + ["POST /api/v1/reports/rep_1/finalize"])
         #expect(service.json(0)["submit"] == nil && service.json(0)["contact"] as? String == "me@example.com")
-        #expect(service.json(1)["size"] as? Int == file.count)
-        #expect(service.json(1)["sha256"] as? String == SHA256Hex.of(file))
+        #expect(service.json(1)["filename"] as? String == "picture-1.png" && service.json(1)["content_type"] as? String == "image/png")
+        #expect(service.json(1)["size"] as? Int == picture.data.count && service.json(1)["sha256"] as? String == SHA256Hex.of(picture.data))
         #expect(service.calls[2].headers["Upload-Metadata"] == "attachment_id " + Data("att_1".utf8).base64EncodedString())
-        #expect(service.calls[3].body == file)
-        // The report number is handed out to be kept before the file is sent.
-        #expect(seen.first?.reportID == "rep_1" && seen.first?.finished == false && seen.last?.finished == true)
+        #expect(service.calls[3].body == picture.data && service.calls[6].body == state.data)
+        #expect(service.json(4)["filename"] as? String == "waypoint-state.json")
+        // Every request carries the one claim of this report.
+        #expect(Set(service.calls.map { $0.headers["Authorization"] ?? "" }).count == 1)
     }
 
     @Test func failuresAreToldApart() async {
         let reporter = { (service: RecordingService) in ProblemReporter(endpoint: endpoint, transport: service) }
         let down = RecordingService(); down.down = true
         await #expect(throws: ProblemReportError.unreachable) {
-            try await reporter(down).send(.fresh(title: "x"), description: "x", contact: "", context: [:], attachment: nil) { _ in }
+            try await reporter(down).send(description: "x", contact: "", context: [:], files: [])
         }
         let paused = RecordingService(); paused.status = 404
         await #expect(throws: ProblemReportError.unavailable) {
-            try await reporter(paused).send(.fresh(title: "x"), description: "x", contact: "", context: [:], attachment: nil) { _ in }
+            try await reporter(paused).send(description: "x", contact: "", context: [:], files: [])
         }
     }
 
-    @Test func aSentReportIsReadWithItsClaim() async {
-        let service = RecordingService()
-        var report = ProblemReport.fresh(title: "x")
-        report.reportID = "rep_1"
-        let state = await ProblemReporter(endpoint: endpoint, transport: service).state(of: report)
-        #expect(state == ProblemReportState(state: "in_progress", replies: ["Thanks, looking."]))
-        #expect(service.calls.last?.headers["Authorization"] == "Bearer " + report.claim)
-    }
-
-    @Test func theBookKeepsReportsForThisUserOnly() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let book = ProblemReportBook(file: dir.appendingPathComponent("reports.json"))
-        var report = ProblemReport.fresh(title: "first")
-        book.keep(report)
-        report.reportID = "rep_1"
-        book.keep(report)
-        #expect(book.load() == [report])
-        let mode = try FileManager.default.attributesOfItem(atPath: dir.appendingPathComponent("reports.json").path)[.posixPermissions] as? Int
-        #expect(mode == 0o600)
-        try? FileManager.default.removeItem(at: dir)
+    @Test func eachReportHasItsOwnClaim() {
+        #expect(ProblemReport.fresh().claim != ProblemReport.fresh().claim)
     }
 }

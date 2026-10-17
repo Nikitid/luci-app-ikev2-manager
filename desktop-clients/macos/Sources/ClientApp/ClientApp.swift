@@ -182,35 +182,16 @@ final class ClientModel: ObservableObject {
     }
 
     // Problem reports to the developer: the person's words, an address for a
-    // reply if they give one, and the state report above if they tick it.
+    // reply if they give one, pictures they pasted and the state report above
+    // if they tick it. Sent and forgotten: nothing is kept here.
     @Published var reportMessage = ""
     @Published var reportSending = false
-    @Published var sentReports: [SentReport] = []
-    private let reportBook = ProblemReportBook()
 
-    struct SentReport: Identifiable {
-        let report: ProblemReport
-        let state: ProblemReportState?
-        var id: String { report.clientID }
-    }
-
-    func loadSentReports() {
-        let reports = reportBook.load().filter { $0.reportID != nil }
-        sentReports = reports.map { SentReport(report: $0, state: nil) }
-        Task {
-            var read: [SentReport] = []
-            for report in reports { read.append(SentReport(report: report, state: await ProblemReporter().state(of: report))) }
-            await MainActor.run { sentReports = read }
-        }
-    }
-
-    func sendReport(_ text: String, contact: String, attach: Bool) {
+    /// Called with true when the report went out, so the form can be cleared.
+    func sendReport(_ text: String, contact: String, attach: Bool, pictures: [Data], done: @escaping @MainActor (Bool) -> Void) {
         guard !reportSending else { return }
         reportSending = true
         reportMessage = "Отправка…"
-        let book = reportBook
-        var draft = ProblemReport.fresh(title: text)
-        book.keep(draft)
         var context: [String: String] = ["app_version": version.replacingOccurrences(of: "v", with: ""),
                                          "os_version": "macOS " + ProcessInfo.processInfo.operatingSystemVersionString,
                                          "language": Locale.preferredLanguages.first ?? ""]
@@ -220,15 +201,19 @@ final class ClientModel: ObservableObject {
         context["architecture"] = "x86_64"
         #endif
         if let state = status?.state { context["failure_code"] = state }
-        let attachment = attach ? Data(report.utf8) : nil
+        var files = pictures.enumerated().map { index, data in
+            data.starts(with: [0xff, 0xd8, 0xff])
+                ? ReportFile(name: "picture-\(index + 1).jpg", contentType: "image/jpeg", data: data)
+                : ReportFile(name: "picture-\(index + 1).png", contentType: "image/png", data: data)
+        }
+        if attach { files.append(ReportFile(name: "waypoint-state.json", contentType: "application/json", data: Data(report.utf8))) }
         Task {
             do {
-                draft = try await ProblemReporter().send(draft, description: text, contact: contact, context: context,
-                                                         attachment: attachment) { book.keep($0) }
+                _ = try await ProblemReporter().send(description: text, contact: contact, context: context, files: files)
                 await MainActor.run {
-                    reportMessage = "Отчёт отправлен. Ответы появятся здесь."
+                    reportMessage = "Отчёт отправлен."
                     reportSending = false
-                    loadSentReports()
+                    done(true)
                 }
             } catch let error as ProblemReportError {
                 let text: String
@@ -238,9 +223,9 @@ final class ClientModel: ObservableObject {
                 case .unreachable: text = "Сервис отчётов недоступен. Проверьте интернет и отправьте снова."
                 case .refused(let status, let code): text = "Сервис отклонил отчёт (" + String(status) + (code.isEmpty ? "" : ", " + code) + ")."
                 }
-                await MainActor.run { reportMessage = text; reportSending = false }
+                await MainActor.run { reportMessage = text; reportSending = false; done(false) }
             } catch {
-                await MainActor.run { reportMessage = "Отчёт не отправлен."; reportSending = false }
+                await MainActor.run { reportMessage = "Отчёт не отправлен."; reportSending = false; done(false) }
             }
         }
     }
@@ -374,6 +359,9 @@ struct ClientView: View {
     @State private var problem = ""
     @State private var problemContact = ""
     @State private var problemAttach = true
+    /// Pictures pasted with ⌘V or dropped on the form, as PNG or JPEG.
+    @State private var problemPictures: [Data] = []
+    @State private var pasteMonitor: Any?
     @State private var browsing = false
     @State private var removing = false
     /// "system", "light" or "dark": the look the user chose for this window.
@@ -516,42 +504,105 @@ struct ClientView: View {
                         if problem.isEmpty { Text("Что случилось и что вы делали перед этим").foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
                     }
                     .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
+                Text("Скриншот можно вставить через ⌘V или перетащить в это окно.").font(.caption).foregroundStyle(.secondary)
+                if !problemPictures.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(Array(problemPictures.enumerated()), id: \.offset) { index, data in
+                            ZStack(alignment: .topTrailing) {
+                                Group {
+                                    if let image = NSImage(data: data) { Image(nsImage: image).resizable().scaledToFill() }
+                                    else { Color.secondary.opacity(0.2) }
+                                }
+                                .frame(width: 96, height: 72).clipShape(RoundedRectangle(cornerRadius: 5))
+                                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
+                                Button { problemPictures.remove(at: index) } label: {
+                                    Image(systemName: "xmark.circle.fill").font(.system(size: 16)).symbolRenderingMode(.palette)
+                                        .foregroundStyle(.white, .black.opacity(0.6))
+                                }.buttonStyle(.plain).padding(3).help("Убрать")
+                            }
+                        }
+                    }
+                }
                 TextField("Почта для ответа (необязательно)", text: $problemContact).frame(width: 520)
                 Toggle("Приложить отчёт выше", isOn: $problemAttach)
                 if !model.reportMessage.isEmpty { Text(model.reportMessage).font(.callout).foregroundStyle(.secondary) }
-                if !model.sentReports.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Отправленные отчёты").font(.caption).foregroundStyle(.secondary)
-                        ForEach(model.sentReports) { sent in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(sent.report.sent.formatted(date: .abbreviated, time: .shortened) + " · " + (sent.state?.state.map(Self.reportState) ?? "статус неизвестен") + " · " + sent.report.title)
-                                    .font(.caption)
-                                ForEach(sent.state?.replies ?? [], id: \.self) { reply in
-                                    Text("Ответ: " + reply).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }.frame(width: 520, alignment: .leading)
-                }
                 HStack {
                     Button("Скопировать") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(model.report, forType: .string) }
                     Spacer()
                     Button("Закрыть") { reporting = false }
                     Button("Отправить") {
                         let contact = problemContact.trimmingCharacters(in: .whitespaces)
-                        model.sendReport(problem.trimmingCharacters(in: .whitespacesAndNewlines), contact: contact, attach: problemAttach)
-                        problem = ""
+                        model.sendReport(problem.trimmingCharacters(in: .whitespacesAndNewlines), contact: contact,
+                                         attach: problemAttach, pictures: problemPictures) { sent in
+                            guard sent else { return }
+                            problem = ""
+                            problemContact = ""
+                            problemPictures = []
+                        }
                     }.keyboardShortcut(.defaultAction)
                         .disabled(model.reportSending || problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                                   !(problemContact.isEmpty || problemContact.range(of: "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]+$", options: .regularExpression) != nil))
                 }
             }.padding(20)
-            .onAppear { model.loadSentReports() }
+            .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                for provider in providers {
+                    if provider.canLoadObject(ofClass: URL.self) {
+                        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                            guard let url, let data = try? Data(contentsOf: url) else { return }
+                            DispatchQueue.main.async { addPicture(data) }
+                        }
+                    } else {
+                        provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+                            guard let data else { return }
+                            DispatchQueue.main.async { addPicture(data) }
+                        }
+                    }
+                }
+                return true
+            }
+            .onAppear {
+                model.reportMessage = ""
+                // ⌘V with a picture on the clipboard and no text: the picture
+                // goes to the report, wherever the cursor is in the form.
+                pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                          event.charactersIgnoringModifiers == "v",
+                          NSPasteboard.general.string(forType: .string) == nil,
+                          let data = Self.pastedPicture() else { return event }
+                    addPicture(data)
+                    return nil
+                }
+            }
+            .onDisappear {
+                if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
+                pasteMonitor = nil
+            }
         }
     }
 
-    static func reportState(_ state: String) -> String {
-        ["received": "получен", "in_progress": "в работе", "resolved": "решён", "closed": "закрыт"][state] ?? state
+    /// The picture on the clipboard as PNG or JPEG, if there is one.
+    static func pastedPicture() -> Data? {
+        let board = NSPasteboard.general
+        if let png = board.data(forType: .png) { return png }
+        guard let image = NSImage(pasteboard: board), let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+
+    /// Adds a picture the service takes: PNG or JPEG of up to 5 MB, five at most.
+    private func addPicture(_ data: Data) {
+        var picture = data
+        if !(data.starts(with: [0x89, 0x50, 0x4e, 0x47]) || data.starts(with: [0xff, 0xd8, 0xff])) {
+            guard let image = NSImage(data: data), let tiff = image.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+                model.reportMessage = "Приложить можно только картинку."
+                return
+            }
+            picture = png
+        }
+        guard problemPictures.count < 5 else { model.reportMessage = "Можно приложить не больше пяти картинок."; return }
+        guard picture.count <= 5 * 1024 * 1024 else { model.reportMessage = "Картинку больше 5 МБ приложить нельзя."; return }
+        problemPictures.append(picture)
     }
 
     /// The whole application takes the look at once. Asking SwiftUI to go back
