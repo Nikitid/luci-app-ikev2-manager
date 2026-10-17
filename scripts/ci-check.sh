@@ -90,6 +90,7 @@ python3 ./scripts/test-client-enrollment.py
 ./scripts/test-tunnel-manager.sh
 ./scripts/test-tunnel-doctor.sh
 ./scripts/test-community-domains.sh
+./scripts/test-name-record.sh
 ./scripts/test-pbr-restart.sh
 ./scripts/test-discord-voice-routing.sh
 ./scripts/test-device-routing.sh

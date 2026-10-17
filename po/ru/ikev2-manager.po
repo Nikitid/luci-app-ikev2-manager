@@ -5730,3 +5730,47 @@ msgstr "Из каталога v2fly"
 
 msgid "Make a service of this list"
 msgstr "Сделать сервис из этого списка"
+
+msgid "Record an application"
+msgstr "Запись приложения"
+
+msgid "Records which names a device on your network asks the router for while you use an application on it, then puts them in a list or a service. The router's DNS restarts for about a second when a recording starts and when it ends; what every device asks is logged meanwhile and deleted at the end, and only the chosen device's names are shown."
+msgstr "Записывает, какие имена устройство в вашей сети запрашивает у роутера, пока вы пользуетесь на нём приложением, и позволяет добавить их в список или сервис. DNS роутера перезапускается примерно на секунду в начале и в конце записи; запросы всех устройств на это время записываются и удаляются в конце, показываются только имена выбранного устройства."
+
+msgid "Record"
+msgstr "Записать"
+
+
+msgid "Recording %s: %d:%02d left. Use the application on that device now."
+msgstr "Идёт запись %s: осталось %d:%02d. Пользуйтесь приложением на этом устройстве."
+
+msgid "Recorded %s."
+msgstr "Записано: %s."
+
+msgid "No names yet."
+msgstr "Пока ни одного имени."
+
+msgid "Add to my domains"
+msgstr "Добавить в мои домены"
+
+msgid "Make a service of them"
+msgstr "Сделать из них сервис"
+
+msgid "Could not start the recording"
+msgstr "Не удалось начать запись"
+
+msgid "Could not stop the recording"
+msgstr "Не удалось остановить запись"
+
+msgid "Starting..."
+msgstr "Запуск..."
+
+
+msgid "Device"
+msgstr "Устройство"
+
+msgid "For"
+msgstr "На"
+
+msgid "Stop"
+msgstr "Остановить"

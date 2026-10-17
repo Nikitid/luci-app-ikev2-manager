@@ -2308,6 +2308,11 @@ var CSS = `
 				gap: var(--ikev2-s5);
 				align-items: start;
 			}
+			.ikev2-record-state { margin: var(--ikev2-s3) 0; font-weight: 600; }
+			.ikev2-record-state:empty { display: none; }
+			.ikev2-record-groups { display: grid; gap: .45rem; margin-bottom: var(--ikev2-s3); }
+			.ikev2-record-group { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .6rem; align-items: baseline; cursor: pointer; }
+			.ikev2-record-group > .ikev2-toggle-sub { grid-column: 2; overflow-wrap: anywhere; }
 			/* A list that is not a service yet: a click makes one of it. */
 			.ikev2-chip.ikev2-chip-new { border-style: dashed; background: transparent; cursor: pointer; font: inherit; color: inherit; }
 			.ikev2-page .ikev2-quality-lower.single { grid-template-columns: minmax(0, 1fr); }

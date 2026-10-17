@@ -1018,6 +1018,49 @@ const v2flySearched = new Promise(function(resolve) { setTimeout(resolve, 0); })
 		search.listeners.input();
 	});
 });
+// Recording an application: the devices come from the leases, the names are
+// grouped by their domain, and the chosen ones go into the custom domains.
+const recorded = new Promise(function(resolve) { setTimeout(resolve, 0); }).then(function() {
+	const execBefore = fsStub.exec, resolveBefore = L.resolveDefault;
+	L.resolveDefault = function(promise, fallback) { return Promise.resolve(promise).catch(function() { return fallback; }); };
+	const asked = [];
+	fsStub.exec = function(file, args) {
+		const line = [ file ].concat(args || []).join(' ');
+		asked.push(line);
+		if (line === '/usr/libexec/ikev2-devices clients')
+			return Promise.resolve({ code: 0, stdout: '192.168.1.3\tphone\t02:00:00:00:00:01\n192.168.1.4\t\t02:00:00:00:00:02\n' });
+		if (line === '/usr/libexec/ikev2-name-record status')
+			return Promise.resolve({ code: 0, stdout: 'state=done\naddress=192.168.1.3\nuntil=1\nnow=2\napi.example.com 5\ncdn.example.com 2\nstatic.other.co.uk 1\n' });
+		return execBefore.apply(this, arguments);
+	};
+	const recordPage = editor.render([
+		'example.com\n', 'banks openai telegram', policyStatus,
+		{ code: 0, stdout: boardCatalog },
+		'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
+		{ code: 0, stdout: 'now=1789300000' }, '', '',
+		{ code: 0, stdout: 'tunnel=2\nname=NL\nenabled=1\n' }, 'openai 2\n@cidrs 2s\n',
+		{ code: 0, stdout: 'tunnel=1 up=1 address=10.0.0.2 carries=1\n' }
+	]);
+	return new Promise(function(done) { setTimeout(done, 5); }).then(function() {
+		fsStub.exec = execBefore;
+		L.resolveDefault = resolveBefore;
+		const select = nodesOf(recordPage).find(function(node) { return node.tagName === 'SELECT' && node.attrs['aria-label'] === 'Device'; });
+		if (!select || select.children.map(function(node) { return textOf(node).trim(); }).join('|') !== 'phone (192.168.1.3)|192.168.1.4')
+			fail('the devices to record are not the leased ones: ' + (select ? select.children.map(function(node) { return textOf(node).trim(); }).join('|') : 'none'));
+		const groups = nodesOf(recordPage).filter(function(node) { return hasClass(node, 'ikev2-record-group'); });
+		if (groups.map(function(node) { return textOf(node.children[1]).replace(/\s+/g, ' ').trim(); }).join('|') !== 'example.com · 7|other.co.uk · 1')
+			fail('the recorded names are not grouped by their domain: ' + groups.map(function(node) { return textOf(node.children[1]).trim(); }).join('|'));
+		const box = groups[0].children[0];
+		box.checked = true;
+		box.listeners.change();
+		const add = nodesOf(recordPage).find(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === 'Add to my domains'; });
+		if (!add || add.disabled) fail('the chosen domains cannot be added');
+		add.listeners.click();
+		const area = nodesOf(recordPage).find(function(node) { return node.tagName === 'TEXTAREA' && node.attrs.id === 'ikev2-domain-list'; });
+		if (!area || area.value.split('\n').indexOf('example.com') < 0 || area.value.split('\n').filter(function(line) { return line === 'example.com'; }).length !== 1)
+			fail('a recorded domain was not added once to the custom domains: ' + JSON.stringify(area && area.value));
+	});
+});
 // A click in the catalogue adds the service to the highlighted field.
 boardChip(boardPage, 'spotify').listeners.click();
 if (chipsIn(boardPage, '1') !== '@domains,spotify,telegram' || chipsIn(boardPage, 'catalog') !== '')
@@ -1152,17 +1195,17 @@ function traceSection() {
 		{ code: 0, stdout: '' }, ''
 	]);
 	const row = nodesOf(tabbed).find(function(node) { return hasClass(node, 'ikev2-tabs-row'); });
-	if (!row || row.children.map(function(node) { return textOf(node).trim(); }).join('|') !== 'Your lists|Never through the tunnel|Where a name goes|List sources')
+	if (!row || row.children.map(function(node) { return textOf(node).trim(); }).join('|') !== 'Your lists|Never through the tunnel|Where a name goes|Record an application|List sources')
 		fail('the lower part of the policy page is not under its tabs');
-	row.children[3].listeners.click();
+	row.children[4].listeners.click();
 	const panelsOf = function() { return nodesOf(tabbed).filter(function(node) { return hasClass(node, 'ikev2-tabs-panel'); })
 		.map(function(node) { return node.style.display === 'none' ? 0 : 1; }).join(''); };
-	if (panelsOf() !== '0001') fail('a tab did not open its panel: ' + panelsOf());
+	if (panelsOf() !== '00001') fail('a tab did not open its panel: ' + panelsOf());
 	const own = nodesOf(tabbed).find(function(node) { return node.attrs && node.attrs['data-target'] === '@domains'; });
 	own.listeners.click();
 	const editButton = nodesOf(tabbed).find(function(node) { return node.attrs && node.attrs['data-act'] === 'edit'; });
 	editButton.listeners.click();
-	if (panelsOf() !== '1000') fail('editing one\'s own domains did not bring their tab forward: ' + panelsOf());
+	if (panelsOf() !== '10000') fail('editing one\'s own domains did not bring their tab forward: ' + panelsOf());
 	const page = editor.render([
 		'', 'openai', policyStatus, { code: 0, stdout: 'openai|OpenAI|builtin|0|0|route\n' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
@@ -1681,7 +1724,7 @@ const tunnelAdopted = backupSaved.then(function() {
 	});
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted, problemStaged, v2flySearched ]).then(function() {
+Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted, problemStaged, v2flySearched, recorded ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

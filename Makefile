@@ -233,6 +233,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_BIN) ./luci-ikev2-domains/community-domains.sh $(1)/usr/libexec/ikev2-domains-community
 	$(INSTALL_BIN) ./luci-ikev2-domains/restart-pbr.sh $(1)/usr/libexec/ikev2-domains-restart
 	$(INSTALL_BIN) ./luci-ikev2-domains/ikev2-devices.sh $(1)/usr/libexec/ikev2-devices
+	$(INSTALL_BIN) ./luci-ikev2-domains/name-record.sh $(1)/usr/libexec/ikev2-name-record
 
 	$(INSTALL_DIR) $(1)/usr/share/pbr
 	$(INSTALL_BIN) ./ikev2-manager-runtime/pbr.user.ikev2out $(1)/usr/share/pbr/pbr.user.ikev2out

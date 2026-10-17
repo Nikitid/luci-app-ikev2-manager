@@ -11,6 +11,7 @@ var excludeAddressFile = '/etc/pbr-ikev2-addresses.exclude.txt';
 var selectedFile  = '/etc/pbr-ikev2-community-selected.txt';
 var statusFile    = '/tmp/ikev2-domains-community.status';
 var communityHelper = '/usr/libexec/ikev2-domains-community';
+var recordHelper = '/usr/libexec/ikev2-name-record';
 var domainRouterHelper = '/usr/libexec/ikev2-domain-router';
 var exitsFile = '/etc/pbr-ikev2-exits.txt';
 var managerHelper = '/usr/libexec/ikev2-manager';
@@ -1198,8 +1199,9 @@ return view.extend({
 
 		// One window for a new service and for an existing one: its name, what
 		// it covers and where it goes. The identifier comes from the name.
-		// LIST, for a new service, is a v2fly list it is made of.
-		function showServiceDialog(record, details, list) {
+		// LIST, for a new service, is a v2fly list it is made of; DOMAINS the
+		// names it starts with.
+		function showServiceDialog(record, details, list, domains) {
 			editingService = record || null;
 			var name = E('input', {
 				'class': 'cbi-input-text',
@@ -1220,7 +1222,7 @@ return view.extend({
 				area.value = text;
 				return area;
 			}
-			var domainsField = listField(details ? details.domains.replace(/\n+$/, '') : '',
+			var domainsField = listField(details ? details.domains.replace(/\n+$/, '') : (domains || ''),
 				'example.com\nstatic.example.com');
 			var cidrsField = listField(details ? details.cidrs.replace(/\n+$/, '') : '',
 				'203.0.113.0/24');
@@ -1529,6 +1531,7 @@ return view.extend({
 					_('One IPv4 address or CIDR network per line. Traffic to them never takes the tunnel, whatever selects it.'),
 					listAreas['@xcidrs']) ]) },
 			{ id: 'trace', title: _('Where a name goes'), content: buildTraceSection() },
+			{ id: 'record', title: _('Record an application'), content: buildRecordSection() },
 			{ id: 'sources', title: _('List sources'), content: buildSourcesSection(data[7]) }
 		], { key: 'routing' });
 
@@ -1775,6 +1778,135 @@ return view.extend({
 					]),
 					result.node,
 					answer
+				]));
+		}
+
+		// The names one device asks for while an application of it is used,
+		// grouped by the domain they belong to, to be put in a list or a
+		// service. The router records them for a few minutes.
+		function baseDomain(name) {
+			var labels = name.split('.');
+			var keep = labels.length > 2 && labels[labels.length - 1].length === 2 &&
+				/^(co|com|net|org|gov|edu|ac|or|ne|go)$/.test(labels[labels.length - 2]) ? 3 : 2;
+			return labels.slice(-keep).join('.');
+		}
+		function buildRecordSection() {
+			var device = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Device') });
+			var minutes = E('select', { 'class': 'cbi-input-select', 'aria-label': _('For') },
+				[ 2, 5, 10, 15 ].map(function(n) {
+					return E('option', { 'value': String(n), 'selected': n === 5 ? '' : null }, [ _('%d min').format(n) ]);
+				}));
+			var start = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button' }, [ _('Record') ]);
+			var stop = E('button', { 'class': 'cbi-button', 'type': 'button', 'style': 'display:none' }, [ _('Stop') ]);
+			var state = E('div', { 'class': 'ikev2-record-state' });
+			var groups = E('div', { 'class': 'ikev2-record-groups' });
+			var toDomains = E('button', { 'class': 'cbi-button cbi-button-action', 'type': 'button', 'disabled': '' }, [ _('Add to my domains') ]);
+			var toService = E('button', { 'class': 'cbi-button', 'type': 'button', 'disabled': '' }, [ _('Make a service of them') ]);
+			var actions = E('div', { 'class': 'ikev2-actions', 'style': 'display:none' }, [ toDomains, toService ]);
+			var result = common.inlineResult();
+			var timer = null;
+			var boxes = [];
+			L.resolveDefault(fs.exec('/usr/libexec/ikev2-devices', [ 'clients' ]), { stdout: '' }).then(function(response) {
+				var rows = String((response && response.stdout) || '').split('\n').map(function(line) {
+					return line.split('\t');
+				}).filter(function(cells) { return /^\d+\.\d+\.\d+\.\d+$/.test(cells[0] || ''); });
+				device.replaceChildren.apply(device, rows.map(function(cells) {
+					return E('option', { 'value': cells[0] }, [ cells[1] ? cells[1] + ' (' + cells[0] + ')' : cells[0] ]);
+				}));
+				start.disabled = !rows.length;
+			});
+			function checked() {
+				return boxes.filter(function(box) { return box.checked; }).map(function(box) { return box.value; });
+			}
+			function syncActions() {
+				var any = checked().length > 0;
+				toDomains.disabled = !any;
+				toService.disabled = !any;
+			}
+			function draw(text) {
+				var values = {}, counts = {};
+				String(text || '').split('\n').forEach(function(line) {
+					var at = line.indexOf('=');
+					var pair = line.split(' ');
+					if (at > 0 && line.indexOf(' ') < 0)
+						values[line.slice(0, at)] = line.slice(at + 1);
+					else if (pair.length === 2 && /^\d+$/.test(pair[1]))
+						counts[pair[0]] = +pair[1];
+				});
+				var recording = values.state === 'recording';
+				start.style.display = recording ? 'none' : '';
+				stop.style.display = recording ? '' : 'none';
+				device.disabled = minutes.disabled = recording;
+				var left = Math.max(0, (+values.until || 0) - (+values.now || 0));
+				state.textContent = recording ?
+					_('Recording %s: %d:%02d left. Use the application on that device now.').format(values.address, Math.floor(left / 60), left % 60) :
+					(values.state === 'done' ? _('Recorded %s.').format(values.address) : '');
+				var byBase = {};
+				Object.keys(counts).forEach(function(name) {
+					var base = baseDomain(name);
+					(byBase[base] = byBase[base] || { names: [], count: 0 }).names.push(name);
+					byBase[base].count += counts[name];
+				});
+				var bases = Object.keys(byBase).sort(function(a, b) { return byBase[b].count - byBase[a].count || (a < b ? -1 : 1); });
+				var keep = checked();
+				boxes = [];
+				groups.replaceChildren.apply(groups, bases.length ? bases.map(function(base) {
+					var box = E('input', { 'type': 'checkbox', 'value': base, 'checked': keep.indexOf(base) >= 0 ? '' : null });
+					boxes.push(box);
+					box.addEventListener('change', syncActions);
+					return E('label', { 'class': 'ikev2-record-group' }, [
+						box,
+						E('span', {}, [ E('strong', {}, [ base ]), ' · ' + byBase[base].count ]),
+						E('span', { 'class': 'ikev2-toggle-sub' }, [ byBase[base].names.join(', ') ])
+					]);
+				}) : (values.state && values.state !== 'idle' ? [ E('span', { 'class': 'ikev2-toggle-sub' }, [ _('No names yet.') ]) ] : []));
+				actions.style.display = bases.length ? '' : 'none';
+				syncActions();
+				if (timer)
+					window.clearTimeout(timer);
+				timer = recording ? window.setTimeout(refresh, 3000) : null;
+			}
+			function refresh() {
+				return L.resolveDefault(fs.exec(recordHelper, [ 'status' ]), { stdout: '' }).then(function(response) {
+					draw(response && response.stdout);
+				});
+			}
+			start.addEventListener('click', function() {
+				common.setBusy(start, true, _('Starting...'));
+				return common.execChecked(recordHelper, [ 'start', device.value, minutes.value ], _('Could not start the recording'))
+					.then(refresh, function(error) { result.err(error.message); })
+					.finally(function() { common.setBusy(start, false); });
+			});
+			stop.addEventListener('click', function() {
+				common.setBusy(stop, true, _('Stopping...'));
+				return common.execChecked(recordHelper, [ 'stop' ], _('Could not stop the recording'))
+					.then(refresh, function(error) { result.err(error.message); })
+					.finally(function() { common.setBusy(stop, false); });
+			});
+			toDomains.addEventListener('click', function() {
+				var area = listAreas['@domains'];
+				var have = String(area.value || '').split('\n').map(function(line) { return line.trim(); });
+				var added = checked().filter(function(base) { return have.indexOf(base) < 0; });
+				if (added.length) {
+					area.value = String(area.value || '').replace(/\n*$/, '') + (area.value ? '\n' : '') + added.join('\n') + '\n';
+					listText['@domains'] = area.value;
+					drawBoard();
+				}
+				showList('@domains');
+			});
+			toService.addEventListener('click', function() {
+				if (!serviceBusy)
+					showServiceDialog(null, null, null, checked().join('\n'));
+			});
+			refresh();
+			return common.section(_('Record an application'),
+				_('Records which names a device on your network asks the router for while you use an application on it, then puts them in a list or a service. The router\'s DNS restarts for about a second when a recording starts and when it ends; what every device asks is logged meanwhile and deleted at the end, and only the chosen device\'s names are shown.'),
+				E('div', {}, [
+					E('div', { 'class': 'ikev2-actions' }, [ device, minutes, start, stop ]),
+					result.node,
+					state,
+					groups,
+					actions
 				]));
 		}
 

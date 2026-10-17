@@ -120,6 +120,7 @@ install_file 755 ikev2-manager-runtime/ikev2-client-admin.sh /usr/libexec/ikev2-
 install_file 755 luci-ikev2-domains/community-domains.sh /usr/libexec/ikev2-domains-community
 install_file 755 luci-ikev2-domains/restart-pbr.sh /usr/libexec/ikev2-domains-restart
 install_file 755 luci-ikev2-domains/ikev2-devices.sh /usr/libexec/ikev2-devices
+install_file 755 luci-ikev2-domains/name-record.sh /usr/libexec/ikev2-name-record
 install_file 755 ikev2-manager-runtime/pbr.user.ikev2out /usr/share/pbr/pbr.user.ikev2out
 
 install_file 644 ikev2-manager-runtime/ca/isrg-root-x1.pem /usr/share/ikev2-manager/ca/isrg-root-x1.pem
