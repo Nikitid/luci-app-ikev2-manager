@@ -2151,6 +2151,10 @@ var CSS = `
 				box-shadow: var(--ikev2-e2);
 			}
 			.ikev2-page .ikev2-seg button.ikev2-tabs-add { min-width: 2.2rem; font-size: 1rem; line-height: 1; }
+			.ikev2-pill-row { display: inline-flex; flex-wrap: nowrap; gap: .4rem; white-space: nowrap; }
+			/* A segment on a tab of its own needs no card of its own. */
+			.ikev2-tabs-panel .ikev2-segment-block { padding: 0; border: 0; background: none; }
+			.ikev2-page .ikev2-seg .ikev2-tabs-split { align-self: stretch; width: 1px; margin: .3rem .45rem; background: var(--ikev2-border-strong, rgba(128, 128, 128, .45)); }
 			.ikev2-page .ikev2-seg button:focus-visible {
 				outline: 2px solid var(--ikev2-accent);
 				outline-offset: 1px;
@@ -2656,7 +2660,8 @@ function section(title, description, content, actions) {
 // closes it: for what is looked at now and then, kept out of the way. The
 // node carries hideTab(index, hidden) for a panel that does not apply, and
 // setTabs(from, items, select) for tabs that come and go - one per DNS
-// segment, say - after the fixed ones. `add` puts a "+" at the end of the row.
+// segment, say - after the fixed ones. `add` puts a "+" at the end of the row;
+// `split` draws a divider before that tab, between fixed tabs and the rest.
 function tabs(items, options) {
 	options = options || {};
 	items = items.slice();
@@ -2704,7 +2709,10 @@ function tabs(items, options) {
 		panels = items.map(function(item) {
 			return E('div', { 'class': 'ikev2-tabs-panel', 'style': 'display:none' }, [ item.content ]);
 		});
-		row.replaceChildren.apply(row, buttons.concat(add ? [ add ] : []));
+		var cells = buttons.concat(add ? [ add ] : []);
+		if (options.split != null && options.split < cells.length)
+			cells.splice(options.split, 0, E('span', { 'class': 'ikev2-tabs-split', 'aria-hidden': 'true' }));
+		row.replaceChildren.apply(row, cells);
 		node.replaceChildren.apply(node, [ row ].concat(panels));
 		draw();
 	}

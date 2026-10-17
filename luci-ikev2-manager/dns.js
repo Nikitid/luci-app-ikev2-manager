@@ -25,6 +25,7 @@ return view.extend({
 			return { id: ids[index], title: titles[index] || '', content: node };
 		}).concat(parts.segments.panels()), {
 			key: 'dns',
+			split: ids.length,
 			add: { label: _('Add DNS segment'), click: parts.segments.add }
 		});
 		parts.segments.watch(function(list, select) {

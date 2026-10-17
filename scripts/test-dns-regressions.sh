@@ -155,8 +155,8 @@ grep -Fq 'msgid "Resolve all names through the tunnel"' "$root/po/ru/ikev2-manag
 grep -Fq 'tunnelDnsApply.addEventListener' "$client"
 grep -Fq "writeClientInput('save')" "$client"
 grep -Fq 'if (wanted === applied)' "$client"
-# Segments are their own section and say so when the router resolver is bypassed.
-grep -Fq "common.section(_('Destination DNS segments')" "$client"
+# Segments say so when the router resolver is bypassed; that each is a tab of
+# its own is checked on the rendered DNS page (test-luci-client-ui.sh).
 grep -Fq 'routerDnsBypassNote' "$client"
 if grep -Fq "E('summary', {}, [ _('Destination DNS segments') ])" "$client"; then
 	printf '%s\n' 'destination segments are still hidden behind a disclosure' >&2

@@ -1936,8 +1936,9 @@ return baseclass.extend({
 				upstream.node, bootstrap.node, fallback.node ]);
 			node.saveButton = save;
 			node.segmentTitle = item ? (item.name || item.id) : _('New segment');
-			node.segmentPill = common.pill(item && item.enabled !== '1' ? _('Disabled') : _('Enabled'),
-				item && item.enabled !== '1' ? 'neutral' : 'good');
+			// A new segment is not on the router until it is saved.
+			node.segmentPill = !item ? common.pill(_('Not saved'), 'neutral') :
+				common.pill(item.enabled !== '1' ? _('Disabled') : _('Enabled'), item.enabled !== '1' ? 'neutral' : 'good');
 			return node;
 		}
 

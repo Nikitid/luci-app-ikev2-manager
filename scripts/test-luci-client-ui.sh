@@ -1429,15 +1429,20 @@ if (dnsHeadings.join('|') !== 'Tunnel DNS|Router DNS upstream|RU')
 // ends with a "+" that opens a new segment on a tab of its own.
 const dnsTree = dnsPage.render(data);
 function dnsTabs() { return tabButtons(dnsTree).map(function(node) { return textOf(node).trim(); }).join('|'); }
-if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream|RU|+' || shownPanels(dnsTree) !== '100')
+const splitAt = tabButtons(dnsTree).findIndex(function(node) { return hasClass(node, 'ikev2-tabs-split'); });
+if (splitAt !== 2)
+	fail('the global DNS settings are not set apart from the segments: divider at ' + splitAt);
+if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream||RU|+' || shownPanels(dnsTree) !== '100')
 	fail('the DNS page does not show the global settings and each segment as tabs, the first open: ' + dnsTabs() + ' ' + shownPanels(dnsTree));
-tabButtons(dnsTree)[3].listeners.click();
-if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream|RU|New segment|+' || shownPanels(dnsTree) !== '0001')
+tabButtons(dnsTree)[4].listeners.click();
+if (textOf(dnsTree).indexOf('Not saved') < 0)
+	fail('a new segment is shown as enabled before it is saved');
+if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream||RU|New segment|+' || shownPanels(dnsTree) !== '0001')
 	fail('the "+" does not open a new segment on a tab of its own: ' + dnsTabs() + ' ' + shownPanels(dnsTree));
 const discard = nodesOf(dnsTree).filter(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === 'Discard segment'; })[0];
 if (!discard) fail('a new segment cannot be discarded');
 discard.listeners.click();
-if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream|RU|+' || shownPanels(dnsTree) !== '001')
+if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream||RU|+' || shownPanels(dnsTree) !== '001')
 	fail('a discarded segment keeps its tab, or the one before it is not shown: ' + dnsTabs() + ' ' + shownPanels(dnsTree));
 if (!nodesOf(tunnelsPage.render([ { ready: false }, { ready: false } ])).some(function(node) { return hasClass(node, 'ikev2-empty'); }))
 	fail('the Tunnels page has nothing to say while strongSwan is missing');
