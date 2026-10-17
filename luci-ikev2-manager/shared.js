@@ -1019,6 +1019,8 @@ var CSS = `
 			}
 			.ikev2-choice-custom > select,
 			.ikev2-choice-custom > input { max-width: none; }
+			/* A label beside a list of servers stays by its first row. */
+			.ikev2-form-grid > .ikev2-field-label:has(+ .ikev2-dns-editor, + .ikev2-dns-cell) { align-self: start; padding-top: .55rem; }
 			/* As wide as the plain fields beside it, so a card keeps one edge. */
 			.ikev2-form-grid:not(.ikev2-form-grid-compact) > .ikev2-choice-custom { max-width: 34rem; }
 			.ikev2-choice-list {

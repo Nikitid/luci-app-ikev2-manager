@@ -1912,7 +1912,7 @@ return baseclass.extend({
 						_('Empty inherits the global resolver group, providing an independent recovery path.')),
 					// One cell: the note belongs under the list, not in the
 					// next row of the label column.
-					E('div', {}, [ fallback.node, fallbackEffective ]),
+					E('div', { 'class': 'ikev2-dns-cell' }, [ fallback.node, fallbackEffective ]),
 					common.toggleRow(wanFallback, _('Provider DNS as a last resort'),
 						_('Adds the DNS servers your internet provider hands out after the fallback servers. They answer in plain text and are asked only when every other server of this segment has failed.'))
 				]),
