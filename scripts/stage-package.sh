@@ -131,6 +131,7 @@ install_file 644 LICENSE /usr/share/licenses/luci-app-ikev2-manager/LICENSE
 install_file 644 NOTICE /usr/share/licenses/luci-app-ikev2-manager/NOTICE
 
 install_file 644 luci-ikev2-domains/community-services.txt /usr/share/ikev2-domains/community-services
+install_file 644 luci-ikev2-domains/community-service-names.txt /usr/share/ikev2-domains/service-names
 install_file 644 luci-ikev2-domains/public-suffixes.txt /usr/share/ikev2-domains/public-suffixes
 for source in "$root"/luci-ikev2-domains/local-services/*.lst; do
 	install_file 644 "${source#"$root/"}" "/usr/share/ikev2-domains/local-services/${source##*/}"

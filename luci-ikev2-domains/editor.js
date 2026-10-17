@@ -193,26 +193,9 @@ function normalizeAddresses(value) {
 	return addresses;
 }
 
+// A name for an id the router gave no name for, such as a list in the v2fly
+// picker. Prepared services come with their names from the router.
 function serviceLabel(name) {
-	var labels = {
-		openai: 'OpenAI',
-		anthropic_ai: 'Anthropic',
-		google_ai: 'Google AI',
-		x_ai: 'xAI',
-		hdrezka: 'HDRezka',
-		google_play: 'Google Play',
-		google_meet: 'Google Meet',
-		digitalocean: 'DigitalOcean',
-		cloudfront: 'CloudFront',
-		huggingface: 'Hugging Face',
-		linkedin: 'LinkedIn',
-		tiktok: 'TikTok',
-		stability_ai: 'Stability AI',
-		ovh: 'OVH',
-		youtube: 'YouTube'
-	};
-	if (labels[name])
-		return labels[name];
 	return name.replace(/_/g, ' ').replace(/\b\w/g, function(letter) {
 		return letter.toUpperCase();
 	});

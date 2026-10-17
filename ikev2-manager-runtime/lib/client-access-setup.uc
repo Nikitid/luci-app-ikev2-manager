@@ -66,6 +66,16 @@ function tunnels() {
 	}
 	return sort(keys(found));
 }
+// The names the administrator gave the extra tunnels, so the page offers
+// them as the other pages do. The main tunnel has none of its own.
+function tunnel_names() {
+	let names = {};
+	for (let line in split(command('/sbin/uci -q show ikev2-manager') ?? '', '\n')) {
+		let named = match(line, /^ikev2-manager\.tunnel_([2-7])\.name='([^']{1,64})'$/);
+		if (named) names[named[1]] = named[2];
+	}
+	return names;
+}
 function initialized() { return lstat(directory + '/initialized') != null; }
 function identity() {
 	let name = option('server.identity');
@@ -79,7 +89,7 @@ try {
 			enabled: option('client_access.enabled') == '1', port: match(port, /^[0-9]{4,5}$/) ? +port : 8443,
 			server_enabled: option('server.enabled') == '1', server_identity: identity(),
 			custom_server: option('server.custom_config') == '1', approve: option('client_access.approve') == '1',
-			virtual_subnet: state?.publication?.virtual_subnet, exit: state?.publication?.exit, tunnels: tunnels(),
+			virtual_subnet: state?.publication?.virtual_subnet, exit: state?.publication?.exit, tunnels: tunnels(), tunnel_names: tunnel_names(),
 			// Devices were enrolled for this name; the API answers under no other.
 			enrolled_identity: state?.publication?.server?.address }));
 	} else if (ARGV[0] == 'apply' && length(ARGV) == 1) {

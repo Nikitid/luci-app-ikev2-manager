@@ -408,7 +408,7 @@ function passwordDialog(title, username, action, includeUsername, pageResult, re
 
 // What the page around this panel may ask of it: to open its dialogs, to
 // name its accounts, and to be told when an account was made.
-var hooks = { created: null, add: null, policy: null, disconnectAll: null, names: null };
+var hooks = { created: null, add: null, policy: null, disconnectAll: null, disconnectAllButton: null, online: 0, names: null };
 
 function userDialog(title, entry, includeIdentity, pageResult, refresh) {
 	entry = entry || {};
@@ -713,12 +713,17 @@ return baseclass.extend({
 			}, 0);
 			common.setPill(userCount, _('%d users').format(users.length), 'info');
 			common.setPill(onlineCount, _('%d online').format(online), online ? 'good' : 'neutral');
-			if (disconnectAll) {
-				if (disconnectAll.dataset.busy === '1')
-					disconnectAll.dataset.idleDisabled = online ? '0' : '1';
+			hooks.online = online;
+			// This panel's own button, and the one the Users page keeps beside
+			// its search: with no session there is nothing to disconnect.
+			[ disconnectAll, hooks.disconnectAllButton ].forEach(function(button) {
+				if (!button)
+					return;
+				if (button.dataset.busy === '1')
+					button.dataset.idleDisabled = online ? '0' : '1';
 				else
-					disconnectAll.disabled = !online;
-			}
+					button.disabled = !online;
+			});
 			renderList();
 		}
 
@@ -796,6 +801,13 @@ return baseclass.extend({
 	addUser: function() { return hooks.add ? (hooks.add(), true) : false; },
 	accessPolicy: function(name) { return hooks.policy ? hooks.policy(name) : false; },
 	disconnectAll: function(button) { return hooks.disconnectAll ? hooks.disconnectAll(button) : null; },
+	// A button of the page that disconnects everyone: enabled only while
+	// someone is connected.
+	bindDisconnectAll: function(button) {
+		hooks.disconnectAllButton = button;
+		button.disabled = !hooks.online;
+		return button;
+	},
 	names: function() { return hooks.names ? hooks.names() : []; },
 	handleSaveApply: null,
 	handleSave: null,

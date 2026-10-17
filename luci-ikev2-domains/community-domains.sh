@@ -36,6 +36,7 @@ bypass_cidr_file="${IKEV2_BYPASS_CIDR_FILE:-/etc/pbr-ikev2-addresses.bypass.txt}
 exits_file="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
 client_state_file="${IKEV2_CLIENT_STATE_FILE:-/etc/ikev2-manager/clients/state.json}"
 catalog_file="${IKEV2_CATALOG_FILE:-/usr/share/ikev2-domains/community-services}"
+service_names_file="${IKEV2_SERVICE_NAMES_FILE:-/usr/share/ikev2-domains/service-names}"
 public_suffix_file="${IKEV2_PUBLIC_SUFFIXES:-/usr/share/ikev2-domains/public-suffixes}"
 subnet_catalog_file="${IKEV2_SUBNET_CATALOG_FILE:-/etc/pbr-ikev2-community-subnet-services}"
 cache_dir="${IKEV2_CACHE_DIR:-/etc/pbr-ikev2-community-cache}"
@@ -290,9 +291,12 @@ base_service_exists() {
 		grep -Fxq "$service" "$catalog_file" 2>/dev/null
 }
 
+# The name the administrator gave, else the one the package ships for a
+# prepared service, else the id. One place, so every page names it alike.
 service_label() {
 	local service="$1" label
 	label="$(sed -n '1p' "$user_services_dir/$service.name" 2>/dev/null || true)"
+	[ -n "$label" ] || label="$(awk -F'|' -v id="$service" '$1 == id { print $2; exit }' "$service_names_file" 2>/dev/null || true)"
 	[ -n "$label" ] && printf '%s\n' "$label" || printf '%s\n' "$service"
 }
 

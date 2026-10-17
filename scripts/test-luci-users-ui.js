@@ -125,6 +125,7 @@ function setBusy(button, busy) {
 }
 
 let users = [];
+let swanmonOut = '{"errors":[],"data":[]}';
 const linkRequests = [];
 const qrPayloads = [];
 const uqr = { renderSVG: text => { qrPayloads.push(text); return '<svg width="10" height="10"></svg>'; } };
@@ -134,7 +135,7 @@ const fileApi = {
 	stat: () => Promise.resolve({}),
 	write: (path, payload) => { userInput = payload; return Promise.resolve(); },
 	exec: (path, args) => {
-		if (path === '/usr/sbin/swanmon') return Promise.resolve({ stdout: '[]' });
+		if (path === '/usr/sbin/swanmon') return Promise.resolve({ stdout: swanmonOut });
 		if (args[0] === 'users-show') return Promise.resolve({
 			stdout: users.map(user => [
 				user.name, user.routerAccess, user.internetAccess,
@@ -181,7 +182,8 @@ const fileApi = {
 
 const common = {
 	trackChanges: () => ({ update() {}, reset() {}, dirty: () => true }),
-	parseSwanmon: response => JSON.parse(response.stdout || '[]'),
+	// As swanmon prints it: {"errors": [], "data": [ {<connection>: {...}} ]}.
+	parseSwanmon: response => JSON.parse(response.stdout || '{}').data || [],
 	parseKeyValues: text => String(text || '').split('\n').reduce((result, line) => {
 		const pos = line.indexOf('=');
 		if (pos >= 0) result[line.slice(0, pos)] = line.slice(pos + 1);
@@ -220,7 +222,8 @@ const ui = {
 	showModal: (title, nodes) => { modal = E('div', {}, nodes); },
 	hideModal: () => { modal = null; }
 };
-const poll = { add: () => {} };
+const polls = [];
+const poll = { add: fn => { polls.push(fn); } };
 const L = { resolveDefault: (promise, fallback) => Promise.resolve(promise).catch(() => fallback) };
 const windowMock = { confirm: () => true, setTimeout, Event: function() {},
 	location: { origin: 'http://192.168.1.1' } };
@@ -313,6 +316,18 @@ const page = factory(view, fileApi, ui, poll, common, L, E, translate, windowMoc
 	assert(root.textContent.includes('0 users'), 'user count updates after deletion');
 	assert.strictEqual(find(root, 'button', 'Disconnect all').disabled, true,
 		'disconnect-all stays disabled when refreshed state has no sessions');
+
+	// The Users page keeps its own Disconnect all beside the search: it
+	// follows the sessions like the panel's, from the moment it is bound.
+	const outer = E('button', {}, [ 'Disconnect all' ]);
+	page.bindDisconnectAll(outer);
+	assert.strictEqual(outer.disabled, true, 'the page button is enabled with nobody connected');
+	swanmonOut = JSON.stringify({ errors: [], data: [ { 'ikev2-in': { 'remote-eap-id': 'alice', 'child-sas': {} } } ] });
+	await Promise.all(polls.map(fn => fn()));
+	assert.strictEqual(outer.disabled, false, 'the page button stays disabled while someone is connected');
+	swanmonOut = '{"errors":[],"data":[]}';
+	await Promise.all(polls.map(fn => fn()));
+	assert.strictEqual(outer.disabled, true, 'the page button stays enabled after everyone left');
 
 	console.log('luci users UI state refresh tests OK');
 })().catch(error => {

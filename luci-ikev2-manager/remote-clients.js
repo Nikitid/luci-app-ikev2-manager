@@ -56,8 +56,10 @@ function setupSection(settings, reload) {
   'value': settings.virtual_subnet || '172.31.240.0/20', 'disabled': settings.initialized ? '' : null });
  var exits = [];
  settings.tunnels.forEach(function(index) {
-  exits.push([ index, settings.tunnels.length > 1 ? _('Tunnel %s, another tunnel when it fails').format(index) : _('Tunnel %s').format(index) ]);
-  if (settings.tunnels.length > 1) exits.push([ index + 's', _('Tunnel %s only').format(index) ]);
+  // Named as on the Tunnels page: the main one, or the name it was given.
+  var name = index === '1' ? _('Main tunnel') : ((settings.tunnel_names || {})[index] || _('Tunnel %s').format(index));
+  exits.push([ index, settings.tunnels.length > 1 ? _('%s, another tunnel when it fails').format(name) : name ]);
+  if (settings.tunnels.length > 1) exits.push([ index + 's', _('%s only').format(name) ]);
  });
  var exit = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Exit tunnel') }, exits.map(function(item) {
   return E('option', { 'value': item[0], 'selected': item[0] === (settings.exit || '1') ? '' : null }, [ item[1] ]);
@@ -72,7 +74,7 @@ function setupSection(settings, reload) {
   notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('The inbound server runs your own configuration, which this page does not change. For macOS devices add to it a connection named ikev2-in-managed that answers the identity *@managed.ikev2-manager and offers only the virtual subnet; without it a Mac refuses the tunnel, because it would carry all of its traffic.') ]));
  if (!settings.tunnels.length)
   notes.push(E('div', { 'class': 'ikev2-note warn' }, [ _('Enable an outbound tunnel first: selected services leave through it.') ]));
- save = E('button', { 'class': 'cbi-button cbi-button-positive', 'type': 'button',
+ save = E('button', { 'class': 'cbi-button ' + (settings.initialized ? 'cbi-button-apply' : 'cbi-button-positive'), 'type': 'button',
   'disabled': !settings.server_identity || !settings.tunnels.length ? '' : null, 'click': function() {
   var number = Number(port.value.trim());
   if (!/^[0-9]{4,5}$/.test(port.value.trim()) || number < 1024 || number > 65535) { result.err(_('Enter a port from 1024 to 65535.')); return; }
@@ -87,6 +89,10 @@ function setupSection(settings, reload) {
     timeout: 330000, onSuccess: reload });
   }, function() { result.err(_('Could not stage remote client settings.')); });
  } }, [ settings.initialized ? _('Save') : _('Set up remote clients') ]);
+ // Set up once, then saved only when something was changed, as on the other pages.
+ if (settings.initialized)
+  common.trackChanges(save, [ enabled, approve, port, exit ], {
+   blocked: function() { return !settings.server_identity || !settings.tunnels.length; } });
  return common.section(settings.initialized ? _('Remote access') : _('Set up remote clients'),
   settings.initialized ? null : _('Devices register over HTTPS and reach the selected services through the inbound server.'),
   E('div', {}, notes.concat([
@@ -149,7 +155,7 @@ function mailSection(mail, reload) {
  });
  user.addEventListener('input', function() { if (!from.dataset.typed && /@/.test(user.value)) from.value = user.value; });
  from.addEventListener('input', function() { from.dataset.typed = '1'; });
- save = E('button', { 'class': 'cbi-button cbi-button-positive', type: 'button', click: function() {
+ save = E('button', { 'class': 'cbi-button cbi-button-apply', type: 'button', click: function() {
   var request;
   try {
    if (!/^[0-9]{1,5}$/.test(port.value.trim()) || Number(port.value) < 1 || Number(port.value) > 65535) throw new Error(_('Enter a port from 1 to 65535.'));
@@ -170,6 +176,7 @@ function mailSection(mail, reload) {
    body: _('This is a test message from your router. Mail for invitation links works.') + '\n' },
    [ _('Sending...'), _('Test message sent.'), _('Could not send the test message.') ]);
  } }, [ _('Send test') ]);
+ common.trackChanges(save, [ preset, host, port, security, user, password, from, alerts ]);
  return common.section(_('Mail for invitation links'), _('Optional. Links can then be sent to a person by e-mail.'), E('div', {}, [
   mail.available ? '' : E('div', { 'class': 'ikev2-note warn' }, [ _('The mail program is not installed yet: it is installed when these settings are saved.') ]),
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
@@ -588,6 +595,7 @@ function pageStyles() {
   '.ikev2-page .ikev2-mode .ikev2-platform-action { color: var(--ikev2-muted); opacity: .55; }' +
   '.ikev2-page .ikev2-mode .ikev2-platform-action.is-on { color: var(--ikev2-accent); opacity: 1; }' +
   '.ikev2-page .ikev2-mode .ikev2-platform-action[disabled] { cursor: default; }' +
+  '.ikev2-page .ikev2-platform-action[disabled] { opacity: .4; cursor: default; }' +
   '.ikev2-page .ikev2-person-devices { display: grid; gap: .6rem; padding-top: .75rem; border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: nowrap; }' +
   '.ikev2-page .ikev2-form-grid + .ikev2-actions.end { margin-top: 1rem; }' +
@@ -1252,7 +1260,7 @@ return view.extend({
    (managed.replaceChildren(
     common.section(_('People'), _('Waypoint devices on Windows and macOS reach selected services; VPN profiles are for phones and other devices.'),
      E('div', {}, [ E('div', { 'class': 'ikev2-people-bar' }, [ summary, E('span', { 'style': 'display:inline-flex;align-items:center;gap:.4rem;min-width:0;flex:0 1 24rem' }, [ E('div', { 'class': 'ikev2-search-box', 'style': 'flex:1 1 auto' }, [ magnifier(), search ]),
-       vpnUsers.disconnectAll ? signButton('disconnectAll', _('Disconnect all'), 'cbi-button-negative', function(ev) { return vpnUsers.disconnectAll(ev.currentTarget); }) : '' ]) ]),
+       vpnUsers.disconnectAll ? vpnUsers.bindDisconnectAll(signButton('disconnectAll', _('Disconnect all'), 'cbi-button-negative', function(ev) { return vpnUsers.disconnectAll(ev.currentTarget); })) : '' ]) ]),
       devices, E('div', { 'class': 'ikev2-actions end' }, [ result.node ]) ]), E('span', { 'class': 'ikev2-people-actions' }, [ windowsApp, invite ])),
     vpnMain,
     common.section(_('Services for Waypoint'), _('A service published here works for Waypoint devices whether or not Policy Routing uses it for the router\'s own networks. A device reaches the names of the service on the ports listed. A service Policy Routing sends through a tunnel leaves that way for devices too; any other leaves through the exit tunnel chosen under Settings. A change of a list reaches the devices within an hour, or at once with the button.'),

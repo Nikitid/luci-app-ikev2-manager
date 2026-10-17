@@ -1,0 +1,27 @@
+anthropic_ai|Anthropic
+cloudflare|Cloudflare
+cloudfront|CloudFront
+digitalocean|DigitalOcean
+discord|Discord
+google_ai|Google AI
+google_meet|Google Meet
+google_play|Google Play
+hdrezka|HDRezka
+hetzner|Hetzner
+huggingface|Hugging Face
+linkedin|LinkedIn
+meta|Meta
+midjourney|Midjourney
+mistral|Mistral
+openai|OpenAI
+ovh|OVH
+perplexity|Perplexity
+roblox|Roblox
+spotify|Spotify
+stability_ai|Stability AI
+telegram|Telegram
+tiktok|TikTok
+twitter|Twitter
+x_ai|xAI
+youtube|YouTube
+zoom|Zoom

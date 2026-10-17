@@ -220,6 +220,10 @@ async function main() {
  const setupInputs = nodes(first).filter(n => n.tagName === 'INPUT');
  const portInput = setupInputs.find(n => n.attrs['aria-label'] === 'Registration port');
  assert.strictEqual(nodes(first).find(n => n.tagName === 'SELECT').children.length, 4, 'each tunnel offers a failover and a bound exit');
+ // Tunnels are named as on the Tunnels page, not by their numbers.
+ const named = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {tunnel_names:{'2':'NL'}}))}], null]);
+ assert.deepStrictEqual(nodes(named).find(n => n.tagName === 'SELECT').children.map(o => text(o).trim()),
+  ['Main tunnel, another tunnel when it fails', 'Main tunnel only', 'NL, another tunnel when it fails', 'NL only'], 'the exit tunnels are not offered by name');
  portInput.value = '80'; const before = written.length;
  await click(button(first,'Set up remote clients'));
  assert.strictEqual(written.length, before, 'a privileged port cannot be staged'); assert(text(first).includes('1024 to 65535'));
@@ -247,6 +251,16 @@ async function main() {
  alertsField.value = 'not an address';
  const saves = nodes(withMail).filter(n => n.tagName === 'BUTTON' && text(n).trim() === 'Save');
  const saveMail = saves[saves.length - 1];
+ // Saved only when something was changed, as on the other pages.
+ assert.strictEqual(saveMail.disabled, true, 'the mail settings can be saved unchanged');
+ alertsField.value = 'admin@example.com'; alertsField.listeners.input();
+ assert.strictEqual(saveMail.disabled, false, 'a changed mail setting cannot be saved');
+ const remoteSave = saves[0];
+ assert.strictEqual(remoteSave.disabled, true, 'the remote access settings can be saved unchanged');
+ const portField = nodes(withMail).find(n => n.attrs['aria-label'] === 'Registration port');
+ portField.value = '9444'; portField.listeners.input();
+ assert.strictEqual(remoteSave.disabled, false, 'a changed remote access setting cannot be saved');
+ alertsField.value = 'not an address';
  await click(saveMail);
  assert.strictEqual(written.length, writtenBefore, 'an alert address that is not one was written');
  alertsField.value = ' admin@example.com ';

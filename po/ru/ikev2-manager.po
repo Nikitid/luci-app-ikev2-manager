@@ -4680,11 +4680,11 @@ msgstr "Порт регистрации"
 msgid "Virtual subnet"
 msgstr "Виртуальная подсеть"
 
-msgid "Tunnel %s, another tunnel when it fails"
-msgstr "Туннель %s, при сбое - другой туннель"
+msgid "%s, another tunnel when it fails"
+msgstr "%s, при сбое - другой туннель"
 
-msgid "Tunnel %s only"
-msgstr "Только туннель %s"
+msgid "%s only"
+msgstr "%s, без запасного"
 
 msgid "Exit for remote clients"
 msgstr "Выход для удалённых клиентов"

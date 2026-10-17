@@ -93,6 +93,13 @@ uci set firewall.@zone[-1].forward=REJECT
 uci commit firewall
 [ "$(shown server_identity)" = vpn.example.com ]
 [ "$(shown 'tunnels[0]')" = 1 ]
+# An extra tunnel is offered by the name it was given, as the other pages do.
+uci set ikev2-manager.tunnel_2=tunnel
+uci set ikev2-manager.tunnel_2.enabled=1
+uci set ikev2-manager.tunnel_2.name=NL
+[ "$(shown 'tunnels[1]')" = 2 ]
+"$bridge" client-admin-settings | jsonfilter -e '@.tunnel_names' | grep -q '"2": *"NL"'
+uci revert ikev2-manager.tunnel_2
 
 step=refusals
 for request in \

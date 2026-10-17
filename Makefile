@@ -250,6 +250,7 @@ define Package/luci-app-ikev2-manager/install
 
 	$(INSTALL_DIR) $(1)/usr/share/ikev2-domains/local-services
 	$(INSTALL_DATA) ./luci-ikev2-domains/community-services.txt $(1)/usr/share/ikev2-domains/community-services
+	$(INSTALL_DATA) ./luci-ikev2-domains/community-service-names.txt $(1)/usr/share/ikev2-domains/service-names
 	$(INSTALL_DATA) ./luci-ikev2-domains/public-suffixes.txt $(1)/usr/share/ikev2-domains/public-suffixes
 	$(INSTALL_DATA) ./luci-ikev2-domains/local-services/*.lst $(1)/usr/share/ikev2-domains/local-services/
 	$(INSTALL_DATA) ./luci-ikev2-domains/local-services/*.source $(1)/usr/share/ikev2-domains/local-services/

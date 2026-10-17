@@ -91,6 +91,8 @@ cat >"$tmp/local/direct.cidrs" <<'EOF'
 EOF
 printf '%s\n' direct local remote >"$tmp/selected"
 printf '%s\n' direct local remote unsafe >"$tmp/catalog"
+# Names the package ships for prepared services; "direct" has none.
+printf '%s\n' 'remote|Remote Lists' 'local|Local Lists' >"$tmp/service-names"
 : >"$tmp/manual"
 printf '%s\n' 203.0.113.10 198.51.100.0/24 >"$tmp/manual-cidrs"
 
@@ -120,6 +122,7 @@ run_helper() (
 	IKEV2_USER_SERVICES_DIR="$tmp/user" \
 	IKEV2_SERVICE_INPUT_PREFIX="$tmp/service-input" \
 	IKEV2_CATALOG_FILE="$tmp/catalog" \
+	IKEV2_SERVICE_NAMES_FILE="$tmp/service-names" \
 	IKEV2_PUBLIC_SUFFIXES="${IKEV2_PUBLIC_SUFFIXES:-$root/luci-ikev2-domains/public-suffixes.txt}" \
 	IKEV2_RAW_BASE=https://lists.invalid \
 	IKEV2_SUBNET_RAW_BASE=https://lists.invalid/Subnets/IPv4 \
@@ -325,6 +328,11 @@ grep -Fxq othbank.example "$tmp/bypass" && grep -Fxq 203.0.113.64/26 "$tmp/bypas
 	{ printf 'an exclusion service was routed through the tunnel\n' >&2; exit 1; }
 run_helper services | grep -Fxq 'banks|Banks|custom|1|1|exclude' ||
 	{ printf 'the catalogue does not say the service excludes\n' >&2; exit 1; }
+# A prepared service is listed by the name the package ships, one without a
+# shipped name by its id, so every page names it alike.
+run_helper services >"$tmp/named.out"
+grep -q '^remote|Remote Lists|builtin|' "$tmp/named.out" && grep -q '^direct|direct|builtin|' "$tmp/named.out" ||
+	{ printf 'prepared services are not listed by their shipped names: %s\n' "$(cat "$tmp/named.out")" >&2; exit 1; }
 # A place given on the page wins over that mark: sent to the first tunnel,
 # the service is routed again, and without a place it is excluded as before.
 printf 'banks 1\n' >"$tmp/exits"
