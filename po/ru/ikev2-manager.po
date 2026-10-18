@@ -5774,3 +5774,12 @@ msgstr "На"
 
 msgid "Stop"
 msgstr "Остановить"
+
+msgid "All v2fly lists"
+msgstr "Все списки v2fly"
+
+msgid "Hide v2fly lists"
+msgstr "Скрыть списки v2fly"
+
+msgid "Hide v2fly lists (%d)"
+msgstr "Скрыть списки v2fly (%d)"

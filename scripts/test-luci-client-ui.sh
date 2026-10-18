@@ -1018,6 +1018,48 @@ const v2flySearched = new Promise(function(resolve) { setTimeout(resolve, 0); })
 		search.listeners.input();
 	});
 });
+// The whole v2fly catalogue on request, without what the catalogue already
+// has, filtered by the same search, on a page of its own.
+const v2flyBrowsed = new Promise(function(resolve) { setTimeout(resolve, 0); }).then(function() {
+	const execBefore = fsStub.exec, resolveBefore = L.resolveDefault;
+	L.resolveDefault = function(promise, fallback) { return Promise.resolve(promise).catch(function() { return fallback; }); };
+	fsStub.exec = function(file, args) {
+		if ((args || [])[0] === 'v2fly-names')
+			return Promise.resolve({ code: 0, stdout: 'openai\ntiktok\ntiktok-ads\ngoogle\nbad name\n' });
+		return execBefore.apply(this, arguments);
+	};
+	const browsePage = editor.render([
+		'example.com\n', 'banks openai telegram', policyStatus,
+		{ code: 0, stdout: boardCatalog },
+		'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
+		{ code: 0, stdout: 'now=1789300000' }, '', '',
+		{ code: 0, stdout: 'tunnel=2\nname=NL\nenabled=1\n' }, 'openai 2\n@cidrs 2s\n',
+		{ code: 0, stdout: 'tunnel=1 up=1 address=10.0.0.2 carries=1\n' }
+	]);
+	const offeredNow = function() {
+		return nodesOf(browsePage).filter(function(node) { return hasClass(node, 'ikev2-chip-new'); })
+			.map(function(node) { return textOf(node).trim(); }).join('|');
+	};
+	const all = nodesOf(browsePage).find(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === 'All v2fly lists'; });
+	if (!all) fail('the catalogue has no way to show every v2fly list');
+	all.listeners.click();
+	return new Promise(function(done) { setTimeout(done, 5); }).then(function() {
+		fsStub.exec = execBefore;
+		L.resolveDefault = resolveBefore;
+		if (offeredNow() !== '+ google|+ tiktok|+ tiktok-ads')
+			fail('the whole v2fly catalogue is not shown without the prepared services: ' + offeredNow());
+		if (textOf(all).trim() !== 'Hide v2fly lists (3)')
+			fail('the button does not say how to hide the lists: ' + textOf(all).trim());
+		const search = nodesOf(browsePage).find(function(node) { return node.tagName === 'INPUT' && node.attrs.placeholder === 'Find a service'; });
+		search.value = 'goo';
+		search.listeners.input();
+		if (offeredNow() !== '+ google') fail('the search does not filter the whole catalogue: ' + offeredNow());
+		search.value = '';
+		search.listeners.input();
+		all.listeners.click();
+		if (offeredNow() !== '') fail('the v2fly lists stay after they were hidden: ' + offeredNow());
+	});
+});
 // Recording an application: the devices come from the leases, the names are
 // grouped by their domain, and the chosen ones go into the custom domains.
 const recorded = new Promise(function(resolve) { setTimeout(resolve, 0); }).then(function() {
@@ -1736,7 +1778,7 @@ const tunnelAdopted = backupSaved.then(function() {
 	});
 });
 
-Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted, problemStaged, v2flySearched, recorded ]).then(function() {
+Promise.all([ dnsSent, reportSaved, policySaved, dialogSaved, respectStored, exitStored, backupSaved, tunnelAdopted, problemStaged, v2flySearched, v2flyBrowsed, recorded ]).then(function() {
 	process.stdout.write('client UI render tests OK\n');
 });
 JS

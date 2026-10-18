@@ -1034,8 +1034,10 @@ return view.extend({
 		}
 		// The whole v2fly catalogue, read once, the first time something is
 		// searched for: a search names lists from it beside the prepared ones.
-		var v2flyNames = null, v2flyAsked = false;
-		function v2flyMatches(query) {
+		var v2flyNames = null, v2flyAsked = false, showAllLists = false;
+		// QUERY may be empty when the whole catalogue is asked for; LIMIT caps
+		// what a search shows beside the prepared services.
+		function v2flyMatches(query, limit) {
 			if (!v2flyNames) {
 				if (!v2flyAsked) {
 					v2flyAsked = true;
@@ -1049,12 +1051,21 @@ return view.extend({
 				return [];
 			}
 			var known = {};
-			serviceRecords.forEach(function(record) { known[record.id] = true; known[record.id.replace(/_/g, '-')] = true; });
+			// A service of the catalogue, or one on the board, is offered once.
+			serviceRecords.map(function(record) { return record.id; }).concat(Object.keys(serviceSelection)).forEach(function(id) {
+				known[id] = true;
+				known[id.replace(/_/g, '-')] = true;
+			});
 			var found = v2flyNames.filter(function(line) { return !known[line] && line.indexOf(query) >= 0; });
 			// Names that start with what was typed come first.
 			found.sort(function(a, b) { return (a.indexOf(query) === 0 ? 0 : 1) - (b.indexOf(query) === 0 ? 0 : 1) || (a < b ? -1 : a > b ? 1 : 0); });
-			return found.slice(0, 16);
+			return limit ? found.slice(0, limit) : found;
 		}
+		var allListsButton = E('button', { 'class': 'cbi-button', 'type': 'button' }, [ _('All v2fly lists') ]);
+		allListsButton.addEventListener('click', function() {
+			showAllLists = !showAllLists;
+			drawCatalog();
+		});
 		function drawCatalog() {
 			var query = String(catalogSearch.value || '').trim().toLowerCase();
 			var nodes = [];
@@ -1070,9 +1081,15 @@ return view.extend({
 					}))
 				]));
 			});
-			var lists = query.length >= 2 ? v2flyMatches(query) : [];
+			// The whole catalogue when asked for, filtered by the search;
+			// otherwise only what a search of two letters or more finds.
+			var lists = showAllLists ? v2flyMatches(query, 0) : (query.length >= 2 ? v2flyMatches(query, 16) : []);
+			allListsButton.textContent = showAllLists ?
+				(v2flyNames ? _('Hide v2fly lists (%d)').format(lists.length) : _('Hide v2fly lists')) : _('All v2fly lists');
+			// Asked for, the whole catalogue comes first, where it is seen; found
+			// by a search, it follows the prepared services.
 			if (lists.length)
-				nodes.push(E('div', { 'class': 'ikev2-chip-group' }, [
+				nodes[showAllLists ? 'unshift' : 'push'](E('div', { 'class': 'ikev2-chip-group' }, [
 					E('h4', {}, [ _('From the v2fly catalogue') ]),
 					E('div', { 'class': 'ikev2-chips' }, lists.map(function(line) {
 						var add = E('button', { 'class': 'ikev2-chip ikev2-chip-new', 'type': 'button',
@@ -1597,7 +1614,7 @@ return view.extend({
 				E('div', { 'class': 'ikev2-board-sticky' }, [
 					E('div', { 'class': 'ikev2-section-head' }, [
 						E('div', {}, [ E('h3', {}, [ _('Catalogue') ]), E('p', {}, [ _('Prepared services and your own. A click adds one to the highlighted field, the button on it opens its list; dragging one back here takes it out.') ]) ]),
-						E('div', { 'class': 'ikev2-actions' }, [ catalogSearch, newServiceButton ])
+						E('div', { 'class': 'ikev2-actions' }, [ catalogSearch, newServiceButton, allListsButton ])
 					]),
 					catalogBody
 				])
