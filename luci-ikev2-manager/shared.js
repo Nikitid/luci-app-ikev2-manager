@@ -2743,6 +2743,9 @@ function tabs(items, options) {
 	node.setAddDisabled = function(disabled) {
 		if (add) add.disabled = !!disabled;
 	};
+	node.shownId = function() {
+		return current >= 0 && items[current] ? items[current].id : null;
+	};
 	node.showTabId = function(id) {
 		items.forEach(function(item, index) { if (item.id === id) current = index; });
 		draw();

@@ -1194,18 +1194,30 @@ function traceSection() {
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 		{ code: 0, stdout: '' }, ''
 	]);
+	// The whole page is one row of tabs, as the Tunnels and DNS pages: what
+	// makes the policy, then the tools and settings set apart. Save goes with
+	// the tabs that edit the policy.
 	const row = nodesOf(tabbed).find(function(node) { return hasClass(node, 'ikev2-tabs-row'); });
-	if (!row || row.children.map(function(node) { return textOf(node).trim(); }).join('|') !== 'Your lists|Never through the tunnel|Where a name goes|Record an application|List sources')
-		fail('the lower part of the policy page is not under its tabs');
-	row.children[4].listeners.click();
+	const rowText = row ? row.children.map(function(node) { return textOf(node).trim(); }).join('|') : '';
+	if (rowText !== 'Routes|Your lists|Never through the tunnel||Where a name goes|Record an application|List sources|Settings')
+		fail('the policy page is not under one row of tabs: ' + rowText);
 	const panelsOf = function() { return nodesOf(tabbed).filter(function(node) { return hasClass(node, 'ikev2-tabs-panel'); })
 		.map(function(node) { return node.style.display === 'none' ? 0 : 1; }).join(''); };
-	if (panelsOf() !== '00001') fail('a tab did not open its panel: ' + panelsOf());
+	const saveShown = function() {
+		const bar = nodesOf(tabbed).find(function(node) { return hasClass(node, 'ikev2-save-bar'); });
+		return !!bar && bar.style.display !== 'none';
+	};
+	if (panelsOf() !== '1000000' || !saveShown())
+		fail('the policy page does not open on its routes with Save: ' + panelsOf());
+	row.children[6].listeners.click();
+	if (panelsOf() !== '0000010') fail('a tab did not open its panel: ' + panelsOf());
+	if (saveShown()) fail('Save is shown on a tab that edits nothing');
 	const own = nodesOf(tabbed).find(function(node) { return node.attrs && node.attrs['data-target'] === '@domains'; });
 	own.listeners.click();
 	const editButton = nodesOf(tabbed).find(function(node) { return node.attrs && node.attrs['data-act'] === 'edit'; });
 	editButton.listeners.click();
-	if (panelsOf() !== '10000') fail('editing one\'s own domains did not bring their tab forward: ' + panelsOf());
+	if (panelsOf() !== '0100000') fail('editing one\'s own domains did not bring their tab forward: ' + panelsOf());
+	if (!saveShown()) fail('Save is not shown with one\'s own lists');
 	const page = editor.render([
 		'', 'openai', policyStatus, { code: 0, stdout: 'openai|OpenAI|builtin|0|0|route\n' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',

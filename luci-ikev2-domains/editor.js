@@ -625,6 +625,8 @@ return view.extend({
 			return active ? _('Match by address instead') : _('Match by name (FakeIP)');
 		}
 		var enginePill = common.pill(engineLabel(fakeipActive), fakeipActive ? 'good' : 'warn');
+		// The same state in the page header, seen from every tab.
+		var headerEnginePill = common.pill(engineLabel(fakeipActive), fakeipActive ? 'good' : 'warn');
 		var engineSummary = E('p', { 'class': 'ikev2-engine-summary' }, [ engineText(fakeipActive) ]);
 		var engineButton = E('button', {
 			'class': 'cbi-button ' + (fakeipActive ? 'cbi-button-reset' : 'cbi-button-apply')
@@ -632,6 +634,7 @@ return view.extend({
 		function updateEngineState(active, message) {
 			fakeipActive = active;
 			common.setPill(enginePill, engineLabel(active), active ? 'good' : 'warn');
+			common.setPill(headerEnginePill, engineLabel(active), active ? 'good' : 'warn');
 			engineSummary.textContent = engineText(active);
 			engineButton.className = 'cbi-button ' +
 				(active ? 'cbi-button-reset' : 'cbi-button-apply');
@@ -726,7 +729,7 @@ return view.extend({
 			var area = listAreas[key];
 			// The list lives under a tab: that tab comes forward first.
 			if (lowerTabs)
-				lowerTabs.showTab(key === '@domains' || key === '@cidrs' ? 0 : 1);
+				lowerTabs.showTabId(key === '@domains' || key === '@cidrs' ? 'own' : 'exclusions');
 			if (area.scrollIntoView)
 				area.scrollIntoView({ block: 'center' });
 			area.focus();
@@ -1513,29 +1516,23 @@ return view.extend({
 		});
 		drawBoard();
 
-		// What is looked at now and then sits under one row of tabs: one's own
-		// lists, the exclusions, where a name goes, and where lists come from.
-		lowerTabs = common.tabs([
-			{ id: 'own', title: _('Your lists'), content: E('div', { 'class': 'ikev2-destination-editors' }, [
+		// One's own lists and the exclusions: what the Routes tab shows as chips.
+		var ownContent = E('div', { 'class': 'ikev2-destination-editors' }, [
 				common.section(_('Custom domains'),
 					_('One plain domain per line. Custom entries are never overwritten by service updates.'),
 					listAreas['@domains']),
 				common.section(_('Custom IP addresses and networks'),
 					_('One IPv4 address or CIDR network per line. A single address is stored as /32.'),
-					listAreas['@cidrs']) ]) },
-			{ id: 'exclusions', title: _('Never through the tunnel'), content: E('div', { 'class': 'ikev2-destination-editors' }, [
+					listAreas['@cidrs']) ]);
+		var exclusionsContent = E('div', { 'class': 'ikev2-destination-editors' }, [
 				common.section(_('Domains never through the tunnel'),
 					_('One domain per line; its subdomains are excluded too. It wins over every selected service and custom domain.'),
 					listAreas['@xdomains']),
 				common.section(_('Addresses never through the tunnel'),
 					_('One IPv4 address or CIDR network per line. Traffic to them never takes the tunnel, whatever selects it.'),
-					listAreas['@xcidrs']) ]) },
-			{ id: 'trace', title: _('Where a name goes'), content: buildTraceSection() },
-			{ id: 'record', title: _('Record an application'), content: buildRecordSection() },
-			{ id: 'sources', title: _('List sources'), content: buildSourcesSection(data[7]) }
-		], { key: 'routing' });
+					listAreas['@xcidrs']) ]);
 
-		var domainsContent = E('div', {}, [
+		var settingsContent = E('div', {}, [
 			common.section(_('Domain routing'),
 				_('Selected domains go through the IKEv2 tunnel. Other traffic continues through the normal WAN.'),
 				E('div', { 'class': 'ikev2-engine' }, [
@@ -1551,7 +1548,8 @@ return view.extend({
 							_('In Reliable mode, selected domains requested by services on this router use the outbound tunnel. Tunnel transport and local management addresses remain direct.'),
 							routerTrafficResult.node)
 					]),
-					E('details', { 'class': 'ikev2-advanced', 'style': 'margin-top:1rem' }, [
+					// A tab of their own: shown open rather than folded away.
+					E('details', { 'class': 'ikev2-advanced', 'style': 'margin-top:1rem', 'open': '' }, [
 						E('summary', {}, [ _('Logging') ]),
 						E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
 							common.fieldLabel(_('FakeIP resolver log level'),
@@ -1569,7 +1567,7 @@ return view.extend({
 						logLevelResult.node,
 						resolverDiagnosticResult.node
 					]),
-					E('details', { 'class': 'ikev2-advanced', 'style': 'margin-top:1rem' }, [
+					E('details', { 'class': 'ikev2-advanced', 'style': 'margin-top:1rem', 'open': '' }, [
 						E('summary', {}, [ _('How selected domains are recognised') ]),
 						E('div', { 'class': 'ikev2-engine-head' }, [
 							E('p', { 'class': 'ikev2-engine-summary' }, [
@@ -1581,7 +1579,9 @@ return view.extend({
 							])
 						])
 					])
-				])),
+				]))
+		]);
+		var routesContent = E('div', {}, [
 			// The fields and the catalogue side by side while the page is wide:
 			// a service is dragged across, not past a screen of other things.
 			E('div', { 'class': 'ikev2-board-wrap' }, [ E('div', { 'class': 'ikev2-board' }, [ common.section(_('Routes'),
@@ -1601,10 +1601,38 @@ return view.extend({
 					]),
 					catalogBody
 				])
-			]) ]) ]),
-			dialogHost,
-			lowerTabs
+			]) ]) ])
 		]);
+		// The whole page under one row of tabs, as the Tunnels and DNS pages:
+		// what makes the policy first, then the tools and the settings. Save
+		// belongs to the first three and is shown with them only.
+		var editsPolicy = { routes: true, own: true, exclusions: true };
+		var saveBar = E('div', { 'class': 'ikev2-actions end ikev2-save-bar ikev2-save-bar-sticky' });
+		lowerTabs = common.tabs([
+			{ id: 'routes', title: _('Routes'), content: routesContent },
+			{ id: 'own', title: _('Your lists'), content: ownContent },
+			{ id: 'exclusions', title: _('Never through the tunnel'), content: exclusionsContent },
+			{ id: 'trace', title: _('Where a name goes'), content: buildTraceSection() },
+			{ id: 'record', title: _('Record an application'), content: buildRecordSection() },
+			{ id: 'sources', title: _('List sources'), content: buildSourcesSection(data[7]) },
+			{ id: 'settings', title: _('Settings'), content: settingsContent }
+		], {
+			bare: true,
+			key: 'routing',
+			split: 3,
+			onShow: function(index, item) {
+				saveBar.style.display = item && editsPolicy[item.id] ? '' : 'none';
+			}
+		});
+		// A link that brings a tab forward (a list chip) shows Save too.
+		var showTabId = lowerTabs.showTabId;
+		lowerTabs.showTabId = function(id) {
+			showTabId(id);
+			saveBar.style.display = editsPolicy[id] ? '' : 'none';
+		};
+		saveBar.style.display = editsPolicy[lowerTabs.shownId()] ? '' : 'none';
+		// The dialog stands over every tab, so it is not inside one.
+		var domainsContent = E('div', {}, [ lowerTabs, dialogHost ]);
 
 		var refreshSourcesButton;
 
@@ -1973,10 +2001,10 @@ return view.extend({
 		// from what was loaded or last saved.
 		policyTracker = common.trackChanges(saveBtn, [ domainsContent ], {
 			read: function() {
-				var domains = domainsContent.querySelector('#ikev2-domain-list');
-				var addresses = domainsContent.querySelector('#ikev2-address-list');
-				var excluded = domainsContent.querySelector('#ikev2-exclude-domain-list');
-				var excludedAddresses = domainsContent.querySelector('#ikev2-exclude-address-list');
+				var domains = listAreas['@domains'];
+				var addresses = listAreas['@cidrs'];
+				var excluded = listAreas['@xdomains'];
+				var excludedAddresses = listAreas['@xcidrs'];
 				return JSON.stringify([ domains ? domains.value : '',
 					addresses ? addresses.value : '', excluded ? excluded.value : '',
 					excludedAddresses ? excludedAddresses.value : '',
@@ -1991,16 +2019,16 @@ return view.extend({
 			E('div', { 'class': 'ikev2-page' }, [
 				common.header(_('Policy Routing'),
 					_('Build the IPv4 VPN policy from curated services, custom destinations and per-device modes.'),
-					policyPill),
+					[ headerEnginePill, policyPill ]),
 				domainsContent,
 				// A card like the other pages' save bars; left bare it sat on the
 				// LuCI footer rule.
-				E('div', { 'class': 'ikev2-actions end ikev2-save-bar ikev2-save-bar-sticky' }, [
+				(saveBar.replaceChildren(
 					E('span', { 'class': 'ikev2-field-help' }, [
 						_('Saves where each service and list goes, then rebuilds the routing list.') ]),
 					saveResult.node,
 					saveBtn
-				])
+				), saveBar)
 			])
 		]);
 	},
