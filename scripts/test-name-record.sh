@@ -4,10 +4,16 @@
 # out again, keeps the device's names and deletes the log of everyone.
 set -eu
 root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-helper="$root/luci-ikev2-domains/name-record.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 fail() { printf 'name record: %s\n' "$*" >&2; exit 1; }
+# Where the package is installed (the OpenWrt scenarios) the helper drops the
+# overrides the tests rely on; the copy tested here keeps them, and nothing
+# else differs.
+helper="$tmp/name-record.sh"
+sed '/^if \[ -e \/usr\/share\/ikev2-manager\/version \]; then$/,/^fi$/d' \
+	"$root/luci-ikev2-domains/name-record.sh" >"$helper"
+! grep -q '/usr/share/ikev2-manager/version' "$helper" || fail 'the installed-package guard was not taken out of the copy'
 
 mkdir -p "$tmp/bin" "$tmp/confdir" "$tmp/run"
 cat >"$tmp/bin/uci" <<EOF
