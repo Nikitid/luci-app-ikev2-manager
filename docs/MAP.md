@@ -48,6 +48,7 @@ rpcd `file exec` ACL in `luci-ikev2-manager/acl.json`.
 | `ikev2-health` | `ikev2-manager-runtime/ikev2-health.sh` | the watcher loop: the tunnel of each exit (`lib/tunnel.sh`, which also numbers the tunnels for every helper), FakeIP repair and data-plane canary, tunnel DNS failover |
 | `ikev2-tunnel-quality` | `ikev2-manager-runtime/ikev2-tunnel-quality.sh` | tunnel quality history, window summaries, tunnel-versus-WAN speed test |
 | `ikev2-devices` | `luci-ikev2-domains/ikev2-devices.sh` | LAN inventory the pages read |
+| `ikev2-name-record` | `luci-ikev2-domains/name-record.sh` | Names one device asks for, recorded for a few minutes |
 | `ikev2-domains-community` | `luci-ikev2-domains/community-domains.sh` | service catalogue and destination lists |
 | `ikev2-sync-vips` | `ikev2-manager-runtime/ikev2-sync-vips.sh` | virtual IP reconciliation |
 | `ikev2-routing` | `ikev2-manager-runtime/ikev2-routing.sh` | the application's own policy routing, the only routing it does; `sync-all` also syncs device routing and Discord voice |

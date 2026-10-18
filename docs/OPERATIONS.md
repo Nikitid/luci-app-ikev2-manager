@@ -746,6 +746,29 @@ nft list table inet ikev2_device_policy
 The LuCI picker lists active local IPv4 neighbours and enriches them with DHCP
 names. Use Custom for a sleeping client, a static address or a subnet.
 
+### Recording an application's names
+
+Policy Routing -> Record an application records which names one device on the
+network asks the router for, for 2 to 15 minutes, while an application is used
+on it. The names are grouped by their domain and go to the custom domains or
+into a new service with a click. It works for devices that resolve through the
+router (the DNS redirect sends them there); Waypoint devices resolve through
+their own path and are not recorded.
+
+dnsmasq logs every client's queries meanwhile: a file in its confdir turns
+`log-queries` on with the log in `/var/run/dnsmasq`, the one directory its
+jail may write. Only the chosen device's names are shown; at the end the file
+is taken out, the log is deleted and the device's names are kept in
+`/var/run/ikev2-name-record` until the next recording. Starting and ending
+restart dnsmasq, about a second without DNS each time. A recording ends by
+itself when its time is up, whatever happens to the page.
+
+```sh
+/usr/libexec/ikev2-name-record start 192.168.1.20 5
+/usr/libexec/ikev2-name-record status
+/usr/libexec/ikev2-name-record stop
+```
+
 ### Scheduled list refresh
 
 Selected service lists refresh from their sources after every boot and then
