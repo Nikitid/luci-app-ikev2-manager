@@ -926,8 +926,21 @@ service has at most 64, and so does one device.
 A device whose services carry networks gets policy version 2, with a
 `networks` list beside its resources; a device without any keeps version 1
 exactly, which every earlier client reads (`test-client-publication.py`,
-`client-admin.sh`). Routing them through the exit and the per-device traffic
-selectors that let macOS route them are described in `docs/WAYPOINT_APP.md`.
+`client-admin.sh`).
+
+macOS routes only what the server's traffic selectors offer, so an open
+device with networks gets an inbound connection of its own,
+`ikev2-in-device-<id>`: it answers only `<id>@managed.ikev2-manager` with that
+device's EAP account and offers the virtual subnet and its networks; the
+exact name wins over `ikev2-in-managed`, which every other device keeps.
+`ikev2-manager device-selectors-sync`, which the client access watcher runs
+once per new publication, renders and loads these connections and ends the
+sessions of exactly the devices whose selectors changed, so they reconnect
+with the new ones. What was applied is kept in
+`/etc/ikev2-manager/device-selectors`, written only when it changes, so a
+reboot reconnects nobody. Admission, the device list and the session reader
+treat these connections as the inbound ones they are (`client-managed.sh`,
+which needs XFRM interfaces and runs in CI).
 
 ## What a person is given and what a device chooses
 

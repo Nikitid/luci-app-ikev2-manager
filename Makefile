@@ -631,6 +631,11 @@ swanctl --terminate --ike ikev2-in-managed --timeout 3 >/dev/null 2>&1 || true
 swanctl --unload-conn proxy-out >/dev/null 2>&1 || true
 swanctl --unload-conn ikev2-in >/dev/null 2>&1 || true
 swanctl --unload-conn ikev2-in-managed >/dev/null 2>&1 || true
+# The connections of single Waypoint devices, by whatever names are loaded.
+for conn in $$(swanctl --list-conns 2>/dev/null | sed -n 's/^\(ikev2-in-device-[a-z0-9-]*\): .*/\1/p'); do
+	swanctl --terminate --ike "$$conn" --timeout 3 >/dev/null 2>&1 || true
+	swanctl --unload-conn "$$conn" >/dev/null 2>&1 || true
+done
 rm -f /etc/swanctl/conf.d/20-proxy-out.conf
 rm -f /etc/swanctl/conf.d/21-proxy-out-extra.conf
 rm -f /etc/swanctl/conf.d/30-inbound.conf

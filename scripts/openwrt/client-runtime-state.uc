@@ -16,6 +16,17 @@ if (mode == 'seed') {
 	// A router just activated: published state, no service and no device yet.
 	publish_client_state(directory, { version: 1, server: { address: 'vpn.example.com', remote_id: 'vpn.example.com' },
 		virtual_subnet: '172.31.254.0/24', exit: '1', services: [], devices: [] }, 0, true);
+} else if (mode == 'networks' || mode == 'no-networks') {
+	// Alice is given a service of networks alone, then has it taken away.
+	let state = read_client_state(directory), desired = state.publication;
+	delete desired.allocations;
+	for (let device in desired.devices) delete device.previous_policy;
+	desired.services = filter(desired.services, service => service.id != 'net');
+	push(desired.services, { id: 'net', client_access: mode == 'networks', domains: [], networks: [ '203.0.113.0/24' ],
+		transports: [ { protocol: 'tcp', ports: [ 443 ] } ] });
+	desired.devices = [ { id: 'alice', token_sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+		enabled: mode == 'networks', selected_services: mode == 'networks' ? [ 'net' ] : [] } ];
+	publish_client_state(directory, desired, state.generation, false);
 } else if (mode == 'revoke' || mode == 'enable' || mode == 'add-domain') {
 	let state = read_client_state(directory), desired = state.publication;
 	delete desired.allocations;

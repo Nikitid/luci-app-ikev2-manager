@@ -154,12 +154,22 @@ function read_seen(directory, id) {
 	return type(seen) == 'object' && type(seen.at) == 'int' ? seen : null;
 }
 
+// The inbound connections that authenticate accounts: the general one, the
+// managed one, and one per Waypoint device that is offered its own networks.
+function inbound_sa(entry) {
+	for (let name, sa in entry)
+		if (name == 'ikev2-in' || name == 'ikev2-in-managed' ||
+			(length(name) <= 64 && match(name, /^ikev2-in-device-[a-z][a-z0-9-]*$/)))
+			return sa;
+	return null;
+}
+
 // The sessions the local daemon holds for inbound accounts, by account name.
 export function client_device_sessions(snapshot) {
 	let sessions = {};
 	if (type(snapshot) != 'object' || type(snapshot.data) != 'array') return sessions;
 	for (let entry in snapshot.data) {
-		let sa = type(entry) == 'object' ? (entry['ikev2-in'] ?? entry['ikev2-in-managed']) : null;
+		let sa = type(entry) == 'object' ? inbound_sa(entry) : null;
 		if (type(sa) != 'object' || sa.state != 'ESTABLISHED') continue;
 		let identity = sa['remote-eap-id'] ?? sa['remote-id'];
 		if (!identifier(identity)) continue;

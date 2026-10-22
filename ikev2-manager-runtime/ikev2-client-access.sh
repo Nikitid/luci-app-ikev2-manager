@@ -19,6 +19,7 @@ nft_bin="${IKEV2_NFT:-/usr/sbin/nft}"
 swanmon_bin="${IKEV2_SWANMON:-/usr/sbin/swanmon}"
 ucode_bin="${IKEV2_UCODE:-/usr/bin/ucode}"
 uci_bin="${IKEV2_UCI_BIN:-/sbin/uci}"
+manager_helper="${IKEV2_MANAGER_HELPER:-/usr/libexec/ikev2-manager}"
 require_path="${IKEV2_CLIENT_REQUIRE_PATH:-1}"
 auto_path="${IKEV2_CLIENT_AUTO_PATH:-1}"
 table=ikev2_client_access
@@ -139,6 +140,13 @@ sync_access() {
 		rm -f "$runtime_dir/device-ready.json"
 	fi
 	status_write "$mode" "$generation" "$grants"
+	# A new publication may give a device networks or take them away: its
+	# own inbound connection follows, once per generation, again next round
+	# if that failed.
+	if [ "$generation" != "${selectors_generation:-}" ] &&
+	   pkg_run_bounded 60 "$manager_helper" device-selectors-sync >/dev/null 2>&1; then
+		selectors_generation="$generation"
+	fi
 }
 
 # Everything this controller put on the router, for when managed mode is

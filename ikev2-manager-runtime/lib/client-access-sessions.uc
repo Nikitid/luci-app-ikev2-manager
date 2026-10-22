@@ -11,6 +11,16 @@ function ipv4(value) {
 	return true;
 }
 
+// The inbound connections that authenticate accounts: the general one, the
+// managed one, and one per Waypoint device that is offered its own networks.
+function inbound_sa(entry) {
+	for (let name, sa in entry)
+		if (name == 'ikev2-in' || name == 'ikev2-in-managed' ||
+			(length(name) <= 64 && match(name, /^ikev2-in-device-[a-z][a-z0-9-]*$/)))
+			return sa;
+	return null;
+}
+
 export function authenticated_client_sessions(snapshot) {
 	if (type(snapshot) != 'object' || type(snapshot.data) != 'array' ||
 		type(snapshot.errors) != 'array' || length(snapshot.errors) || length(snapshot.data) > 4096)
@@ -18,9 +28,9 @@ export function authenticated_client_sessions(snapshot) {
 	let sessions = [];
 	for (let entry in snapshot.data) {
 		if (type(entry) != 'object') die('invalid local SA entry');
-		// Both inbound connections authenticate the same accounts; the managed
-		// one differs only in the networks it offers.
-		let sa = entry['ikev2-in'] ?? entry['ikev2-in-managed'];
+		// Every inbound connection authenticates the same accounts; they differ
+		// only in the networks they offer.
+		let sa = inbound_sa(entry);
 		if (sa == null) continue;
 		if (type(sa) != 'object') die('invalid inbound SA entry');
 		// VICI omits remote-eap-id when the authenticated EAP identity equals

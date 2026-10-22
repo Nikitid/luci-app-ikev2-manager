@@ -3,9 +3,9 @@
 # connection, the server certificate and the settings transaction. Sourced by
 # ikev2-manager, whose configuration helpers and globals it uses.
 
-# One inbound connection: its name, the peer identities it answers to and the
-# networks it offers. Both connections share the pool, the certificate and the
-# EAP accounts.
+# One inbound connection: its name, the peer identities it answers to, the
+# networks it offers and, for a single device, the one account it admits.
+# Every connection shares the pool, the certificate and the EAP accounts.
 server_connection() {
 	cat <<EOF
 	$1 {
@@ -29,7 +29,7 @@ server_connection() {
 
 		remote {
 			auth = eap-mschapv2
-			eap_id = %any
+			eap_id = ${4:-%any}
 			id = $2
 		}
 
@@ -46,6 +46,56 @@ server_connection() {
 			}
 		}
 EOF
+}
+
+# Each open device with networks and the traffic selectors it is offered, one
+# "id<TAB>subnet, network, ..." line each; nothing that does not hold up.
+device_selectors() {
+	local device selectors cidr count valid
+	ucode "${IKEV2_RUNTIME_LIB_DIR:-/usr/libexec/ikev2-manager.d}/client-access-runtime.uc" selectors "$root/etc/ikev2-manager/clients" '' '' 2>/dev/null |
+		while IFS='	' read -r device selectors; do
+			case "$device" in '' | [!a-z]* | *[!a-z0-9-]*) continue ;; esac
+			[ "${#device}" -le 48 ] || continue
+			# The virtual subnet and at most 64 networks.
+			count=0; valid=1
+			for cidr in $(printf '%s' "$selectors" | tr ',' ' '); do
+				count=$((count + 1))
+				[ "$count" -le 65 ] && valid_ipv4_cidr "$cidr" || { valid=0; break; }
+			done
+			[ "$valid" = 1 ] && [ "$count" -ge 2 ] || continue
+			printf '%s\t%s\n' "$device" "$selectors"
+		done
+}
+
+# The connections of single devices charon has loaded now.
+inbound_device_conns() {
+	swanctl --list-conns 2>/dev/null | sed -n 's/^\(ikev2-in-device-[a-z0-9-]*\): .*/\1/p'
+}
+
+# Brings the per-device connections in line with what is published: renders
+# and loads them when the selectors changed, and ends the sessions of exactly
+# the devices whose selectors changed, so they reconnect and are offered the
+# new ones. What was applied is kept on flash, written only when it changes,
+# so a reboot does not make every such device reconnect.
+device_selectors_sync() {
+	local applied="$root/etc/ikev2-manager/device-selectors" now device changed
+	[ "$(getv_default server enabled 0)" = 1 ] || return 0
+	[ "$(getv_default server custom_config 0)" != 1 ] || return 0
+	[ -f "$root/etc/ikev2-manager/clients/initialized" ] || return 0
+	now="$(device_selectors)"
+	if [ -f "$applied" ] && [ "$now" = "$(cat "$applied")" ]; then
+		# The same, and loaded: nothing to do. A connection missing from
+		# charon - after a strongSwan restart - is loaded again.
+		[ -n "$now" ] || return 0
+		[ "$(printf '%s\n' "$now" | cut -f1 | sed 's/^/ikev2-in-device-/' | sort)" = "$(inbound_device_conns | sort)" ] && return 0
+	fi
+	render_server || return 1
+	[ -n "$root" ] || swanctl_quiet --load-conns >/dev/null || return 1
+	changed="$({ printf '%s\n' "$now"; cat "$applied" 2>/dev/null; } | sed '/^$/d' | sort | uniq -u | cut -f1 | sort -u)"
+	if [ -z "$root" ]; then
+		for device in $changed; do terminate_user_sessions "$device"; done
+	fi
+	printf '%s\n' "$now" >"$applied.new" && chmod 600 "$applied.new" && mv "$applied.new" "$applied"
 }
 
 render_server() {
@@ -86,6 +136,12 @@ render_server() {
 		# the virtual subnet alone: a client that takes its routes from the
 		# traffic selectors then sends nothing else into the tunnel.
 		[ -z "$managed_subnet" ] || server_connection ikev2-in-managed '*@managed.ikev2-manager' "$managed_subnet"
+		# A device whose services carry networks has a connection of its own
+		# offering them as well; it answers only that device's name and account,
+		# and the more exact name wins over the one above.
+		[ -z "$managed_subnet" ] || device_selectors | while IFS='	' read -r device selectors; do
+			server_connection "ikev2-in-device-$device" "$device@managed.ikev2-manager" "$selectors" "$device"
+		done
 		printf '}\n'
 		cat <<EOF
 pools {

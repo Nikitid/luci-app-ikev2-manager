@@ -784,7 +784,7 @@ watch_runtime() {
 				read -r health_pid 2>/dev/null <"$health_lock/pid" || :
 				case "$health_pid" in '' | *[!0-9]*) ;; *) kill -USR1 "$health_pid" 2>/dev/null || : ;; esac
 				;;
-			'child-updown event {'*'ikev2-in {'*|'child-updown event {'*'ikev2-in-managed {'*)
+			'child-updown event {'*'ikev2-in {'*|'child-updown event {'*'ikev2-in-managed {'*|'child-updown event {'*'ikev2-in-device-'*' {'*)
 				reconcile || return 1
 				;;
 		esac

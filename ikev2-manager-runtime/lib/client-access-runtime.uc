@@ -7,7 +7,7 @@ import { compile_client_denial, reconcile_client_authorization } from './client-
 import { authenticated_client_sessions } from './client-access-sessions.uc';
 
 try {
-	if (length(ARGV) != 4 || (ARGV[0] != 'close' && ARGV[0] != 'live' && ARGV[0] != 'subnet'))
+	if (length(ARGV) != 4 || (ARGV[0] != 'close' && ARGV[0] != 'live' && ARGV[0] != 'subnet' && ARGV[0] != 'selectors'))
 		die('invalid controller arguments');
 	// The views stand for the state file the publisher checked. While they
 	// do, the file is read as it is. When they do not - before the first
@@ -24,6 +24,15 @@ try {
 	}
 	if (ARGV[0] == 'subnet') {
 		print(state.publication.virtual_subnet);
+		exit(0);
+	}
+	// What each open device whose services carry networks is offered on its
+	// own inbound connection: the virtual subnet and those networks. A
+	// client that routes by the traffic selectors then routes exactly these.
+	if (ARGV[0] == 'selectors') {
+		for (let device in state.api.devices)
+			if (device.enabled && device.policy?.version === 2)
+				print(device.id, '\t', join(', ', [ state.publication.virtual_subnet, ...map(device.policy.networks, item => item.network) ]), '\n');
 		exit(0);
 	}
 	let compiled, mode = 'closed';

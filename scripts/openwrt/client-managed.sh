@@ -129,3 +129,23 @@ swanctl --list-sas | grep -q '^ikev2-in:' || fail 'an ordinary peer was not answ
 [ "$(offered ikev2-in)" = 0.0.0.0/0 ] || fail "an ordinary peer was offered $(offered ikev2-in)"
 far swanctl --terminate --ike plain >/dev/null 2>&1 || :
 printf '%s\n' 'client-managed: the rendered server offers managed peers the virtual subnet alone and ordinary peers the configured networks'
+
+# A device given networks has a connection of its own offering them too; an
+# unchanged publication leaves its session alone, and taking the networks
+# away takes the connection and makes the device reconnect.
+ucode /src/scripts/openwrt/client-runtime-state.uc /etc/ikev2-manager/clients networks
+/usr/libexec/ikev2-manager device-selectors-sync || fail 'the device connections could not be brought in line'
+swanctl --list-conns | grep -q '^ikev2-in-device-alice:' || fail 'the device with networks has no connection of its own'
+far swanctl --initiate --child net --ike managed >"$work/device.log" 2>&1 || fail 'the device with networks could not log in'
+swanctl --list-sas | grep -q '^ikev2-in-device-alice:' || fail 'the device was not answered by its own connection'
+[ "$(offered ikev2-in-device-alice)" = '172.31.254.0/24 203.0.113.0/24' ] || fail "the device was offered $(offered ikev2-in-device-alice)"
+swanmon list-sas >"$work/sas.json"
+ucode /usr/libexec/ikev2-manager.d/client-access-policy.uc sessions <"$work/sas.json" >"$work/sessions.json" || fail 'the session reader refused the device connection'
+[ "$(jsonfilter -i "$work/sessions.json" -e '@[0].identity')" = alice ] || fail 'the device session was not read as its account'
+/usr/libexec/ikev2-manager device-selectors-sync || fail 'an unchanged publication could not be synced'
+swanctl --list-sas | grep -q '^ikev2-in-device-alice:' || fail 'an unchanged publication ended the device session'
+ucode /src/scripts/openwrt/client-runtime-state.uc /etc/ikev2-manager/clients no-networks
+/usr/libexec/ikev2-manager device-selectors-sync || fail 'taking the networks away could not be synced'
+if swanctl --list-conns | grep -q '^ikev2-in-device-alice:'; then fail 'the device connection outlived its networks'; fi
+if swanctl --list-sas | grep -q '^ikev2-in-device-alice:'; then fail 'the device kept a session offering networks it lost'; fi
+printf '%s\n' 'client-managed: a device with networks is offered them on its own connection, and loses both together'

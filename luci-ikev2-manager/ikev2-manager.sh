@@ -1806,6 +1806,9 @@ server_apply_action() {
 	if [ "$enabled" != 1 ]; then
 		swanctl_quiet --terminate --ike ikev2-in --timeout 5 >/dev/null 2>&1 || true
 		swanctl_quiet --terminate --ike ikev2-in-managed --timeout 5 >/dev/null 2>&1 || true
+		for conn in $(inbound_device_conns); do
+			swanctl_quiet --terminate --ike "$conn" --timeout 5 >/dev/null 2>&1 || true
+		done
 	fi
 	swanctl_quiet --load-all >/dev/null || return 1
 	"$system_helper" server-apply "$needs_pbr" || return 1
@@ -1821,6 +1824,7 @@ server_apply_action() {
 		! swanctl --list-conns 2>/dev/null | grep -q 'ikev2-in:' || return 1
 		! "$sa_helper" present ikev2-in || return 1
 		! "$sa_helper" present ikev2-in-managed || return 1
+		[ -z "$(inbound_device_conns)" ] || return 1
 		# ikev2-xfrm leaves the link in place, down: deleting an XFRM link can
 		# block in the kernel on OpenWrt 25. Requiring it gone failed every
 		# disable, and the rollback after it.
@@ -2031,6 +2035,12 @@ case "${1:-}" in
 	disconnect-all)
 		swanctl_quiet --terminate --ike ikev2-in --timeout 5 >/dev/null || :
 		swanctl_quiet --terminate --ike ikev2-in-managed --timeout 5 >/dev/null 2>&1 || :
+		for conn in $(inbound_device_conns); do
+			swanctl_quiet --terminate --ike "$conn" --timeout 5 >/dev/null 2>&1 || :
+		done
+		;;
+	device-selectors-sync)
+		device_selectors_sync
 		;;
 	diagnostic-start)
 		duration="${2:-60}"
