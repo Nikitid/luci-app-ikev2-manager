@@ -1994,8 +1994,24 @@ case "${1:-}" in
   service="${2:-}"
   valid_service_id "$service" && catalog_services | grep -Fxq "$service" || exit 2
   client_work="$(mktemp -d)" || exit 1
-  if download_service "$service" "$client_work/domains" && [ -s "$client_work/domains" ]; then
+  # A list read and found empty prints nothing and succeeds: a service may be
+  # networks alone. Only a list that cannot be read fails.
+  if download_service "$service" "$client_work/domains"; then
    cat "$client_work/domains"
+   rm -rf "$client_work"
+  else
+   rm -rf "$client_work"
+   exit 1
+  fi
+  ;;
+ # The IPv4 networks a service publishes, for Waypoint devices that reach them
+ # as themselves. A service with none prints nothing and succeeds.
+ client-service-networks)
+  service="${2:-}"
+  valid_service_id "$service" && catalog_services | grep -Fxq "$service" || exit 2
+  client_work="$(mktemp -d)" || exit 1
+  if download_service_cidrs "$service" "$client_work/cidrs"; then
+   sort -u "$client_work/cidrs"
    rm -rf "$client_work"
   else
    rm -rf "$client_work"

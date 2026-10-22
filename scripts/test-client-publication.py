@@ -72,6 +72,51 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(output['api']['devices'][0]['policy'], initial['api']['devices'][0]['policy'])
         self.assertTrue(output['api']['devices'][1]['enabled'])
 
+    def test_networks_reach_only_the_devices_given_them(self):
+        value = proposal()
+        initial = self.publish(value)
+        self.retain(value, initial)
+        value['services'][0]['networks'] = ['149.154.160.0/20', '91.108.4.0/22']
+        value['services'].append({'id': 'office', 'client_access': True, 'domains': [], 'networks': ['91.108.4.0/22'],
+                                  'transports': [{'protocol': 'udp', 'ports': [53]}]})
+        value['devices'][0]['selected_services'] = ['api', 'office']
+        output = self.publish(value)
+        alice, bob = (device['policy'] for device in output['api']['devices'])
+        self.assertEqual(alice['version'], 2)
+        self.assertEqual(alice['revision'], 2)
+        # A network two services share opens the ports of both.
+        self.assertEqual(alice['networks'], [
+            {'network': '149.154.160.0/20', 'transports': [{'protocol': 'tcp', 'ports': [443]}]},
+            {'network': '91.108.4.0/22', 'transports': [{'protocol': 'tcp', 'ports': [443]}, {'protocol': 'udp', 'ports': [53]}]}])
+        # A device without networks keeps the policy every earlier client reads.
+        self.assertEqual(bob, initial['api']['devices'][1]['policy'])
+        self.assertNotIn('networks', bob)
+        # Networks gone, the policy goes back to version 1 under a new revision.
+        self.retain(value, output)
+        del value['services'][0]['networks']
+        value['devices'][0]['selected_services'] = ['api']
+        back = self.publish(value)['api']['devices'][0]['policy']
+        self.assertEqual((back['version'], back['revision'], 'networks' in back), (1, 3, False))
+
+    def test_a_service_of_networks_alone_is_a_policy(self):
+        value = proposal()
+        value['services'][0]['domains'] = []
+        value['services'][0]['networks'] = ['203.0.113.0/24']
+        policy = self.publish(value)['api']['devices'][0]['policy']
+        self.assertEqual((policy['version'], policy['resources'], [n['network'] for n in policy['networks']]),
+                         (2, [], ['203.0.113.0/24']))
+
+    def test_refuses_networks_that_cannot_be_reached_as_themselves(self):
+        for bad in ['172.31.254.128/25', '172.31.0.0/16', '10.0.0.1/8', '127.0.0.0/8', '169.254.0.0/16',
+                    '224.0.0.0/4', '0.0.0.0/8', '8.8.8.0/7', '8.8.8.8', ['8.8.8.8/32', '8.8.8.8/32'], []]:
+            value = proposal()
+            value['services'][0]['networks'] = bad if isinstance(bad, list) else [bad]
+            result = run(value)
+            self.assertNotEqual(result.returncode, 0, bad)
+        value = proposal()
+        value['services'][0]['networks'] = ['10.%d.0.0/16' % n for n in range(65)]
+        self.assertNotEqual(run(value).returncode, 0)
+
     def test_refuses_invalid_assignments_identity_allocations_and_duplicates(self):
         value = proposal()
         self.retain(value, self.publish(value))

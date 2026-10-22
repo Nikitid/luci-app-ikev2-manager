@@ -251,3 +251,25 @@ fi
 ucode "$control" inspect | jsonfilter -e '@.used_ids[*]' | grep -qx taken-name || { cp -p "$work/users.db.saved" "$users_db"; exit 1; }
 if [ -s "$work/users.db.saved" ]; then cp -p "$work/users.db.saved" "$users_db"; else rm -f "$users_db"; fi
 printf '%s\n' 'client-admin: a name taken by an account is refused and reported as used'
+# A service carries its networks when asked, keeps them through edits that do
+# not mention them, follows its list on a refresh and drops them when asked.
+test_step=service-networks
+generation_now() { ucode "$control" status | sed -n 's/^generation=//p'; }
+networks_now() { ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); for (let v in s.publication.services) if (v.id == "test_service") print(join(" ", v.networks ?? []), "\n");' "$state_dir/state.json"; }
+configure_networks() {
+ printf '{"version":1,"expected_generation":%s,"operation":"configure-service","payload":{"id":"test_service","client_access":true,"transports":[{"protocol":"tcp","ports":[443]}]%s}}\n' "$(generation_now)" "$1" >"$work/networks.json"
+ ucode "$control" update <"$work/networks.json" >/dev/null
+}
+printf '91.108.4.7/22\n149.154.160.0/20\n' >"$service_dir/test_service.cidrs"
+configure_networks ',"networks":true'
+[ "$(networks_now)" = '149.154.160.0/20 91.108.4.0/22' ] || { echo "client-admin: networks not published: $(networks_now)" >&2; exit 1; }
+printf '149.154.160.0/20\n' >"$service_dir/test_service.cidrs"
+configure_networks ''
+[ "$(networks_now)" = '149.154.160.0/20' ] || { echo "client-admin: an edit without networks lost them: $(networks_now)" >&2; exit 1; }
+printf '149.154.160.0/20\n95.161.64.0/20\n' >"$service_dir/test_service.cidrs"
+ucode "$control" refresh >/dev/null
+[ "$(networks_now)" = '149.154.160.0/20 95.161.64.0/20' ] || { echo "client-admin: a refresh did not follow the networks: $(networks_now)" >&2; exit 1; }
+configure_networks ',"networks":false'
+[ -z "$(networks_now)" ] || { echo "client-admin: networks asked away stayed: $(networks_now)" >&2; exit 1; }
+rm -f "$service_dir/test_service.cidrs"
+printf '%s\n' 'client-admin: service networks asked for, kept, refreshed and dropped'

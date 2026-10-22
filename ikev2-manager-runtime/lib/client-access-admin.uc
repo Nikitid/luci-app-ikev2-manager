@@ -30,9 +30,12 @@ export function client_admin_catalog_ids(state, request) {
  fields(request, [ 'version', 'expected_generation', 'operation', 'payload' ]);
  if (request.version !== 1 || request.expected_generation !== state.generation) die('stale administrative request');
  if (request.operation == 'configure-service') {
-  fields(request.payload, [ 'id', 'client_access', 'transports' ]);
+  // Networks are asked for: a service with hundreds of them, or one already
+  // published without, is not changed by their mere existence.
+  fields(request.payload, 'networks' in request.payload ? [ 'id', 'client_access', 'transports', 'networks' ] : [ 'id', 'client_access', 'transports' ]);
   service_id(request.payload.id);
   if (type(request.payload.client_access) != 'bool') die('invalid service availability');
+  if ('networks' in request.payload && type(request.payload.networks) != 'bool') die('invalid service networks');
   if (!request.payload.client_access) {
    if (!length(filter(state.publication.services, service => service.id == request.payload.id))) die('unknown service');
    return [];
@@ -102,19 +105,51 @@ export function client_admin_catalog_ids(state, request) {
  die('unknown administrative operation');
 };
 
+// Of the services a request reads from the catalog, those whose networks are
+// read as well: one asked to carry them, or one that carries them and is not
+// asked to stop.
+export function client_admin_network_ids(state, request) {
+ let ids = client_admin_catalog_ids(state, request);
+ if (request.operation == 'configure-service' && 'networks' in request.payload)
+  return request.payload.networks ? ids : [];
+ return filter(ids, id => length(filter(state.publication.services, service => service.id == id && 'networks' in service)));
+};
+
+// A network as the catalog writes it, set at its own base address.
+function base_network(text) {
+ let parts = split(text, '/'), octets = map(split(parts[0], '.'), octet => +octet);
+ let prefix = +parts[1], number = ((octets[0] * 256 + octets[1]) * 256 + octets[2]) * 256 + octets[3], size = 1;
+ for (let bit = prefix; bit < 32; bit++) size *= 2;
+ number -= number % size;
+ let out = [];
+ for (let place = 0; place < 4; place++) { unshift(out, number % 256); number = (number - number % 256) / 256; }
+ return join('.', out) + '/' + prefix;
+}
+
 export function prepare_client_admin(state, request, catalog) {
- let targets = client_admin_catalog_ids(state, request), domains = {};
+ let targets = client_admin_catalog_ids(state, request), domains = {}, networks = {};
  if (type(catalog) != 'array' || length(catalog) != length(targets)) die('incomplete catalog snapshot');
  for (let record in catalog) {
-  fields(record, [ 'id', 'domains' ]);
-  if (index(targets, record.id) < 0 || record.id in domains || type(record.domains) != 'array' || !length(record.domains))
+  fields(record, 'networks' in record ? [ 'id', 'domains', 'networks' ] : [ 'id', 'domains' ]);
+  if (index(targets, record.id) < 0 || record.id in domains || type(record.domains) != 'array' ||
+   ('networks' in record && type(record.networks) != 'array') || !(length(record.domains) || length(record.networks ?? [])))
    die('invalid catalog snapshot');
   domains[record.id] = record.domains;
+  if ('networks' in record) {
+   if (!length(record.networks)) die('the service publishes no networks');
+   if (length(record.networks) > 64) die('the service publishes more than 64 networks');
+   networks[record.id] = uniq(map(record.networks, base_network));
+  }
  }
  let desired = desired_state(state), payload = request.payload;
  if (request.operation == 'configure-service') {
+  let was = filter(desired.services, service => service.id == payload.id)[0];
   let updated = { id: payload.id, client_access: payload.client_access,
-   domains: payload.client_access ? domains[payload.id] : filter(desired.services, service => service.id == payload.id)[0].domains, transports: payload.transports }, found = false;
+   domains: payload.client_access ? domains[payload.id] : was.domains, transports: payload.transports }, found = false;
+  // Closing a service keeps its networks as they were; opening one takes them
+  // only when they were asked for.
+  if (payload.client_access ? payload.id in networks : was != null && 'networks' in was)
+   updated.networks = payload.client_access ? networks[payload.id] : was.networks;
   for (let index, service in desired.services) {
    if (service.id != payload.id) continue;
    desired.services[index] = updated; found = true;
@@ -150,8 +185,11 @@ export function prepare_client_admin(state, request, catalog) {
   if (!length(filter(desired.devices, device => device.id == payload.id))) die('unknown or retired device');
   desired.devices = filter(desired.devices, device => device.id != payload.id);
  } else {
-  for (let service in desired.services)
-   if (service.client_access) service.domains = domains[service.id];
+  for (let service in desired.services) {
+   if (!service.client_access) continue;
+   service.domains = domains[service.id];
+   if (service.id in networks) service.networks = networks[service.id];
+  }
  }
  // Validate the complete proposal, including permissions and retained history,
  // before a filesystem writer can commit it.
@@ -164,7 +202,7 @@ export function inspect_client_admin(state) {
  return { version: 1, generation: state.generation, server: state.publication.server,
   virtual_subnet: state.publication.virtual_subnet, exit: state.publication.exit,
   services: map(state.publication.services, service => ({ id: service.id, client_access: service.client_access,
-   domain_count: length(service.domains), transports: service.transports })),
+   domain_count: length(service.domains), network_count: length(service.networks ?? []), transports: service.transports })),
   devices: map(filter(state.publication.devices, device => index(state.retired_ids, device.id) < 0),
    device => ({ id: device.id, enabled: device.enabled, selected_services: device.selected_services,
     revision: device.previous_policy.revision })), retired: length(state.retired_ids) };

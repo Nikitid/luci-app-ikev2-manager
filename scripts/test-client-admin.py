@@ -59,6 +59,33 @@ class AdminTests(unittest.TestCase):
             if not next(d for d in prepared['desired']['devices'] if d['id'] == device['id'])['selected_services']:
                 self.assertFalse(device['enabled'])
 
+    def test_networks_are_published_when_asked_and_kept_until_asked_away(self):
+        service = self.snapshot['publication']['services'][0]
+        base = {'id': service['id'], 'client_access': True, 'transports': service['transports']}
+        # Written off their base address, they are set at it, and repeated ones once.
+        catalog = [{'id': service['id'], 'domains': service['domains'], 'networks': ['91.108.4.7/22', '91.108.4.0/22', '149.154.160.0/20']}]
+        prepared, updated = self.apply(self.request('configure-service', dict(base, networks=True)), catalog)
+        published = next(s for s in updated['publication']['services'] if s['id'] == service['id'])
+        self.assertEqual(published['networks'], ['91.108.4.0/22', '149.154.160.0/20'])
+        self.snapshot = updated
+        # A request that does not mention them, as today's page sends, keeps them.
+        prepared, updated = self.apply(self.request('configure-service', base), [dict(catalog[0], networks=['91.108.4.0/22'])])
+        self.assertEqual(next(s for s in updated['publication']['services'] if s['id'] == service['id'])['networks'], ['91.108.4.0/22'])
+        self.snapshot = updated
+        inspected = json.loads(state.run(self.snapshot, 'admin-inspect').stdout)
+        self.assertEqual(next(s for s in inspected['services'] if s['id'] == service['id'])['network_count'], 1)
+        # Asked away, they go.
+        prepared, updated = self.apply(self.request('configure-service', dict(base, networks=False)), [{'id': service['id'], 'domains': service['domains']}])
+        self.assertNotIn('networks', next(s for s in updated['publication']['services'] if s['id'] == service['id']))
+
+    def test_networks_that_cannot_be_carried_are_refused(self):
+        service = self.snapshot['publication']['services'][0]
+        request = self.request('configure-service', {'id': service['id'], 'client_access': True, 'transports': service['transports'], 'networks': True})
+        for networks in [[], ['10.%d.0.0/16' % n for n in range(65)]]:
+            self.assertNotEqual(self.run_admin(request, [{'id': service['id'], 'domains': service['domains'], 'networks': networks}]).returncode, 0)
+        # Neither names nor networks: nothing to publish.
+        self.assertNotEqual(self.run_admin(request, [{'id': service['id'], 'domains': []}]).returncode, 0)
+
     def test_unchanged_catalog_is_noop_and_bad_requests_are_refused(self):
         catalog = [{'id': s['id'], 'domains': s['domains']} for s in self.snapshot['publication']['services'] if s['client_access']]
         request = self.request('refresh-catalog', {})

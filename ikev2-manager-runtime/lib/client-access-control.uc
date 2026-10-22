@@ -4,7 +4,7 @@ import { stdin, lstat, mkdir, chmod, popen, open, lsdir } from 'fs';
 import { publish_client_state, read_client_state, read_committed_client_state } from './client-access-store.uc';
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
-import { client_admin_catalog_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
+import { client_admin_catalog_ids, client_admin_network_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
 import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights, read_person_limits, write_person_limit } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
 import { record_client_event, read_client_events, read_client_mail } from './client-access-journal.uc';
@@ -229,7 +229,24 @@ try {
   }
   if (!closed) {
   let ids = client_admin_catalog_ids(state, request), catalog = [], kept = [];
+  let networked = client_admin_network_ids(state, request);
+  // The networks of a service, or null when they cannot be read now.
+  let read_networks = function(id) {
+   let child = popen('/usr/libexec/ikev2-domains-community client-service-networks ' + id, 'r');
+   if (!child) return null;
+   let body = child.read(65537), status = child.close();
+   if (status != 0 || type(body) != 'string' || length(body) > 65536) return null;
+   return filter(split(body, '\n'), line => length(line));
+  };
   for (let id in ids) {
+   let networks = index(networked, id) >= 0 ? read_networks(id) : null;
+   let was_service = filter(state.publication.services, service => service.id == id)[0];
+   if (index(networked, id) >= 0 && networks == null) {
+    // Like a list that cannot be read, on a refresh the networks stay as
+    // they were published.
+    if (request.operation != 'refresh-catalog' || !('networks' in (was_service ?? {}))) die('catalog unavailable');
+    networks = was_service.networks;
+   }
    // IDs have already passed the strict identifier grammar. No submitted
    // path, URL, credential or command can reach the child process.
    let child = popen('/usr/libexec/ikev2-domains-community client-service-domains ' + id, 'r');
@@ -241,13 +258,14 @@ try {
     // removed from routing - so one such service does not stop the lists of
     // every other from reaching the devices. Publishing a service is the
     // administrator's own request and still needs its list.
-    let was = request.operation == 'refresh-catalog' ? filter(state.publication.services, service => service.id == id)[0] : null;
-    if (!was || type(was.domains) != 'array' || !length(was.domains)) die('catalog unavailable');
-    push(catalog, { id: id, domains: was.domains });
+    let was = request.operation == 'refresh-catalog' ? was_service : null;
+    if (!was || type(was.domains) != 'array' || !(length(was.domains) || 'networks' in was)) die('catalog unavailable');
+    push(catalog, networks != null ? { id: id, domains: was.domains, networks: networks } : { id: id, domains: was.domains });
     push(kept, id);
     continue;
    }
-   push(catalog, { id: id, domains: filter(split(body, '\n'), name => length(name)) });
+   let names = filter(split(body, '\n'), name => length(name));
+   push(catalog, networks != null ? { id: id, domains: names, networks: networks } : { id: id, domains: names });
   }
   let prepared = prepare_client_admin(state, request, catalog);
   let generation = prepared.changed ? publish_client_state(directory, prepared.desired, state.generation, false) : state.generation;

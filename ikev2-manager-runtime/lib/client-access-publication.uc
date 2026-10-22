@@ -62,23 +62,29 @@ export function compile_client_publication(input) {
 				if (allocations[resource.domain] != resource.address)
 					die('publication lost or changed an existing allocation');
 		}
-		let selected = { resources: assigned.select(device.selected_services) };
-		let enabled = device.enabled && length(selected.resources) > 0;
+		let selected = { resources: assigned.select(device.selected_services), networks: assigned.networks(device.selected_services) };
+		let reaches = length(selected.resources) + length(selected.networks) > 0;
+		let enabled = device.enabled && reaches;
 		let policy;
-		if (!length(selected.resources)) {
+		if (!reaches) {
 			if (previous == null)
 				die('initial device policy requires assigned resources');
 			// No empty policy is accepted by clients. Revoke retrieval and retain
 			// the last intent so an offline client keeps its existing local guard.
 			policy = previous;
 		} else {
-			policy = { version: 1, id: device.id, revision: previous?.revision ?? 1,
+			// Networks make it version 2; without them it stays what every
+			// client so far accepts.
+			policy = { version: length(selected.networks) ? 2 : 1, id: device.id, revision: previous?.revision ?? 1,
 				server: proposal.server, virtual_subnet: proposal.virtual_subnet,
 				exit: proposal.exit, resources: selected.resources };
+			if (length(selected.networks))
+				policy.networks = selected.networks;
 			check_client_policy(policy);
 			// Written the same, they are the same; only when they are not is
 			// the order they were written in set aside.
-			if (previous != null && (previous.exit != policy.exit ||
+			if (previous != null && (previous.exit != policy.exit || previous.version != policy.version ||
+				sprintf('%J', previous.networks ?? []) != sprintf('%J', policy.networks ?? []) ||
 				(sprintf('%J', previous.resources) != sprintf('%J', policy.resources) &&
 				sprintf('%J', canonical_resources(previous.resources)) != sprintf('%J', canonical_resources(policy.resources))))) {
 				if (previous.revision == 2147483647)

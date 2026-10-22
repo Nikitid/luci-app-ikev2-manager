@@ -101,6 +101,29 @@ function subnet_range(value) {
 	return { first: first, last: first + size - 1 };
 }
 
+// A network a service reaches as itself, written at its own base address,
+// "a.b.c.d/len" from /8 to /32. It never lies in the virtual subnet, and is
+// never an address that cannot be a destination: this network, loopback,
+// link-local, multicast and above.
+function network(value, subnet) {
+	if (type(value) != 'string')
+		refuse('network required');
+	let parts = split(value, '/');
+	if (length(parts) != 2 || !match(parts[1], /^([89]|[12][0-9]|3[0-2])$/))
+		refuse('network prefix must be /8 through /32');
+	let octets = ipv4(parts[0]), first = address_number(octets), size = 1;
+	for (let bit = +parts[1]; bit < 32; bit++)
+		size *= 2;
+	if (first % size != 0)
+		refuse('network is not written at its base address');
+	if (octets[0] == 0 || octets[0] == 127 || (octets[0] == 169 && octets[1] == 254) || octets[0] >= 224)
+		refuse('network cannot be a destination');
+	let last = first + size - 1;
+	if (subnet != null && first <= subnet.last && last >= subnet.first)
+		refuse('network overlaps the virtual subnet');
+	return { first: first, last: last };
+}
+
 function address_text(number) {
 	let octets = [];
 	for (let place = 0; place < 4; place++) {
@@ -161,13 +184,30 @@ export function validate_client_base(server, virtual_subnet, exit) {
 // Whether a policy holds together, without making anything from it: what a
 // publication asks of every device's policy, several times in one save.
 export function check_client_policy(policy) {
-	fields(policy, [ 'version', 'id', 'revision', 'server', 'virtual_subnet', 'exit', 'resources' ], 'policy');
-	integer(policy.version, 1, 1, 'version');
+	// Version 2 carries networks as well; a device without any keeps version 1,
+	// word for word, which is all the clients before it accept.
+	let networked = type(policy) == 'object' && policy.version === 2;
+	fields(policy, networked ? [ 'version', 'id', 'revision', 'server', 'virtual_subnet', 'exit', 'resources', 'networks' ] :
+		[ 'version', 'id', 'revision', 'server', 'virtual_subnet', 'exit', 'resources' ], 'policy');
+	integer(policy.version, 1, 2, 'version');
 	identifier(policy.id, 'policy id');
 	integer(policy.revision, 1, 2147483647, 'revision');
 	let subnet = validate_client_base(policy.server, policy.virtual_subnet, policy.exit);
 
-	if (type(policy.resources) != 'array' || length(policy.resources) < 1 || length(policy.resources) > 4096)
+	if (networked) {
+		if (type(policy.networks) != 'array' || length(policy.networks) < 1 || length(policy.networks) > 64)
+			refuse('one to 64 networks required');
+		let seen_networks = {};
+		for (let item in policy.networks) {
+			fields(item, [ 'network', 'transports' ], 'network');
+			network(item.network, subnet);
+			transports(item.transports);
+			if (seen_networks[item.network])
+				refuse('duplicate network');
+			seen_networks[item.network] = true;
+		}
+	}
+	if (type(policy.resources) != 'array' || length(policy.resources) < (networked ? 0 : 1) || length(policy.resources) > 4096)
 		refuse('one to 4096 resources required');
 	let seen_ids = {}, seen_domains = {}, seen_addresses = {};
 	// A resource is valid for one pool and one server; the same text under
@@ -219,6 +259,9 @@ export function compile_client_policy(policy) {
 				outbound: `exit-${policy.exit}`
 			});
 	}
+	// Networks are reached as themselves: routed, with no name or proxy rule.
+	for (let item in policy.networks ?? [])
+		push(routes, item.network);
 	// No direct fallback, sniffing, or dynamic FakeIP lookup belongs on this path.
 	push(rules, { inbound: [ 'tproxy-client-access-in' ], action: 'reject', method: 'drop' });
 	return {
@@ -261,11 +304,25 @@ export function prepare_client_catalog(catalog) {
 	}
 	let next = subnet.first + 1;
 	for (let service in catalog.services) {
-		fields(service, [ 'id', 'client_access', 'domains', 'transports' ], 'service');
+		// Networks are optional: a service written before them has none.
+		fields(service, 'networks' in service ? [ 'id', 'client_access', 'domains', 'transports', 'networks' ] :
+			[ 'id', 'client_access', 'domains', 'transports' ], 'service');
 		service_identifier(service.id);
 		transports(service.transports);
 		if (service_ids[service.id] || type(service.client_access) != 'bool' || type(service.domains) != 'array')
 			refuse('invalid or duplicate service');
+		if ('networks' in service) {
+			if (type(service.networks) != 'array' || length(service.networks) < 1 || length(service.networks) > 64)
+				refuse('one to 64 networks per service');
+			let seen = {};
+			for (let item in service.networks) {
+				network(item, subnet);
+				if (seen[item])
+					refuse('duplicate service network');
+				seen[item] = true;
+			}
+		} else if (service.client_access && !length(service.domains))
+			refuse('a published service needs a domain or a network');
 		service_ids[service.id] = true;
 		for (let name in service.domains) {
 			domain(name);
@@ -330,6 +387,30 @@ export function prepare_client_catalog(catalog) {
 				refuse('too many selected resources');
 			chosen_before[asked] = resources;
 			return slice(resources);
+		},
+		// The networks of those services, each with the ports any of them
+		// opens; select() has already checked the choice.
+		networks: function(chosen) {
+			let wanted = {};
+			for (let service in catalog.services) {
+				if (index(chosen, service.id) < 0)
+					continue;
+				for (let item in service.networks ?? []) {
+					if (!wanted[item])
+						wanted[item] = {};
+					for (let transport in service.transports) {
+						if (!wanted[item][transport.protocol])
+							wanted[item][transport.protocol] = [];
+						for (let port in transport.ports)
+							if (index(wanted[item][transport.protocol], port) < 0)
+								push(wanted[item][transport.protocol], port);
+					}
+				}
+			}
+			if (length(wanted) > 64)
+				refuse('more than 64 networks for one device');
+			return map(sort(keys(wanted)), item => ({ network: item,
+				transports: map(sort(keys(wanted[item])), protocol => ({ protocol: protocol, ports: sort(wanted[item][protocol]) })) }));
 		}
 	};
 };
