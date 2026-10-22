@@ -393,7 +393,10 @@ sync_runtime() (
 		if [ -n "$managed_subnet" ] && valid_ipv4_target "$managed_subnet"; then
 			# Only SA/tuple admission sets this mark. The independent path guard
 			# rejects unmarked virtual traffic, including a missing admission table.
-			managed_input_rule="    iifname \"ipsec-in\" ip daddr $managed_subnet meta mark == 0x00800000 return"
+			# A service's networks are reached outside the subnet, to the proxy,
+			# by the same mark, which admission sets again on delivery.
+			managed_input_rule="    iifname \"ipsec-in\" ip daddr $managed_subnet meta mark == 0x00800000 return
+    iifname \"ipsec-in\" ip daddr != $managed_subnet meta mark == 0x00800000 return"
 			managed_wan_rule="$managed_input_rule"
 		fi
 	fi

@@ -50,6 +50,29 @@ class PathTests(unittest.TestCase):
         self.assertEqual(result['route']['ingress'], 'ipsec-in')
         self.assertNotIn('token_sha256', json.dumps(result))
 
+    def test_networks_reach_the_proxy_by_the_mark_and_leave_by_their_service_exit(self):
+        plain = self.compile(self.input())
+        self.assertIsNone(plain['networks_route'])
+        self.assertNotIn('ip daddr != ', plain['nft'])
+        desired = state_tests.desired()
+        desired['services'][1]['networks'] = ['149.154.160.0/20']
+        value = self.input(desired)
+        value['exits'] = {'links': {'1': 'ipsec-out', '2': 'ipsec-out2'}, 'services': {'chat': '2'}}
+        result = self.compile(value)
+        reached = [r for r in result['config']['route']['rules'] if 'ip_cidr' in r and r['ip_cidr'] == ['149.154.160.0/20']]
+        self.assertEqual(reached, [{'inbound': ['tproxy-client-access-in'], 'ip_cidr': ['149.154.160.0/20'], 'network': ['tcp'],
+                                    'port': [443], 'action': 'route', 'outbound': 'exit-2'}])
+        # Before the closing refusal, so nothing else catches them.
+        rules = result['config']['route']['rules']
+        self.assertLess(rules.index(reached[0]), len(rules) - 1)
+        self.assertIn('iifname "ipsec-in" ip daddr != 172.31.254.0/24 meta mark == 0x00800000 meta l4proto { tcp, udp } tproxy',
+                      result['nft'])
+        self.assertEqual(result['networks_route'], {'priority': 10997, 'table': 1507, 'ingress': 'ipsec-in', 'mark': '0x00800000'})
+        # A service whose tunnel is down refuses its networks too.
+        value['exits']['links']['2'] = None
+        down = [r for r in self.compile(value)['config']['route']['rules'] if r.get('ip_cidr') == ['149.154.160.0/20']]
+        self.assertEqual(down[0]['action'], 'reject')
+
     def test_changed_domains_retire_old_routes_without_recycling(self):
         initial = self.input()
         desired = state_tests.desired()

@@ -942,6 +942,20 @@ reboot reconnects nobody. Admission, the device list and the session reader
 treat these connections as the inbound ones they are (`client-managed.sh`,
 which needs XFRM interfaces and runs in CI).
 
+On the router a network is granted by device, network and port in interval
+sets of the admission table (`networks_tcp`, `networks_udp`), marked only for
+the device's own SA. What is not granted there returns unmarked to the
+inbound user policies - a network is a destination other users of the tunnel
+may reach in their own right - so this table never drops it. Marked traffic
+reaches the managed proxy by tproxy and a rule of its own (priority 10997,
+`fwmark 0x800000/0x800000`, table 1507, local for everything), which the path
+keeps in place while any service carries networks and removes when none does.
+Because the route follows the mark and other software may rewrite marks
+between hooks, admission finds the mark again at priority 290, just before the
+route is chosen. The proxy sends each network out by its service's exit and
+refuses it while that exit cannot carry it (`test-client-reconciliation.py`,
+`test-client-path.py`).
+
 ## What a person is given and what a device chooses
 
 A person's devices may be given an offer instead of a plain list of services

@@ -41,7 +41,13 @@ close_grants() {
 	for granted in allow_tcp allow_udp names_tcp names_udp names_clients; do
 		printf 'flush set inet %s %s\n' "$table" "$granted"
 	done >"$work/close.nft" || return 1
-	pkg_run_bounded 3 "$nft_bin" -f "$work/close.nft" >/dev/null 2>&1
+	pkg_run_bounded 3 "$nft_bin" -f "$work/close.nft" >/dev/null 2>&1 || return 1
+	# Grants to networks, in a table that has them: one installed before them
+	# has none, and its leases end by themselves all the same.
+	for granted in networks_tcp networks_udp; do
+		"$nft_bin" list set inet "$table" "$granted" >/dev/null 2>&1 || continue
+		pkg_run_bounded 3 "$nft_bin" flush set inet "$table" "$granted" >/dev/null 2>&1 || return 1
+	done
 }
 
 # Installs the compiled table. A table without a single grant holds nothing
@@ -168,6 +174,12 @@ teardown_runtime() {
 		ip -4 route show table 1506 2>/dev/null | grep -q "^local $subnet dev lo" &&
 			{ ip -4 route del local "$subnet" dev lo table 1506 2>/dev/null || rc=1; }
 	fi
+	# The networks' slot, wherever networks were published.
+	while ip -4 rule show 2>/dev/null | grep -Eq '^10997:[[:space:]]+from all fwmark 0x800000/0x800000 iif ipsec-in lookup 1507'; do
+		ip -4 rule del priority 10997 iif ipsec-in fwmark 0x800000/0x800000 lookup 1507 2>/dev/null || { rc=1; break; }
+	done
+	ip -4 route show table 1507 2>/dev/null | grep -q '^local default dev lo' &&
+		{ ip -4 route del local default dev lo table 1507 2>/dev/null || rc=1; }
 	for owned in ikev2_client_path ikev2_client_access; do
 		table="$owned"
 		runtime_exists || continue

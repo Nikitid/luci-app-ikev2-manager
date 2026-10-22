@@ -105,6 +105,9 @@ export function compile_client_authorization(input) {
 	// are asked for, so their admission is by device and port; which names a
 	// device may reach is decided where the name is known, in the proxy.
 	let named = { tcp: {}, udp: {} }, askers = {};
+	// Networks are reached as themselves: by device, network and port, each
+	// network an interval of the set.
+	let networked = { tcp: {}, udp: {} };
 	for (let session in input.sessions) {
 		let vip = session.address, policy = users[session.identity], number = address(vip);
 		if (number < first || number > last || ambiguous[vip] || !policy)
@@ -119,6 +122,10 @@ export function compile_client_authorization(input) {
 					inbound[transport.protocol][`${session.reqid} . 0x${session.spi_in} . ${tuple}`] = true;
 					outbound[transport.protocol][`${session.reqid} . 0x${session.spi_out} . ${tuple}`] = true;
 				}
+		for (let item in policies[policy].policy.networks ?? [])
+			for (let transport in item.transports)
+				for (let port in transport.ports)
+					networked[transport.protocol][`${vip} . ${item.network} . ${port}`] = true;
 	}
 	let admitted = {};
 	for (let session in input.sessions) {
@@ -139,6 +146,12 @@ export function compile_client_authorization(input) {
 		if (length(elements)) nft += `    elements = { ${join(', ', elements)} }\n`;
 		nft += '  }\n';
 	}
+	for (let protocol in [ 'tcp', 'udp' ]) {
+		let elements = sort(keys(networked[protocol]));
+		nft += `  set networks_${protocol} {\n    type ipv4_addr . ipv4_addr . inet_service\n    flags interval,timeout\n    timeout ${input.lease_seconds}s\n`;
+		if (length(elements)) nft += `    elements = { ${join(', ', elements)} }\n`;
+		nft += '  }\n';
+	}
 	let layout = client_names_plan(subnet);
 	nft += `  set names_clients {\n    type ipv4_addr\n    flags timeout\n    timeout ${input.lease_seconds}s\n`;
 	if (length(keys(askers))) nft += `    elements = { ${join(', ', sort(keys(askers)))} }\n`;
@@ -146,14 +159,34 @@ export function compile_client_authorization(input) {
 	// Scalar SA checks and timed address grants form one atomic table. Named
 	// address types also survive nft's reconstruction of expiring set elements.
 	nft += '  chain prerouting {\n    type filter hook prerouting priority -165; policy accept;\n';
-	nft += `    ip daddr ${subnet} jump authorize\n  }\n`;
+	nft += `    ip daddr ${subnet} jump authorize\n`;
+	nft += `    iifname "ipsec-in" ip daddr != ${subnet} jump authorize_networks\n  }\n`;
+	// Routing to the proxy follows the mark for these, and other software may
+	// rewrite a mark between hooks: it is found again from the SA and the
+	// grants just before the route is chosen.
+	nft += '  chain prerouting_late {\n    type filter hook prerouting priority 290; policy accept;\n';
+	nft += `    iifname "ipsec-in" ip daddr != ${subnet} jump authorize_networks\n  }\n`;
 	// The mark is evidence only within one hook. Other software on a router
 	// rewrites packet marks between hooks (a connection-mark restore replaces
 	// the whole mark of an established flow), so admission is decided again
 	// from the SA and the grants when the packet is delivered, ahead of every
 	// input rule that asks for the mark.
 	nft += '  chain input {\n    type filter hook input priority -170; policy accept;\n';
-	nft += `    ip daddr ${subnet} jump authorize\n  }\n`;
+	nft += `    ip daddr ${subnet} jump authorize\n`;
+	nft += `    iifname "ipsec-in" ip daddr != ${subnet} jump authorize_networks\n  }\n`;
+	// A network is a destination anybody else in the tunnel may also reach in
+	// their own right: what is not granted here returns, unmarked, to the
+	// policies of the inbound users, never dropped by this table.
+	nft += '  chain authorize_networks {\n';
+	for (let key in sort(keys(admitted))) {
+		let session = admitted[key];
+		nft += `    ip saddr ${session.address} ipsec in reqid ${session.reqid} ipsec in spi 0x${session.spi_in} jump authorize_network_services\n`;
+	}
+	nft += '  }\n';
+	nft += '  chain authorize_network_services {\n';
+	for (let protocol in [ 'tcp', 'udp' ])
+		nft += `    meta l4proto ${protocol} ip saddr . ip daddr . ${protocol} dport @networks_${protocol} meta mark set 0x00800000 counter accept\n`;
+	nft += '  }\n';
 	nft += '  chain authorize {\n    iifname != "ipsec-in" counter drop\n';
 	for (let key in sort(keys(admitted))) {
 		let session = admitted[key];
@@ -195,6 +228,7 @@ export function compile_client_authorization(input) {
 	}
 	nft += '    counter drop\n  }\n}\n';
 	return { version: 1, virtual_subnet: subnet, tcp: sort(keys(tuples.tcp)), udp: sort(keys(tuples.udp)),
+		networks_tcp: sort(keys(networked.tcp)), networks_udp: sort(keys(networked.udp)),
 		tcp_in: sort(keys(inbound.tcp)), tcp_out: sort(keys(outbound.tcp)),
 		udp_in: sort(keys(inbound.udp)), udp_out: sort(keys(outbound.udp)),
 		ambiguous_addresses: length(keys(ambiguous)), sessions: map(keys(admitted), key => admitted[key]), nft: nft };
@@ -205,7 +239,8 @@ export function compile_client_denial(subnet) {
 	validate_client_subnet(subnet);
 	let nft = 'table inet ikev2_client_access {\n  chain ikev2_manager_owned { }\n';
 	for (let protocol in [ 'tcp', 'udp' ])
-		nft += `  set allow_${protocol} { type ipv4_addr . ipv4_addr . inet_service; flags timeout; timeout 15s; }\n  set names_${protocol} { type ipv4_addr . inet_service; flags timeout; timeout 15s; }\n`;
+		nft += `  set allow_${protocol} { type ipv4_addr . ipv4_addr . inet_service; flags timeout; timeout 15s; }\n  set names_${protocol} { type ipv4_addr . inet_service; flags timeout; timeout 15s; }\n` +
+			`  set networks_${protocol} { type ipv4_addr . ipv4_addr . inet_service; flags interval,timeout; timeout 15s; }\n`;
 	nft += '  set names_clients { type ipv4_addr; flags timeout; timeout 15s; }\n';
 	for (let hook in [ 'prerouting', 'input', 'output', 'postrouting' ]) {
 		let direction = hook == 'prerouting' || hook == 'input' ? 'daddr' : 'saddr';

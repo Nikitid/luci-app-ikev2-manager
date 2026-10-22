@@ -74,8 +74,18 @@ function route_slots(directory, plan, rules, routes) {
    die('different route ownership');
  }
  if (type(rules) != 'array' || type(routes) != 'array') die('missing route inventory');
- let rule_present = false, route_present = false;
+ let rule_present = false, route_present = false, network_rule_present = false, network_route_present = false;
  for (let rule in rules) {
+  // The networks' slot: by the admission mark from the inbound tunnel into a
+  // table that is local for everything. Present without networks published,
+  // it is still ours to take away.
+  if (rule.priority == 10997 || '' + rule.table == '1507') {
+   if (!lease || rule.priority != 10997 || '' + rule.table != '1507' || rule.src != 'all' || rule.iif != 'ipsec-in' ||
+    rule.fwmark != '0x800000' || rule.fwmask != '0x800000' || rule.dst != null || rule.action != null || network_rule_present)
+    die('foreign rule slot');
+   network_rule_present = true;
+   continue;
+  }
   if (rule.priority != 10998 && '' + rule.table != '1506') continue;
   if (!lease || rule.priority != 10998 || '' + rule.table != '1506' || rule.src != 'all' ||
    rule.iif != 'ipsec-in' || rule.dst + '/' + rule.dstlen != subnet ||
@@ -83,6 +93,11 @@ function route_slots(directory, plan, rules, routes) {
   rule_present = true;
  }
  for (let route in routes) {
+  if ('' + route.table == '1507') {
+   if (!lease || route.type != 'local' || route.dst != 'default' || route.dev != 'lo' ||
+    route.gateway != null || network_route_present) die('foreign route slot');
+   network_route_present = true; continue;
+  }
   if ('' + route.table == '1506') {
    if (!lease || route.type != 'local' || route.dst != subnet || route.dev != 'lo' ||
     route.gateway != null || route_present) die('foreign route slot');
@@ -95,7 +110,8 @@ function route_slots(directory, plan, rules, routes) {
  // Record intent before either mutation, so interrupted partial setup is
  // recoverable. An existing record already says this, checked above.
  if (!lease) atomic_write(directory + '/route-owner.json', { version: 1, subnet: subnet });
- print(sprintf('%J\n', { rule_present: rule_present, route_present: route_present }));
+ print(sprintf('%J\n', { rule_present: rule_present, route_present: route_present,
+  network_rule_present: network_rule_present, network_route_present: network_route_present }));
 }
 
 try {

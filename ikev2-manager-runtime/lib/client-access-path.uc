@@ -125,6 +125,15 @@ export function compile_client_path(input) {
 				exits.services[service.id] ?? publication.exit));
 	}
 	push(dns_rules, { inbound: [ 'tproxy-client-access-in' ], action: 'predefined', rcode: 'REFUSED' });
+	// Networks. Admission marks only a device's own networks on their ports,
+	// and only those reach the proxy; each leaves by its service's exit.
+	let networked = filter(publication.services, service => service.client_access && length(service.networks ?? []));
+	let reached = [];
+	for (let service in networked)
+		for (let transport in service.transports)
+			push(reached, leave({ inbound: [ 'tproxy-client-access-in' ], ip_cidr: service.networks,
+				network: [ transport.protocol ], port: transport.ports, action: 'route', outbound: 'managed-exit' },
+				exits.services[service.id] ?? publication.exit));
 	// Names over HTTPS. A device may ask the same resolver address on port 443
 	// instead: another VPN on the device that blocks every plain DNS query but
 	// its own lets this through. The connection is handed to the front that
@@ -143,7 +152,7 @@ export function compile_client_path(input) {
 		{ inbound: [ 'names-local-in' ], action: 'hijack-dns' },
 		{ inbound: [ 'tproxy-client-access-in' ], ip_cidr: [ layout.resolver + '/32' ], network: [ 'tcp' ], port: [ 443 ], action: 'route',
 			outbound: 'names-front', override_address: '127.0.0.1', override_port: CLIENT_NAMES_HTTPS_PORT },
-		...rules, ...named, closing ];
+		...rules, ...named, ...reached, closing ];
 	// Admission (-165) precedes interception (-154). A missing local route or
 	// listener cannot forward virtual destinations through an unrelated route.
 	let nft = `table inet ikev2_client_path {
@@ -151,7 +160,7 @@ export function compile_client_path(input) {
   chain prerouting {
     type filter hook prerouting priority -154; policy accept;
     iifname "ipsec-in" ip daddr ${subnet} meta mark == 0x00800000 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:${input.listen_port} counter accept
-    ip daddr ${subnet} counter drop
+${length(reached) ? `    iifname "ipsec-in" ip daddr != ${subnet} meta mark == 0x00800000 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:${input.listen_port} counter accept\n` : ''}    ip daddr ${subnet} counter drop
   }
   chain forward {
     type filter hook forward priority -165; policy accept;
@@ -181,6 +190,9 @@ export function compile_client_path(input) {
 		exit: publication.exit, exit_link: input.exit_link, mark: '0x00800000',
 		exits: exits,
 		route: { priority: 10998, table: 1506, ingress: 'ipsec-in', destination: subnet },
+		// Networks reach the proxy by the admission mark: a rule of its own
+		// before the subnet's, into a table that is local for everything.
+		networks_route: length(reached) ? { priority: 10997, table: 1507, ingress: 'ipsec-in', mark: '0x00800000' } : null,
 		nft: nft,
 		config: {
 			log: { level: 'warn' },

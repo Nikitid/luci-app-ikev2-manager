@@ -78,7 +78,7 @@ try {
 		for (let service in assigned[session.identity] ?? [])
 			if (sources[service] != null && index(sources[service], session.address) < 0) push(sources[service], session.address);
 	print(sprintf('%J\n', { generation: state.generation, exit: state.publication.exit, mode: mode, sources: sources,
-		grants: length(compiled.tcp) + length(compiled.udp), sessions: compiled.sessions ?? [], nft: compiled.nft }));
+		grants: length(compiled.tcp) + length(compiled.udp) + length(compiled.networks_tcp ?? []) + length(compiled.networks_udp ?? []), sessions: compiled.sessions ?? [], nft: compiled.nft }));
 } catch (error) {
 	warn('client-access-runtime: local evidence unavailable\n');
 	exit(1);

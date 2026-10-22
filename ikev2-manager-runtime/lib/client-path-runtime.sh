@@ -40,8 +40,25 @@ client_path_routes() {
  if [ "$(jsonfilter -i "$work/path-slots.json" -e '@.rule_present')" != true ]; then
   ip -4 rule add iif ipsec-in to "$subnet" lookup 1506 priority 10998 || return 1
  fi
+ client_path_network_routes || return 1
  [ "$(jsonfilter -i "$work/path-slots.json" -e '@.route_present')" != true ] ||
   [ "$(jsonfilter -i "$work/path-slots.json" -e '@.rule_present')" != true ] || path_inventory="$inventory"
+}
+
+# The networks' slot follows what is published: in place while any service
+# carries networks, gone when none does.
+client_path_network_routes() {
+ local wanted rule route
+ wanted="$(jsonfilter -i "$work/path-plan.json" -e '@.networks_route.table' 2>/dev/null)"
+ rule="$(jsonfilter -i "$work/path-slots.json" -e '@.network_rule_present')"
+ route="$(jsonfilter -i "$work/path-slots.json" -e '@.network_route_present')"
+ if [ "$wanted" = 1507 ]; then
+  [ "$route" = true ] || ip -4 route add local default dev lo table 1507 || return 1
+  [ "$rule" = true ] || ip -4 rule add iif ipsec-in fwmark 0x800000/0x800000 lookup 1507 priority 10997 || return 1
+ else
+  [ "$rule" != true ] || ip -4 rule del iif ipsec-in fwmark 0x800000/0x800000 lookup 1507 priority 10997 || return 1
+  [ "$route" != true ] || ip -4 route del local default dev lo table 1507 || return 1
+ fi
 }
 
 # Where each published service leaves, as the compiler reads it: the tunnel

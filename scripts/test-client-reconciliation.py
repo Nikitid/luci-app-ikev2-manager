@@ -45,6 +45,28 @@ class ReconciliationTests(unittest.TestCase):
         value['snapshot']['data'][0]['ikev2-in']['remote-eap-id'] = 'unknown'
         self.assertEqual(self.reconcile(value)['tcp_out'], [])
 
+    def test_networks_are_granted_by_device_network_and_port_and_marked_only_from_the_sa(self):
+        value = fixture()
+        policy = value['api']['devices'][0]['policy']
+        policy['version'] = 2
+        policy['networks'] = [{'network': '149.154.160.0/20', 'transports': [{'protocol': 'tcp', 'ports': [443]},
+                                                                             {'protocol': 'udp', 'ports': [3478]}]}]
+        result = self.reconcile(value)
+        self.assertEqual(result['networks_tcp'], ['10.25.0.10 . 149.154.160.0/20 . 443'])
+        self.assertEqual(result['networks_udp'], ['10.25.0.10 . 149.154.160.0/20 . 3478'])
+        nft = result['nft']
+        # Granted in an interval set, marked only for the session's own SA,
+        # found again just before routing, and never dropped by this table.
+        self.assertIn('flags interval,timeout', nft)
+        self.assertIn('ip saddr 10.25.0.10 ipsec in reqid 12 ipsec in spi 0x01234567 jump authorize_network_services', nft)
+        self.assertIn('hook prerouting priority 290', nft)
+        networks = nft.split('chain authorize_networks {')[1].split('}')[0]
+        self.assertNotIn('drop', networks)
+        # A device without networks is granted none.
+        del policy['networks']
+        policy['version'] = 1
+        self.assertEqual(self.reconcile(value)['networks_tcp'], [])
+
     def test_closed_device_with_an_older_exit_does_not_stop_the_open_ones(self):
         # A removed device keeps the policy it last had; the administrator has
         # since chosen another exit. The open device must still be admitted.
