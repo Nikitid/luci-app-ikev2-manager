@@ -517,7 +517,10 @@ return view.extend({
 							refreshList(lastDump);
 					});
 			});
-			return E('label', { 'class': 'ikev2-policy-check', 'title': title }, [ control, E('span', {}) ]);
+			// The Routing column means something else for an exclusion, so the box
+			// says what it does here, across the columns an inclusion does not use.
+			return E('label', { 'class': 'ikev2-policy-check ikev2-policy-check-wide', 'title': title }, [
+				control, E('span', {}), E('small', { 'class': 'ikev2-policy-caption' }, [ _('Exclusions go direct') ]) ]);
 		}
 
 		// The tunnel a full-route device leaves by. While it is down the
@@ -613,10 +616,8 @@ return view.extend({
 						included ? 'good' : 'warn') ]),
 					included ? respectCheck(entry) :
 						policyCheck(entry, 'pbr', _('Exclude from project routing'), checks),
-					included ? E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]) :
-						policyCheck(entry, 'dns', _('Use the device DNS without interception'), checks),
-					included ? E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]) :
-						policyCheck(entry, 'dpi', _('Bypass Zapret processing'), checks),
+					included ? '' : policyCheck(entry, 'dns', _('Use the device DNS without interception'), checks),
+					included ? '' : policyCheck(entry, 'dpi', _('Bypass Zapret processing'), checks),
 					!several ? '' : included ? tunnelSelect(entry) :
 						E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]),
 					E('span', { 'class': 'ikev2-device-policy-traffic' }, [

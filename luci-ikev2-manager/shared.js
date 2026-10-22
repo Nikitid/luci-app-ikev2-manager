@@ -800,6 +800,14 @@ var CSS = `
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
 			}
 			.ikev2-policy-check input:disabled + span { opacity: .5; cursor: wait; }
+			.ikev2-policy-check.ikev2-policy-check-wide {
+				grid-column: span 3;
+				display: inline-flex;
+				align-items: center;
+				gap: .5rem;
+				width: auto;
+			}
+			.ikev2-policy-caption { color: var(--ikev2-muted); font-size: .82rem; white-space: nowrap; }
 			.ikev2-policy-na { color: var(--ikev2-muted); }
 			.ikev2-square-action {
 				display: inline-grid !important;

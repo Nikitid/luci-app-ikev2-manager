@@ -742,6 +742,12 @@ const respectBox = nodesOf(fullRoutePage).find(function(node) {
 });
 if (!respectBox || !respectBox.checked)
 	fail('a full-route device row does not show that it respects the exclusions');
+// Under the Routing heading an exclusion's box means something else; this one says what it does.
+if (!nodesOf(fullRoutePage).some(function(node) {
+	return node.tagName === 'LABEL' && node.children && node.children.indexOf(respectBox) >= 0 &&
+		/Exclusions go direct/.test(textOf(node));
+}))
+	fail('the full-route box does not say that exclusions go direct');
 // After the other checks that stub exec, and once the job has started.
 const respectStored = Promise.resolve().then(dnsSentReady).then(function() {
 	const execBefore = fsStub.exec;
@@ -785,9 +791,17 @@ if (exitColumn < 0)
 	fail('a second tunnel gives the device rows no tunnel column');
 function exitCell(addr) {
 	const row = exitRows.find(function(node) { return textOf(node).indexOf(addr) >= 0; });
-	return row && row.children.filter(function(child) {
+	if (!row) return null;
+	// The grid column each cell starts in: the full-route box spans the three
+	// policy columns.
+	let column = 0;
+	return row.children.filter(function(child) {
 		return child && typeof child === 'object';
-	})[exitColumn];
+	}).find(function(child) {
+		const here = column;
+		column += /ikev2-policy-check-wide/.test(child.attrs && child.attrs['class'] || '') ? 3 : 1;
+		return here === exitColumn;
+	});
 }
 const exitSelect = exitCell('192.168.1.40');
 if (!exitSelect || exitSelect.tagName !== 'SELECT' || exitSelect.value !== '2')
