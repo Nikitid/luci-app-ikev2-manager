@@ -8,6 +8,7 @@
 // Choices name the optional services turned on, and the services the person
 // chose to block where that is theirs to choose.
 'use strict';
+import { readfile } from 'fs';
 
 function fail(message) {
 	die(`client-access-offer: ${message}`);
@@ -79,6 +80,21 @@ export function client_choices_within(offer, choices) {
 		closed: filter(choices?.closed ?? [], id => entries[id]?.closed == 'choice') };
 };
 
+// The name a person sees for a service, as every page names it: the one the
+// administrator gave, else the one the package ships, else the identifier.
+// One line, at most 64 characters, nothing that is not text.
+function service_label(id) {
+	let given = split(readfile(`/etc/ikev2-manager/services.d/${id}.name`, 256) ?? '', '\n')[0];
+	if (!length(given)) {
+		for (let line in split(readfile('/usr/share/ikev2-domains/service-names', 65536) ?? '', '\n')) {
+			let parts = split(line, '|');
+			if (parts[0] == id) { given = parts[1] ?? ''; break; }
+		}
+	}
+	given = trim(replace(given ?? '', /[[:cntrl:]<>]/g, ''));
+	return length(given) && length(given) <= 64 ? given : id;
+}
+
 function address_number(text) {
 	let number = 0;
 	for (let octet in split(text, '.')) number = number * 256 + +octet;
@@ -98,7 +114,7 @@ export function client_service_entries(offer, choices, publication) {
 	let on = choices?.on ?? [], closed = choices?.closed ?? [];
 	return map(sort(slice(offer), (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0), entry => {
 		let service = services[entry.id];
-		return { id: entry.id, required: entry.required, on: entry.required || index(on, entry.id) >= 0,
+		return { id: entry.id, label: service_label(entry.id), required: entry.required, on: entry.required || index(on, entry.id) >= 0,
 			closed: entry.closed == 'yes' || (entry.closed == 'choice' && index(closed, entry.id) >= 0),
 			choose_closed: entry.closed == 'choice',
 			domains: length(service?.domains ?? []), networks: length(service?.networks ?? []),

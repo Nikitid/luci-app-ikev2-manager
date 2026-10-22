@@ -13,7 +13,11 @@ final class ClientModel: ObservableObject {
     private var connectAfterRegistration = false
     private var profileFile: URL?
 
+    private var started = false
     func start() {
+        // The window and the menu-bar item share this model; it starts once.
+        guard !started else { return }
+        started = true
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -55,6 +59,26 @@ final class ClientModel: ObservableObject {
             case "administrator_required": message = "Нужны права администратора."
             case nil: message = "Служба не отвечает."
             default: message = "Действие отклонено."
+            }
+        }
+    }
+
+    /// The person's choice of their offer: what is on, and what of it is
+    /// blocked without the tunnel where that is theirs to decide.
+    func choose(_ entry: ServiceEntry, on: Bool? = nil, closed: Bool? = nil) {
+        guard let entries = status?.entries, !busy else { return }
+        var turnedOn = Set(entries.filter { !$0.required && $0.on }.map(\.id))
+        var blocked = Set(entries.filter { $0.chooseClosed && $0.closed }.map(\.id))
+        if let on { if on { turnedOn.insert(entry.id) } else { turnedOn.remove(entry.id) } }
+        if let closed { if closed { blocked.insert(entry.id) } else { blocked.remove(entry.id) } }
+        busy = true
+        message = ""
+        ask(Control.Request(op: "choose", on: turnedOn.sorted(), closed: blocked.sorted())) { [self] response in
+            busy = false
+            switch response?.result {
+            case "ok": if let next = response?.status { status = next }
+            case nil: message = "Служба не отвечает."
+            default: message = "Выбор не принят. Попробуйте ещё раз."
             }
         }
     }
@@ -351,8 +375,80 @@ struct AddressCard: View {
     }
 }
 
+/// What the person was offered: each service on or off and what becomes of it
+/// without the tunnel. Required ones only say so; the rest are theirs to switch.
+struct ServiceList: View {
+    let entries: [ServiceEntry]
+    @ObservedObject var model: ClientModel
+    var body: some View {
+        if entries.isEmpty {
+            Text("Не назначены").foregroundStyle(.secondary)
+        }
+        ForEach(entries, id: \.id) { entry in
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    if entry.required {
+                        Text(entry.label).bold()
+                        Spacer()
+                        Text("обязательный").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Toggle(isOn: Binding(get: { entry.on }, set: { model.choose(entry, on: $0) })) { Text(entry.label).bold() }
+                            .toggleStyle(.switch).disabled(model.busy)
+                    }
+                }
+                if entry.on {
+                    if entry.chooseClosed {
+                        Toggle("Блокировать без туннеля", isOn: Binding(get: { entry.closed }, set: { model.choose(entry, closed: $0) }))
+                            .font(.caption).disabled(model.busy)
+                    } else {
+                        Text(entry.closed ? "Без туннеля блокируется" : "Без туннеля идёт напрямую").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text([entry.domains > 0 ? "доменов: \(entry.domains)" : "", entry.networks > 0 ? "сетей: \(entry.networks)" : ""]
+                    .filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+/// The menu-bar item: the state at a glance, the switch, and the services
+/// the person may turn on - the window is for everything else.
+struct MenuBarView: View {
+    @ObservedObject var model: ClientModel
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: model.tone.symbol).foregroundStyle(model.tone.color)
+                Text(model.heading).bold()
+            }
+            Text(model.detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let status = model.status, status.guardInstalled, status.profileInstalled, status.state != "access_closed" {
+                Toggle("Waypoint", isOn: Binding(get: { status.wanted }, set: { model.command($0 ? "connect" : "disconnect") }))
+                    .toggleStyle(.switch).disabled(model.busy)
+            }
+            if let entries = model.status?.entries, entries.contains(where: { !$0.required }) {
+                Divider()
+                ForEach(entries.filter { !$0.required }, id: \.id) { entry in
+                    Toggle(entry.label, isOn: Binding(get: { entry.on }, set: { model.choose(entry, on: $0) })).disabled(model.busy)
+                }
+            }
+            Divider()
+            HStack {
+                Button("Открыть Waypoint") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
+                Spacer()
+                Button("Выйти") { NSApp.terminate(nil) }
+            }
+        }
+        .padding(14)
+        .frame(width: 300)
+        .onAppear { model.start() }
+    }
+}
+
 struct ClientView: View {
-    @StateObject private var model = ClientModel()
+    @ObservedObject var model: ClientModel
     @State private var invitation = ""
     @State private var registering = false
     @State private var reporting = false
@@ -404,7 +500,9 @@ struct ClientView: View {
                          tone: !model.selfResolving.isEmpty ? .attention : fresh ? .off : .open)
             }
             Card(title: "Сервисы") {
-                if let status, !status.services.isEmpty {
+                if let entries = status?.entries {
+                    ServiceList(entries: entries, model: model)
+                } else if let status, !status.services.isEmpty {
                     Text(status.services.joined(separator: " · ")).bold().fixedSize(horizontal: false, vertical: true)
                     Text("Доменов: \(status.domains)").font(.caption).foregroundStyle(.secondary)
                 } else {
@@ -631,7 +729,14 @@ struct ClientView: View {
 
 @main
 struct ClientApplication: App {
+    @StateObject private var model = ClientModel()
     var body: some Scene {
-        WindowGroup("Waypoint") { ClientView() }.windowResizability(.contentSize)
+        Window("Waypoint", id: "main") { ClientView(model: model) }.windowResizability(.contentSize)
+        MenuBarExtra {
+            MenuBarView(model: model)
+        } label: {
+            Image(systemName: model.status?.state == "protected" ? "lock.shield.fill" : "shield")
+        }
+        .menuBarExtraStyle(.window)
     }
 }

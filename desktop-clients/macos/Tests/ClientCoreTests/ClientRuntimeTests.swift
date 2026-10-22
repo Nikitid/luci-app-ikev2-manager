@@ -435,3 +435,20 @@ private let offeredPolicy = #"{"version":2,"id":"office-mac","revision":1,"serve
     #expect(router.sync { router.chosen.count == 1 && router.chosen[0].0 == ["wiki"] && router.chosen[0].1 == ["wiki"] })
     try? FileManager.default.removeItem(at: store.directory)
 }
+
+@Test func offerEntriesAreReadStrictly() throws {
+    func answer(_ entry: String) -> Data {
+        Data(#"{"version":1,"id":"office-mac","revision":2,"selected":[],"available":[],"entries":["#.utf8 + Data(entry.utf8) + Data("]}".utf8))
+    }
+    let good = #"{"id":"chat","label":"Telegram","required":false,"on":true,"closed":false,"choose_closed":true,"domains":3,"networks":1,"resources":["host-4"],"cidrs":["149.154.160.0/20"]}"#
+    let entries = try #require(try DeviceTransport.decodeServices(answer(good), id: "office-mac").entries)
+    #expect(entries == [ServiceEntry(id: "chat", required: false, on: true, closed: false, chooseClosed: true, domains: 3, networks: 1,
+                                     resources: ["host-4"], cidrs: ["149.154.160.0/20"])].map { var entry = $0; entry.label = "Telegram"; return entry })
+    for bad in [good.replacingOccurrences(of: "Telegram", with: "Tele\\ngram"),
+                good.replacingOccurrences(of: #""required":false,"on":true"#, with: #""required":true,"on":false"#),
+                good.replacingOccurrences(of: "149.154.160.0/20", with: "127.0.0.0/8"),
+                good.replacingOccurrences(of: "host-4", with: "../4"),
+                good.replacingOccurrences(of: #""cidrs""#, with: #""extra":1,"cidrs""#)] {
+        #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeServices(answer(bad), id: "office-mac") }
+    }
+}

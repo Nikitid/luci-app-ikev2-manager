@@ -29,6 +29,8 @@ public struct DeviceReadiness: Sendable, Equatable {
 /// holds. It grants nothing; the router decides what passes.
 public struct ServiceEntry: Sendable, Equatable, Codable {
     public let id: String
+    /// The name to show; the identifier where the router gives none.
+    public var label: String
     public let required: Bool
     public let on: Bool
     public let closed: Bool
@@ -38,7 +40,7 @@ public struct ServiceEntry: Sendable, Equatable, Codable {
     public let resources: [String]
     public let cidrs: [String]
     public init(id: String, required: Bool, on: Bool, closed: Bool, chooseClosed: Bool, domains: Int, networks: Int, resources: [String], cidrs: [String]) {
-        self.id = id; self.required = required; self.on = on; self.closed = closed; self.chooseClosed = chooseClosed
+        self.id = id; self.label = id; self.required = required; self.on = on; self.closed = closed; self.chooseClosed = chooseClosed
         self.domains = domains; self.networks = networks; self.resources = resources; self.cidrs = cidrs
     }
 }
@@ -302,7 +304,8 @@ public struct DeviceTransport: DeviceRequests {
             return flag
         }
         for item in items {
-            guard Set(item.keys) == ["id", "required", "on", "closed", "choose_closed", "domains", "networks", "resources", "cidrs"],
+            let keys: Set<String> = ["id", "required", "on", "closed", "choose_closed", "domains", "networks", "resources", "cidrs"]
+            guard Set(item.keys) == keys || Set(item.keys) == keys.union(["label"]),
                   let id = item["id"] as? String, matches(id, service), seen.insert(id).inserted,
                   let resources = item["resources"] as? [String], resources.count <= 4096,
                   resources.allSatisfy({ matches($0, #"\Ahost-[0-9]{1,7}\z"#) }),
@@ -310,9 +313,16 @@ public struct DeviceTransport: DeviceRequests {
             for cidr in cidrs { guard (try? PolicyValue.network(cidr)) != nil else { throw DeviceError.invalidResponse } }
             let required = try flag(item["required"]), on = try flag(item["on"])
             guard !required || on else { throw DeviceError.invalidResponse }
-            entries.append(ServiceEntry(id: id, required: required, on: on, closed: try flag(item["closed"]),
+            var entry = ServiceEntry(id: id, required: required, on: on, closed: try flag(item["closed"]),
                 chooseClosed: try flag(item["choose_closed"]), domains: try integer(item["domains"], 0...65536),
-                networks: try integer(item["networks"], 0...64), resources: resources, cidrs: cidrs))
+                networks: try integer(item["networks"], 0...64), resources: resources, cidrs: cidrs)
+            if let label = item["label"] {
+                // Shown as text, never markup: one line of at most 64 characters.
+                guard let text = label as? String, (1...64).contains(text.count),
+                      text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else { throw DeviceError.invalidResponse }
+                entry.label = text
+            }
+            entries.append(entry)
         }
         return entries
     }
