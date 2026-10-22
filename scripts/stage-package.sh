@@ -65,6 +65,7 @@ install_file 644 ikev2-manager-runtime/lib/client-access-journal.uc /usr/libexec
 install_file 644 ikev2-manager-runtime/lib/client-access-report.uc /usr/libexec/ikev2-manager.d/client-access-report.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-link.uc /usr/libexec/ikev2-manager.d/client-access-link.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-view.uc /usr/libexec/ikev2-manager.d/client-access-view.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-offer.uc /usr/libexec/ikev2-manager.d/client-access-offer.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-download.uc /usr/libexec/ikev2-manager.d/client-access-download.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-directory.uc /usr/libexec/ikev2-manager.d/client-access-directory.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-publication.uc /usr/libexec/ikev2-manager.d/client-access-publication.uc

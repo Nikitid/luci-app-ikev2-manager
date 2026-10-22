@@ -2,6 +2,7 @@
 // The state store commits allocation history and API output in one snapshot.
 'use strict';
 import { prepare_client_catalog, check_client_policy, validate_client_base } from './client-access.uc';
+import { check_client_offer, check_client_choices, client_effective_services } from './client-access-offer.uc';
 
 function fields(value, expected) {
 	if (type(value) != 'object' || length(keys(value)) != length(expected))
@@ -37,9 +38,25 @@ export function compile_client_publication(input) {
 	let assigned = prepare_client_catalog(catalog), allocations = {};
 	for (let allocation in assigned.allocations)
 		allocations[allocation.domain] = allocation.address;
-	let ids = {}, hashes = {}, devices = [];
+	let ids = {}, hashes = {}, devices = [], published = {};
+	for (let service in proposal.services)
+		if (service.client_access) published[service.id] = true;
 	for (let device in proposal.devices) {
-		fields(device, [ 'id', 'token_sha256', 'enabled', 'selected_services', 'previous_policy' ]);
+		// What the person was given and what this device chose of it, where
+		// the device has an offer; then its services follow from those alone.
+		let named = [ 'id', 'token_sha256', 'enabled', 'selected_services', 'previous_policy' ];
+		if ('offer' in device) push(named, 'offer');
+		if ('choices' in device) push(named, 'choices');
+		fields(device, named);
+		if ('choices' in device && !('offer' in device))
+			die('choices without an offer');
+		if ('offer' in device) {
+			check_client_offer(device.offer, published);
+			if ('choices' in device) check_client_choices(device.choices, device.offer);
+			if (type(device.selected_services) != 'array' ||
+				sprintf('%J', sort(slice(device.selected_services))) != sprintf('%J', client_effective_services(device.offer, device.choices)))
+				die('services do not follow from the offer');
+		}
 		if (type(device.id) != 'string' || !(length(device.id) <= 48 ? match(device.id, /^[a-z][a-z0-9-]*$/) : null) || ids[device.id] ||
 			type(device.token_sha256) != 'string' || !(length(device.token_sha256) == 64 ? match(device.token_sha256, /^[a-f0-9]+$/) : null) || hashes[device.token_sha256] ||
 			type(device.enabled) != 'bool' || type(device.selected_services) != 'array')

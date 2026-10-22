@@ -111,6 +111,47 @@ request 401 https://127.0.0.1:18443/client/v1/release
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/release
 [ "$(jsonfilter -i "$work/body" -e '@.release')" = "$(cat /usr/share/ikev2-manager/version)" ]
 [ "$(jsonfilter -i "$work/body" -e '@.version')" = 1 ]
+# An offer: the device sees every entry, chooses an optional service, the
+# choice is committed by the background pass, and only what the offer leaves
+# to the person may be chosen.
+test_step=offer
+control=/usr/libexec/ikev2-manager.d/client-access-control.uc
+# The rest of this scenario was written for the state as it is here; it is
+# put back whole when the offer has been tried.
+cp -a /etc/ikev2-manager/clients "$work/clients-before-offer"
+request 409 -X POST -H "Authorization: Bearer $first" -H 'Content-Type: application/json' -d '{"on":[],"closed":[]}' https://127.0.0.1:18443/client/v1/choices
+ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); let ids=map(filter(s.publication.services, v => v.client_access), v => v.id); let team=filter(s.publication.devices, d => d.id == "team")[0];
+ print(sprintf("%J", {version:1, expected_generation:s.generation, operation:"assign-devices", payload:{ids:["team"], enabled:true, owner:"Team", note:"",
+  offer:[{id:ids[0], required:true, closed:"yes"}, {id:ids[1], required:false, closed:"choice"}]}}), "\n");
+ print(sprintf("%J", team.selected_services), "\n");' "$state" >"$work/offer-request"
+offered="$(sed -n 1p "$work/offer-request")"; team_before="$(sed -n 2p "$work/offer-request")"
+printf '%s\n' "$offered" | ucode "$control" update >/dev/null
+request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+ucode -e "import {readfile} from 'fs'; let s=json(readfile('$work/body')); let e=s.entries;
+ if(type(e)!='array' || length(e)!=2 || !e[0].required || !e[0].on || !e[0].closed || e[0].choose_closed || e[1].required || e[1].on || !e[1].choose_closed || s.block_without_tunnel!==true || length(s.selected)!=1 || length(s.available)!=1) die('The offer is not shown as given: '+readfile('$work/body'));"
+optional="$(jsonfilter -i "$work/body" -e '@.entries[1].id')"
+request 405 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/choices
+request 400 -X POST -H "Authorization: Bearer $first" -d "{\"on\":[\"$(jsonfilter -i "$work/body" -e '@.entries[0].id')\"],\"closed\":[]}" https://127.0.0.1:18443/client/v1/choices
+request 400 -X POST -H "Authorization: Bearer $first" -d '{"on":[],"closed":[],"more":1}' https://127.0.0.1:18443/client/v1/choices
+request 202 -X POST -H "Authorization: Bearer $first" -d "{\"on\":[\"$optional\"],\"closed\":[\"$optional\"]}" https://127.0.0.1:18443/client/v1/choices
+[ "$(ls -l /var/run/ikev2-client-choices/team.json 2>/dev/null | cut -c1-10)" = -rw------- ] || [ ! -e /var/run/ikev2-client-choices/team.json ]
+# The background pass the API started commits it; a pass run here as well
+# finds nothing left or does the same.
+ucode "$control" apply-choices
+i=0
+until request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services &&
+ ucode -e "import {readfile} from 'fs'; let s=json(readfile('$work/body')); if(!s.entries[1].on || !s.entries[1].closed || length(s.selected)!=2) exit(1);" 2>/dev/null; do
+ i=$((i + 1)); [ "$i" -lt 10 ] || { echo "client-api: the choice did not take effect: $(cat "$work/body")" >&2; exit 1; }
+ sleep 1
+done
+[ ! -e /var/run/ikev2-client-choices/team.json ]
+# A plain list leaves the offer behind, and with it the choosing.
+ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); print(sprintf("%J", {version:1, expected_generation:s.generation, operation:"assign-devices", payload:{ids:["team"], enabled:true, owner:"Team", note:"", selected_services:json(ARGV[1])}}));' "$state" "$team_before" | ucode "$control" update >/dev/null
+request 409 -X POST -H "Authorization: Bearer $first" -d '{"on":[],"closed":[]}' https://127.0.0.1:18443/client/v1/choices
+rm -rf /etc/ikev2-manager/clients /var/run/ikev2-client-choices
+cp -a "$work/clients-before-offer" /etc/ikev2-manager/clients
+ucode "$control" views >/dev/null
+test_step=after-offer
 # A person who opens their link in a browser is offered the program for the
 # computer in front of them; the page loads nothing from elsewhere and the
 # programs' own POST to the same address is untouched.

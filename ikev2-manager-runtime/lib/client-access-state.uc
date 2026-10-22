@@ -76,7 +76,10 @@ export function prepare_client_state(input) {
 	for (let id in previous?.retired_ids ?? [])
 		retired[id] = true;
 	for (let device in desired.devices) {
-		fields(device, [ 'id', 'token_sha256', 'enabled', 'selected_services' ]);
+		let named = [ 'id', 'token_sha256', 'enabled', 'selected_services' ];
+		if ('offer' in device) push(named, 'offer');
+		if ('choices' in device) push(named, 'choices');
+		fields(device, named);
 		if (type(device.id) != 'string' || retired[device.id] || seen[device.id])
 			die('duplicate or retired client identity');
 		seen[device.id] = true;

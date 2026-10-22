@@ -68,6 +68,8 @@ publication entry point, including redacted inspection and catalog-backed admini
 Enrollment remains a separate gate;
 `client-access-enrollment.uc` prepares one-use invitation transitions and disabled
 device proposals; `client-access-enrollment-store.uc` journals them durably.
+`client-access-offer.uc` works out what a device may reach from what its person was
+offered and what it chose (see "What a person is given" in `docs/CLIENT_ACCESS.md`).
 `client-access-invitation.uc` issues random server-bound invitation links through
 a root-only command with private output. The
 dedicated HTTPS claim/poll endpoints now connect to a bounded background worker;

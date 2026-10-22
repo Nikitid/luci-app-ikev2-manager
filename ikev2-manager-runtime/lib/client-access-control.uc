@@ -1,6 +1,6 @@
 // Local administrative entry point. The device HTTP API is read-only.
 'use strict';
-import { stdin, lstat, mkdir, chmod, popen, open, lsdir } from 'fs';
+import { stdin, lstat, mkdir, chmod, popen, open, lsdir, readfile, rename, unlink } from 'fs';
 import { publish_client_state, read_client_state, read_committed_client_state } from './client-access-store.uc';
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
@@ -300,7 +300,8 @@ try {
    catch (error) { warn('client-access-control: the removed device kept its account\n'); }
   }
   if (request.operation == 'assign-devices')
-   record_client_event(request.payload.enabled ? 'access-set' : 'access-closed', join(',', request.payload.ids) + ' services ' + join(',', request.payload.selected_services) +
+   record_client_event(request.payload.enabled ? 'access-set' : 'access-closed', join(',', request.payload.ids) + ' services ' +
+    join(',', 'offer' in request.payload ? map(request.payload.offer, entry => entry.id + (entry.required ? '' : '?')) : request.payload.selected_services) +
     (request.payload.block_without_tunnel === false ? ' not-blocked-without-tunnel' : ''));
   else if (request.operation == 'assign-device') record_client_event(request.payload.enabled ? 'access-set' : 'access-closed', request.payload.id);
   else if (request.operation == 'remove-device') record_client_event('device-removed', request.payload.id);
@@ -308,6 +309,42 @@ try {
   else if (request.operation == 'configure-service') record_client_event(request.payload.client_access ? 'service-published' : 'service-withdrawn', request.payload.id);
   print(`generation=${generation}\nchanged=${prepared.changed ? 1 : 0}\n`);
   if (length(kept)) print(`unreadable=${join(' ', kept)}\n`);
+  }
+ } else if (ARGV[0] == 'apply-choices' && length(ARGV) == 1) {
+  // What devices chose of their offers, as the device API left it: the
+  // latest choice of each device, one file each. A file is taken by renaming
+  // it, so a newer choice arriving meanwhile waits for the next pass instead
+  // of being lost; a commit that meets another edit is tried again.
+  let pending = '/var/run/ikev2-client-choices';
+  for (let name in sort(lsdir(pending) ?? [])) {
+   let found = length(name) <= 53 ? match(name, /^([a-z][a-z0-9-]*)\.json$/) : null;
+   if (found == null) continue;
+   let path = pending + '/' + name, taken = path + '.taken';
+   if (!rename(path, taken)) continue;
+   let info = lstat(taken), choice = null;
+   if (info?.type == 'file' && info.uid == 0 && info.mode == 0600 && info.nlink == 1 && info.size <= 4096)
+    try { choice = json(readfile(taken)); } catch (error) { choice = null; }
+   unlink(taken);
+   if (type(choice) != 'object') continue;
+   for (let attempt = 0; attempt < 3; attempt++) {
+    let state = read_committed_client_state(directory);
+    try {
+     let prepared = prepare_client_admin(state, { version: 1, expected_generation: state.generation, operation: 'device-choices',
+      payload: { id: found[1], on: choice.on, closed: choice.closed } }, []);
+     if (prepared.changed) {
+      publish_client_state(directory, prepared.desired, state.generation, false);
+      record_client_event('device-choices', found[1] + ' on ' + join(',', choice.on) + ' closed ' + join(',', choice.closed));
+     }
+     break;
+    } catch (error) {
+     // Another edit committed first: the next attempt reads it. A choice the
+     // offer no longer allows is dropped with the attempt that refuses it.
+     if (read_committed_client_state(directory).generation == state.generation) {
+      warn(`client-access-control: the choice of ${found[1]} was not applied: ${error}\n`);
+      break;
+     }
+    }
+   }
   }
  } else if ((ARGV[0] == 'initialize' || ARGV[0] == 'publish') && length(ARGV) == 1) {
 		let raw = stdin.read(16777217);

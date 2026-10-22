@@ -912,6 +912,46 @@ On the router the DNS enforcement redirect leaves questions arriving from the
 inbound tunnel for the virtual subnet alone, and the firewall admits marked
 traffic to the subnet when the inbound zone is closed.
 
+## Networks of a service
+
+A service may also carry IPv4 networks, reached as themselves rather than by
+name (`client-service-networks` of the catalogue helper reads them from the
+service's own list). They are asked for when the service is published
+(`networks: true` in `configure-service`), kept through edits that do not
+mention them, followed by the hourly refresh and dropped with `networks:
+false`. A network is written at its base address from /8 to /32, never
+inside the virtual subnet and never loopback, link-local or multicast; one
+service has at most 64, and so does one device.
+
+A device whose services carry networks gets policy version 2, with a
+`networks` list beside its resources; a device without any keeps version 1
+exactly, which every earlier client reads (`test-client-publication.py`,
+`client-admin.sh`). Routing them through the exit and the per-device traffic
+selectors that let macOS route them are described in `docs/WAYPOINT_APP.md`.
+
+## What a person is given and what a device chooses
+
+A person's devices may be given an offer instead of a plain list of services
+(`assign-devices` with `offer`): each entry a published service, required or
+optional, and blocked while the tunnel is down always (`yes`), never (`no`) or
+as the person chooses (`choice`). A device keeps its own choices - the
+optional services it turned on, and where the offer leaves it to them, the
+ones it blocks - and its `selected_services`, which admission and the path
+follow, are worked out from the offer and those choices alone; the state
+refuses a list that does not follow from them (`client-access-offer.uc`,
+`test-client-admin.py`). A new offer keeps only the choices it still leaves
+to the person; a plain list leaves the offer behind; a service closed to
+clients leaves every offer.
+
+A device with an offer sees every entry in its services answer (`entries`:
+on, required, blocked, whether that is its choice) also before it has
+anything on, and posts its choice to `POST /client/v1/choices`. The API checks
+it against the offer and leaves the latest choice of each device in
+`/var/run/ikev2-client-choices`; `client-access-control.uc apply-choices`,
+started at once, commits it and tries again when another edit committed
+first. Its `block_without_tunnel` answers clients that know one rule: blocked
+as soon as any service it has on is (`client-api.sh`).
+
 ## Devices and their owners
 
 An invitation may carry the owner's name and a note. Registration records

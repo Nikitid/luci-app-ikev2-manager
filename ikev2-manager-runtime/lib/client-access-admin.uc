@@ -1,6 +1,13 @@
 // Administrative edits derive domains and retain credentials on the server.
 'use strict';
 import { validate_client_state, prepare_client_state } from './client-access-state.uc';
+import { check_client_offer, check_client_choices, client_effective_services, client_choices_within } from './client-access-offer.uc';
+
+// A device with an offer reaches what follows from it and its choices.
+function follow_offer(device) {
+ device.choices = client_choices_within(device.offer, device.choices);
+ device.selected_services = client_effective_services(device.offer, device.choices);
+}
 
 function fields(value, names) {
  if (type(value) != 'object' || length(keys(value)) != length(names)) die('invalid administrative fields');
@@ -56,7 +63,11 @@ export function client_admin_catalog_ids(state, request) {
   // services, the same owner and note.
   // Optional with them: where links are sent and whether services stay
   // blocked without the tunnel.
-  let named = [ 'ids', 'enabled', 'selected_services', 'owner', 'note' ];
+  // Given as an offer - required and optional services, each with its rule
+  // without the tunnel - or, as before, as a plain list of services.
+  let offered = 'offer' in request.payload;
+  let named = [ 'ids', 'enabled', offered ? 'offer' : 'selected_services', 'owner', 'note' ];
+  if (offered) check_client_offer(request.payload.offer, null);
   if ('email' in request.payload) push(named, 'email');
   if ('block_without_tunnel' in request.payload) {
    push(named, 'block_without_tunnel');
@@ -64,6 +75,7 @@ export function client_admin_catalog_ids(state, request) {
   }
   // A device may differ from the others of its person: its own services.
   if ('per_device' in request.payload) {
+   if (offered) die('invalid device assignment');
    push(named, 'per_device');
    let own = request.payload.per_device;
    if (type(own) != 'object' || length(keys(own)) != length(request.payload.ids)) die('invalid device assignment');
@@ -81,8 +93,15 @@ export function client_admin_catalog_ids(state, request) {
   if (type(request.payload.ids) != 'array' || !length(request.payload.ids) || length(request.payload.ids) > 16) die('invalid device list');
   let seen = {};
   for (let id in request.payload.ids) { identifier(id); if (seen[id]) die('invalid device list'); seen[id] = true; }
-  if (type(request.payload.enabled) != 'bool' || type(request.payload.selected_services) != 'array') die('invalid device assignment');
-  for (let id in request.payload.selected_services) service_id(id);
+  if (type(request.payload.enabled) != 'bool' || (!offered && type(request.payload.selected_services) != 'array')) die('invalid device assignment');
+  for (let id in request.payload.selected_services ?? []) service_id(id);
+  return [];
+ }
+ // What one device chose of its offer: the optional services it turned on and
+ // those it blocks without the tunnel where that is the person's to choose.
+ if (request.operation == 'device-choices') {
+  fields(request.payload, [ 'id', 'on', 'closed' ]);
+  identifier(request.payload.id);
   return [];
  }
  if (request.operation == 'remove-device') {
@@ -156,27 +175,59 @@ export function prepare_client_admin(state, request, catalog) {
   }
   if (!found) push(desired.services, updated);
   if (!payload.client_access)
-   for (let device in desired.devices)
-    device.selected_services = filter(device.selected_services, id => id != payload.id);
+   for (let device in desired.devices) {
+    if ('offer' in device) {
+     device.offer = filter(device.offer, entry => entry.id != payload.id);
+     follow_offer(device);
+    } else device.selected_services = filter(device.selected_services, id => id != payload.id);
+   }
  } else if (request.operation == 'assign-device') {
   let found = false;
   for (let device in desired.devices) {
    if (device.id != payload.id) continue;
-   found = true; device.enabled = payload.enabled; device.selected_services = payload.selected_services;
+   found = true; device.enabled = payload.enabled;
+   // A device with an offer is switched here; what it reaches is its
+   // person's offer and its own choices.
+   if ('offer' in device) {
+    if (sprintf('%J', sort(slice(payload.selected_services))) != sprintf('%J', device.selected_services)) die('the device follows an offer');
+   } else device.selected_services = payload.selected_services;
   }
   if (!found) die('unknown or retired device');
  } else if (request.operation == 'assign-devices') {
   for (let id in payload.ids) {
    let device = filter(desired.devices, item => item.id == id)[0];
    if (device == null) die('unknown or retired device');
-   device.enabled = payload.enabled; device.selected_services = payload.per_device?.[id] ?? payload.selected_services;
+   device.enabled = payload.enabled;
+   if ('offer' in payload) {
+    device.offer = payload.offer;
+    follow_offer(device);
+   } else {
+    // A plain list leaves the offer behind.
+    delete device.offer; delete device.choices;
+    device.selected_services = payload.per_device?.[id] ?? payload.selected_services;
+   }
   }
+ } else if (request.operation == 'device-choices') {
+  let device = filter(desired.devices, item => item.id == payload.id)[0];
+  if (device == null) die('unknown or retired device');
+  if (!('offer' in device)) die('the device has no offer to choose from');
+  device.choices = check_client_choices({ on: payload.on, closed: payload.closed }, device.offer);
+  device.choices = { on: sort(slice(device.choices.on)), closed: sort(slice(device.choices.closed)) };
+  device.selected_services = client_effective_services(device.offer, device.choices);
  } else if (request.operation == 'assign-service') {
   // One service for many devices at once: exactly the devices named have it.
   if (!length(filter(desired.services, service => service.id == payload.id && service.client_access))) die('service is not published');
   for (let device in desired.devices) {
    let wanted = index(payload.devices, device.id) >= 0, has = index(device.selected_services, payload.id) >= 0;
-   if (wanted && !has) push(device.selected_services, payload.id);
+   if ('offer' in device) {
+    // On a device with an offer, given this way the service is required and
+    // blocked without the tunnel, as every service was before offers.
+    let entry = filter(device.offer, item => item.id == payload.id)[0];
+    if (wanted && entry == null) push(device.offer, { id: payload.id, required: true, closed: 'yes' });
+    else if (wanted && !entry.required) entry.required = true;
+    else if (!wanted && entry != null) device.offer = filter(device.offer, item => item.id != payload.id);
+    follow_offer(device);
+   } else if (wanted && !has) push(device.selected_services, payload.id);
    else if (!wanted && has) device.selected_services = filter(device.selected_services, id => id != payload.id);
   }
  } else if (request.operation == 'remove-device') {
@@ -204,6 +255,10 @@ export function inspect_client_admin(state) {
   services: map(state.publication.services, service => ({ id: service.id, client_access: service.client_access,
    domain_count: length(service.domains), network_count: length(service.networks ?? []), transports: service.transports })),
   devices: map(filter(state.publication.devices, device => index(state.retired_ids, device.id) < 0),
-   device => ({ id: device.id, enabled: device.enabled, selected_services: device.selected_services,
-    revision: device.previous_policy.revision })), retired: length(state.retired_ids) };
+   device => {
+    let shown = { id: device.id, enabled: device.enabled, selected_services: device.selected_services,
+     revision: device.previous_policy.revision };
+    if ('offer' in device) { shown.offer = device.offer; shown.choices = device.choices ?? { on: [], closed: [] }; }
+    return shown;
+   }), retired: length(state.retired_ids) };
 };

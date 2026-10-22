@@ -86,6 +86,57 @@ class AdminTests(unittest.TestCase):
         # Neither names nor networks: nothing to publish.
         self.assertNotEqual(self.run_admin(request, [{'id': service['id'], 'domains': []}]).returncode, 0)
 
+    def offer(self, offer, ids=('alice',)):
+        prepared, updated = self.apply(self.request('assign-devices', {'ids': list(ids), 'enabled': True, 'offer': offer,
+                                                                        'owner': 'Alice', 'note': ''}), [])
+        self.snapshot = updated
+        return next(d for d in updated['publication']['devices'] if d['id'] == ids[0])
+
+    def choose(self, on, closed, device='alice'):
+        prepared, updated = self.apply(self.request('device-choices', {'id': device, 'on': on, 'closed': closed}), [])
+        self.snapshot = updated
+        return next(d for d in updated['publication']['devices'] if d['id'] == device)
+
+    def test_an_offer_gives_required_services_and_leaves_optional_ones_to_the_device(self):
+        device = self.offer([{'id': 'api', 'required': True, 'closed': 'yes'},
+                             {'id': 'chat', 'required': False, 'closed': 'choice'}])
+        self.assertEqual((device['selected_services'], device['choices']), (['api'], {'on': [], 'closed': []}))
+        device = self.choose(['chat'], ['chat'])
+        self.assertEqual(device['selected_services'], ['api', 'chat'])
+        policy = next(d for d in self.snapshot['api']['devices'] if d['id'] == 'alice')['policy']
+        self.assertEqual(sorted(r['domain'] for r in policy['resources']), ['api.example.com', 'chat.example.com'])
+        shown = next(d for d in json.loads(state.run(self.snapshot, 'admin-inspect').stdout)['devices'] if d['id'] == 'alice')
+        self.assertEqual(shown['choices'], {'on': ['chat'], 'closed': ['chat']})
+        # A new offer keeps only the choices it still leaves to the person.
+        device = self.offer([{'id': 'api', 'required': True, 'closed': 'yes'},
+                             {'id': 'chat', 'required': False, 'closed': 'no'}])
+        self.assertEqual((device['selected_services'], device['choices']), (['api', 'chat'], {'on': ['chat'], 'closed': []}))
+        # A service closed for clients leaves every offer.
+        service = next(s for s in self.snapshot['publication']['services'] if s['id'] == 'chat')
+        prepared, updated = self.apply(self.request('configure-service', {'id': 'chat', 'client_access': False,
+                                                                          'transports': service['transports']}), [])
+        device = next(d for d in updated['publication']['devices'] if d['id'] == 'alice')
+        self.assertEqual((device['offer'], device['selected_services']), ([{'id': 'api', 'required': True, 'closed': 'yes'}], ['api']))
+
+    def test_a_device_chooses_only_what_its_offer_leaves_it(self):
+        self.offer([{'id': 'api', 'required': True, 'closed': 'no'}, {'id': 'chat', 'required': False, 'closed': 'no'}])
+        for on, closed in [(['api'], []), (['other'], []), ([], ['chat']), ([], ['api']), (['chat', 'chat'], [])]:
+            self.assertNotEqual(self.run_admin(self.request('device-choices', {'id': 'alice', 'on': on, 'closed': closed}), []).returncode,
+                                0, (on, closed))
+        # Bob has no offer: nothing to choose from.
+        self.assertNotEqual(self.run_admin(self.request('device-choices', {'id': 'bob', 'on': [], 'closed': []}), []).returncode, 0)
+        # A device that follows an offer is not given another list by hand,
+        self.assertNotEqual(self.run_admin(self.request('assign-device', {'id': 'alice', 'enabled': True,
+                                                                          'selected_services': ['chat']}), []).returncode, 0)
+        # and an offer of a service not published is refused.
+        self.assertNotEqual(self.run_admin(self.request('assign-devices', {'ids': ['alice'], 'enabled': True, 'owner': 'Alice', 'note': '',
+                                                                           'offer': [{'id': 'nope', 'required': True, 'closed': 'yes'}]}), []).returncode, 0)
+        # A plain list leaves the offer behind.
+        prepared, updated = self.apply(self.request('assign-devices', {'ids': ['alice'], 'enabled': True, 'owner': 'Alice', 'note': '',
+                                                                       'selected_services': ['chat']}), [])
+        device = next(d for d in updated['publication']['devices'] if d['id'] == 'alice')
+        self.assertEqual((device['selected_services'], 'offer' in device, 'choices' in device), (['chat'], False, False))
+
     def test_unchanged_catalog_is_noop_and_bad_requests_are_refused(self):
         catalog = [{'id': s['id'], 'domains': s['domains']} for s in self.snapshot['publication']['services'] if s['client_access']]
         request = self.request('refresh-catalog', {})

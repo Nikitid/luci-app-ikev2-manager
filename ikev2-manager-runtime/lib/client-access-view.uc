@@ -6,6 +6,7 @@
 'use strict';
 import { sha256 } from 'digest';
 import { lstat, mkdir, open, rename, unlink, rmdir, symlink, readlink, lsdir } from 'fs';
+import { client_service_entries } from './client-access-offer.uc';
 
 function generation_of(name) {
 	let found = type(name) == 'string' && length(name) <= 24 ? match(name, /^views-([1-9][0-9]*)$/) : null;
@@ -71,7 +72,10 @@ export function write_client_views(directory, state) {
 		let own = published[device.id], selected = [], available = [];
 		for (let service in state.publication.services) {
 			if (!service.client_access) continue;
-			push(index(own.selected_services, service.id) >= 0 ? selected : available, { id: service.id, domains: length(service.domains) });
+			// With an offer, what is available is what the person was offered.
+			let listed = index(own.selected_services, service.id) >= 0 ? selected :
+				!('offer' in own) || length(filter(own.offer, entry => entry.id == service.id)) ? available : null;
+			if (listed != null) push(listed, { id: service.id, domains: length(service.domains) });
 		}
 		let by_id = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 		let document = { version: 1, generation: state.generation, exit: state.publication.exit, id: device.id,
@@ -81,6 +85,11 @@ export function write_client_views(directory, state) {
 			// The state given here was checked in full by whoever read or made it.
 			policy_sha256: device.enabled ? sha256(sprintf('%J', device.policy)) : null,
 			selected: sort(selected, by_id), available: sort(available, by_id) };
+		if ('offer' in own) {
+			document.offer = own.offer;
+			document.choices = own.choices ?? { on: [], closed: [] };
+			document.entries = client_service_entries(own.offer, own.choices, state.publication.services);
+		}
 		put(path + '/t-' + device.token_sha256 + '.json', document);
 		put(path + '/i-' + device.id + '.json', document);
 	}
