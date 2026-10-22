@@ -1,62 +1,101 @@
 # Waypoint as a full VPN application
 
-A proposal to decide on, not a description of what ships. Today's clients
-work, but they are a status window over a service; this is the plan for one
-application per platform that a person can live with every day.
+The design for the next major release: what a service is, what each person is
+given and chooses, what the router enforces, and the application on Windows
+and macOS built on that. One release carries all of it; the current clients
+get no further features, only what moves into the new service.
 
-## What the good clients get right
+## Services
 
-Taken from WireGuard, Tailscale, Mullvad, Proton VPN and Cloudflare WARP:
+A service is a name and what it reaches:
 
-- one switch and one sentence of state, with the cause when it is not
-  connected ("no route to the server from this network"), never "service
-  error";
-- a menu-bar or tray icon that shows the state and connects without opening
-  a window;
-- a kill switch that is visible and explained, and that survives a crash;
-- updates that install themselves, signed, with the release notes one click
-  away;
-- diagnostics a person can send with one button, with what is sent shown
-  first;
-- a reset that always finishes, and says what it removed;
-- native builds for every processor the platform runs on.
+- **domains** - as now: each gets a stable virtual address, names resolve to it
+  inside the tunnel and the router's exit reaches the real domain;
+- **networks** - new: address ranges reached as themselves (Telegram, a
+  provider's IP ranges, an office network). They travel as traffic selectors,
+  so every system routes them without a hosts file. At most 64 networks for
+  one device.
 
-## Windows
+Services come from the existing catalogue and the operator's own services; the
+Policy Routing page stays where they are defined.
 
-| part | today | proposal |
+## What a person is given
+
+The owner gives each person a set of services. Every entry is one of:
+
+| entry | the person sees | without the tunnel |
 | --- | --- | --- |
-| window | WinForms, .NET Framework 4.8 | WinUI 3 on the current Windows App SDK, current .NET LTS |
-| service | .NET Framework 4.8, x64 and arm64 binaries in one installer | the same code moved to the current .NET, published per architecture (NativeAOT where WFP and RAS interop allow) |
-| tunnel | Windows' own IKEv2 (RAS) | unchanged: native on x64 and ARM64, no driver to sign |
-| blocking | WFP filters owned by the service | unchanged |
-| installer | own Setup.exe | MSI per architecture (WiX), so the service, updates and removal follow Windows' rules |
-| tray | none | a tray icon with state and connect |
+| required, closed | on, cannot switch it off | blocked |
+| required, open | on, cannot switch it off | goes direct |
+| optional | a switch, off until the person turns it on | goes direct, or blocked if the owner allowed the person to choose that and they did |
 
-WinUI 3 needs the current .NET, which is why the service moves too: one
-runtime, one set of tests. MSIX is not proposed: a packaged app cannot own a
-classic service with the rights the guard needs.
+The set belongs to the person; every device of the person gets it. Choices
+belong to the device: a laptop may carry a service the desktop does not. The
+"everything through the tunnel" mode stays a per-person setting beside the set.
 
-## macOS
+Today's per-person "open" flag becomes the default for new entries; existing
+assignments migrate to "required" entries with that flag, so nothing changes
+for a person until the owner edits them.
 
-| part | today | proposal |
+## What the owner sees
+
+On Remote clients, per person: the set as given, and per device what is chosen
+and what is active now (tunnel up, which services pass, which are blocked).
+Editing a set follows the page's Save/Discard flow; a change reaches devices
+with their next policy poll.
+
+## The router
+
+- **Policy**: the device API carries the person's set with each entry's rule
+  and the device's choices; a device posts its choices, the router validates
+  them against the set and keeps them per device.
+- **Admission**: grants follow the effective set - required entries plus the
+  device's chosen optional ones - for domains and networks alike.
+- **Networks and traffic selectors**: one swanctl connection per device
+  identity, its local traffic selectors the virtual subnet plus the networks of
+  that device's effective set. A changed set reloads that connection and the
+  device reconnects to take the new selectors; other devices are untouched.
+  (One shared connection with every network would route a network the device
+  was not given into the tunnel on macOS, where it would be refused.)
+- **Exit**: as now, through the dedicated proxy for domains; networks are
+  routed into the exit tunnel by the router's own policy routing.
+
+## The application
+
+| part | Windows | macOS |
 | --- | --- | --- |
-| window | AppKit window | SwiftUI, with a menu-bar extra as the main surface |
-| daemon | launchd daemon, system IKEv2 profile | unchanged design; signed and notarized |
-| binaries | built per machine | universal binary (Apple silicon and Intel) |
+| interface | WinUI 3 (Windows App SDK), current .NET LTS | SwiftUI; menu-bar extra first, window second |
+| background | the service, moved to current .NET; per architecture | the launchd daemon |
+| tunnel | Windows' own IKEv2 (RAS): native on x64 and ARM64, no driver | the system's IKEv2 profile |
+| blocking | WFP filters per service | packet-filter anchor per service |
+| names | hosts block for the effective set; real resolution for open services while the tunnel is down | the same |
+| installer | MSI per architecture (WiX) | signed, notarized package; universal binary |
 
-## ARM
+What it shows, taken from the clients that get this right (WireGuard,
+Tailscale, Mullvad, Proton, WARP):
 
-- Windows: separate x64 and ARM64 builds of the window and the service,
-  tested on an ARM64 runner in CI (`windows-11-arm`), not only built.
-- macOS: universal binary, tests on Apple silicon runners; Intel is checked
-  by the same tests under Rosetta until a runner is needed.
+- one state and one sentence with the cause ("no route to the server from
+  this network"), never a bare "service error";
+- the services as a list: required ones marked as such, optional ones with
+  their switch, and where allowed the person's "block without the tunnel";
+- a tray / menu-bar icon that shows the state and connects without the window;
+- updates that install themselves, with the notes one click away;
+- a report with one button, what is sent shown first;
+- a reset that always finishes and says what it removed.
 
-## Order
+ARM: separate x64 and ARM64 Windows builds, tested on an ARM64 runner in CI,
+not only built; a universal macOS binary, tested on Apple silicon.
 
-1. The service and its tests move to the current .NET, behaviour unchanged.
-2. The WinUI window replaces the WinForms one, the same states and words.
-3. MSI installers per architecture, updates through them.
-4. Tray and menu-bar surfaces on both platforms.
+## Order of work
 
-Each step ships through the existing update path, so installed clients are
-never stranded.
+1. Router: the service model with networks, per-person sets, device choices,
+   the API, admission and per-device connections; the owner's page.
+2. The background parts on both systems, against the new API: per-service
+   blocking and names, choices, causes, reset.
+3. The interfaces: WinUI and SwiftUI, tray and menu bar.
+4. Installers per architecture, signing, the update from the current clients
+   with registration and settings kept.
+5. One release: router, feed and both clients together.
+
+The current clients' fixes (the cause of an error, a reset that finishes)
+move into step 2 rather than being kept apart.
