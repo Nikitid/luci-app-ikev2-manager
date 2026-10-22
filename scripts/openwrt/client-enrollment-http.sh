@@ -35,7 +35,7 @@ poll=https://localhost:18443/client/v1/enrollment
 request() {
 	expected="$1"; shift
 	status="$(curl --cacert "$work/cert.pem" --max-time 5 -D "$work/headers" -o "$work/body" -w '%{http_code}' "$@")"
-	[ "$status" = "$expected" ] || { printf 'enrollment-http: expected %s, got %s\n' "$expected" "$status" >&2; exit 1; }
+	[ "$status" = "$expected" ] || { printf 'enrollment-http: expected %s, got %s\n' "$expected" "$status" >&2; tail -n 5 "$work/http.log" >&2; exit 1; }
 }
 if curl --max-time 3 "$poll" >/dev/null 2>&1; then exit 1; fi
 request 403 -X POST -H "Authorization: Bearer $invite" -H "X-Device-Token: $device" http://localhost:18080/client/v1/enroll
@@ -263,4 +263,21 @@ printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payl
 printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"selected_services":["%s"],"owner":"One Person","note":"both"}}' \
 	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
 [ "$(rights)" = inherit ] && [ "$(other)" = deny ]
+# A person whose devices follow an offer: a device registered later follows it too.
+printf '{"version":1,"expected_generation":%s,"operation":"assign-devices","payload":{"ids":["family-1","family-2"],"enabled":true,"offer":[{"id":"%s","required":false,"closed":"choice"}],"owner":"One Person","note":"both"}}' \
+	"$(ucode "$control" inspect | jsonfilter -e '@.generation')" "$service" | ucode "$control" update >/dev/null
+generation="$(ucode "$control" inspect | jsonfilter -e '@.enrollment_generation')"
+late="$(printf '{"version":1,"expected_generation":%s,"endpoint":"https://%s:18443/client/v1/enroll","id":"late","selected_services":["%s"],"lifetime_seconds":3600,"owner":"One Person","note":""}' \
+	"$generation" "$address" "$service" | ucode /usr/libexec/ikev2-manager.d/client-access-invitation-control.uc issue | jsonfilter -e '@.invitation')"
+request 202 -X POST -H "Authorization: Bearer ${late##*#}" -H "X-Device-Token: cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" "$claim"
+i=0
+while :; do
+	status="$(curl --cacert "$work/cert.pem" --max-time 5 -o "$work/body" -w '%{http_code}' -H "Authorization: Bearer cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" "$poll")"
+	[ "$status" = 200 ] && break
+	[ "$status" = 202 ] || exit 1
+	i=$((i + 1)); [ "$i" -lt 30 ] || exit 1
+	sleep 1
+done
+[ "$(ucode "$control" inspect | jsonfilter -e '@.devices[@.id="late"].offer[0].closed')" = choice ] ||
+	{ echo 'client-enrollment-http: a device registered later does not follow its person'"'"'s offer' >&2; exit 1; }
 printf '%s\n' 'client-enrollment-http: trusted TLS, one-device claim/retry, one link for two devices, a replaced link, a closed place, a shared decision, the full-tunnel mode, a service for chosen devices, background credentials, protected storage, opening on registration, clock and expiry PASS'

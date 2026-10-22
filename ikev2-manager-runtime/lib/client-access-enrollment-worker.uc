@@ -50,7 +50,19 @@ try {
 	// with its services alone, which the page can change.
 	// Not before the administrator's approval, where that is asked for.
 	try { if (!approve && read_client_labels(directory)[id]?.full === true) set_account_rights(id, true); } catch (error) { }
-	if (!approve && device != null && !device.enabled && length(device.selected_services) && index(state.retired_ids, id) < 0) {
+	// A person whose devices follow an offer: the new device follows it too,
+	// opened as above or, where approval is asked for, left closed with it.
+	let labels = {};
+	try { labels = read_client_labels(directory); } catch (error) { labels = {}; }
+	let owner = labels[id]?.owner ?? '';
+	let sibling = owner == '' ? null : filter(state.publication.devices, item => item.id != id && 'offer' in item &&
+		index(state.retired_ids, item.id) < 0 && labels[item.id]?.owner == owner)[0];
+	if (device != null && !device.enabled && sibling != null && index(state.retired_ids, id) < 0) {
+		let prepared = prepare_client_admin(state, { version: 1, expected_generation: state.generation,
+			operation: 'assign-devices', payload: { ids: [ id ], enabled: !approve, offer: sibling.offer,
+				owner: owner, note: labels[id]?.note ?? '' } }, []);
+		if (prepared.changed) publish_client_state(directory, prepared.desired, state.generation, false);
+	} else if (!approve && device != null && !device.enabled && length(device.selected_services) && index(state.retired_ids, id) < 0) {
 		// The same change the page makes when the administrator opens a device.
 		let prepared = prepare_client_admin(state, { version: 1, expected_generation: state.generation,
 			operation: 'assign-device', payload: { id: id, enabled: true, selected_services: device.selected_services } }, []);

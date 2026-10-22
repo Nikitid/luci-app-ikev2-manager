@@ -66,7 +66,9 @@ export function client_enrollment_response(env, directory) {
 		// The device is opened as soon as it is registered, so the bundle stays
 		// retrievable by its own key for the life of the invitation: a lost
 		// answer can be asked for again.
-		if (selected == null || !length(selected.selected_services) || index(state.retired_ids, selected.id) >= 0)
+		// A device with an offer may have nothing on yet: it turns its services
+		// on itself, once registered.
+		if (selected == null || (!length(selected.selected_services) && !('offer' in selected)) || index(state.retired_ids, selected.id) >= 0)
 			return reply(401, 'unauthorized');
 		let invitation = filter(journal.ledger.invitations, item => item.id == selected.id && item.status == 'completed')[0];
 		if (invitation == null || now >= invitation.expires_at) return reply(401, 'unauthorized');
