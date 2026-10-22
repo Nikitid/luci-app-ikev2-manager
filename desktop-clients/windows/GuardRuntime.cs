@@ -57,6 +57,9 @@ namespace IkeV2Manager.Client
         private DateTime routeDeadline;
         private string connectionState = "blocked";
         private string connectionError = "none";
+        // Why the state is "error": what the router answered, or that the
+        // service itself failed, so the window names the cause.
+        private string faultCode = "service_fault";
         private ulong permittedInterface;
         private DateTime readyUntil;
         private DeviceServices assigned;
@@ -176,7 +179,7 @@ namespace IkeV2Manager.Client
             }
             catch
             {
-                if (store != null) { try { Publish("error"); } catch { } }
+                if (store != null) { try { faultCode = "service_fault"; Publish("error"); } catch { } }
                 if (guard != null) guard.Dispose();
                 if (store != null) store.Dispose();
                 throw;
@@ -306,6 +309,7 @@ namespace IkeV2Manager.Client
                         if (fetchedRelease != null) release = fetchedRelease;
                     }
                     accessClosed = noServices || (named != null && named.Code == "device_access_revoked");
+                    faultCode = named != null ? named.Code : "service_fault";
                     warnings = noServices ? new[] { "idle" } : warnings.Where(w => w != "idle").ToArray();
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after synchronization failure"); }
@@ -794,7 +798,7 @@ namespace IkeV2Manager.Client
                 {
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after a failed policy update"); }
-                    try { Publish("error"); } catch { }
+                    try { faultCode = "service_fault"; Publish("error"); } catch { }
                     throw;
                 }
             }
@@ -824,7 +828,7 @@ namespace IkeV2Manager.Client
                     // an error; failure to close cannot leave a live process.
                     try { permittedInterface = 0; if (guard != null) guard.Block(); }
                     catch { Environment.FailFast("Client guard could not close its permission session"); }
-                    try { Publish("error"); } catch { }
+                    try { faultCode = "service_fault"; Publish("error"); } catch { }
                 }
             }
         }
@@ -855,7 +859,7 @@ namespace IkeV2Manager.Client
                 Domains = domains, Revision = revision, Wanted = connectionWanted, Release = release, Warnings = warnings,
                 ServerName = server, ServerIP = ip, ServicesSubnet = subnet, TunnelSubnet = assigned == null ? "" : assigned.TunnelSubnet,
                 Protected = healthy && state == "protected" && permittedInterface != 0,
-                ConnectionError = state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
+                ConnectionError = state == "error" ? faultCode : state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
                 ProcessId = Process.GetCurrentProcess().Id });
         }

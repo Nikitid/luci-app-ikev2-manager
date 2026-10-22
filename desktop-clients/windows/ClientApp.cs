@@ -261,8 +261,10 @@ namespace IkeV2Manager.Client
                     // The system asks for an administrator; this window never holds the right itself.
                     using (var setup = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "Setup.exe"), "/reset /quiet") { UseShellExecute = true, Verb = "runas" }))
                     {
-                        setup.WaitForExit(90000);
-                        if (!setup.HasExited || setup.ExitCode != 0) MessageBox.Show(this, "Сброс не завершён. Повторите его.", "Сброс Waypoint");
+                        // As long as setup itself may take: stopping the service, the removal and the start again.
+                        setup.WaitForExit(240000);
+                        if (!setup.HasExited) MessageBox.Show(this, "Сброс ещё идёт. Подождите минуту и нажмите «Проверить».", "Сброс Waypoint");
+                        else if (setup.ExitCode != 0) MessageBox.Show(this, "Сброс не завершён. Причина записана в отчёт: повторите сброс или отправьте отчёт администратору.", "Сброс Waypoint");
                     }
                     RefreshStatus();
                 }
@@ -593,8 +595,16 @@ namespace IkeV2Manager.Client
                         "Доступ для этого устройства выключен администратором.";
                     break;
                 case "error":
-                    heading = "Ошибка службы";
-                    description = "Состояние защиты не подтверждено. Подробности в отчёте.";
+                    // The service names the cause; only its own failure is an error of the service.
+                    bool unreachable = code == "path_connection_failed" || code == "path_unavailable" || code == "policy_connection_failed" ||
+                        code == "services_unavailable" || code == "release_unavailable";
+                    bool rejected = code == "policy_http_rejected" || code == "policy_update_rejected";
+                    bool garbled = (code != null && code.EndsWith("_invalid")) || code == "policy_response_too_large";
+                    heading = unreachable ? "Нет связи с сервером" : rejected ? "Сервер не выдал настройки" : garbled ? "Ответ сервера не принят" : "Ошибка службы";
+                    description = unreachable ? "Настройки не получены: сервер недоступен из этой сети. Попытка повторится сама." :
+                        rejected ? "Сервер отказал в настройках. Если это повторяется, отправьте отчёт администратору." :
+                        garbled ? "Настройки от сервера повреждены. Попытка повторится сама." :
+                        "Состояние защиты не подтверждено. Подробности в отчёте.";
                     break;
                 case "service_missing":
                     heading = "Служба не установлена";

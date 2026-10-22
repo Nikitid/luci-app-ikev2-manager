@@ -201,6 +201,34 @@ namespace IkeV2Manager.Client
             catch { Native.FwpmTransactionAbort0(engine); throw; }
         }
 
+        // Reset and uninstall: takes away whatever of a recorded plan is
+        // still in WFP, without installing it first. A plan that was never
+        // installed or only partly installed is removed all the same.
+        public static void RemoveRecorded(GuardReceipt receipt)
+        {
+            if (receipt == null || receipt.Owner == Guid.Empty) return;
+            IntPtr handle = Open(false);
+            try
+            {
+                Check(Native.FwpmTransactionBegin0(handle, 0));
+                try
+                {
+                    foreach (Guid key in receipt.Filters ?? new Guid[0])
+                    {
+                        Guid copy = key;
+                        uint error = Native.FwpmFilterDeleteByKey0(handle, ref copy);
+                        if (error != 0x80320003) Check(error);
+                    }
+                    Guid layer = receipt.Owner;
+                    uint missing = Native.FwpmSubLayerDeleteByKey0(handle, ref layer);
+                    if (missing != 0x80320007) Check(missing);
+                    Check(Native.FwpmTransactionCommit0(handle));
+                }
+                catch { Native.FwpmTransactionAbort0(handle); throw; }
+            }
+            finally { Native.FwpmEngineClose0(handle); }
+        }
+
         public static ulong InterfaceLuid(uint index)
         {
             ulong value;

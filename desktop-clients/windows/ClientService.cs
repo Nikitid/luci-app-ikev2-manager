@@ -50,22 +50,30 @@ namespace IkeV2Manager.Client
                 }
                 string directory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), name);
                 if (!System.IO.Directory.Exists(directory)) return 0;
+                // Every step is tried whatever became of the others: a half-made
+                // installation is exactly what a reset is asked for. The state
+                // stays while anything is left, so the next reset finds it.
+                Exception failed = null;
                 using (var store = new GuardStore(name))
                 {
-                    var plan = store.LoadPlan();
-                    SystemHosts.Remove(store);
+                    GuardReceipt plan = null;
+                    Action<Action> step = action => { try { action(); } catch (Exception error) { if (failed == null) failed = error; } };
+                    step(() => plan = store.LoadPlan());
+                    step(() => SystemHosts.Remove(store));
                     if (plan != null)
                     {
-                        ManagedVpnProfile.RemoveNames(plan.Owner);
-                        var entry = store.LoadVpnEntry();
-                        if (entry != Guid.Empty)
+                        step(() => ManagedVpnProfile.RemoveNames(plan.Owner));
+                        step(() =>
                         {
+                            var entry = store.LoadVpnEntry();
+                            if (entry == Guid.Empty) return;
                             var profile = ManagedVpnProfile.FromJournal(plan.Owner, entry);
                             RasTunnel.Release(profile.EntryId, profile.Phonebook);
                             ManagedVpnProfile.Remove(plan.Owner, entry);
-                        }
-                        using (var guard = WfpGuard.Resume(plan)) guard.Remove();
+                        });
+                        step(() => WfpGuard.RemoveRecorded(plan));
                     }
+                    if (failed != null) { try { store.RecordFault("reset", failed); } catch { } return 1; }
                 }
                 System.IO.Directory.Delete(directory, true);
                 return 0;

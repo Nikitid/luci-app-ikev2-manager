@@ -58,6 +58,7 @@ internal static class WfpGuardTests
             JournalCrash(port, "installed");
             Contention(port);
             Migration(port);
+            RemoveRecordedScenario(port);
             ServiceIntegrationTests.Run(() => Probe(port), InboundDatagram, Target);
             if (args.Length != 1) throw new ArgumentException("Policy fixtures directory required");
             PolicyJournalTests.Run(args[0]);
@@ -253,6 +254,24 @@ internal static class WfpGuardTests
     // A guard installed before 2.2.6: its sublayer at 0x7000 and its denials
     // without a hard action. It is recovered as it is and moved up when it is
     // next installed, without a moment that denies nothing.
+    // Reset removes a recorded plan whether it was installed or never was.
+    private static void RemoveRecordedScenario(int port)
+    {
+        GuardReceipt receipt;
+        using (var planned = new WfpGuard(Guid.NewGuid(), new[] { Target })) receipt = planned.Receipt();
+        WfpGuard.RemoveRecorded(receipt);
+        Require(Probe(port), "a plan never installed is removed without error");
+        try
+        {
+            using (var installed = WfpGuard.Resume(receipt)) Require(!Probe(port), "recorded guard denies");
+            Require(!Probe(port), "recorded guard stays after its owner is gone");
+            WfpGuard.RemoveRecorded(receipt);
+            Require(Probe(port), "removing the recorded plan opens the destination");
+            WfpGuard.RemoveRecorded(receipt);
+        }
+        finally { try { WfpGuard.RemoveRecorded(receipt); } catch { } }
+    }
+
     private static void Migration(int port)
     {
         GuardReceipt receipt;
