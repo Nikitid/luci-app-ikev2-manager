@@ -35,9 +35,12 @@ public enum SystemPlan {
 
     /// Packet-filter rules for the client's anchor. The virtual subnet is
     /// denied on every path; a confirmed tunnel interface is let through for
-    /// the selected addresses only, ahead of the denial.
-    public static func packetFilter(subnet: String, permit interface: String?) throws -> String {
+    /// the selected addresses only, ahead of the denial. A service's networks
+    /// pass on that interface too; without it, those of a service blocked
+    /// without the tunnel are denied and the others go the ordinary way.
+    public static func packetFilter(subnet: String, permit interface: String?, networks: [String] = [], closed: [String] = []) throws -> String {
         _ = try layout(subnet)
+        for network in networks + closed { _ = try PolicyValue.network(network) }
         var rules = ""
         if let interface {
             // The whole subnet: fixed addresses, the resolver and the names
@@ -45,9 +48,19 @@ public enum SystemPlan {
             guard interface.range(of: #"\A(?:ipsec|utun)[0-9]{1,4}\z"#, options: .regularExpression) != nil
             else { throw PolicyError.invalidPolicy }
             rules += "pass out quick on \(interface) inet from any to \(subnet) keep state\n"
+            for network in networks { rules += "pass out quick on \(interface) inet from any to \(network) keep state\n" }
         }
         rules += "block drop out quick inet from any to \(subnet)\n"
+        for network in closed { rules += "block drop out quick inet from any to \(network)\n" }
         return rules
+    }
+
+    /// The first address of a network, which the system must route through
+    /// the tunnel before the network counts as carried by it.
+    public static func probeAddress(_ network: String) throws -> String {
+        let range = try PolicyValue.network(network)
+        let value = range.first == range.last ? range.first : range.first + 1
+        return "\(value >> 24).\((value >> 16) & 255).\((value >> 8) & 255).\(value & 255)"
     }
 
     static func escape(_ text: String) -> String {

@@ -79,6 +79,9 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var fullTunnel = false
     /// Conditions on this machine the user should know of: "vpn", "proxy".
     public var warnings: [String]? = nil
+    /// What the person was offered and this device has of it, where the
+    /// router gives an offer; the window shows and changes it.
+    public var entries: [ServiceEntry]? = nil
     public var addresses: ConnectionAddresses? = nil
     public var updatedAt: Int
 
@@ -183,7 +186,7 @@ public actor ClientRuntime {
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
             revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true, fullTunnel: names?.full ?? false,
-            warnings: conditions,
+            warnings: conditions, entries: names?.entries,
             addresses: history.map { ConnectionAddresses(server: $0.current.serverAddress, serverIP: serverIP,
                 services: $0.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "") }, updatedAt: Int(now.timeIntervalSince1970))
     }
@@ -249,9 +252,31 @@ public actor ClientRuntime {
 
     // MARK: protection
 
-    private func rules(for history: PolicyHistory) throws -> String {
-        try SystemPlan.packetFilter(subnet: history.current.virtualSubnet, permit: permitted?.interface)
+    /// What is held back while the tunnel is not confirmed, and what goes the
+    /// ordinary way then. With an offer each service says; without one every
+    /// service follows the one rule the router gave.
+    private func heldBack(_ history: PolicyHistory) -> (openDomains: Set<String>, closedNetworks: [String]) {
+        let policy = history.current
+        guard let entries = names?.entries else {
+            let block = names?.block ?? true
+            return (block ? [] : Set(policy.resources.map(\.domain)), block ? policy.networks.map(\.network) : [])
+        }
+        let domain = Dictionary(uniqueKeysWithValues: policy.resources.map { ($0.id, $0.domain) })
+        var closed = Set<String>(), open = Set<String>(), closedNetworks = Set<String>()
+        for entry in entries where entry.on {
+            let names = entry.resources.compactMap { domain[$0] }
+            if entry.closed { closed.formUnion(names); closedNetworks.formUnion(entry.cidrs) } else { open.formUnion(names) }
+        }
+        // A name or network another blocked service also holds stays blocked.
+        let reached = Set(policy.networks.map(\.network))
+        return (open.subtracting(closed), closedNetworks.intersection(reached).sorted())
     }
+
+    private func rules(for history: PolicyHistory) throws -> String {
+        try SystemPlan.packetFilter(subnet: history.current.virtualSubnet, permit: permitted?.interface,
+                                    networks: history.current.networks.map(\.network), closed: heldBack(history).closedNetworks)
+    }
+    private var loadedRules = ""
 
     /// Denial first, names second: a name never points at a virtual address
     /// that the packet filter does not already hold.
@@ -271,8 +296,13 @@ public actor ClientRuntime {
         }
         if !(try denied()) {
             permitted = nil
-            try system.loadPacketFilter(try rules(for: history))
+            loadedRules = try rules(for: history)
+            try system.loadPacketFilter(loadedRules)
             guard try denied() else { throw StoreError.unsafe }
+        } else if try rules(for: history) != loadedRules {
+            // What is held back changed with the offer: the networks follow.
+            loadedRules = try rules(for: history)
+            try system.loadPacketFilter(loadedRules)
         }
         // Rules in the anchor deny nothing while the filter is off or no
         // longer reaches the anchor; that is no guard, and the state says so.
@@ -283,17 +313,17 @@ public actor ClientRuntime {
             try? system.loadPacketFilter(try rules(for: history))
             throw StoreError.unsafe
         }
-        // Names point into the tunnel always, unless the administrator let
-        // this device's services go the ordinary way while the tunnel is
-        // down: then they point there only while access is confirmed.
-        let pointed = !noServices && ((names?.block ?? true) || permitted != nil)
+        // Names point into the tunnel always, except those of services that go
+        // the ordinary way while the tunnel is down: they point there only
+        // while access is confirmed.
+        let ordinary = permitted != nil ? Set<String>() : heldBack(history).openDomains
         let hosts = try system.readHosts()
-        let wanted = pointed ? try history.reconcileHosts(hosts) : try ManagedHosts.reconcile(hosts, entries: [])
+        let wanted = noServices ? try ManagedHosts.reconcile(hosts, entries: []) : try history.reconcileHosts(hosts, except: ordinary)
         if wanted != hosts { try system.writeHosts(wanted) }
         // Everything under a selected domain is asked through the tunnel; the
         // address that answers is inside the subnet the filter already holds.
-        try system.setNameResolution(domains: pointed ? history.current.resources.map(\.domain).sorted() : [],
-                                     resolver: pointed ? try SystemPlan.layout(subnet).resolver : "")
+        let asked = noServices ? [] : history.current.resources.map(\.domain).filter { !ordinary.contains($0) }.sorted()
+        try system.setNameResolution(domains: asked, resolver: asked.isEmpty ? "" : try SystemPlan.layout(subnet).resolver)
         guardInstalled = true
         return history
     }
@@ -302,7 +332,7 @@ public actor ClientRuntime {
         guard permitted != nil else { return }
         permitted = nil
         if let history, let closed = try? rules(for: history) {
-            do { try system.loadPacketFilter(closed) } catch { guardInstalled = false }
+            do { try system.loadPacketFilter(closed); loadedRules = closed } catch { guardInstalled = false }
         }
     }
 
@@ -356,6 +386,15 @@ public actor ClientRuntime {
         }
     }
 
+    /// The person's choice of their offer, sent to the router; the next policy
+    /// poll, made at once, brings back what it allowed.
+    public func choose(on: [String], closed: [String]) async throws {
+        guard let registration = try store.loadRegistration(), registration.complete, names?.entries != nil
+        else { throw StoreError.invalid }
+        try await transport.choose(endpoint: registration.endpoint, deviceToken: registration.deviceToken, on: on, closed: closed)
+        nextPolicyPoll = .distantPast
+    }
+
     public func setWanted(_ wanted: Bool) throws {
         let registered = try store.loadRegistration()?.complete == true
         guard !wanted || registered else { throw StoreError.invalid }
@@ -392,7 +431,9 @@ public actor ClientRuntime {
         }
         let seen: TunnelObservation?
         let layout = try SystemPlan.layout(history.current.virtualSubnet)
-        do { seen = try system.observeTunnel(addresses: history.current.resources.map(\.address) + [layout.resolver]) }
+        // A network counts only once the system routes it into the tunnel too.
+        do { seen = try system.observeTunnel(addresses: history.current.resources.map(\.address) + [layout.resolver] +
+                                             history.current.networks.map { try SystemPlan.probeAddress($0.network) }) }
         catch let fault as TunnelFault {
             closePermission(history)
             try? system.stopVPN()
@@ -436,7 +477,7 @@ public actor ClientRuntime {
         guard try store.loadIntent() else { closePermission(history); connectionError = "none"; publish("blocked", now: now); return }
         if permitted != seen {
             permitted = seen
-            do { try system.loadPacketFilter(try rules(for: history)) }
+            do { loadedRules = try rules(for: history); try system.loadPacketFilter(loadedRules) }
             catch { permitted = nil; throw error }
         }
         readyUntil = now.addingTimeInterval(20)

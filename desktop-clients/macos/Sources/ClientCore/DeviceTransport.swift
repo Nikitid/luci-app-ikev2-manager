@@ -23,6 +23,26 @@ public struct DeviceReadiness: Sendable, Equatable {
     public init(id: String, address: String, revision: Int) { self.id = id; self.address = address; self.revision = revision }
 }
 
+/// One service a person was offered, as this device has it: on or off,
+/// required or not, blocked without the tunnel or not and whether that is the
+/// person's to choose, and which of the policy's resources and networks it
+/// holds. It grants nothing; the router decides what passes.
+public struct ServiceEntry: Sendable, Equatable, Codable {
+    public let id: String
+    public let required: Bool
+    public let on: Bool
+    public let closed: Bool
+    public let chooseClosed: Bool
+    public let domains: Int
+    public let networks: Int
+    public let resources: [String]
+    public let cidrs: [String]
+    public init(id: String, required: Bool, on: Bool, closed: Bool, chooseClosed: Bool, domains: Int, networks: Int, resources: [String], cidrs: [String]) {
+        self.id = id; self.required = required; self.on = on; self.closed = closed; self.chooseClosed = chooseClosed
+        self.domains = domains; self.networks = networks; self.resources = resources; self.cidrs = cidrs
+    }
+}
+
 /// Informational service names and tunnel network. It grants no access.
 public struct DeviceServices: Sendable, Equatable {
     public let selected: [String]
@@ -34,6 +54,8 @@ public struct DeviceServices: Sendable, Equatable {
     /// Whether everything goes into the tunnel, or the services alone.
     public var full = false
     public var tunnelSubnet = ""
+    /// What the person was offered, where the router gives an offer.
+    public var entries: [ServiceEntry]? = nil
     public init(selected: [String], available: [String], domains: Int) { self.selected = selected; self.available = available; self.domains = domains }
 }
 
@@ -49,11 +71,15 @@ public protocol DeviceRequests: Sendable {
     func reportWanted(endpoint: URL, deviceToken: String) async -> Bool
     /// Sends the report to the router that asked; whether it was taken.
     func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool
+    /// What this device chose of its offer: the optional services it turns
+    /// on, and those it blocks without the tunnel where that is its choice.
+    func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws
 }
 
 public extension DeviceRequests {
     func reportWanted(endpoint: URL, deviceToken: String) async -> Bool { false }
     func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool { false }
+    func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws { throw DeviceError.httpRejected }
 }
 
 /// Requests of an enrolled or enrolling device. Platform certificate and
@@ -264,7 +290,40 @@ public struct DeviceTransport: DeviceRequests {
             guard let subnet = value as? String, ConnectionAddresses.validNetwork(subnet) else { throw DeviceError.invalidResponse }
             services.tunnelSubnet = subnet
         }
+        if let value = root["entries"] { services.entries = try decodeEntries(value) }
         return services
+    }
+
+    static func decodeEntries(_ value: Any) throws -> [ServiceEntry] {
+        guard let items = value as? [[String: Any]], items.count <= 128 else { throw DeviceError.invalidResponse }
+        var seen = Set<String>(), entries: [ServiceEntry] = []
+        func flag(_ value: Any?) throws -> Bool {
+            guard let value, CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID(), let flag = value as? Bool else { throw DeviceError.invalidResponse }
+            return flag
+        }
+        for item in items {
+            guard Set(item.keys) == ["id", "required", "on", "closed", "choose_closed", "domains", "networks", "resources", "cidrs"],
+                  let id = item["id"] as? String, matches(id, service), seen.insert(id).inserted,
+                  let resources = item["resources"] as? [String], resources.count <= 4096,
+                  resources.allSatisfy({ matches($0, #"\Ahost-[0-9]{1,7}\z"#) }),
+                  let cidrs = item["cidrs"] as? [String], cidrs.count <= 64 else { throw DeviceError.invalidResponse }
+            for cidr in cidrs { guard (try? PolicyValue.network(cidr)) != nil else { throw DeviceError.invalidResponse } }
+            let required = try flag(item["required"]), on = try flag(item["on"])
+            guard !required || on else { throw DeviceError.invalidResponse }
+            entries.append(ServiceEntry(id: id, required: required, on: on, closed: try flag(item["closed"]),
+                chooseClosed: try flag(item["choose_closed"]), domains: try integer(item["domains"], 0...65536),
+                networks: try integer(item["networks"], 0...64), resources: resources, cidrs: cidrs))
+        }
+        return entries
+    }
+
+    public func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws {
+        guard Self.matches(deviceToken, Self.token), on.count <= 128, closed.count <= 128,
+              (on + closed).allSatisfy({ Self.matches($0, Self.service) }) else { throw DeviceError.invalidEndpoint }
+        let body = try JSONSerialization.data(withJSONObject: ["on": on, "closed": closed], options: [.sortedKeys])
+        let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/choices"), method: "POST",
+            headers: ["Authorization": "Bearer " + deviceToken, "Content-Type": "application/json"], limit: 1024, timeout: 10, body: body)
+        guard answer.status == 202 else { throw DeviceError.httpRejected }
     }
 
     static func decodeRelease(_ data: Data) throws -> String {

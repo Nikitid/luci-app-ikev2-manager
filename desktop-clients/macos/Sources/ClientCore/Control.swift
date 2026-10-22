@@ -9,7 +9,12 @@ public enum Control {
     public struct Request: Codable, Sendable {
         public var op: String
         public var invitation: String?
-        public init(op: String, invitation: String? = nil) { self.op = op; self.invitation = invitation }
+        /// "choose": the optional services turned on, and those blocked without the tunnel.
+        public var on: [String]?
+        public var closed: [String]?
+        public init(op: String, invitation: String? = nil, on: [String]? = nil, closed: [String]? = nil) {
+            self.op = op; self.invitation = invitation; self.on = on; self.closed = closed
+        }
     }
 
     public struct Response: Codable, Sendable {

@@ -17,6 +17,13 @@ public struct PolicyResource: Sendable, Equatable {
     public let transports: [PolicyTransport]
 }
 
+/// A network a service reaches as itself, routed through the tunnel rather
+/// than named in the hosts file.
+public struct PolicyNetwork: Sendable, Equatable {
+    public let network: String
+    public let transports: [PolicyTransport]
+}
+
 /// Parsing validates content, not origin. Authenticate the enrolled source
 /// before accepting a policy or persisting its proposed history.
 public struct ClientPolicy: Sendable, Equatable {
@@ -27,22 +34,34 @@ public struct ClientPolicy: Sendable, Equatable {
     public let virtualSubnet: String
     public let exit: String
     public let resources: [PolicyResource]
+    /// Empty for version 1, which every router before networks sends.
+    public let networks: [PolicyNetwork]
 
     fileprivate var document: [String: Any] {
-        ["version": 1, "id": id, "revision": revision,
+        var document: [String: Any] = ["version": networks.isEmpty ? 1 : 2, "id": id, "revision": revision,
          "server": ["address": serverAddress, "remote_id": remoteID],
          "virtual_subnet": virtualSubnet, "exit": exit,
          "resources": resources.map { resource in
              ["id": resource.id, "domain": resource.domain, "address": resource.address,
               "transports": resource.transports.map { ["protocol": $0.protocolName, "ports": $0.ports] as [String: Any] }]
          }]
+        if !networks.isEmpty {
+            document["networks"] = networks.map { item in
+                ["network": item.network,
+                 "transports": item.transports.map { ["protocol": $0.protocolName, "ports": $0.ports] as [String: Any] }] as [String: Any]
+            }
+        }
+        return document
     }
+
+    static let keys: Set<String> = ["version", "id", "revision", "server", "virtual_subnet", "exit", "resources"]
 
     public init(data: Data) throws {
         guard data.count <= 1_048_576 else { throw PolicyError.invalidPolicy }
-        let root = try PolicyValue.object(JSONSerialization.jsonObject(with: data),
-            keys: ["version", "id", "revision", "server", "virtual_subnet", "exit", "resources"])
-        _ = try PolicyValue.integer(root["version"], range: 1...1)
+        let raw = try JSONSerialization.jsonObject(with: data)
+        // Version 2 carries networks besides; version 1 is exactly what it was.
+        let version = try PolicyValue.integer((raw as? [String: Any])?["version"], range: 1...2)
+        let root = try PolicyValue.object(raw, keys: version == 2 ? ClientPolicy.keys.union(["networks"]) : ClientPolicy.keys)
         id = try PolicyValue.identifier(root["id"])
         revision = try PolicyValue.integer(root["revision"], range: 1...2_147_483_647)
         let server = try PolicyValue.object(root["server"], keys: ["address", "remote_id"])
@@ -60,7 +79,7 @@ public struct ClientPolicy: Sendable, Equatable {
               first % size == 0 else { throw PolicyError.invalidPolicy }
         var ids = Set<String>(), domains = Set<String>(), addresses = Set<String>()
         var parsed: [PolicyResource] = []
-        for item in try PolicyValue.array(root["resources"], count: 1...4096) {
+        for item in try PolicyValue.array(root["resources"], count: (version == 2 ? 0 : 1)...4096) {
             let resource = try PolicyValue.object(item, keys: ["id", "domain", "address", "transports"])
             let resourceID = try PolicyValue.identifier(resource["id"])
             let domain = try PolicyValue.domain(resource["domain"])
@@ -70,24 +89,23 @@ public struct ClientPolicy: Sendable, Equatable {
                   ids.insert(resourceID).inserted, domains.insert(domain).inserted,
                   addresses.insert(address).inserted, domain != serverAddress, domain != remoteID
             else { throw PolicyError.invalidPolicy }
-            var protocols = Set<String>()
-            var transports: [PolicyTransport] = []
-            for entry in try PolicyValue.array(resource["transports"], count: 1...2) {
-                let transport = try PolicyValue.object(entry, keys: ["protocol", "ports"])
-                let name = try PolicyValue.text(transport["protocol"])
-                guard name == "tcp" || name == "udp", protocols.insert(name).inserted
-                else { throw PolicyError.invalidPolicy }
-                var ports = Set<Int>()
-                for value in try PolicyValue.array(transport["ports"], count: 1...64) {
-                    guard ports.insert(try PolicyValue.integer(value, range: 1...65535)).inserted
-                    else { throw PolicyError.invalidPolicy }
-                }
-                transports.append(PolicyTransport(protocolName: name, ports: ports.sorted()))
-            }
             parsed.append(PolicyResource(id: resourceID, domain: domain, address: address,
-                transports: transports.sorted { $0.protocolName < $1.protocolName }))
+                transports: try PolicyValue.transports(resource["transports"])))
         }
         resources = parsed.sorted { $0.domain < $1.domain }
+        var reached: [PolicyNetwork] = []
+        if version == 2 {
+            var seen = Set<String>()
+            for item in try PolicyValue.array(root["networks"], count: 1...64) {
+                let entry = try PolicyValue.object(item, keys: ["network", "transports"])
+                let network = try PolicyValue.text(entry["network"])
+                let range = try PolicyValue.network(network)
+                guard seen.insert(network).inserted,
+                      range.last < first || range.first > first + size - 1 else { throw PolicyError.invalidPolicy }
+                reached.append(PolicyNetwork(network: network, transports: try PolicyValue.transports(entry["transports"])))
+            }
+        }
+        networks = reached.sorted { $0.network < $1.network }
     }
 }
 
@@ -137,8 +155,9 @@ public struct PolicyHistory: Sendable {
         guard data.count <= 2_097_152 else { throw PolicyError.invalidPolicy }
         let root = try PolicyValue.object(JSONSerialization.jsonObject(with: data), keys: ["version", "current", "allocations"])
         _ = try PolicyValue.integer(root["version"], range: 1...1)
+        let stored = (root["current"] as? [String: Any])?["version"] as? Int
         let document = try PolicyValue.object(root["current"],
-            keys: ["version", "id", "revision", "server", "virtual_subnet", "exit", "resources"])
+            keys: stored == 2 ? ClientPolicy.keys.union(["networks"]) : ClientPolicy.keys)
         current = try ClientPolicy(data: JSONSerialization.data(withJSONObject: document))
         let subnet = current.virtualSubnet.components(separatedBy: "/")
         // ClientPolicy has already checked the subnet syntax and range.
@@ -146,7 +165,8 @@ public struct PolicyHistory: Sendable {
         let first = try PolicyValue.address(subnet[0]), size = UInt32(1) << (32 - prefix)
         var history: [String: String] = [:]
         var addresses = Set<String>()
-        for value in try PolicyValue.array(root["allocations"], count: 1...4096) {
+        // A policy of networks alone has no names, so nothing allocated yet.
+        for value in try PolicyValue.array(root["allocations"], count: 0...4096) {
             let entry = try PolicyValue.object(value, keys: ["domain", "address"])
             let domain = try PolicyValue.domain(entry["domain"]), address = try PolicyValue.text(entry["address"])
             let number = try PolicyValue.address(address)
@@ -160,9 +180,11 @@ public struct PolicyHistory: Sendable {
         allocations = history
     }
 
-    public func reconcileHosts(_ original: String) throws -> String {
+    /// `except`: names of services that go the ordinary way while the tunnel
+    /// is not confirmed; they are left to the system's own resolution.
+    public func reconcileHosts(_ original: String, except: Set<String> = []) throws -> String {
         // Retain revoked mappings so public DNS cannot become a fallback.
-        let entries = allocations.sorted { $0.key < $1.key }
+        let entries = allocations.sorted { $0.key < $1.key }.filter { !except.contains($0.key) }
             .map { HostEntry(address: $0.value, domain: $0.key) }
         return try ManagedHosts.reconcile(original, entries: entries)
     }
@@ -170,7 +192,7 @@ public struct PolicyHistory: Sendable {
     public var protectedAddresses: [String] { allocations.values.sorted() }
 }
 
-private enum PolicyValue {
+enum PolicyValue {
     static func object(_ value: Any?, keys: Set<String>) throws -> [String: Any] {
         guard let object = value as? [String: Any], Set(object.keys) == keys else { throw PolicyError.invalidPolicy }
         return object
@@ -203,6 +225,35 @@ private enum PolicyValue {
               result.components(separatedBy: ".").allSatisfy({ matches($0, #"\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z"#) })
         else { throw PolicyError.invalidPolicy }
         return result
+    }
+    static func transports(_ value: Any?) throws -> [PolicyTransport] {
+        var protocols = Set<String>()
+        var transports: [PolicyTransport] = []
+        for entry in try array(value, count: 1...2) {
+            let transport = try object(entry, keys: ["protocol", "ports"])
+            let name = try text(transport["protocol"])
+            guard name == "tcp" || name == "udp", protocols.insert(name).inserted
+            else { throw PolicyError.invalidPolicy }
+            var ports = Set<Int>()
+            for value in try array(transport["ports"], count: 1...64) {
+                guard ports.insert(try integer(value, range: 1...65535)).inserted
+                else { throw PolicyError.invalidPolicy }
+            }
+            transports.append(PolicyTransport(protocolName: name, ports: ports.sorted()))
+        }
+        return transports.sorted { $0.protocolName < $1.protocolName }
+    }
+    /// A network at its own base address, /8 to /32, never one that cannot be
+    /// a destination: this network, loopback, link-local, multicast and above.
+    static func network(_ value: String) throws -> (first: UInt32, last: UInt32) {
+        let parts = value.components(separatedBy: "/")
+        guard parts.count == 2, matches(parts[1], #"\A(?:[89]|[12][0-9]|3[0-2])\z"#), let prefix = Int(parts[1])
+        else { throw PolicyError.invalidPolicy }
+        let first = try address(parts[0])
+        let size = prefix == 32 ? UInt64(1) : UInt64(1) << UInt64(32 - prefix)
+        guard UInt64(first) % size == 0, first >> 24 != 0, first >> 24 != 127, first >> 16 != 0xA9FE, first >> 24 < 224
+        else { throw PolicyError.invalidPolicy }
+        return (first, UInt32(UInt64(first) + size - 1))
     }
     static func address(_ value: String) throws -> UInt32 {
         let parts = value.components(separatedBy: ".")

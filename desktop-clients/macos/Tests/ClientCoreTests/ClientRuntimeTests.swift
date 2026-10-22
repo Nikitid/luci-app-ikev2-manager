@@ -25,8 +25,9 @@ private final class Machine: SystemActions, @unchecked Sendable {
     func startVPN() throws { sync { started += 1 } }
     func stopVPN() throws { sync { stopped += 1; connected = false } }
     func removeVPNProfile(identifier: String) { sync { installed = false; log.append(identifier) } }
+    var observed: [String] = []
     func observeTunnel(addresses: [String]) throws -> TunnelObservation? {
-        try sync { if let fault { throw fault }; return tunnel }
+        try sync { observed = addresses; if let fault { throw fault }; return tunnel }
     }
 }
 
@@ -51,10 +52,16 @@ private final class Router: DeviceRequests, @unchecked Sendable {
     func readiness(endpoint: URL, deviceToken: String, tunnelAddress: String) async throws -> DeviceReadiness {
         try sync { try ready.get() }
     }
+    var entries: [ServiceEntry]?
+    var chosen: [([String], [String])] = []
     func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {
         var services = DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
         services.tunnelSubnet = "10.40.50.0/24"
+        services.entries = sync { entries }
         return services
+    }
+    func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws {
+        sync { chosen.append((on, closed)) }
     }
     var released = "2.3.0"
     func release(endpoint: URL, deviceToken: String) async throws -> String { sync { released } }
@@ -389,5 +396,42 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     await runtime.tick(now: now); now += 2
     status = await runtime.status()
     #expect(status.guardInstalled && status.state == "protected")
+    try? FileManager.default.removeItem(at: store.directory)
+}
+
+private let offeredPolicy = #"{"version":2,"id":"office-mac","revision":1,"server":{"address":"vpn.example.com","remote_id":"vpn.example.com"},"virtual_subnet":"172.31.254.0/24","exit":"1","resources":[{"id":"host-1","domain":"api.example.com","address":"172.31.254.1","transports":[{"protocol":"tcp","ports":[443]}]},{"id":"host-2","domain":"wiki.example.com","address":"172.31.254.2","transports":[{"protocol":"tcp","ports":[443]}]}],"networks":[{"network":"149.154.160.0/20","transports":[{"protocol":"tcp","ports":[443]}]},{"network":"91.108.4.0/22","transports":[{"protocol":"tcp","ports":[443]}]}]}"#
+
+@Test func eachServiceIsHeldBackOrLetGoByItsOwnRule() async throws {
+    let (runtime, machine, router, store) = try fixture()
+    var now = Date(timeIntervalSince1970: 3_000)
+    router.sync {
+        router.policy = Data(offeredPolicy.utf8)
+        router.entries = [
+            ServiceEntry(id: "api", required: true, on: true, closed: true, chooseClosed: false, domains: 1, networks: 1, resources: ["host-1"], cidrs: ["149.154.160.0/20"]),
+            ServiceEntry(id: "wiki", required: false, on: true, closed: false, chooseClosed: true, domains: 1, networks: 1, resources: ["host-2"], cidrs: ["91.108.4.0/22"])]
+    }
+    try await runtime.begin(invitation: invitation)
+    router.sync { router.enrolled = true }
+    for _ in 0..<4 { await runtime.tick(now: now); now += 3 }
+    // Without the tunnel: the blocked service's name points into it and its
+    // network is denied; the other's name is left to the system and its
+    // network goes the ordinary way.
+    #expect(machine.hosts.contains("172.31.254.1 api.example.com") && !machine.hosts.contains("wiki.example.com"))
+    #expect(machine.resolving == ["api.example.com"])
+    #expect(machine.rules == "block drop out quick inet from any to 172.31.254.0/24\nblock drop out quick inet from any to 149.154.160.0/20\n")
+    #expect(await runtime.status().entries?.count == 2)
+    // Confirmed: every name points into the tunnel and both networks pass on it.
+    try await runtime.setWanted(true)
+    machine.sync { machine.connected = true; machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
+    router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
+    for _ in 0..<3 { await runtime.tick(now: now); now += 3 }
+    #expect(await runtime.status().state == "protected")
+    #expect(machine.observed.contains("149.154.160.1") && machine.observed.contains("91.108.4.1"), "the networks must be routed into the tunnel too")
+    #expect(machine.rules.contains("pass out quick on ipsec0 inet from any to 149.154.160.0/20 keep state") &&
+            machine.rules.contains("pass out quick on ipsec0 inet from any to 91.108.4.0/22 keep state"))
+    #expect(machine.hosts.contains("172.31.254.2 wiki.example.com"))
+    // The person's choice goes to the router.
+    try await runtime.choose(on: ["wiki"], closed: ["wiki"])
+    #expect(router.sync { router.chosen.count == 1 && router.chosen[0].0 == ["wiki"] && router.chosen[0].1 == ["wiki"] })
     try? FileManager.default.removeItem(at: store.directory)
 }

@@ -71,6 +71,10 @@ final class ControlServer: @unchecked Sendable {
             case "status": return Control.Response(result: "ok", status: await runtime.status())
             case "connect": try await runtime.setWanted(true)
             case "disconnect": try await runtime.setWanted(false)
+            // The person's own choice of their offer; the router decides what it allows.
+            case "choose":
+                guard let on = request.on, let closed = request.closed else { return Control.Response(result: "refused") }
+                try await runtime.choose(on: on, closed: closed)
             case "begin":
                 guard privileged else { return Control.Response(result: "administrator_required") }
                 guard let invitation = request.invitation else { return Control.Response(result: "refused") }
