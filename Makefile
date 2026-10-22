@@ -125,6 +125,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-xfrm.init $(1)/etc/init.d/ikev2-xfrm
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-health.init $(1)/etc/init.d/ikev2-health
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-board.init $(1)/etc/init.d/ikev2-board
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-user-policy.init $(1)/etc/init.d/ikev2-user-policy
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-client-access.init $(1)/etc/init.d/ikev2-client-access
 	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-domain-router.init $(1)/etc/init.d/ikev2-domain-router
@@ -184,6 +185,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-store.uc $(1)/usr/libexec/ikev2-manager.d/client-access-store.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-control.uc $(1)/usr/libexec/ikev2-manager.d/client-access-control.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-api-settings.uc $(1)/usr/libexec/ikev2-manager.d/client-api-settings.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/board-http.uc $(1)/usr/libexec/ikev2-manager.d/board-http.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-admin.uc $(1)/usr/libexec/ikev2-manager.d/client-access-admin.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-enrollment.uc $(1)/usr/libexec/ikev2-manager.d/client-access-enrollment.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-invitation.uc $(1)/usr/libexec/ikev2-manager.d/client-access-invitation.uc
@@ -234,6 +236,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_BIN) ./luci-ikev2-domains/restart-pbr.sh $(1)/usr/libexec/ikev2-domains-restart
 	$(INSTALL_BIN) ./luci-ikev2-domains/ikev2-devices.sh $(1)/usr/libexec/ikev2-devices
 	$(INSTALL_BIN) ./luci-ikev2-domains/name-record.sh $(1)/usr/libexec/ikev2-name-record
+	$(INSTALL_BIN) ./ikev2-manager-runtime/ikev2-board.sh $(1)/usr/libexec/ikev2-board
 
 	$(INSTALL_DIR) $(1)/usr/share/pbr
 	$(INSTALL_BIN) ./ikev2-manager-runtime/pbr.user.ikev2out $(1)/usr/share/pbr/pbr.user.ikev2out
@@ -552,6 +555,15 @@ elif [ -x "$$ikev2_policy_init" ]; then
 	"$$ikev2_policy_init" disable >/dev/null 2>&1 || true
 fi
 # inbound-policy-watcher end
+# The office board runs where it was turned on, and comes back with the new page.
+if [ -x /etc/init.d/ikev2-board ]; then
+	if [ "$$(uci -q get ikev2-manager.board.enabled)" = 1 ]; then
+		/etc/init.d/ikev2-board enable >/dev/null 2>&1 || true
+		/etc/init.d/ikev2-board restart >/dev/null 2>&1 || echo "Could not start the office board." >&2
+	else
+		/etc/init.d/ikev2-board disable >/dev/null 2>&1 || true
+	fi
+fi
 if [ "$$(uci -q get ikev2-manager.globals.configured)" = 1 ] || \
    [ "$$(uci -q get ikev2-manager.client.enabled)" = 1 ] || \
    [ "$$(uci -q get ikev2-manager.server.enabled)" = 1 ]; then
@@ -629,7 +641,7 @@ rm -f /etc/swanctl/private/ikev2.key
 rm -f /etc/swanctl/x509ca/ikev2-le-isrg-root-*.pem
 rm -f /etc/swanctl/x509ca/ikev2-server-chain-*.pem
 
-for service in ikev2-health ikev2-xfrm ikev2-user-policy ikev2-dns-segments ikev2-domain-router; do
+for service in ikev2-board ikev2-health ikev2-xfrm ikev2-user-policy ikev2-dns-segments ikev2-domain-router; do
 	[ -x "/etc/init.d/$$service" ] || continue
 	"/etc/init.d/$$service" stop >/dev/null 2>&1 || true
 	"/etc/init.d/$$service" disable >/dev/null 2>&1 || true

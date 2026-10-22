@@ -667,3 +667,18 @@ An XFRM interface module also does not imply nftables IPsec expression support.
 Doctor checks `nft_xfrm` separately; the runtime dependency list already includes
 `kmod-nft-xfrm`. Guarded by the OpenWrt module-presence scenario and version
 policy behavior tests.
+
+## uhttpd keeps a ucode handler in memory
+
+A new `board-http.uc` copied onto the router went on answering with the old
+code, line numbers and all: uhttpd compiles the `-O` handler once, when it
+starts. After changing a handler, restart its server (`/etc/init.d/ikev2-board
+restart`); the package's postinst does this for the board.
+
+## A new file goes into two package lists
+
+The office board ran on a router it was copied to and was missing from the
+package: `scripts/stage-package.sh`, which builds the IPK and the OpenWrt
+scenarios' install, keeps its own file list and postinst beside the
+Makefile's. A new installed file, and a postinst change, go into both; the
+scenario that exercises the file is what notices a miss.

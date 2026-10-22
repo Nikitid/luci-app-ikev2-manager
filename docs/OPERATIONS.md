@@ -119,9 +119,9 @@ failure, not permission to advance part of the runtime.
 strongSwan is not one independently replaceable binary in OpenWrt. The base
 package, `strongswan-charon`, `strongswan-swanctl` and every installed
 `strongswan-mod-*` package share one build and must come from the same SDK,
-target and version. The OpenWrt 25.12 packages branch currently carries 6.0.3,
-while the development packages branch carries 6.0.7. A security backport must
-therefore publish and simulate the complete installed strongSwan subset as one
+target and version. The OpenWrt 25.12 packages branch carries 6.0.7 since
+October 2026, which the shared feed had built until then. A security backport
+must publish and simulate the complete installed strongSwan subset as one
 transaction. Installing only `strongswan` can leave charon or its plugins on a
 different ABI and is unsupported.
 
@@ -1034,6 +1034,55 @@ On macOS the device's password is kept in the daemon's own directory
 (`/Library/Application Support/IKEv2ManagerClient`, root only), not in the
 keychain; FileVault is what protects it at rest. On Windows it is encrypted
 with DPAPI for the machine.
+
+## Office board
+
+An optional page on the local network: which services go through the tunnel,
+with their domains, and a form for "something does not open". It is off
+until turned on:
+
+```sh
+uci set ikev2-manager.board=board
+uci set ikev2-manager.board.enabled=1
+uci set ikev2-manager.board.port=8090
+uci commit ikev2-manager
+/etc/init.d/ikev2-board enable
+/etc/init.d/ikev2-board restart
+```
+
+It listens on the LAN addresses only, at `http://<router>:<port>/board`.
+Requests, with up to three screenshots, are kept on the router in
+`/etc/ikev2-manager/board/requests` (the newest 200); anyone on the network
+sees a request's service and status, not who sent it. One address may send ten
+requests in ten minutes.
+
+Telegram: the bot token goes into `/etc/ikev2-manager/board/telegram.token`
+(mode 600) and never into the configuration. `owner_chat` hears of each new
+request; in `office_chat` the bot keeps one pinned message with the open
+requests and edits it as they change.
+
+An agent works on requests over SSH with its own key, which the router
+restricts to the board's actions:
+
+```
+command="/usr/libexec/ikev2-board agent",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA... ikev2-board-agent
+```
+
+in `/etc/dropbear/authorized_keys`. The key can list and read requests and
+their screenshots, show the services, trace how a domain is routed, set a
+status with a note, and add domains to the operator's own list, which is
+applied as the Policy Routing page applies it. Nothing else runs with it.
+
+`agent/ikev2-board-mcp.py` serves those actions to Claude Code or Codex:
+
+```sh
+claude mcp add office -- python3 agent/ikev2-board-mcp.py --router office
+codex mcp add office -- python3 agent/ikev2-board-mcp.py --router office
+```
+
+with the router named in `~/.config/ikev2-board/routers.json`
+(`{"office": {"host": ..., "port": ..., "user": "root", "key": "~/.ssh/..."}}`).
+The agent proposes; adding domains needs the person's yes in the chat first.
 
 ## Page access
 

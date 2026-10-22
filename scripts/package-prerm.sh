@@ -64,7 +64,7 @@ rm -f /etc/swanctl/private/ikev2.key
 rm -f /etc/swanctl/x509ca/ikev2-le-isrg-root-*.pem
 rm -f /etc/swanctl/x509ca/ikev2-server-chain-*.pem
 
-for service in ikev2-health ikev2-xfrm ikev2-user-policy ikev2-dns-segments ikev2-domain-router; do
+for service in ikev2-board ikev2-health ikev2-xfrm ikev2-user-policy ikev2-dns-segments ikev2-domain-router; do
 	[ -x "/etc/init.d/$service" ] || continue
 	"/etc/init.d/$service" stop >/dev/null 2>&1 || true
 	"/etc/init.d/$service" disable >/dev/null 2>&1 || true

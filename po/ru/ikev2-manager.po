@@ -5783,3 +5783,72 @@ msgstr "Скрыть списки v2fly"
 
 msgid "Hide v2fly lists (%d)"
 msgstr "Скрыть списки v2fly (%d)"
+
+msgid "Office services"
+msgstr "Сервисы офиса"
+
+msgid "These services go through the tunnel. Open one to see its domains."
+msgstr "Эти сервисы идут через туннель. Откройте сервис, чтобы увидеть его домены."
+
+msgid "Other domains"
+msgstr "Другие домены"
+
+msgid "Something does not open"
+msgstr "Что-то не открывается"
+
+msgid "Your name"
+msgstr "Ваше имя"
+
+msgid "Work e-mail (optional)"
+msgstr "Рабочая почта (необязательно)"
+
+msgid "Service or site"
+msgstr "Сервис или сайт"
+
+msgid "Link"
+msgstr "Ссылка"
+
+msgid "What does not work"
+msgstr "Что не работает"
+
+msgid "Screenshots: paste with Ctrl+V or drop here, up to 3"
+msgstr "Скриншоты: вставьте через Ctrl+V или перетащите сюда, до 3"
+
+msgid "Send request"
+msgstr "Отправить заявку"
+
+msgid "Request sent. Its status is shown below."
+msgstr "Заявка отправлена. Её статус виден ниже."
+
+msgid "The request was not sent."
+msgstr "Заявка не отправлена."
+
+msgid "Fill in your name, the service and what does not work."
+msgstr "Укажите имя, сервис и что не работает."
+
+msgid "Requests"
+msgstr "Заявки"
+
+msgid "No requests yet."
+msgstr "Заявок пока нет."
+
+msgid "New"
+msgstr "Новая"
+
+msgid "In progress"
+msgstr "В работе"
+
+msgid "Not ours"
+msgstr "Не наше"
+
+msgid "Loading..."
+msgstr "Загрузка..."
+
+msgid "No services."
+msgstr "Сервисов нет."
+
+msgid "domains"
+msgstr "доменов"
+
+msgid "Exclusions go direct"
+msgstr "Исключения напрямую"

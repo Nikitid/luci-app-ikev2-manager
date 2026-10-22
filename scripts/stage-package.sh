@@ -27,6 +27,7 @@ install_file() {
 install_file 600 openwrt/files/etc/config/ikev2-manager /etc/config/ikev2-manager
 install_file 755 ikev2-manager-runtime/ikev2-xfrm.init /etc/init.d/ikev2-xfrm
 install_file 755 ikev2-manager-runtime/ikev2-health.init /etc/init.d/ikev2-health
+install_file 755 ikev2-manager-runtime/ikev2-board.init /etc/init.d/ikev2-board
 install_file 755 ikev2-manager-runtime/ikev2-user-policy.init /etc/init.d/ikev2-user-policy
 install_file 755 ikev2-manager-runtime/ikev2-client-access.init /etc/init.d/ikev2-client-access
 install_file 755 ikev2-manager-runtime/ikev2-domain-router.init /etc/init.d/ikev2-domain-router
@@ -71,6 +72,7 @@ install_file 644 ikev2-manager-runtime/lib/client-access-state.uc /usr/libexec/i
 install_file 644 ikev2-manager-runtime/lib/client-access-store.uc /usr/libexec/ikev2-manager.d/client-access-store.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-control.uc /usr/libexec/ikev2-manager.d/client-access-control.uc
 install_file 644 ikev2-manager-runtime/lib/client-api-settings.uc /usr/libexec/ikev2-manager.d/client-api-settings.uc
+install_file 644 ikev2-manager-runtime/lib/board-http.uc /usr/libexec/ikev2-manager.d/board-http.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-admin.uc /usr/libexec/ikev2-manager.d/client-access-admin.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-enrollment.uc /usr/libexec/ikev2-manager.d/client-access-enrollment.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-invitation.uc /usr/libexec/ikev2-manager.d/client-access-invitation.uc
@@ -121,6 +123,7 @@ install_file 755 luci-ikev2-domains/community-domains.sh /usr/libexec/ikev2-doma
 install_file 755 luci-ikev2-domains/restart-pbr.sh /usr/libexec/ikev2-domains-restart
 install_file 755 luci-ikev2-domains/ikev2-devices.sh /usr/libexec/ikev2-devices
 install_file 755 luci-ikev2-domains/name-record.sh /usr/libexec/ikev2-name-record
+install_file 755 ikev2-manager-runtime/ikev2-board.sh /usr/libexec/ikev2-board
 install_file 755 ikev2-manager-runtime/pbr.user.ikev2out /usr/share/pbr/pbr.user.ikev2out
 
 install_file 644 ikev2-manager-runtime/ca/isrg-root-x1.pem /usr/share/ikev2-manager/ca/isrg-root-x1.pem
@@ -500,6 +503,15 @@ elif [ -x "$ikev2_policy_init" ]; then
 	"$ikev2_policy_init" disable >/dev/null 2>&1 || true
 fi
 # inbound-policy-watcher end
+# The office board runs where it was turned on, and comes back with the new page.
+if [ -x /etc/init.d/ikev2-board ]; then
+	if [ "$(uci -q get ikev2-manager.board.enabled)" = 1 ]; then
+		/etc/init.d/ikev2-board enable >/dev/null 2>&1 || true
+		/etc/init.d/ikev2-board restart >/dev/null 2>&1 || echo "Could not start the office board." >&2
+	else
+		/etc/init.d/ikev2-board disable >/dev/null 2>&1 || true
+	fi
+fi
 if [ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || \
    [ "$(uci -q get ikev2-manager.client.enabled)" = 1 ] || \
    [ "$(uci -q get ikev2-manager.server.enabled)" = 1 ]; then

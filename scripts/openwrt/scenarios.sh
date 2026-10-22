@@ -119,7 +119,7 @@ for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	case "$script" in
 		*/client-access-admin.uc | */client-access-journal.uc | */client-access-report.uc | */client-access-link.uc | */client-access-view.uc | */client-access-download.uc | */client-access-directory.uc | */client-access-device-evidence.uc | */client-access-path-evidence.uc | */client-access.uc | */client-access-authorization.uc | */client-access-api.uc | */client-access-publication.uc | */client-access-sessions.uc | */client-access-path.uc | */client-access-state.uc | */client-access-store.uc | */client-access-credentials.uc | */client-access-enrollment.uc | */client-access-enrollment-store.uc | */client-access-enrollment-api.uc | */client-access-invitation.uc)
 			ucode -e "import * as module from '$script';" >/dev/null 2>&1 || rc=$? ;;
-		*/client-access-http.uc)
+		*/client-access-http.uc | */board-http.uc)
 			ucode -T "$script" >/dev/null 2>&1 || rc=$? ;;
 		*) printf '' | ucode "$script" >/dev/null 2>&1 || rc=$? ;;
 	esac
@@ -684,6 +684,9 @@ sed -n '/^normalize_domains() {/,/^}/p; /^normalize_remote_domains() {/,/^}/p' \
 
 step 'recording the names of one device with the BusyBox tools'
 sh /src/scripts/test-name-record.sh
+
+step 'the office board executor with the BusyBox tools'
+sh /src/scripts/test-board.sh
 
 step 'per-service providers preserve offline coverage with real OpenWrt tools'
 sh /src/scripts/openwrt/service-sources.sh
