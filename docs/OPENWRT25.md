@@ -24,7 +24,7 @@ package indexes change; LuCI and shell code do not need a separate fork.
 
 The currently validated OpenWrt 25 target is:
 
-- OpenWrt `25.12.5`;
+- OpenWrt `25.12.6` (`25.12.5` as well: the same feeds, an older kernel);
 - `mediatek/filogic`;
 - `aarch64_cortex-a53`;
 - GL.iNet Flint 2 running official OpenWrt.

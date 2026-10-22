@@ -6,9 +6,9 @@
 # namespace, which disappears with it.
 #
 #   scripts/test-openwrt.sh            the releases below
-#   IKEV2_OPENWRT_RELEASES=25.12.5 scripts/test-openwrt.sh
+#   IKEV2_OPENWRT_RELEASES=25.12.6 scripts/test-openwrt.sh
 #
-# Then the two-tunnel failover test on IKEV2_OPENWRT_FAILOVER (25.12.5; empty
+# Then the two-tunnel failover test on IKEV2_OPENWRT_FAILOVER (25.12.6; empty
 # skips it), in a privileged container: it needs network namespaces and the
 # kernel's XFRM interfaces, and says so and passes where the kernel has none.
 # IKEV2_REQUIRE_XFRM=1 makes that a failure, as CI does.
@@ -16,7 +16,7 @@
 set -eu
 
 root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-releases="${IKEV2_OPENWRT_RELEASES:-24.10.8 25.12.5}"
+releases="${IKEV2_OPENWRT_RELEASES:-24.10.8 25.12.6}"
 
 case "$(uname -m)" in
 	x86_64 | amd64) target=x86-64; platform='' ;;
@@ -56,7 +56,7 @@ for release in $releases; do
 		/bin/sh /src/scripts/openwrt/install.sh client-credentials
 done
 
-failover="${IKEV2_OPENWRT_FAILOVER-25.12.5}"
+failover="${IKEV2_OPENWRT_FAILOVER-25.12.6}"
 if [ -n "$failover" ]; then
 	image="openwrt/rootfs:$target-$failover"
 	# shellcheck disable=SC2086
