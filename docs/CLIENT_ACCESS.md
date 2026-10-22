@@ -971,8 +971,9 @@ to the person; a plain list leaves the offer behind; a service closed to
 clients leaves every offer.
 
 A device with an offer sees every entry in its services answer (`entries`:
-on, required, blocked, whether that is its choice) also before it has
-anything on, and posts its choice to `POST /client/v1/choices`. The API checks
+on, required, blocked, whether that is its choice, and the identifiers of its
+resources as the policy names them and its networks, never a domain list)
+also before it has anything on, and posts its choice to `POST /client/v1/choices`. The API checks
 it against the offer and leaves the latest choice of each device in
 `/var/run/ikev2-client-choices`; `client-access-control.uc apply-choices`,
 started at once, commits it and tries again when another edit committed

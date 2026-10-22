@@ -131,7 +131,7 @@ function device_services(publication, id, revision, directory) {
 	}
 	let by_id = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 	return services_answer(id, revision, sort(selected, by_id), sort(available, by_id),
-		'offer' in own ? client_service_entries(own.offer, own.choices, publication.services) : null, directory);
+		'offer' in own ? client_service_entries(own.offer, own.choices, publication) : null, directory);
 }
 
 // The one request that carries a body: the report the administrator asked

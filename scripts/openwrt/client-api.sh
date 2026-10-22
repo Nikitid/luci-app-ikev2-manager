@@ -129,6 +129,10 @@ printf '%s\n' "$offered" | ucode "$control" update >/dev/null
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 ucode -e "import {readfile} from 'fs'; let s=json(readfile('$work/body')); let e=s.entries;
  if(type(e)!='array' || length(e)!=2 || !e[0].required || !e[0].on || !e[0].closed || e[0].choose_closed || e[1].required || e[1].on || !e[1].choose_closed || s.block_without_tunnel!==true || length(s.selected)!=1 || length(s.available)!=1) die('The offer is not shown as given: '+readfile('$work/body'));"
+# Each entry names its resources as the policy does, so the device knows what
+# to hold back and what to let go; no domain list is in the answer.
+[ "$(jsonfilter -i "$work/body" -e '@.entries[0].resources[0]')" = host-1 ] || { echo "client-api: an entry does not name its resources: $(cat "$work/body")" >&2; exit 1; }
+! grep -q 'example.com' "$work/body"
 optional="$(jsonfilter -i "$work/body" -e '@.entries[1].id')"
 request 405 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/choices
 request 400 -X POST -H "Authorization: Bearer $first" -d "{\"on\":[\"$(jsonfilter -i "$work/body" -e '@.entries[0].id')\"],\"closed\":[]}" https://127.0.0.1:18443/client/v1/choices

@@ -88,7 +88,7 @@ export function write_client_views(directory, state) {
 		if ('offer' in own) {
 			document.offer = own.offer;
 			document.choices = own.choices ?? { on: [], closed: [] };
-			document.entries = client_service_entries(own.offer, own.choices, state.publication.services);
+			document.entries = client_service_entries(own.offer, own.choices, state.publication);
 		}
 		put(path + '/t-' + device.token_sha256 + '.json', document);
 		put(path + '/i-' + device.id + '.json', document);

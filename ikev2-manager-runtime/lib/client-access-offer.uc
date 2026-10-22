@@ -79,15 +79,30 @@ export function client_choices_within(offer, choices) {
 		closed: filter(choices?.closed ?? [], id => entries[id]?.closed == 'choice') };
 };
 
+function address_number(text) {
+	let number = 0;
+	for (let octet in split(text, '.')) number = number * 256 + +octet;
+	return number;
+}
+
 // What the device shows: every service offered, on or off, and whether it is
-// blocked without the tunnel - and whether that is the person's to change.
-export function client_service_entries(offer, choices, services) {
-	let size = {};
-	for (let service in services) size[service.id] = { domains: length(service.domains), networks: length(service.networks ?? []) };
+// blocked without the tunnel - and whether that is the person's to change. Each
+// entry also names its resources, by the identifiers the policy gives them,
+// and its networks, so the device knows which of what it reaches to hold back
+// and which to let go the ordinary way; domain lists stay in the policy.
+export function client_service_entries(offer, choices, publication) {
+	let first = address_number(split(publication.virtual_subnet, '/')[0]), allocated = {};
+	for (let item in publication.allocations ?? []) allocated[item.domain] = `host-${address_number(item.address) - first}`;
+	let services = {};
+	for (let service in publication.services) services[service.id] = service;
 	let on = choices?.on ?? [], closed = choices?.closed ?? [];
-	return map(sort(slice(offer), (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0), entry => ({
-		id: entry.id, required: entry.required, on: entry.required || index(on, entry.id) >= 0,
-		closed: entry.closed == 'yes' || (entry.closed == 'choice' && index(closed, entry.id) >= 0),
-		choose_closed: entry.closed == 'choice',
-		domains: size[entry.id]?.domains ?? 0, networks: size[entry.id]?.networks ?? 0 }));
+	return map(sort(slice(offer), (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0), entry => {
+		let service = services[entry.id];
+		return { id: entry.id, required: entry.required, on: entry.required || index(on, entry.id) >= 0,
+			closed: entry.closed == 'yes' || (entry.closed == 'choice' && index(closed, entry.id) >= 0),
+			choose_closed: entry.closed == 'choice',
+			domains: length(service?.domains ?? []), networks: length(service?.networks ?? []),
+			resources: sort(filter(map(service?.domains ?? [], name => allocated[name]), id => id != null)),
+			cidrs: sort(slice(service?.networks ?? [])) };
+	});
 };
