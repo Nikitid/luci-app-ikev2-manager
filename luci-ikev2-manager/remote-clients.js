@@ -279,8 +279,10 @@ function serviceDialog(record, current, generation, reload, pageResult, unsaved)
  var published = E('input', { 'type': 'checkbox', 'checked': current.client_access ? '' : null, 'aria-label': _('Available to remote clients') });
  var tcp = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('TCP ports'), 'value': current.transports.filter(function(t) { return t.protocol === 'tcp'; }).map(function(t) { return t.ports.join(' '); }).join(' ') });
  var udp = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('UDP ports'), 'value': current.transports.filter(function(t) { return t.protocol === 'udp'; }).map(function(t) { return t.ports.join(' '); }).join(' ') });
+ var networks = E('input', { 'type': 'checkbox', 'checked': current.network_count ? '' : null, 'aria-label': _('Carry its networks') });
  var form = E('div', {}, [
   common.toggleRow(published, _('Available to remote clients'), _('Disabling removes this service from all device assignments.')),
+  common.toggleRow(networks, _('Carry its networks'), _('For a service reached by its addresses rather than its names, such as calls and messengers. Up to 64 networks; devices given it reconnect once to take them.')),
   E('p', { 'class': 'ikev2-note', 'style': 'margin:1rem 0 .8rem' }, [ _('Which ports of this service the devices may reach through the tunnel. Websites and most applications need TCP 443 only; leave UDP empty unless the service needs it (443 for QUIC, 53 for DNS, voice and games have their own).') ]),
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
    common.fieldLabel(_('TCP ports'), _('Numbers separated by spaces.')), tcp,
@@ -293,7 +295,7 @@ function serviceDialog(record, current, generation, reload, pageResult, unsaved)
   if (udpPorts.length) transports.push({ protocol: 'udp', ports: udpPorts });
   if (!transports.length) throw new Error(_('Specify at least one TCP or UDP port.'));
   return { version: 1, expected_generation: generation, operation: 'configure-service',
-   payload: { id: record.id, client_access: published.checked, transports: transports } };
+   payload: { id: record.id, client_access: published.checked, transports: transports, networks: networks.checked } };
  }, reload, pageResult, unsaved);
 }
 
@@ -652,6 +654,9 @@ function pageStyles() {
   '.ikev2-page .ikev2-search-box .ikev2-icon { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 0; }' +
   '.ikev2-page .ikev2-search-box input.ikev2-search:focus { border-color: var(--ikev2-accent); }' +
   '.ikev2-page .ikev2-search-box input.ikev2-search::placeholder { color: var(--ikev2-muted); }' +
+  '.ikev2-page .ikev2-offer { display: grid; gap: .45rem; }',
+  '.ikev2-page .ikev2-offer-row { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(9rem, auto) minmax(11rem, auto); gap: .6rem; align-items: center; }',
+  '.ikev2-page .ikev2-offer-size { display: block; color: var(--ikev2-muted); }',
   '@media (max-width: 820px) { .ikev2-page .ikev2-person-head, .ikev2-page .ikev2-device { grid-template-columns: 1fr; } .ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: wrap; justify-content: flex-start; } }'
  ]);
 }
@@ -707,6 +712,60 @@ function removeDialog(device, state, reload, pageResult) {
    } }, [ _('Remove') ])) ]) ]) ]);
 }
 
+// What the person was offered. Devices given a plain list before offers
+// existed show it as one: what every device has is required and blocked
+// without the tunnel as the person's setting said; what only some have is
+// required as well, marked, since saving gives it to every device.
+function personOffer(registered) {
+ var with_offer = registered.filter(function(item) { return item.offer; })[0], offer = {};
+ if (with_offer) {
+  with_offer.offer.forEach(function(entry) { offer[entry.id] = { required: entry.required, closed: entry.closed }; });
+  return offer;
+ }
+ registered.forEach(function(item) {
+  item.selected_services.forEach(function(id) {
+   var have = registered.filter(function(other) { return other.selected_services.indexOf(id) >= 0; }).length;
+   offer[id] = { required: true, closed: item.block_without_tunnel === false ? 'no' : 'yes', part: have < registered.length };
+  });
+ });
+ return offer;
+}
+
+// One row a service: whether it is given and how, and what becomes of it
+// while the tunnel is down.
+function offerEditor(services, labels, offer) {
+ var rows = services.map(function(service) {
+  var entry = offer[service.id];
+  var name = labels[service.id] || service.id;
+  var given = E('select', { 'class': 'cbi-input-select', 'aria-label': _('%s: given').format(name) }, [
+   E('option', { 'value': 'none' }, [ _('Not given') ]),
+   E('option', { 'value': 'required' }, [ _('Required') ]),
+   E('option', { 'value': 'optional' }, [ _('Person turns it on') ]) ]);
+  var closed = E('select', { 'class': 'cbi-input-select', 'aria-label': _('%s: without the tunnel').format(name) }, [
+   E('option', { 'value': 'yes' }, [ _('Blocked') ]),
+   E('option', { 'value': 'no' }, [ _('Goes the ordinary way') ]),
+   E('option', { 'value': 'choice' }, [ _('Person decides') ]) ]);
+  given.value = !entry ? 'none' : entry.required ? 'required' : 'optional';
+  closed.value = entry ? entry.closed : 'yes';
+  closed.disabled = given.value === 'none';
+  given.addEventListener('change', function() { closed.disabled = given.value === 'none'; });
+  var size = [ service.domain_count ? _('%d domains').format(service.domain_count) : '',
+   service.network_count ? _('%d networks').format(service.network_count) : '' ].filter(Boolean).join(', ');
+  return { id: service.id, given: given, closed: closed, node: E('div', { 'class': 'ikev2-offer-row' }, [
+   E('span', {}, [ E('strong', {}, [ name ]), entry && entry.part ? E('small', {}, [ ' ' + _('(some devices now)') ]) : '',
+    size ? E('small', { 'class': 'ikev2-offer-size' }, [ size ]) : '' ]), given, closed ]) };
+ });
+ return {
+  node: rows.length ? E('div', { 'class': 'ikev2-offer' }, rows.map(function(row) { return row.node; })) :
+   E('p', { 'class': 'ikev2-note' }, [ _('No service is available to remote clients yet.') ]),
+  value: function() {
+   return rows.filter(function(row) { return row.given.value !== 'none'; }).map(function(row) {
+    return { id: row.id, required: row.given.value === 'required', closed: row.closed.value };
+   });
+  }
+ };
+}
+
 function personDialog(person, state, labels, reload, pageResult, profileNames, peopleNames) {
  var device = person.devices.filter(function(item) { return !item.waiting; })[0];
  var owners = state.shown_owners || state.profile_owners || {}, given = state.profile_owners || {};
@@ -744,15 +803,8 @@ function personDialog(person, state, labels, reload, pageResult, profileNames, p
  var note = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Note'), 'value': device.note || '' });
  var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Access enabled') });
  var email = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), 'value': device.email || '' });
- var block = E('input', { 'type': 'checkbox', 'checked': device.block_without_tunnel === false ? null : '', 'aria-label': _('Block services without the tunnel') });
- // A service is the person's when every device of theirs has it. One that
- // only some devices have is a device's own and is left to the device.
  var registered = person.devices.filter(function(item) { return !item.waiting; });
- var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
-  var have = registered.filter(function(item) { return item.selected_services.indexOf(service.id) >= 0; }).length;
-  return { id: service.id, before: have === registered.length, part: have > 0 && have < registered.length,
-   input: E('input', { 'type': 'checkbox', 'checked': have === registered.length ? '' : null, 'aria-label': labels[service.id] || service.id }) };
- });
+ var offer = offerEditor(state.services.filter(function(service) { return service.client_access; }), labels, personOffer(registered));
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
    common.fieldLabel(_('Who uses it')), owner,
@@ -760,22 +812,17 @@ function personDialog(person, state, labels, reload, pageResult, profileNames, p
    common.fieldLabel(_('Note')), note
   ]),
   E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
-   person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null),
-   common.toggleRow(block, _('Block services without the tunnel'), _('Off: while the tunnel is down, the services are reached the ordinary way.')) ]),
-  E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services')), checkList(choices.map(function(choice) { return { input: choice.input, text: (labels[choice.id] || choice.id) + (choice.part ? ' (' + _('some devices') + ')' : '') }; })) ]),
+   person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null) ]),
+  E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services'),
+   _('Required ones are on every device; the person turns the others on where they want them. Without the tunnel a service is blocked, goes the ordinary way, or as the person decides.')),
+   offer.node ]),
   profileBox
  ]);
  editDialog(person.name, form, function() {
   return { version: 1, expected_generation: state.generation, operation: 'assign-devices',
-   payload: { ids: registered.map(function(item) { return item.id; }), enabled: enabled.checked,
-    selected_services: choices.filter(function(c) { return c.input.checked; }).map(function(c) { return c.id; }),
-    // What changed here goes to every device; what did not stays as each device had it.
-    per_device: registered.reduce(function(map, item) {
-     map[item.id] = choices.filter(function(c) { return c.input.checked !== c.before ? c.input.checked : item.selected_services.indexOf(c.id) >= 0; }).map(function(c) { return c.id; });
-     return map;
-    }, {}),
+   payload: { ids: registered.map(function(item) { return item.id; }), enabled: enabled.checked, offer: offer.value(),
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')),
-    email: mailText(email.value), block_without_tunnel: block.checked } };
+    email: mailText(email.value) } };
  }, reload, pageResult, false, profiles.length ? function(button, result) {
   // The profiles follow the name the person has after this save.
   return new Promise(function(resolve, reject) {
@@ -983,10 +1030,10 @@ return view.extend({
     var holders = state.devices.filter(function(device) { return device.selected_services.indexOf(record.id) >= 0; }).length;
     return E('tr', { 'class': 'tr' }, [
      E('td', { 'class': 'td' }, [ E('strong', {}, [ record.label ]) ]),
-     E('td', { 'class': 'td' }, [ String(service.domain_count),
-      // A service also reached by address has networks in Policy Routing.
-      // Devices are handed names only, and the page says so where it applies.
-      record.ip ? E('div', { 'class': 'ikev2-field-help' }, [ _('names only: its networks are not handed to devices') ]) : '' ]),
+     E('td', { 'class': 'td' }, [ String(service.domain_count) + (service.network_count ? ' + ' + _('%d networks').format(service.network_count) : ''),
+      // A service also reached by address has networks in Policy Routing;
+      // devices get them only when the service is set to carry them.
+      record.ip && !service.network_count ? E('div', { 'class': 'ikev2-field-help' }, [ _('names only: its networks are not handed to devices') ]) : '' ]),
      E('td', { 'class': 'td' }, [ service.transports.map(function(transport) {
       return transport.protocol.toUpperCase() + ' ' + transport.ports.join(', ');
      }).join(' · ') ]),
@@ -1045,6 +1092,16 @@ return view.extend({
      var before = device.title || '';
      editDialog(device.title || device.host || device.id, E('div', {}, [
       E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [ common.fieldLabel(_('Device name'), _('Empty: the name the computer reported.')), name ]),
+      // With an offer the device's services are the person's offer and what
+      // the device itself chose of it; here they are only shown.
+      device.offer ? E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services of this device'), _('Given by the person\'s offer; the optional ones and their blocking are chosen on the device.')),
+       E('div', { 'class': 'ikev2-offer' }, device.offer.map(function(entry) {
+        var chosen = device.choices || { on: [], closed: [] }, on = entry.required || chosen.on.indexOf(entry.id) >= 0;
+        var blocked = entry.closed === 'yes' || (entry.closed === 'choice' && chosen.closed.indexOf(entry.id) >= 0);
+        return E('div', { 'class': 'ikev2-offer-row' }, [ E('strong', {}, [ labels[entry.id] || entry.id ]),
+         common.pill(on ? (entry.required ? _('Required') : _('Turned on')) : _('Off'), on ? 'good' : 'neutral'),
+         E('span', {}, [ on ? (blocked ? _('Blocked without the tunnel') : _('Ordinary way without the tunnel')) : '' ]) ]);
+       })) ]) :
       E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services of this device'), _('Usually the same as the person\'s. Tick or clear here for this device alone.')),
        checkList(own.map(function(item) { return { input: item.input, text: labels[item.id] || item.id }; })) ]),
       E('div', { 'class': 'ikev2-actions', 'style': 'margin-top:1rem' }, [
@@ -1053,7 +1110,8 @@ return view.extend({
      ]), function() {
       describeText(name.value, 80, _('Device name'));
       return { version: 1, expected_generation: state.generation, operation: 'assign-device',
-       payload: { id: device.id, enabled: device.enabled, selected_services: own.filter(function(item) { return item.input.checked; }).map(function(item) { return item.id; }) } };
+       payload: { id: device.id, enabled: device.enabled, selected_services: device.offer ? device.selected_services :
+        own.filter(function(item) { return item.input.checked; }).map(function(item) { return item.id; }) } };
      }, reload, result, false, function(button, output) {
       var wanted = describeText(name.value, 80, _('Device name'));
       if (wanted === before) return null;

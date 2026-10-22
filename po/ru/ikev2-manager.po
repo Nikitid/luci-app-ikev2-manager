@@ -5852,3 +5852,57 @@ msgstr "доменов"
 
 msgid "Exclusions go direct"
 msgstr "Исключения напрямую"
+
+msgid "Required ones are on every device; the person turns the others on where they want them. Without the tunnel a service is blocked, goes the ordinary way, or as the person decides."
+msgstr "Обязательные включены на всех устройствах; остальные человек включает там, где нужно. Без туннеля сервис блокируется, идёт обычным путём или как решит человек."
+
+msgid "%s: given"
+msgstr "%s: выдача"
+
+msgid "Not given"
+msgstr "Не выдан"
+
+msgid "Required"
+msgstr "Обязательный"
+
+msgid "Person turns it on"
+msgstr "Включает человек"
+
+msgid "%s: without the tunnel"
+msgstr "%s: без туннеля"
+
+msgid "Blocked"
+msgstr "Блокируется"
+
+msgid "Goes the ordinary way"
+msgstr "Идёт обычным путём"
+
+msgid "Person decides"
+msgstr "Решает человек"
+
+msgid "%d networks"
+msgstr "%d сетей"
+
+msgid "(some devices now)"
+msgstr "(сейчас на части устройств)"
+
+msgid "No service is available to remote clients yet."
+msgstr "Пока ни один сервис не доступен удалённым клиентам."
+
+msgid "Carry its networks"
+msgstr "Передавать его сети"
+
+msgid "For a service reached by its addresses rather than its names, such as calls and messengers. Up to 64 networks; devices given it reconnect once to take them."
+msgstr "Для сервиса, к которому обращаются по адресам, а не по именам: звонки, мессенджеры. До 64 сетей; устройства с ним один раз переподключатся, чтобы получить их."
+
+msgid "Given by the person's offer; the optional ones and their blocking are chosen on the device."
+msgstr "Задаются набором человека; необязательные и их блокировку выбирают на устройстве."
+
+msgid "Turned on"
+msgstr "Включён"
+
+msgid "Blocked without the tunnel"
+msgstr "Блокируется без туннеля"
+
+msgid "Ordinary way without the tunnel"
+msgstr "Без туннеля обычным путём"

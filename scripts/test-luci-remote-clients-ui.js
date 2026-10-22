@@ -76,7 +76,7 @@ async function main() {
  const form = nodes(modal).find(n=>n.listeners.change); form.listeners.change();
  assert(!save.disabled, 'changed service must save');
  await click(save);
- assert.deepStrictEqual(written[0].body, {version:1,expected_generation:17,operation:'configure-service',payload:{id:'example_service',client_access:false,transports:[{protocol:'tcp',ports:[443]}]}});
+ assert.deepStrictEqual(written[0].body, {version:1,expected_generation:17,operation:'configure-service',payload:{id:'example_service',client_access:false,transports:[{protocol:'tcp',ports:[443]}],networks:false}});
  assert(written[0].file.startsWith('/var/run/ikev2-client-admin-')); assert.strictEqual(written[0].mode,384);
  assert.strictEqual(jobs[0].startArgs[0],'client-admin-update'); assert.deepStrictEqual(jobs[0].statusArgs,['client-admin-status']);
  await jobs[0].onSuccess(); assert.strictEqual(hidden,1);
@@ -105,15 +105,30 @@ async function main() {
  assert.strictEqual(written[1].body.operation,'assign-devices'); assert.deepStrictEqual(written[1].body.payload.ids,['alice']); assert.strictEqual(written[1].body.payload.enabled,false);
  assert.strictEqual(written[1].body.payload.owner,'Alice Example'); assert.strictEqual(written[1].body.payload.note,'accounting');
  assert(!('mode' in written[1].body.payload), 'what goes into the tunnel is decided per device, not here');
+ // A plain list of before is saved as an offer: what the person had is required, blocked without the tunnel.
+ assert.deepStrictEqual(written[1].body.payload.offer, [{ id: 'example_service', required: true, closed: 'yes' }]);
+ for (const old of ['selected_services', 'per_device', 'block_without_tunnel'])
+  assert(!(old in written[1].body.payload), old + ' is not sent with an offer');
  failWrite = true; await click(button(modal,'Save'));
  assert(text(modal).includes('write rejected')); assert.strictEqual(jobs.length,3);
  failWrite = false;
+ // Given as optional, left to the person to block.
+ const given = nodes(modal).find(n => n.tagName === 'SELECT' && n.attrs['aria-label'] === 'Example service: given');
+ const closed = nodes(modal).find(n => n.tagName === 'SELECT' && n.attrs['aria-label'] === 'Example service: without the tunnel');
+ assert(given && closed, 'every published service has its two choices');
+ given.value = 'optional'; closed.value = 'choice';
+ await click(button(modal,'Save'));
+ assert.deepStrictEqual(written[written.length-1].body.payload.offer, [{ id: 'example_service', required: false, closed: 'choice' }]);
+ given.value = 'none';
+ await click(button(modal,'Save'));
+ assert.deepStrictEqual(written[written.length-1].body.payload.offer, [], 'a service not given is left out of the offer');
+ given.value = 'required'; closed.value = 'yes';
  // What a device gets of a published service is on the page: its ports, and
  // that the networks it has in Policy Routing are not handed out.
  assert(/TCP [0-9, ]+/.test(text(tree)), 'the ports of a published service are not shown');
  assert(text(tree).includes('names only: its networks are not handed to devices'), 'a service with networks does not say they are not handed out');
  await click(button(tree,'Update service lists'));
- assert.deepStrictEqual(jobs[3].startArgs,['client-admin-refresh']);
+ assert.deepStrictEqual(jobs[jobs.length-1].startArgs,['client-admin-refresh']);
  // Another service is published from the picker with nothing asked: the web's ports.
  await click(button(tree,'Publish'));
  assert.deepStrictEqual(written[written.length-1].body.payload, {id:'new_service',client_access:true,transports:[{protocol:'tcp',ports:[80,443]},{protocol:'udp',ports:[443]}]});
