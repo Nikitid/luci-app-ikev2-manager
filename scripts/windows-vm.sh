@@ -25,8 +25,10 @@ prlctl snapshot-switch "$VM" --id "$snapshot" >/dev/null
 prlctl start "$VM" >/dev/null 2>&1 || true
 for _ in $(seq 1 60); do prlctl exec "$VM" cmd /c ver >/dev/null 2>&1 && break; sleep 2; done
 
-git ls-files desktop-clients | zip -q "$WORK/source.zip" -@
+{ git ls-files desktop-clients; git ls-files --others --exclude-standard desktop-clients; } | sort -u | zip -q "$WORK/source.zip" -@
+# A failed run still brings its log back; none from an earlier run is left to be mistaken for it.
 mkdir -p dist/windows
+rm -f "dist/windows/windows-$MODE.log"
 TOKEN=$(openssl rand -hex 16)
 PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1])')
 python3 - "$HOST" "$PORT" "$TOKEN" "$WORK/source.zip" "$PWD/dist/windows" <<'EOF' &
@@ -51,13 +53,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 http.server.ThreadingHTTPServer((host, port), Handler).serve_forever()
 EOF
 SERVER=$!
+disown "$SERVER"
 sleep 1
 BASE="http://$HOST:$PORT/$TOKEN"
 if [ "$MODE" = test ]; then
-    RUN="& C:\\waypoint\\src\\desktop-clients\\windows\\test.ps1 -Wfp *>&1 | Tee-Object C:\\waypoint\\windows-test.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 }"
+    RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\test.ps1 -Wfp *>&1 | Tee-Object C:\\waypoint\\windows-test.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-test.log; \$code = 1 }"
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-test.log '$BASE/upload/windows-test.log' | Out-Null"
 else
-    RUN="& C:\\waypoint\\src\\desktop-clients\\windows\\build.ps1 -Output C:\\waypoint\\out *>&1 | Tee-Object C:\\waypoint\\windows-build.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 }"
+    RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\build.ps1 -Output C:\\waypoint\\out *>&1 | Tee-Object C:\\waypoint\\windows-build.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-build.log; \$code = 1 }"
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-build.log '$BASE/upload/windows-build.log' | Out-Null; Get-ChildItem C:\\waypoint\\out -File | Where-Object { \$_.Extension -in '.exe','.msi','.zip' } | ForEach-Object { Invoke-WebRequest -UseBasicParsing -Method Put -InFile \$_.FullName ('$BASE/upload/' + \$_.Name) | Out-Null }"
 fi
 # Parallels rejects long -Command arguments; the script goes encoded.
