@@ -26,6 +26,17 @@ namespace IkeV2Manager.Client
         { Id = id; Domain = domain; Address = address; Transports = Array.AsReadOnly(transports.OrderBy(t => t.Protocol, StringComparer.Ordinal).ToArray()); }
     }
 
+    // A network a service reaches as itself, routed through the tunnel rather
+    // than named in the hosts file.
+    public sealed class PolicyNetwork
+    {
+        public readonly string Network;
+        public readonly uint First, Last;
+        public readonly ReadOnlyCollection<PolicyTransport> Transports;
+        internal PolicyNetwork(string network, uint first, uint last, IEnumerable<PolicyTransport> transports)
+        { Network = network; First = first; Last = last; Transports = Array.AsReadOnly(transports.OrderBy(t => t.Protocol, StringComparer.Ordinal).ToArray()); }
+    }
+
     // Validation does not authenticate a policy. The caller must verify its
     // enrolled source before accepting it or persisting the next history.
     public sealed class ClientPolicy
@@ -33,12 +44,17 @@ namespace IkeV2Manager.Client
         public readonly string Id, ServerAddress, RemoteId, VirtualSubnet, Exit;
         public readonly int Revision;
         public readonly ReadOnlyCollection<PolicyResource> Resources;
+        // Empty for version 1, which every router before networks sends.
+        public readonly ReadOnlyCollection<PolicyNetwork> Networks;
         internal readonly string Canonical;
 
         private ClientPolicy(Dictionary<string, object> root)
         {
-            Fields(root, "version", "id", "revision", "server", "virtual_subnet", "exit", "resources");
-            Integer(root["version"], 1, 1);
+            // Version 2 carries networks besides; version 1 is exactly what it was.
+            object stated; root.TryGetValue("version", out stated);
+            int version = Integer(stated, 1, 2);
+            if (version == 2) Fields(root, "version", "id", "revision", "server", "virtual_subnet", "exit", "resources", "networks");
+            else Fields(root, "version", "id", "revision", "server", "virtual_subnet", "exit", "resources");
             Id = Identifier(root["id"]);
             Revision = Integer(root["revision"], 1, Int32.MaxValue);
             var server = Object(root["server"]);
@@ -56,27 +72,30 @@ namespace IkeV2Manager.Client
             var domains = new HashSet<string>(StringComparer.Ordinal);
             var addresses = new HashSet<string>(StringComparer.Ordinal);
             var resources = new List<PolicyResource>();
-            foreach (object item in ArrayValue(root["resources"], 1, 4096))
+            foreach (object item in ArrayValue(root["resources"], version == 2 ? 0 : 1, 4096))
             {
                 var resource = Object(item); Fields(resource, "id", "domain", "address", "transports");
                 string id = Identifier(resource["id"]), domain = Domain(resource["domain"]), address = Text(resource["address"]);
                 uint number = Address(address);
                 Require(number > first && number < first + size - 1 && ids.Add(id) && domains.Add(domain) && addresses.Add(address));
                 Require(domain != ServerAddress && domain != RemoteId);
-                var protocols = new HashSet<string>(StringComparer.Ordinal);
-                var transports = new List<PolicyTransport>();
-                foreach (object entry in ArrayValue(resource["transports"], 1, 2))
-                {
-                    var transport = Object(entry); Fields(transport, "protocol", "ports");
-                    string protocol = Text(transport["protocol"]);
-                    Require((protocol == "tcp" || protocol == "udp") && protocols.Add(protocol));
-                    var ports = new HashSet<int>();
-                    foreach (object port in ArrayValue(transport["ports"], 1, 64)) Require(ports.Add(Integer(port, 1, 65535)));
-                    transports.Add(new PolicyTransport(protocol, ports));
-                }
-                resources.Add(new PolicyResource(id, domain, address, transports));
+                resources.Add(new PolicyResource(id, domain, address, Transports(resource["transports"])));
             }
             Resources = Array.AsReadOnly(resources.OrderBy(r => r.Domain, StringComparer.Ordinal).ToArray());
+            var networks = new List<PolicyNetwork>();
+            if (version == 2)
+            {
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (object item in ArrayValue(root["networks"], 1, 64))
+                {
+                    var entry = Object(item); Fields(entry, "network", "transports");
+                    string network = Text(entry["network"]);
+                    uint low, high; Network(network, out low, out high);
+                    Require(seen.Add(network) && (high < first || low > first + size - 1));
+                    networks.Add(new PolicyNetwork(network, low, high, Transports(entry["transports"])));
+                }
+            }
+            Networks = Array.AsReadOnly(networks.OrderBy(n => n.Network, StringComparer.Ordinal).ToArray());
             // All strings have constrained ASCII grammars, so delimiters cannot
             // occur in values. Ordering differences do not change policy identity.
             var canonical = new StringBuilder();
@@ -88,13 +107,19 @@ namespace IkeV2Manager.Client
                 foreach (var transport in resource.Transports)
                     canonical.Append(':').Append(transport.Protocol).Append(':').Append(String.Join(",", transport.Ports));
             }
+            foreach (var network in Networks)
+            {
+                canonical.Append("|net:").Append(network.Network);
+                foreach (var transport in network.Transports)
+                    canonical.Append(':').Append(transport.Protocol).Append(':').Append(String.Join(",", transport.Ports));
+            }
             Canonical = canonical.ToString();
         }
 
         internal Dictionary<string, object> Document()
         {
-            return new Dictionary<string, object> {
-                { "version", 1 }, { "id", Id }, { "revision", Revision },
+            var document = new Dictionary<string, object> {
+                { "version", Networks.Count > 0 ? 2 : 1 }, { "id", Id }, { "revision", Revision },
                 { "server", new Dictionary<string, object> { { "address", ServerAddress }, { "remote_id", RemoteId } } },
                 { "virtual_subnet", VirtualSubnet }, { "exit", Exit },
                 { "resources", Resources.Select(r => new Dictionary<string, object> {
@@ -103,6 +128,41 @@ namespace IkeV2Manager.Client
                         { "protocol", t.Protocol }, { "ports", t.Ports.ToArray() } }).ToArray() }
                 }).ToArray() }
             };
+            if (Networks.Count > 0)
+                document["networks"] = Networks.Select(n => new Dictionary<string, object> {
+                    { "network", n.Network },
+                    { "transports", n.Transports.Select(t => new Dictionary<string, object> {
+                        { "protocol", t.Protocol }, { "ports", t.Ports.ToArray() } }).ToArray() } }).ToArray();
+            return document;
+        }
+
+        private static List<PolicyTransport> Transports(object value)
+        {
+            var protocols = new HashSet<string>(StringComparer.Ordinal);
+            var transports = new List<PolicyTransport>();
+            foreach (object entry in ArrayValue(value, 1, 2))
+            {
+                var transport = Object(entry); Fields(transport, "protocol", "ports");
+                string protocol = Text(transport["protocol"]);
+                Require((protocol == "tcp" || protocol == "udp") && protocols.Add(protocol));
+                var ports = new HashSet<int>();
+                foreach (object port in ArrayValue(transport["ports"], 1, 64)) Require(ports.Add(Integer(port, 1, 65535)));
+                transports.Add(new PolicyTransport(protocol, ports));
+            }
+            return transports;
+        }
+
+        // A network at its own base address, /8 to /32, never one that cannot
+        // be a destination: this network, loopback, link-local, multicast and above.
+        internal static void Network(string text, out uint first, out uint last)
+        {
+            string[] parts = (text ?? "").Split('/');
+            Require(parts.Length == 2 && Regex.IsMatch(parts[1], @"\A(?:[89]|[12][0-9]|3[0-2])\z"));
+            int prefix = Int32.Parse(parts[1], CultureInfo.InvariantCulture);
+            first = Address(parts[0]);
+            ulong size = 1UL << (32 - prefix);
+            Require(first % size == 0 && first >> 24 != 0 && first >> 24 != 127 && first >> 16 != 0xA9FE && first >> 24 < 224);
+            last = (uint)(first + size - 1);
         }
 
         public static ClientPolicy Parse(string json)
@@ -200,7 +260,8 @@ namespace IkeV2Manager.Client
             uint size = 1u << (32 - Int32.Parse(subnet[1], CultureInfo.InvariantCulture));
             var history = new Dictionary<string, string>(StringComparer.Ordinal);
             var addresses = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var item in ClientPolicy.ArrayValue(root["allocations"], 1, 4096))
+            // A policy of networks alone has no names, so nothing allocated yet.
+            foreach (var item in ClientPolicy.ArrayValue(root["allocations"], 0, 4096))
             {
                 var entry = ClientPolicy.Object(item); ClientPolicy.Fields(entry, "domain", "address");
                 string domain = ClientPolicy.Domain(entry["domain"]), address = ClientPolicy.Text(entry["address"]);
@@ -220,11 +281,13 @@ namespace IkeV2Manager.Client
 
         // `server` is the client's own server held to its real address while
         // another VPN answers names with addresses of its own, or null.
-        public string ReconcileHosts(string original, HostEntry server = null)
+        // `except`: names of services that go the ordinary way while the
+        // tunnel is not confirmed; they are left to the system's resolution.
+        public string ReconcileHosts(string original, HostEntry server = null, ICollection<string> except = null)
         {
             // Revocation retains the reserved mapping. Deleting it would allow
             // the system resolver to expose the public destination again.
-            var entries = allocations.OrderBy(p => p.Key, StringComparer.Ordinal)
+            var entries = allocations.Where(p => except == null || !except.Contains(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal)
                 .Select(p => new HostEntry { domain = p.Key, address = p.Value }).ToList();
             if (server != null) entries.Add(server);
             return ManagedHosts.Reconcile(original, entries);

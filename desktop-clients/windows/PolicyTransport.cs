@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -42,10 +43,65 @@ namespace IkeV2Manager.Client
         }
     }
 
+    // One service a person was offered, as this device has it: on or off,
+    // required or not, blocked without the tunnel or not and whether that is
+    // the person's to choose, and which of the policy's resources and networks
+    // it holds. It grants nothing; the router decides what passes.
+    public sealed class ServiceEntry
+    {
+        public string Id { get; set; }
+        public string Label { get; set; }
+        public bool Required { get; set; }
+        public bool On { get; set; }
+        public bool Closed { get; set; }
+        public bool ChooseClosed { get; set; }
+        public int Domains { get; set; }
+        public int Networks { get; set; }
+        public string[] Resources { get; set; }
+        public string[] Cidrs { get; set; }
+
+        internal static ServiceEntry[] ParseAll(object value)
+        {
+            var entries = new System.Collections.Generic.List<ServiceEntry>();
+            var seen = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (object item in ClientPolicy.ArrayValue(value, 0, 128))
+            {
+                var data = ClientPolicy.Object(item);
+                string[] keys = { "id", "required", "on", "closed", "choose_closed", "domains", "networks", "resources", "cidrs" };
+                if (data.ContainsKey("label")) ClientPolicy.Fields(data, keys.Concat(new[] { "label" }).ToArray());
+                else ClientPolicy.Fields(data, keys);
+                string id = ClientPolicy.Text(data["id"]);
+                if (!Regex.IsMatch(id, @"\A[a-z0-9][a-z0-9_-]{0,47}\z") || !seen.Add(id)) throw new ArgumentException();
+                foreach (string flag in new[] { "required", "on", "closed", "choose_closed" })
+                    if (!(data[flag] is bool)) throw new ArgumentException();
+                var resources = ClientPolicy.ArrayValue(data["resources"], 0, 4096).Select(ClientPolicy.Text).ToArray();
+                if (!resources.All(r => Regex.IsMatch(r, @"\Ahost-[0-9]{1,7}\z"))) throw new ArgumentException();
+                var cidrs = ClientPolicy.ArrayValue(data["cidrs"], 0, 64).Select(ClientPolicy.Text).ToArray();
+                foreach (string cidr in cidrs) { uint first, last; ClientPolicy.Network(cidr, out first, out last); }
+                string label = id;
+                if (data.ContainsKey("label"))
+                {
+                    // Shown as text, never markup: one line of at most 64 characters.
+                    label = ClientPolicy.Text(data["label"]);
+                    if (label.Length < 1 || label.Length > 64 || label.Any(Char.IsControl)) throw new ArgumentException();
+                }
+                var entry = new ServiceEntry { Id = id, Label = label, Required = (bool)data["required"], On = (bool)data["on"],
+                    Closed = (bool)data["closed"], ChooseClosed = (bool)data["choose_closed"],
+                    Domains = ClientPolicy.Integer(data["domains"], 0, 65536), Networks = ClientPolicy.Integer(data["networks"], 0, 64),
+                    Resources = resources, Cidrs = cidrs };
+                if (entry.Required && !entry.On) throw new ArgumentException();
+                entries.Add(entry);
+            }
+            return entries.ToArray();
+        }
+    }
+
     // The names a device shows its user. Informational: permission never
     // depends on it. Its informational tunnel network grants no access.
     public sealed class DeviceServices
     {
+        // What the person was offered, where the router gives an offer.
+        public ServiceEntry[] Entries { get; private set; }
         public readonly string[] Selected, Available;
         public readonly int Domains;
         // Whether services stay blocked while the tunnel is down. That is the
@@ -115,7 +171,8 @@ namespace IkeV2Manager.Client
                     uint address = ClientPolicy.Address(pieces[0]);
                     if ((address & (UInt32.MaxValue << (32-prefix))) != address) throw new ArgumentException();
                 }
-                return new DeviceServices(lists[0], lists[1], domains, block, full, namesHttps) { TunnelSubnet = tunnel };
+                return new DeviceServices(lists[0], lists[1], domains, block, full, namesHttps) { TunnelSubnet = tunnel,
+                    Entries = data.ContainsKey("entries") ? ServiceEntry.ParseAll(data["entries"]) : null };
             }
             catch (ArgumentException) { throw new PolicyFetchException("services_response_invalid"); }
             catch (InvalidOperationException) { throw new PolicyFetchException("services_response_invalid"); }
@@ -356,9 +413,35 @@ namespace IkeV2Manager.Client
             catch (IOException) { return false; }
         }
 
-        private static HttpWebRequest ReportRequest(Uri policyEndpoint, string token, string method)
+        // What this device chose of its offer: the optional services it turns
+        // on, and those it blocks without the tunnel where that is its choice.
+        // Whether the router took it; what it allows comes with the next poll.
+        public static bool SendChoices(Uri policyEndpoint, string token, string[] on, string[] closed)
         {
-            var request = (HttpWebRequest)WebRequest.Create(new UriBuilder(policyEndpoint) { Path = "/client/v1/report" }.Uri);
+            ValidateEndpoint(policyEndpoint, token);
+            if (on == null || closed == null || on.Length > 128 || closed.Length > 128 ||
+                !on.Concat(closed).All(id => Regex.IsMatch(id ?? "", @"\A[a-z0-9][a-z0-9_-]{0,47}\z"))) return false;
+            byte[] body = new UTF8Encoding(false).GetBytes(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(
+                new System.Collections.Generic.Dictionary<string, object> { { "on", on }, { "closed", closed } }));
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = ReportRequest(policyEndpoint, token, "POST", "/client/v1/choices");
+            request.ContentType = "application/json";
+            request.ContentLength = body.Length;
+            request.ServicePoint.Expect100Continue = false;
+            using (var deadline = new Timer(ignored => request.Abort(), null, 10000, Timeout.Infinite))
+            try
+            {
+                using (var stream = request.GetRequestStream()) stream.Write(body, 0, body.Length);
+                using (var response = (HttpWebResponse)request.GetResponse())
+                    return response.StatusCode == HttpStatusCode.Accepted;
+            }
+            catch (WebException) { return false; }
+            catch (IOException) { return false; }
+        }
+
+        private static HttpWebRequest ReportRequest(Uri policyEndpoint, string token, string method, string path = "/client/v1/report")
+        {
+            var request = (HttpWebRequest)WebRequest.Create(new UriBuilder(policyEndpoint) { Path = path }.Uri);
             request.Method = method;
             request.AllowAutoRedirect = false;
             request.Proxy = null;

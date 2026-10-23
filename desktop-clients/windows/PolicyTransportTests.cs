@@ -63,6 +63,17 @@ internal static class PolicyTransportTests
                 throw new Exception("Names over HTTPS were not read as offered");
             Reject(() => DeviceServices.Parse(offered.Replace("\"revision\":4", "\"revision\":4,\"names_https\":\"yes\""), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered, "other-pc"), "services_response_invalid");
+            // An offer: each entry read strictly, its name shown as plain text.
+            string entry = "{\"id\":\"chat\",\"label\":\"Telegram\",\"required\":false,\"on\":true,\"closed\":false,\"choose_closed\":true,\"domains\":3,\"networks\":1,\"resources\":[\"host-4\"],\"cidrs\":[\"149.154.160.0/20\"]}";
+            Func<string, string> withEntry = e => offered.Replace("\"revision\":4", "\"revision\":4,\"entries\":[" + e + "]");
+            var chosen = DeviceServices.Parse(withEntry(entry), "office-pc").Entries;
+            if (chosen == null || chosen.Length != 1 || chosen[0].Label != "Telegram" || !chosen[0].On || chosen[0].Closed || !chosen[0].ChooseClosed ||
+                chosen[0].Resources[0] != "host-4" || chosen[0].Cidrs[0] != "149.154.160.0/20")
+                throw new Exception("The offer was not read as given");
+            if (names.Entries != null) throw new Exception("A router without offers was read as giving one");
+            foreach (string bad in new[] { entry.Replace("Telegram", "Tele\\ngram"), entry.Replace("\"required\":false,\"on\":true", "\"required\":true,\"on\":false"),
+                entry.Replace("149.154.160.0/20", "127.0.0.0/8"), entry.Replace("host-4", "../4"), entry.Replace("\"cidrs\"", "\"extra\":1,\"cidrs\"") })
+                Reject(() => DeviceServices.Parse(withEntry(bad), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"mail\"", "\"api\""), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"wiki\"", "\"../wiki\""), "office-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"domains\":9", "\"domains\":9,\"address\":\"10.0.0.1\""), "office-pc"), "services_response_invalid");

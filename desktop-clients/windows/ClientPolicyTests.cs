@@ -108,6 +108,21 @@ internal static class ClientPolicyTests
             separate["transports"] = new object[] { new Dictionary<string, object> { { "protocol", "tcp" }, { "ports", new[] { 443, 443 } } } };
             Reject(() => Parse(Policy(1, separate)), "duplicate port");
             Reject(() => ClientPolicy.Parse(new string(' ', 1048577)), "oversized document");
+            // Networks survive the history as they came; a policy of networks
+            // alone needs no allocation; the hosts leave out what goes the ordinary way.
+            var networked = Policy(1, Resource("api", "172.31.254.1"), Resource("wiki", "172.31.254.2"));
+            networked["version"] = 2;
+            networked["networks"] = new object[] { new Dictionary<string, object> { { "network", "149.154.160.0/20" },
+                { "transports", new object[] { new Dictionary<string, object> { { "protocol", "udp" }, { "ports", new[] { 3478 } } } } } } };
+            var kept = PolicyHistory.Restore(PolicyHistory.Begin(Parse(networked)).Export());
+            if (kept.Current.Networks.Count != 1 || kept.Current.Networks[0].Network != "149.154.160.0/20" || kept.Current.Networks[0].Transports[0].Protocol != "udp")
+                throw new Exception("Networks were lost with the history");
+            var alone = Policy(1); alone["version"] = 2; alone["networks"] = networked["networks"];
+            if (PolicyHistory.Restore(PolicyHistory.Begin(Parse(alone)).Export()).Current.Networks.Count != 1)
+                throw new Exception("A policy of networks alone did not survive its history");
+            string ordinary = kept.ReconcileHosts("127.0.0.1 localhost\n", null, new HashSet<string> { "wiki.example.com" });
+            if (!ordinary.Contains("api.example.com") || ordinary.Contains("wiki.example.com"))
+                throw new Exception("A service that goes the ordinary way kept its name pinned");
             Console.WriteLine("Client policy checks passed: revisions, identity, retained allocations, schema and transport isolation");
             return 0;
         }
