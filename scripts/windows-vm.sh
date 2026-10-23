@@ -7,7 +7,8 @@
 # The VM (IKEV2_WINDOWS_VM, default "WeExport Build") is reverted to its snapshot
 # (IKEV2_WINDOWS_SNAPSHOT, default "build-ready") first and suspended afterwards, so
 # nothing of a run stays in it. Sources go to it over the Parallels shared network only,
-# behind a random path; the log of the run and the outputs come back the same way.
+# behind a random path; the log of the run and the outputs come back the same way. The
+# .NET SDK is the one the snapshot keeps in C:\build\dotnet.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:-test}"
@@ -64,7 +65,7 @@ else
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-build.log '$BASE/upload/windows-build.log' | Out-Null; Get-ChildItem C:\\waypoint\\out -File | Where-Object { \$_.Extension -in '.exe','.msi','.zip' } | ForEach-Object { Invoke-WebRequest -UseBasicParsing -Method Put -InFile \$_.FullName ('$BASE/upload/' + \$_.Name) | Out-Null }"
 fi
 # Parallels rejects long -Command arguments; the script goes encoded.
-COMMAND="\$ProgressPreference='SilentlyContinue'; New-Item -ItemType Directory -Force C:\\waypoint | Out-Null; Invoke-WebRequest -UseBasicParsing '$BASE/source.zip' -OutFile C:\\waypoint\\source.zip; Expand-Archive -Force C:\\waypoint\\source.zip C:\\waypoint\\src; $RUN; $UPLOAD; exit \$code"
+COMMAND="\$ProgressPreference='SilentlyContinue'; \$env:WAYPOINT_DOTNET='C:\\build\\dotnet\\dotnet.exe'; New-Item -ItemType Directory -Force C:\\waypoint | Out-Null; Invoke-WebRequest -UseBasicParsing '$BASE/source.zip' -OutFile C:\\waypoint\\source.zip; Expand-Archive -Force C:\\waypoint\\source.zip C:\\waypoint\\src; $RUN; $UPLOAD; exit \$code"
 set +e
 prlctl exec "$VM" powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand "$(printf '%s' "$COMMAND" | iconv -f utf-8 -t utf-16le | base64)"
 rc=$?

@@ -11,6 +11,26 @@ if ($LASTEXITCODE -ne 0) { throw 'Client tests failed to compile' }
 & $executable (Join-Path $PSScriptRoot '..\fixtures\hosts.json')
 if ($LASTEXITCODE -ne 0) { throw 'Client behavior tests failed' }
 
+# The builds on current .NET read and write JSON through JsonCompat.cs; it has
+# to give what the .NET Framework serializer gives, on the same inputs.
+$dotnet = if ($env:WAYPOINT_DOTNET) { $env:WAYPOINT_DOTNET } else { (Get-Command dotnet -ErrorAction SilentlyContinue).Source }
+if (-not $dotnet -or -not (Test-Path $dotnet)) { throw '.NET SDK not found; set WAYPOINT_DOTNET or put dotnet on PATH' }
+$env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'; $env:DOTNET_NOLOGO = '1'
+$fixtures = @((Join-Path $PSScriptRoot '..\fixtures\policies.json'), (Join-Path $PSScriptRoot '..\fixtures\policy-histories.json'))
+$compatExecutable = Join-Path $output 'JsonCompatTests.exe'
+& $compiler /nologo "/out:$compatExecutable" /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'JsonCompatTests.cs')
+if ($LASTEXITCODE -ne 0) { throw 'JSON compatibility tests failed to compile' }
+& $compatExecutable @fixtures (Join-Path $output 'json-framework.txt')
+if ($LASTEXITCODE -ne 0) { throw 'JSON compatibility tests failed on .NET Framework' }
+& $dotnet build (Join-Path $PSScriptRoot 'compat\JsonCompatTests.csproj') -c Release -o (Join-Path $output 'compat') --nologo -v quiet
+if ($LASTEXITCODE -ne 0) { throw 'JSON compatibility tests failed to build on current .NET' }
+& $dotnet (Join-Path $output 'compat\JsonCompatTests.dll') @fixtures (Join-Path $output 'json-current.txt')
+if ($LASTEXITCODE -ne 0) { throw 'JSON compatibility tests failed on current .NET' }
+$framework = Get-Content (Join-Path $output 'json-framework.txt'); $current = Get-Content (Join-Path $output 'json-current.txt')
+$differences = Compare-Object $framework $current -SyncWindow 0
+if ($differences) { $differences | Select-Object -First 80 | Format-Table -AutoSize | Out-String -Width 400 | Write-Host; throw 'JSON on current .NET differs from .NET Framework' }
+Write-Host "JSON compatibility checks passed: $($framework.Count) lines the same on both"
+
 # Compile native enforcement on every run; execute only when explicitly selected.
 $guardExecutable = Join-Path $output 'WfpGuardTests.exe'
 & $compiler /nologo "/resource:$(Join-Path $PSScriptRoot 'ManagedVpnProfile.ps1'),ManagedVpnProfile.ps1" /platform:x64 "/out:$guardExecutable" /r:System.Web.Extensions.dll /r:System.ServiceProcess.dll /r:System.Security.dll `

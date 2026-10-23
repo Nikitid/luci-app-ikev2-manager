@@ -18,6 +18,10 @@ jobs:
       - name: Test macOS client core
         if: runner.os == 'macOS'
         run: swift test --package-path desktop-clients/macos --scratch-path build/client-macos
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 10.0.x
       - name: Test Windows client core
         if: runner.os == 'Windows'
         shell: powershell

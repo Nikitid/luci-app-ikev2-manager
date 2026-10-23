@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- JsonCompatTests.cs on current .NET, against JsonCompat.cs; test.ps1 compares
+       what it writes with the same program built against .NET Framework. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\JsonCompat.cs" />
+    <Compile Include="..\JsonCompatTests.cs" />
+  </ItemGroup>
+</Project>
