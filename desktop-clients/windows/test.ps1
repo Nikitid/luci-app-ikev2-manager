@@ -20,7 +20,7 @@ $guardExecutable = Join-Path $output 'WfpGuardTests.exe'
     (Join-Path $PSScriptRoot 'ClientCommands.cs') (Join-Path $PSScriptRoot 'ServiceIntegrationTests.cs') (Join-Path $PSScriptRoot 'RestrictedAccessTests.cs') `
     (Join-Path $PSScriptRoot 'ClientStatusReader.cs') `
     (Join-Path $PSScriptRoot 'RasTunnel.cs') (Join-Path $PSScriptRoot 'RouteObservation.cs') `
-    (Join-Path $PSScriptRoot 'PolicyJournalTests.cs') (Join-Path $PSScriptRoot 'EnrollmentGuardTests.cs') `
+    (Join-Path $PSScriptRoot 'PolicyJournalTests.cs') (Join-Path $PSScriptRoot 'EnrollmentGuardTests.cs') (Join-Path $PSScriptRoot 'NetworkGuardTests.cs') `
     (Join-Path $PSScriptRoot 'WfpGuardTests.cs')
 if ($LASTEXITCODE -ne 0) { throw 'WFP tests failed to compile' }
 $serviceExecutable = Join-Path $output 'ClientService.exe'

@@ -62,6 +62,7 @@ internal static class WfpGuardTests
             ServiceIntegrationTests.Run(() => Probe(port), InboundDatagram, Target);
             if (args.Length != 1) throw new ArgumentException("Policy fixtures directory required");
             PolicyJournalTests.Run(args[0]);
+            NetworkGuardTests.Run();
             EnrollmentGuardTests.Run(args[0]);
             ulong luid = LoopbackLuid();
             guard = new WfpGuard(Guid.NewGuid(), new[] { Target });

@@ -158,11 +158,32 @@ namespace IkeV2Manager.Client
                 256, File.Exists(Path.Combine(directory, "server.json")));
         }
 
-        public GuardReceipt LoadPlan()
+        // The guard of the networks blocked without the tunnel. Unlike the
+        // plan above it is replaced whole when what is blocked changes, and
+        // gone when nothing is; null removes it.
+        public void SaveNetworksPlan(GuardReceipt plan)
         {
             CheckOpen();
             VerifyDirectory();
-            string path = Path.Combine(directory, "guard.json");
+            string path = Path.Combine(directory, "networks-guard.json");
+            if (plan == null)
+            {
+                if (File.Exists(path)) { VerifyFile(path); File.Delete(path); }
+                return;
+            }
+            WriteProtectedJson("networks-guard.json", new JavaScriptSerializer().Serialize(WfpGuard.ExtendPlan(plan, new System.Net.IPAddress[0])),
+                Limit, File.Exists(path));
+        }
+
+        public GuardReceipt LoadNetworksPlan() { return LoadReceipt("networks-guard.json"); }
+
+        public GuardReceipt LoadPlan() { return LoadReceipt("guard.json"); }
+
+        private GuardReceipt LoadReceipt(string name)
+        {
+            CheckOpen();
+            VerifyDirectory();
+            string path = Path.Combine(directory, name);
             if (!File.Exists(path)) return null;
             VerifyFile(path);
             var serializer = new JavaScriptSerializer { MaxJsonLength = Limit, RecursionLimit = 16 };

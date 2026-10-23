@@ -73,6 +73,8 @@ namespace IkeV2Manager.Client
                         });
                         step(() => WfpGuard.RemoveRecorded(plan));
                     }
+                    // The guard of the networks blocked without the tunnel, if any.
+                    step(() => WfpGuard.RemoveRecorded(store.LoadNetworksPlan()));
                     if (failed != null) { try { store.RecordFault("reset", failed); } catch { } return 1; }
                 }
                 System.IO.Directory.Delete(directory, true);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -16,14 +17,16 @@ namespace IkeV2Manager.Client
         private static bool initialized;
         private static string PathName { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"drivers\etc\hosts"); } }
 
-        public static void Apply(GuardStore store, PolicyHistory policy, HostEntry server = null)
+        // `except`: names of services that go the ordinary way while the tunnel
+        // is not confirmed; they are left to the system's own resolution.
+        public static void Apply(GuardStore store, PolicyHistory policy, HostEntry server = null, ICollection<string> except = null)
         {
             if (store == null || policy == null) throw new ArgumentNullException();
             var plan = store.LoadPlan();
             if (plan == null || policy.ProtectedAddresses().Any(a => !plan.Addresses.Contains(a)))
                 throw new InvalidOperationException("Host mappings require persistent guard coverage");
             using (var guard = WfpGuard.Recover(plan)) guard.VerifyProtection();
-            Replace(store, text => policy.ReconcileHosts(text, server));
+            Replace(store, text => policy.ReconcileHosts(text, server, except));
         }
 
         // No service names, only the client's own server held to its address, or nothing at all.
@@ -32,11 +35,11 @@ namespace IkeV2Manager.Client
 
         // Whether the hosts file already holds exactly these mappings (or, with
         // no policy, none of this program's). Reads, changes nothing.
-        public static bool InPlace(GuardStore store, PolicyHistory policy, HostEntry server = null)
+        public static bool InPlace(GuardStore store, PolicyHistory policy, HostEntry server = null, ICollection<string> except = null)
         {
             if (store == null) throw new ArgumentNullException();
             string text = Bytes.GetString(Read(PathName));
-            return (policy == null ? ManagedHosts.Reconcile(text, server == null ? new HostEntry[0] : new[] { server }) : policy.ReconcileHosts(text, server)) == text;
+            return (policy == null ? ManagedHosts.Reconcile(text, server == null ? new HostEntry[0] : new[] { server }) : policy.ReconcileHosts(text, server, except)) == text;
         }
 
         // Explicit privileged removal only; ordinary disconnect retains mappings.

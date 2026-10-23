@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Linq;
@@ -64,6 +65,13 @@ namespace IkeV2Manager.Client
         private DateTime readyUntil;
         private DeviceServices assigned;
         private bool namesApplied = true;
+        // Names left to the system while the tunnel is not confirmed, as they
+        // were last applied; empty without an offer.
+        private string namesExcept = "";
+        // The networks blocked without the tunnel, by a guard of their own that
+        // is replaced whole when they change; null while none is.
+        private WfpGuard networkGuard;
+        private string networksHeld;
         private DateTime nextReadinessAt;
         private bool appliedFull;
         private ServerPath serverPath;
@@ -311,7 +319,7 @@ namespace IkeV2Manager.Client
                     accessClosed = noServices || (named != null && named.Code == "device_access_revoked");
                     faultCode = named != null ? named.Code : "service_fault";
                     warnings = noServices ? new[] { "idle" } : warnings.Where(w => w != "idle").ToArray();
-                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after synchronization failure"); }
                     try { Publish(accessClosed ? "access_closed" : "error"); } catch { }
                     CloseConnection();
@@ -424,7 +432,7 @@ namespace IkeV2Manager.Client
                 {
                     var named = refusal as EnrollmentException;
                     registrationError = named != null ? named.Code : "enrollment_internal";
-                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after enrollment failure"); }
                     try { Publish("registration_error"); } catch { }
                     throw;
@@ -455,6 +463,7 @@ namespace IkeV2Manager.Client
             guard.VerifyProtection();
             HoldServer(policy.ServerAddress);
             bool full = assigned != null && assigned.Full;
+            SyncNetworkGuard(policy);
             // This runs every half-minute. While the profile, its routes and the
             // name rules are what they should be there is nothing to put right,
             // and the tunnel keeps its permission: taking it away for the
@@ -535,15 +544,17 @@ namespace IkeV2Manager.Client
                 // found in place: the system itself is then looked at only
                 // every five minutes. Looking costs two PowerShell processes,
                 // which every half-minute is a steady load on a laptop.
-                string asked = policy.Canonical + "|" + full + "|" + want + "|" + (assigned != null && assigned.NamesHttps) + "|" + (serverHeld == null ? "" : serverHeld.address);
+                var ordinary = OrdinaryNames(policy);
+                string asked = policy.Canonical + "|" + full + "|" + want + "|" + (assigned != null && assigned.NamesHttps) + "|" + (serverHeld == null ? "" : serverHeld.address) +
+                    "|" + String.Join(",", ordinary.OrderBy(d => d, StringComparer.Ordinal));
                 if (asked == lookedFor && DateTime.UtcNow < lookAgainAt) return true;
                 lookedFor = null;
                 Guid owner = store.LoadPlan().Owner, entry = store.LoadVpnEntry();
                 if (entry == Guid.Empty) return false;
                 string https = assigned != null && assigned.NamesHttps ? policy.ServerAddress : null;
                 bool names = want
-                    ? SystemHosts.InPlace(store, store.LoadPolicyHistory(), serverHeld) && ManagedVpnProfile.NamesInPlace(owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
-                        store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain), https)
+                    ? SystemHosts.InPlace(store, store.LoadPolicyHistory(), serverHeld, ordinary) && ManagedVpnProfile.NamesInPlace(owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
+                        store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain).Where(d => !ordinary.Contains(d)), https)
                     : SystemHosts.InPlace(store, null, serverHeld) && ManagedVpnProfile.NamesAbsent(owner);
                 if (!(names && ManagedVpnProfile.InPlace(policy, owner, entry, full))) return false;
                 lookedFor = asked; lookAgainAt = DateTime.UtcNow.AddMinutes(5);
@@ -558,19 +569,95 @@ namespace IkeV2Manager.Client
         // Names point into the tunnel always, unless the administrator let
         // this device's services go the ordinary way while the tunnel is
         // down: then they point there only while access is confirmed.
-        private bool WantNames() { return !noServices && (assigned == null || assigned.Block || connectionState == "protected"); }
+        private bool WantNames() { return !noServices && (assigned == null || assigned.Entries != null || assigned.Block || connectionState == "protected"); }
+
+        // With an offer each service says what becomes of it without the
+        // tunnel: the names of those that go the ordinary way, and the networks
+        // of those that are blocked. A name or network another blocked service
+        // also holds stays blocked.
+        private HashSet<string> OrdinaryNames(ClientPolicy policy)
+        {
+            var open = new HashSet<string>(StringComparer.Ordinal);
+            if (assigned == null || assigned.Entries == null || connectionState == "protected") return open;
+            var domains = policy.Resources.ToDictionary(r => r.Id, r => r.Domain, StringComparer.Ordinal);
+            var closed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var entry in assigned.Entries.Where(e => e.On))
+                foreach (string id in entry.Resources)
+                {
+                    string domain;
+                    if (domains.TryGetValue(id, out domain)) (entry.Closed ? closed : open).Add(domain);
+                }
+            open.ExceptWith(closed);
+            return open;
+        }
+
+        private string[] BlockedNetworks(ClientPolicy policy)
+        {
+            var reached = new HashSet<string>(policy.Networks.Select(n => n.Network), StringComparer.Ordinal);
+            if (assigned == null || assigned.Entries == null)
+                return assigned != null && !assigned.Block ? new string[0] : reached.OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            return assigned.Entries.Where(e => e.On && e.Closed).SelectMany(e => e.Cidrs).Where(reached.Contains)
+                .Distinct().OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        }
+
+        // The networks guard follows what is blocked, replaced whole when that
+        // changes. Windows keeps two client sublayers at the top weight - the
+        // main guard and this one - so the old guard goes just before the new
+        // one comes, within the same step: only while the offer changes, for
+        // well under a millisecond, is such a network not denied.
+        private void SyncNetworkGuard(ClientPolicy policy)
+        {
+            var stored = store.LoadNetworksPlan();
+            if (networkGuard == null && stored != null)
+            {
+                networkGuard = WfpGuard.Resume(stored);
+                networksHeld = String.Join(",", stored.Addresses);
+                if (permittedInterface != 0) networkGuard.AllowInterface(permittedInterface);
+            }
+            var wanted = BlockedNetworks(policy).Select(n => n.EndsWith("/32", StringComparison.Ordinal) ? n.Substring(0, n.Length - 3) : n).ToArray();
+            string key = String.Join(",", wanted);
+            if (key == (networksHeld ?? "")) return;
+            GuardReceipt plan = null;
+            if (wanted.Length > 0)
+                using (var planned = new WfpGuard(Guid.NewGuid(), wanted)) plan = planned.Receipt();
+            if (networkGuard != null)
+            {
+                var receipt = networkGuard.Receipt();
+                networkGuard.Dispose();
+                networkGuard = null;
+                WfpGuard.RemoveRecorded(receipt);
+            }
+            store.SaveNetworksPlan(plan);
+            networksHeld = key;
+            if (plan == null) return;
+            networkGuard = WfpGuard.Resume(plan);
+            if (permittedInterface != 0) networkGuard.AllowInterface(permittedInterface);
+        }
+
+        // What the router said this device was offered, applied to the networks
+        // guard alone, without the system's names and connection. For tests.
+        internal void HoldNetworks(DeviceServices services)
+        {
+            lock (gate) { assigned = services; SyncNetworkGuard(store.LoadPolicyHistory().Current); }
+        }
+
+        // The plans in force, read through the store this runtime holds. For tests.
+        internal GuardReceipt MainPlan() { lock (gate) return store.LoadPlan(); }
+        internal GuardReceipt NetworksPlan() { lock (gate) return store.LoadNetworksPlan(); }
 
         private void SyncNames(ClientPolicy policy)
         {
             bool want = WantNames();
             if (want)
             {
-                SystemHosts.Apply(store, store.LoadPolicyHistory(), serverHeld);
+                var ordinary = OrdinaryNames(policy);
+                SystemHosts.Apply(store, store.LoadPolicyHistory(), serverHeld, ordinary);
                 // Every name under a selected domain is asked through the tunnel;
                 // the denials already hold the address that answers.
                 ManagedVpnProfile.ApplyNames(store.LoadPlan().Owner, PolicyHistory.NamesResolver(policy.VirtualSubnet),
-                    store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain),
+                    store.LoadPolicyHistory().Current.Resources.Select(r => r.Domain).Where(d => !ordinary.Contains(d)),
                     assigned != null && assigned.NamesHttps ? policy.ServerAddress : null);
+                namesExcept = String.Join(",", ordinary.OrderBy(d => d, StringComparer.Ordinal));
             }
             else
             {
@@ -597,7 +684,7 @@ namespace IkeV2Manager.Client
         private void ClosePermission()
         {
             permittedInterface = 0;
-            if (guard != null) guard.Block();
+            if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block();
         }
 
         private void CloseConnection()
@@ -652,8 +739,10 @@ namespace IkeV2Manager.Client
                 // The fixed address of each selected domain, the address that
                 // answers names, and the network names are answered from.
                 var selected = store.LoadPolicyHistory().Current;
+                // And every network of its services, routed into the tunnel too.
                 var selectedPrefixes = selected.Resources.Select(r => r.Address)
-                    .Concat(new[] { PolicyHistory.NamesResolver(selected.VirtualSubnet), PolicyHistory.NamesRange(selected.VirtualSubnet) }).ToArray();
+                    .Concat(new[] { PolicyHistory.NamesResolver(selected.VirtualSubnet), PolicyHistory.NamesRange(selected.VirtualSubnet) })
+                    .Concat(selected.Networks.Select(n => n.Network.EndsWith("/32", StringComparison.Ordinal) ? n.Network.Substring(0, n.Network.Length - 3) : n.Network)).ToArray();
                 if (routes != null && !routes.Matches(observed, selectedPrefixes)) { ClosePermission(); routes.Dispose(); routes = null; }
                 if (routes == null) routes = new OwnedTunnelRoutes(observed, selectedPrefixes);
                 routes.Verify(observed);
@@ -713,6 +802,7 @@ namespace IkeV2Manager.Client
                 if (permittedInterface != observed.InterfaceLuid)
                 {
                     guard.AllowInterface(observed.InterfaceLuid);
+                    if (networkGuard != null) networkGuard.AllowInterface(observed.InterfaceLuid);
                     permittedInterface = observed.InterfaceLuid;
                 }
                 readyUntil = DateTime.UtcNow.AddSeconds(20);
@@ -796,7 +886,7 @@ namespace IkeV2Manager.Client
                 }
                 catch
                 {
-                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after a failed policy update"); }
                     try { faultCode = "service_fault"; Publish("error"); } catch { }
                     throw;
@@ -816,7 +906,8 @@ namespace IkeV2Manager.Client
                     var registration = EnrollmentRegistration.Load(store);
                     healthy = guard != null;
                     AdvanceConnection();
-                    if (systemIntegration && guard != null && registrationComplete && WantNames() != namesApplied)
+                    if (systemIntegration && guard != null && registrationComplete &&
+                        (WantNames() != namesApplied || (namesApplied && String.Join(",", OrdinaryNames(store.LoadPolicyHistory().Current).OrderBy(d => d, StringComparer.Ordinal)) != namesExcept)))
                         SyncNames(store.LoadPolicyHistory().Current);
                     Publish(synchronizationFailed ? (accessClosed ? "access_closed" : "error") : guard == null ? (registration == null ? "enrollment_required" : "registration_pending") : connectionState);
                 }
@@ -826,7 +917,7 @@ namespace IkeV2Manager.Client
                     store.RecordFault("tick", fault);
                     // A future permission owner must also close before publishing
                     // an error; failure to close cannot leave a live process.
-                    try { permittedInterface = 0; if (guard != null) guard.Block(); }
+                    try { permittedInterface = 0; if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block(); }
                     catch { Environment.FailFast("Client guard could not close its permission session"); }
                     try { faultCode = "service_fault"; Publish("error"); } catch { }
                 }
@@ -880,6 +971,8 @@ namespace IkeV2Manager.Client
                     try { CloseConnection(); }
                     catch (Exception fault) { if (store != null) store.RecordFault("stop", fault); }
                     if (guard != null) guard.Dispose();
+                    // Its denials stay in place, as the main guard's do.
+                    if (networkGuard != null) networkGuard.Dispose();
                     if (store != null) Publish("stopped");
                 }
                 finally { if (store != null) store.Dispose(); }
