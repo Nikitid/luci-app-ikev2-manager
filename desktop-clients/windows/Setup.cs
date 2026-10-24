@@ -1,141 +1,55 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
+using System.Security.Cryptography;
 using System.Security.Principal;
 using System.ServiceProcess;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-// One file a user runs: installs or updates the service and the window, or with
-// /uninstall takes everything away again. An update keeps the enrolled state and
-// the installed denials; only uninstallation removes them.
+// The one file a user runs, and the one an earlier client opens to update: it
+// takes the installer for this machine's processor - lying next to it, or
+// from the same release - checks it against the digest written in at build
+// time, moves over an installation made by the setup program of earlier
+// releases, and installs. The registration and the installed denials stay;
+// only removal, from the list of installed programs, takes them away.
 internal static class Setup
 {
     private const string Name = "IKEv2ManagerClient", Title = "Waypoint";
-    private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + Name;
+    private const string Releases = "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v";
+    private const string EarlierKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + Name;
     private static readonly string System32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
     private static readonly string Destination = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Title);
-    private static readonly string ServicePath = Path.Combine(Destination, "ClientService.exe");
-    private static readonly string AppPath = Path.Combine(Destination, "IKEv2ManagerClient.exe");
-    private static readonly string Shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), Title + ".lnk");
-
-    // A browser set to resolve names over its own encrypted channel reaches a
-    // service around the tunnel. Each browser has a setting, meant for whoever
-    // manages the computer, to ask the system instead. Setting it reaches
-    // beyond this program's services, so it is never done by installing: only
-    // when the person at the window asks for it, and it is taken back there
-    // too, on removal, and for what earlier builds set on their own. Only
-    // values this setup wrote are recorded, and only those are removed.
-    private const string OwnedKey = @"Software\IKEv2ManagerClient";
-    private static readonly string[][] BrowserPolicies = {
-        new[] { @"SOFTWARE\Policies\Google\Chrome", "DnsOverHttpsMode", "off" },
-        new[] { @"SOFTWARE\Policies\Microsoft\Edge", "DnsOverHttpsMode", "off" },
-        new[] { @"SOFTWARE\Policies\BraveSoftware\Brave", "DnsOverHttpsMode", "off" },
-        new[] { @"SOFTWARE\Policies\YandexBrowser", "DnsOverHttpsMode", "off" },
-        new[] { @"SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS", "Enabled", "0" },
-        new[] { @"SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS", "Locked", "1" }
-    };
-
-    private static void ApplyBrowserPolicies()
-    {
-        var owned = new System.Collections.Generic.List<string>();
-        using (var record = Registry.LocalMachine.CreateSubKey(OwnedKey))
-        {
-            var previous = record.GetValue("BrowserPolicies") as string[];
-            if (previous != null) owned.AddRange(previous);
-            foreach (var policy in BrowserPolicies)
-            {
-                string identity = policy[0] + "|" + policy[1];
-                using (var key = Registry.LocalMachine.CreateSubKey(policy[0]))
-                {
-                    // Somebody else's setting stays theirs.
-                    if (key.GetValue(policy[1]) != null && !owned.Contains(identity)) continue;
-                    if (policy[2] == "off") key.SetValue(policy[1], policy[2], RegistryValueKind.String);
-                    else key.SetValue(policy[1], Int32.Parse(policy[2]), RegistryValueKind.DWord);
-                    if (!owned.Contains(identity)) owned.Add(identity);
-                }
-            }
-            record.SetValue("BrowserPolicies", owned.ToArray(), RegistryValueKind.MultiString);
-        }
-    }
-
-    // `everything` also drops this program's whole record, at removal.
-    private static void RemoveBrowserPolicies(bool everything)
-    {
-        using (var record = Registry.LocalMachine.OpenSubKey(OwnedKey))
-        {
-            var owned = record == null ? null : record.GetValue("BrowserPolicies") as string[];
-            foreach (string identity in owned ?? new string[0])
-            {
-                string[] parts = identity.Split('|');
-                if (parts.Length != 2) continue;
-                using (var key = Registry.LocalMachine.OpenSubKey(parts[0], true))
-                    if (key != null) key.DeleteValue(parts[1], false);
-            }
-        }
-        if (everything) Registry.LocalMachine.DeleteSubKeyTree(OwnedKey, false);
-        else using (var record = Registry.LocalMachine.OpenSubKey(OwnedKey, true)) if (record != null) record.DeleteValue("BrowserPolicies", false);
-    }
 
     private sealed class Refusal : Exception { internal Refusal(string message) : base(message) { } }
 
-    // The last step of an installation: it is done, and the program opens
-    // unless the user clears the box.
-    private static bool AskToOpen(bool afterUpdate)
-    {
-        using (var done = new Form { Text = Title, ClientSize = new System.Drawing.Size(360, 130), FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = new System.Drawing.Font("Segoe UI", 10) })
-        {
-            var open = new CheckBox { Text = "Открыть " + Title, Checked = true, AutoSize = true, Location = new System.Drawing.Point(22, 54) };
-            var close = new Button { Text = "Готово", DialogResult = DialogResult.OK, AutoSize = true, Location = new System.Drawing.Point(250, 88) };
-            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
-            done.Controls.Add(new Label { Text = afterUpdate ? Title + " обновлён до версии " + version + "." : Title + " установлен.",
-                AutoSize = true, Location = new System.Drawing.Point(20, 20) });
-            done.Controls.Add(open); done.Controls.Add(close);
-            done.AcceptButton = close;
-            // The last word of setup is not left behind other windows.
-            done.TopMost = true;
-            done.Shown += (sender, args) => { done.Activate(); close.Focus(); };
-            done.ShowDialog();
-            return open.Checked;
-        }
-    }
-
-    // Windows Forms and the shell's COM objects expect a single-threaded
-    // apartment; the attribute used to stand on another method and did nothing.
     [STAThread]
     private static int Main(string[] args)
     {
-        bool quiet = Array.IndexOf(args, "/quiet") >= 0, remove = Array.IndexOf(args, "/uninstall") >= 0, reset = Array.IndexOf(args, "/reset") >= 0;
-        bool browsersOn = Array.IndexOf(args, "/browsers-on") >= 0, browsersOff = Array.IndexOf(args, "/browsers-off") >= 0;
-        foreach (string argument in args)
-            if (argument != "/quiet" && argument != "/uninstall" && argument != "/reset" && argument != "/browsers-on" && argument != "/browsers-off") return 2;
-        if ((remove ? 1 : 0) + (reset ? 1 : 0) + (browsersOn ? 1 : 0) + (browsersOff ? 1 : 0) > 1) return 2;
+        bool quiet = args.Length == 1 && args[0] == "/quiet";
+        if (args.Length > 1 || (args.Length == 1 && !quiet)) return 2;
         try
         {
-            if (!Environment.Is64BitOperatingSystem || !Environment.Is64BitProcess) throw new Refusal("Нужна 64-разрядная Windows.");
+            if (!Environment.Is64BitOperatingSystem) throw new Refusal("Нужна 64-разрядная Windows.");
             if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
                 throw new Refusal("Запустите установку с правами администратора.");
-            if (reset) { Reset(); return 0; }
-            // Asked for by the person at the window, never done by installing.
-            if (browsersOn) { ApplyBrowserPolicies(); return 0; }
-            if (browsersOff) { RemoveBrowserPolicies(false); return 0; }
-            if (remove)
+            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+            string architecture = NativeArm64() ? "arm64" : "x64";
+            string package = Fetch(version, architecture);
+            try
             {
-                if (!quiet && MessageBox.Show("Удалить " + Title + "?\n\nРегистрация устройства будет удалена.", Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return 0;
-                Uninstall();
-                if (!quiet) MessageBox.Show(Title + " удалён.", Title);
-                return 0;
+                bool windowWasOpen = MoveEarlier();
+                windowWasOpen |= CloseWindows("Waypoint");
+                int code = Run(Path.Combine(System32, "msiexec.exe"), "/i \"" + package + "\" /qb! /norestart /l*v \"" + Path.Combine(Path.GetTempPath(), "Waypoint-setup.log") + "\"");
+                // 3010: installed, and a restart will finish it.
+                if (code != 0 && code != 3010) throw new Refusal("Установка не завершена (код " + code + "). Запустите установку ещё раз.");
+                if (quiet ? windowWasOpen : AskToOpen(version)) OpenWindow();
             }
-            Install();
-            // After an update the window comes back by itself if it was open:
-            // the person who pressed Update expects to see the new version, not
-            // an empty desktop. A first installation asks. Run without
-            // questions, setup opens nothing that was not open.
-            if (quiet ? windowWasOpen : AskToOpen(updated)) OpenWindow();
+            finally { try { File.Delete(package); Directory.Delete(Path.GetDirectoryName(package)); } catch (Exception) { } }
             return 0;
         }
         catch (Refusal refusal) { if (!quiet) MessageBox.Show(refusal.Message, Title, MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
@@ -148,8 +62,106 @@ internal static class Setup
         }
     }
 
-    // What this run found: an installation to update, and its window open.
-    private static bool updated, windowWasOpen;
+    // The installer for this machine, in a folder only administrators can
+    // write to, and only if it is the one this setup was built with.
+    private static string Fetch(string version, string architecture)
+    {
+        string file = "Waypoint-" + version + "-" + architecture + ".msi";
+        string expected = architecture == "arm64" ? Release.Arm64 : Release.X64;
+        string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp", "Waypoint-" + Guid.NewGuid().ToString("N"));
+        // Anybody may create files in the system's Temp; this folder is the
+        // administrators' and the system's alone, so nothing is swapped in
+        // between the check and the installation.
+        var security = new DirectorySecurity();
+        security.SetAccessRuleProtection(true, false);
+        foreach (var sid in new[] { WellKnownSidType.BuiltinAdministratorsSid, WellKnownSidType.LocalSystemSid })
+            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid, null), FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+        Directory.CreateDirectory(folder, security);
+        string target = Path.Combine(folder, file);
+        string beside = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), file);
+        if (File.Exists(beside) && Digest(beside) == expected) { File.Copy(beside, target); return target; }
+        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+        try
+        {
+            using (var client = new WebClient()) client.DownloadFile(Releases + version + "/" + file, target);
+        }
+        catch (WebException) { throw new Refusal("Не удалось скачать установщик. Проверьте интернет и запустите установку ещё раз."); }
+        if (Digest(target) != expected) { File.Delete(target); throw new Refusal("Скачанный установщик повреждён. Запустите установку ещё раз."); }
+        return target;
+    }
+
+    private static string Digest(string path)
+    {
+        using (var sha = SHA256.Create()) using (var stream = File.OpenRead(path))
+            return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+    }
+
+    // An installation by the setup program of earlier releases: its service
+    // and files go, its registration and denials in ProgramData stay for the
+    // new service to take up. Says whether its window was open.
+    private static bool MoveEarlier()
+    {
+        string uninstall;
+        using (var key = Registry.LocalMachine.OpenSubKey(EarlierKey)) uninstall = key == null ? null : key.GetValue("UninstallString") as string;
+        if (uninstall == null) return false;
+        string earlierSetup = Path.Combine(Destination, "Setup.exe");
+        if (!uninstall.StartsWith("\"" + earlierSetup + "\"", StringComparison.OrdinalIgnoreCase))
+            throw new Refusal("Найдена установка Waypoint в другом месте. Удалите её и запустите установку ещё раз.");
+        bool windowWasOpen = CloseWindows(Name);
+        if (ServiceExists())
+        {
+            using (var service = new ServiceController(Name))
+            {
+                if (service.Status != ServiceControllerStatus.Stopped)
+                {
+                    if (service.Status != ServiceControllerStatus.StopPending) service.Stop();
+                    service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(60));
+                }
+            }
+            if (Run(Path.Combine(System32, "sc.exe"), "delete " + Name) != 0) throw new Refusal("Прежнюю службу не удалось заменить. Запустите установку ещё раз.");
+        }
+        foreach (string file in new[] { "Setup.exe", "IKEv2ManagerClient.exe", "ClientService.exe" })
+        {
+            string path = Path.Combine(Destination, file);
+            if (File.Exists(path)) File.Delete(path);
+        }
+        string shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), Title + ".lnk");
+        if (File.Exists(shortcut)) File.Delete(shortcut);
+        Registry.LocalMachine.DeleteSubKeyTree(EarlierKey, false);
+        return windowWasOpen;
+    }
+
+    private static bool CloseWindows(string process)
+    {
+        bool found = false;
+        foreach (var window in Process.GetProcessesByName(process))
+            using (window)
+            {
+                found = true;
+                try { window.Kill(); window.WaitForExit(5000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
+            }
+        return found;
+    }
+
+    // The last step of a setup the person runs: it is done, and the program
+    // opens unless they clear the box.
+    private static bool AskToOpen(string version)
+    {
+        using (var done = new Form { Text = Title, ClientSize = new System.Drawing.Size(360, 130), FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterScreen, Font = new System.Drawing.Font("Segoe UI", 10) })
+        {
+            var open = new CheckBox { Text = "Открыть " + Title, Checked = true, AutoSize = true, Location = new System.Drawing.Point(22, 54) };
+            var close = new Button { Text = "Готово", DialogResult = DialogResult.OK, AutoSize = true, Location = new System.Drawing.Point(250, 88) };
+            done.Controls.Add(new Label { Text = Title + " " + version + " установлен.", AutoSize = true, Location = new System.Drawing.Point(20, 20) });
+            done.Controls.Add(open); done.Controls.Add(close);
+            done.AcceptButton = close;
+            done.TopMost = true;
+            done.Shown += (sender, args) => { done.Activate(); close.Focus(); };
+            done.ShowDialog();
+            return open.Checked;
+        }
+    }
 
     // Setup runs as an administrator; the window must not. Asked to open a
     // file, the desktop's own shell starts it as the person signed in.
@@ -158,125 +170,9 @@ internal static class Setup
         try
         {
             Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
-                "\"" + AppPath + "\"") { UseShellExecute = false });
+                "\"" + Path.Combine(Destination, "Waypoint.exe") + "\"") { UseShellExecute = false });
         }
         catch (System.ComponentModel.Win32Exception) { }
-    }
-
-    private static void Install()
-    {
-        RejectRedirected(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Destination, ServicePath, AppPath);
-        bool exists = ServiceExists();
-        updated = exists;
-        if (exists && !OwnService()) throw new Refusal("Имя службы клиента занято другой программой. Установка остановлена.");
-        if (exists) StopService();
-        var security = new DirectorySecurity();
-        security.SetAccessRuleProtection(true, false);
-        security.SetOwner(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
-        foreach (var sid in new[] { WellKnownSidType.BuiltinAdministratorsSid, WellKnownSidType.LocalSystemSid, WellKnownSidType.BuiltinUsersSid })
-            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid, null),
-                sid == WellKnownSidType.BuiltinUsersSid ? FileSystemRights.ReadAndExecute : FileSystemRights.FullControl,
-                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
-        // An open window holds its own file: an update over it used to stop
-        // half way, with the service already stopped. The window is closed;
-        // the user opens it again, or setup does at the end.
-        foreach (var process in Process.GetProcessesByName("IKEv2ManagerClient"))
-            using (process) { windowWasOpen = true; try { process.Kill(); process.WaitForExit(5000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { } }
-        Directory.CreateDirectory(Destination);
-        Directory.SetAccessControl(Destination, security);
-        // On Windows on ARM the service is installed as an ARM64 image: the
-        // x64 one runs there, but Windows will not begin EAP for it.
-        Place(NativeArm64() ? "ClientService.arm64.exe" : "ClientService.exe", ServicePath);
-        Place("IKEv2ManagerClient.exe", AppPath);
-        string self = Path.Combine(Destination, "Setup.exe");
-        if (!String.Equals(Path.GetFullPath(Assembly.GetExecutingAssembly().Location), self, StringComparison.OrdinalIgnoreCase))
-            Inherit(self, () => File.Copy(Assembly.GetExecutingAssembly().Location, self, true));
-        // The entry Windows removes the program by is written as soon as the
-        // files are in place, before anything that can fail: a setup that
-        // stopped at the service used to leave a program with files, a
-        // service and nothing in the list of installed programs to remove
-        // it with.
-        using (var key = Registry.LocalMachine.CreateSubKey(UninstallKey))
-        {
-            key.SetValue("DisplayName", Title);
-            key.SetValue("DisplayVersion", Assembly.GetExecutingAssembly().GetName().Version.ToString(3));
-            key.SetValue("Publisher", "Waypoint");
-            key.SetValue("InstallLocation", Destination);
-            key.SetValue("DisplayIcon", AppPath);
-            key.SetValue("UninstallString", "\"" + self + "\" /uninstall");
-            key.SetValue("QuietUninstallString", "\"" + self + "\" /uninstall /quiet");
-            key.SetValue("NoModify", 1, RegistryValueKind.DWord);
-            key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-            if (!exists) Run("sc.exe", "create " + Name + " binPath= \"\\\"" + ServicePath + "\\\"\" start= auto DisplayName= \"" + Title + "\"");
-        else Run("sc.exe", "config " + Name + " start= auto");
-        Run("sc.exe", "description " + Name + " \"Keeps selected services inside the organization's IKEv2 tunnel and blocks them outside it.\"");
-        Run("sc.exe", "failure " + Name + " reset= 86400 actions= restart/5000/restart/15000/restart/60000");
-        using (var service = new ServiceController(Name))
-        {
-            service.Start();
-            service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
-        }
-        object shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
-        object link = shell.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { Shortcut });
-        link.GetType().InvokeMember("TargetPath", BindingFlags.SetProperty, null, link, new object[] { AppPath });
-        link.GetType().InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, link, new object[] { Destination });
-        link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
-    }
-    }
-
-    // Everything the program set up on this computer goes - the VPN
-    // connection, the blocking, the names, the registration - and the program
-    // stays, ready to register again. The same removal uninstallation runs,
-    // done by the service's own binary while the service is stopped.
-    private static void Reset()
-    {
-        if (!ServiceExists() || !File.Exists(ServicePath)) throw new Refusal("Программа не установлена.");
-        if (!OwnService()) throw new Refusal("Служба с именем клиента принадлежит другой программе.");
-        StopService();
-        try { Run(ServicePath, "--remove"); }
-        finally
-        {
-            using (var service = new ServiceController(Name))
-            {
-                service.Start();
-                service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
-            }
-        }
-    }
-
-    private static void Uninstall()
-    {
-        if (ServiceExists())
-        {
-            if (!OwnService()) throw new Refusal("Служба с именем клиента принадлежит другой программе. Удаление остановлено.");
-            StopService();
-        }
-        // The service binary owns the knowledge of what it installed.
-        if (File.Exists(ServicePath)) Run(ServicePath, "--remove");
-        else if (Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Name)))
-            throw new Refusal("Файлы клиента повреждены: сначала установите клиент заново, затем удалите его.");
-        if (ServiceExists()) Run("sc.exe", "delete " + Name);
-        RemoveBrowserPolicies(true);
-        if (File.Exists(Shortcut)) File.Delete(Shortcut);
-        Registry.LocalMachine.DeleteSubKeyTree(UninstallKey, false);
-        foreach (var process in Process.GetProcessesByName("IKEv2ManagerClient"))
-            using (process) { try { process.Kill(); process.WaitForExit(5000); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { } }
-        string self = Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
-        foreach (string file in new[] { ServicePath, AppPath }) if (File.Exists(file)) File.Delete(file);
-        string installed = Path.Combine(Destination, "Setup.exe");
-        if (!String.Equals(self, installed, StringComparison.OrdinalIgnoreCase))
-        {
-            if (File.Exists(installed)) File.Delete(installed);
-            if (Directory.Exists(Destination)) Directory.Delete(Destination, false);
-        }
-        else
-        {
-            // A running image cannot delete itself; Windows removes it and the
-            // then-empty folder once this process has exited.
-            Process.Start(new ProcessStartInfo(Path.Combine(System32, "cmd.exe"),
-                "/d /c ping -n 3 127.0.0.1 >nul & del /f /q \"" + installed + "\" & rmdir \"" + Destination + "\"")
-                { CreateNoWindow = true, UseShellExecute = false, WorkingDirectory = System32 });
-        }
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -286,39 +182,8 @@ internal static class Setup
     private static bool NativeArm64()
     {
         ushort process, native;
-        try { return IsWow64Process2(System.Diagnostics.Process.GetCurrentProcess().Handle, out process, out native) && native == 0xAA64; }
+        try { return IsWow64Process2(Process.GetCurrentProcess().Handle, out process, out native) && native == 0xAA64; }
         catch (EntryPointNotFoundException) { return false; }
-    }
-
-    private static void Place(string resource, string destination)
-    {
-        Inherit(destination, () =>
-        {
-            using (var source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource))
-            {
-                if (source == null) throw new Refusal("Установочный файл повреждён.");
-                using (var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None)) source.CopyTo(target);
-            }
-        });
-    }
-
-    // A file that existed may carry its own permissions; after writing it must
-    // have only what the protected folder gives.
-    private static void Inherit(string path, Action write)
-    {
-        write();
-        var security = File.GetAccessControl(path);
-        security.SetAccessRuleProtection(false, false);
-        foreach (FileSystemAccessRule rule in security.GetAccessRules(true, false, typeof(SecurityIdentifier)))
-            security.RemoveAccessRule(rule);
-        File.SetAccessControl(path, security);
-    }
-
-    private static void RejectRedirected(params string[] paths)
-    {
-        foreach (string path in paths)
-            if ((File.Exists(path) || Directory.Exists(path)) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-                throw new Refusal("Папка установки перенаправлена в другое место. Установка остановлена.");
     }
 
     private static bool ServiceExists()
@@ -328,34 +193,12 @@ internal static class Setup
         return false;
     }
 
-    private static bool OwnService()
+    private static int Run(string path, string arguments)
     {
-        using (var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\" + Name))
+        using (var process = Process.Start(new ProcessStartInfo(path, arguments) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = System32 }))
         {
-            if (key == null) return false;
-            string image = key.GetValue("ImagePath") as string, account = key.GetValue("ObjectName") as string;
-            return image == "\"" + ServicePath + "\"" && String.Equals(account, "LocalSystem", StringComparison.OrdinalIgnoreCase);
-        }
-    }
-
-    private static void StopService()
-    {
-        using (var service = new ServiceController(Name))
-        {
-            if (service.Status == ServiceControllerStatus.Stopped) return;
-            if (service.Status != ServiceControllerStatus.StopPending) service.Stop();
-            service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(60));
-        }
-    }
-
-    private static void Run(string program, string arguments)
-    {
-        string path = Path.IsPathRooted(program) ? program : Path.Combine(System32, program);
-        using (var process = Process.Start(new ProcessStartInfo(path, arguments) {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = System32 }))
-        {
-            process.StandardOutput.ReadToEnd(); process.StandardError.ReadToEnd();
-            if (!process.WaitForExit(120000) || process.ExitCode != 0) throw new InvalidOperationException("Step failed");
+            if (!process.WaitForExit(600000)) throw new Refusal("Установка не отвечает. Запустите установку ещё раз.");
+            return process.ExitCode;
         }
     }
 }

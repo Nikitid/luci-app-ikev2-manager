@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Waypoint window for Windows: WinUI 3 (Windows App SDK), unpackaged and
+       self-contained, one build per architecture. It reads the service's status
+       and sends it commands; the service does everything that needs a right. -->
+  <PropertyGroup>
+    <AppVersion Condition="'$(AppVersion)' == ''">0.0.0</AppVersion>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RootNamespace>Waypoint</RootNamespace>
+    <AssemblyName>Waypoint</AssemblyName>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <SatelliteResourceLanguages>en;ru</SatelliteResourceLanguages>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\Waypoint.ico</ApplicationIcon>
+    <Version>$(AppVersion)</Version>
+    <FileVersion>$(AppVersion).0</FileVersion>
+    <Product>Waypoint</Product>
+    <Company>Waypoint</Company>
+    <Description>Waypoint</Description>
+    <!-- The shared sources are also built for .NET Framework. -->
+    <NoWarn>$(NoWarn);SYSLIB0014;CS0618</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\JsonCompat.cs;..\ManagedHosts.cs;..\ClientPolicy.cs;..\EnrollmentTransport.cs;..\ClientCommands.cs;..\ClientStatusReader.cs;..\ClientPresentation.cs;..\BrowserNames.cs;..\ProblemReports.cs" />
+    <Content Include="..\..\assets\Waypoint.ico" Link="Assets\Waypoint.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -129,11 +129,13 @@ jobs:
           $version = ($env:GITHUB_REF_NAME -replace '^v', '') -replace '_.*$', ''
           ./desktop-clients/windows/test.ps1
           ./desktop-clients/windows/build.ps1 -Output "$env:RUNNER_TEMP\client" -Version $version
-      - name: Attach the installer to the release
+      - name: Attach the installers to the release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$env:GITHUB_REF_NAME" "$env:RUNNER_TEMP\client\WaypointSetup.exe" --clobber
+        run: |
+          $files = @(Get-ChildItem "$env:RUNNER_TEMP\client" | Where-Object { $_.Extension -in '.msi', '.exe' } | ForEach-Object FullName)
+          gh release upload "$env:GITHUB_REF_NAME" @files --clobber
 
   macos-client:
     needs: release
@@ -148,7 +150,7 @@ jobs:
           version="${version%%_*}"
           swift test --package-path desktop-clients/macos
           desktop-clients/macos/build.sh "$version" "$RUNNER_TEMP/client"
-      - name: Attach the installer to the release
+      - name: Attach the installers to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP"/client/Waypoint-*.pkg --clobber

@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Waypoint service on current .NET, self-contained, one build per architecture:
+       on Windows on ARM the service that dials must be an ARM64 process, or Windows
+       refuses to load the EAP method into it (error 691). Same sources as the
+       .NET Framework build that test.ps1 exercises, JSON through JsonCompat.cs. -->
+  <PropertyGroup>
+    <AppVersion Condition="'$(AppVersion)' == ''">0.0.0</AppVersion>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <SelfContained>true</SelfContained>
+    <AssemblyName>ClientService</AssemblyName>
+    <RootNamespace>IkeV2Manager.Client</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Version>$(AppVersion)</Version>
+    <FileVersion>$(AppVersion).0</FileVersion>
+    <Product>Waypoint</Product>
+    <ApplicationIcon>..\..\assets\Waypoint.ico</ApplicationIcon>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Only the framework libraries that declare themselves trimmable are
+         trimmed; this assembly stays whole, so JsonCompat's reflection over
+         its own types keeps working. The service tests run this binary. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <!-- The sources are shared with the .NET Framework reference build. The trim
+         warnings are about reflection over this assembly's own types, which
+         partial trimming leaves whole. -->
+    <NoWarn>$(NoWarn);SYSLIB0014;SYSLIB0023;IL2026;IL2067;IL2070;IL2075</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\JsonCompat.cs;..\ManagedHosts.cs;..\ClientPolicy.cs;..\EnrollmentTransport.cs;..\ClientCommands.cs;..\ClientStatusReader.cs" />
+    <Compile Include="..\EnrollmentRegistration.cs;..\GuardStore.cs;..\WfpGuard.cs;..\GuardRuntime.cs;..\SystemHosts.cs;..\PolicyTransport.cs;..\ManagedVpnProfile.cs;..\OwnedRasConnection.cs;..\OwnedTunnelRoutes.cs;..\RasTunnel.cs;..\RouteObservation.cs;..\ClientCommandServer.cs;..\Maintenance.cs;..\ClientService.cs" />
+    <EmbeddedResource Include="..\ManagedVpnProfile.ps1" LogicalName="ManagedVpnProfile.ps1" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+  </ItemGroup>
+</Project>

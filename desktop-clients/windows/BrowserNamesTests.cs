@@ -44,7 +44,7 @@ internal static class BrowserNamesTests
 
     private static void Expect(string[] wanted, string local, string roaming, string what)
     {
-        string[] seen = ClientWindow.SelfResolvingBrowsers(local, roaming, false);
+        string[] seen = BrowserNames.SelfResolving(local, roaming, false);
         if (!seen.SequenceEqual(wanted)) throw new Exception(what + ": saw [" + String.Join(", ", seen) + "]");
     }
 }

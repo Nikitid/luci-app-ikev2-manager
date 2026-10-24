@@ -21,6 +21,16 @@ internal static class NetworkGuardTests
             entry("chat", "198.51.100.0/24", chatClosed) + "," + entry("api", "203.0.113.0/24", apiClosed) + "]}", "office-pc");
     }
 
+    // The chat service is required and blocked; the api service is the
+    // person's to turn on and to block, here both or neither.
+    private static DeviceServices Choosable(bool apiChosen)
+    {
+        string chosen = apiChosen ? "true" : "false";
+        return DeviceServices.Parse("{\"version\":1,\"id\":\"office-pc\",\"revision\":1,\"selected\":[],\"available\":[],\"entries\":[" +
+            "{\"id\":\"chat\",\"required\":true,\"on\":true,\"closed\":true,\"choose_closed\":false,\"domains\":0,\"networks\":1,\"resources\":[],\"cidrs\":[\"198.51.100.0/24\"]}," +
+            "{\"id\":\"api\",\"required\":false,\"on\":" + chosen + ",\"closed\":" + chosen + ",\"choose_closed\":true,\"domains\":0,\"networks\":1,\"resources\":[],\"cidrs\":[\"203.0.113.0/24\"]}]}", "office-pc");
+    }
+
     private static bool Installed(GuardReceipt plan)
     {
         try { using (var guard = WfpGuard.Recover(plan)) guard.VerifyProtection(); return true; }
@@ -57,6 +67,15 @@ internal static class NetworkGuardTests
                     "a changed offer is held by a new guard");
                 Require(!Installed(first), "the guard it replaced is gone");
                 held = both;
+                runtime.HoldNetworks(Choosable(false));
+                held = runtime.NetworksPlan();
+                Require(!runtime.ChoicePending() && runtime.Choose(new[] { "api" }, new[] { "api" }) && runtime.ChoicePending(),
+                    "a choice the offer leaves to the person is taken");
+                Require(!runtime.Choose(new[] { "chat" }, new string[0]) && !runtime.Choose(new string[0], new[] { "chat" }) &&
+                    !runtime.Choose(new[] { "mail" }, new string[0]), "a choice the offer does not leave to the person is refused");
+                Require(GuardRuntime.Reflects(Choosable(true), new[] { "api" }, new[] { "api" }) &&
+                    !GuardRuntime.Reflects(Choosable(false), new[] { "api" }, new[] { "api" }) &&
+                    GuardRuntime.Reflects(Choosable(false), new string[0], new string[0]), "a choice counts as done only once the offer shows it");
                 runtime.HoldNetworks(Offer(false, false));
                 GuardReceipt none;
                 none = runtime.NetworksPlan();

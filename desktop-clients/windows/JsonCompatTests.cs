@@ -108,6 +108,8 @@ internal static class JsonCompatTests
         lines.Add("receipt back " + back.Version + " " + back.Owner + " " + String.Join(" ", back.Addresses) + " " + String.Join(" ", back.Filters.Select(g => g.ToString()).ToArray()));
         var loose = new JavaScriptSerializer().Deserialize<Receipt>("{\"version\":2,\"OWNER\":\"" + owner + "\",\"addresses\":[],\"unknown\":1}");
         lines.Add("receipt loose " + loose.Version + " " + loose.Owner + " " + loose.Addresses.Length + " " + (loose.Filters == null));
+        var typed = new JavaScriptSerializer().Deserialize<List<Receipt>>("[{\"version\":3,\"addresses\":[\"a\"]},{}]");
+        lines.Add("typed list " + typed.Count + " " + typed[0].Version + " " + typed[0].Addresses[0] + " " + typed[1].Version + " " + (typed[1].Addresses == null));
         lines.Add("map " + Describe(new JavaScriptSerializer().Deserialize<Dictionary<string, object>>("{\"a\":[1,{\"b\":[2]}],\"c\":{\"d\":[]}}")));
 
         lines.Add("write " + Write(new Dictionary<string, object> {

@@ -1,0 +1,63 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <!-- Waypoint for one architecture. An update keeps the registration and the
+       installed denials; only removal takes them away, through the service's own
+       binary while the service is stopped. -->
+  <Package Name="Waypoint" Manufacturer="Waypoint" Version="$(var.Version)" UpgradeCode="7bf2138d-1e26-4337-b620-7308f1ac1569"
+           Scope="perMachine" Compressed="yes" Language="1049" Codepage="1251">
+    <MajorUpgrade DowngradeErrorMessage="Установлена более новая версия Waypoint." Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Icon Id="Waypoint.ico" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="Waypoint.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- An installation made by the setup program of earlier releases is moved
+         over by WaypointSetup.exe, which keeps its registration; this package
+         alone would leave a second service and program behind. -->
+    <Property Id="EARLIERSETUP">
+      <RegistrySearch Id="EarlierSetup" Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\IKEv2ManagerClient"
+                      Name="UninstallString" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NOT EARLIERSETUP"
+            Message="Waypoint установлен прежним установщиком. Запустите WaypointSetup.exe: он перенесёт установку и сохранит регистрацию." />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Waypoint">
+        <Component Id="Service">
+          <File Id="ClientService" Source="$(var.ServiceDir)\ClientService.exe" KeyPath="yes" />
+          <ServiceInstall Id="Service" Name="IKEv2ManagerClient" DisplayName="Waypoint" Type="ownProcess" Start="auto"
+                          Account="LocalSystem" ErrorControl="normal" Vital="yes"
+                          Description="Keeps selected services inside the organization's IKEv2 tunnel and blocks them outside it.">
+            <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart"
+                                RestartServiceDelayInSeconds="5" ResetPeriodInDays="1" />
+          </ServiceInstall>
+          <ServiceControl Id="Service" Name="IKEv2ManagerClient" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+        </Component>
+        <Files Include="$(var.WindowDir)\**" />
+        <!-- The icon in the notification area comes with every sign-in. -->
+        <Component Id="SignIn">
+          <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Waypoint" Type="string"
+                         Value="&quot;[INSTALLFOLDER]Waypoint.exe&quot; --background" KeyPath="yes" />
+        </Component>
+        <Component Id="Shortcut">
+          <Shortcut Id="Waypoint" Directory="ProgramMenuFolder" Name="Waypoint" Target="[INSTALLFOLDER]Waypoint.exe"
+                    WorkingDirectory="INSTALLFOLDER" Icon="Waypoint.ico" />
+          <RegistryValue Root="HKLM" Key="Software\Waypoint" Name="Shortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- An open window holds its own files; it is closed before they change. -->
+    <util:CloseApplication Id="Window" Target="Waypoint.exe" CloseMessage="yes" TerminateProcess="1" RebootPrompt="no" />
+
+    <!-- Removal, not an update: what the service set up on this computer goes,
+         done by its own binary with the service already stopped. A removal it
+         cannot finish stops the uninstallation, so nothing is left blocking
+         with no program to lift it. -->
+    <SetProperty Id="RemoveProtection" Value="&quot;[INSTALLFOLDER]ClientService.exe&quot; --uninstall" Before="RemoveProtection" Sequence="execute" />
+    <CustomAction Id="RemoveProtection" DllEntry="WixQuietExec" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="RemoveProtection" After="StopServices" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

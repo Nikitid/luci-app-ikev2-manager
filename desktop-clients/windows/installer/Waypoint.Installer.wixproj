@@ -1,0 +1,13 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!-- One MSI per architecture: the service and the WinUI window as build.ps1
+       published them (ServiceDir, WindowDir), installed for the whole machine. -->
+  <PropertyGroup>
+    <AppVersion Condition="'$(AppVersion)' == ''">0.0.0</AppVersion>
+    <OutputName>Waypoint-$(AppVersion)-$(Platform.ToLowerInvariant())</OutputName>
+    <DefineConstants>Version=$(AppVersion);ServiceDir=$(ServiceDir);WindowDir=$(WindowDir);Icon=$(MSBuildThisFileDirectory)..\..\assets\Waypoint.ico</DefineConstants>
+    <SuppressValidation>true</SuppressValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>

@@ -50,7 +50,7 @@ namespace IkeV2Manager.Client
         {
             if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
                 throw new InvalidOperationException("Redirected hosts path refused");
-            var permissions = File.GetAccessControl(path, AccessControlSections.Owner | AccessControlSections.Access);
+            var permissions = new FileInfo(path).GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access);
             var installer = (SecurityIdentifier)new NTAccount("NT SERVICE", "TrustedInstaller").Translate(typeof(SecurityIdentifier));
             var owner = (SecurityIdentifier)permissions.GetOwner(typeof(SecurityIdentifier));
             if (!owner.Equals(Administrators) && !owner.Equals(SystemAccount) && !owner.Equals(installer))
@@ -87,7 +87,7 @@ namespace IkeV2Manager.Client
             foreach (var sid in new[] {Administrators,SystemAccount}) security.AddAccessRule(new FileSystemAccessRule(sid,FileSystemRights.FullControl,AccessControlType.Allow));
             try
             {
-                using (var file = new FileStream(temporary,FileMode.CreateNew,FileSystemRights.Write,FileShare.None,4096,FileOptions.WriteThrough,security))
+                using (var file = SecureFile.Create(temporary,FileMode.CreateNew,FileSystemRights.Write,FileShare.None,4096,FileOptions.WriteThrough,security))
                 { file.Write(output,0,output.Length); file.Flush(true); }
                 if (!Read(path).SequenceEqual(original)) throw new InvalidOperationException("Concurrent hosts edit; retry required");
                 // Native replacement preserves original DACL and keeps a private

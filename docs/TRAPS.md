@@ -614,9 +614,11 @@ and Windows would not load the EAP method into such a process (EapHost event
 2002, "Eap method DLL path validation failed", once per attempt). A build for
 any processor fails the same way, with or without a manifest naming arm64:
 what counts is the processor named in the header of the program's file. The
-same code in a process whose image is ARM64 connects. So the setup program
-carries the service twice and installs the ARM64 image where the machine's
-own processor is ARM64 (`build.ps1`, `Setup.cs`). It took a day; what found
+same code in a process whose image is ARM64 connects. So the service is built
+for each architecture on current .NET, each architecture has its own
+installer, and the setup program takes the ARM64 one where the machine's own
+processor is ARM64 (`build.ps1`, `Setup.cs`); the tests run as the machine's
+own architecture (`test.ps1`). It took a day; what found
 it was running the product's own dial code inside another process, where it
 worked, and then comparing the two processes. When something fails only on
 one architecture, check what the process actually runs as before reading

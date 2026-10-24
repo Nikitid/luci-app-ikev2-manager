@@ -85,8 +85,8 @@ isolated namespaces. Its optional `client-path.sh` extension verifies a real
 IKE exit, compiled dedicated proxy, encrypted DNS and existing inbound user policy;
 it also exercises automatic proxy activation, recovery and route ownership.
 Native Windows HTTPS enrollment and automatic policy refresh have an integrated
-SCM/OpenWrt scenario. Windows build.ps1 builds the service, the window and the single-file
-Setup that installs, updates and removes them; ManagedVpnProfile owns the split
+SCM/OpenWrt scenario. Windows build.ps1 builds the service and the WinUI window (current .NET, per architecture), an MSI of
+the two per architecture (`installer/`) and WaypointSetup.exe, which picks, checks and installs one; ManagedVpnProfile owns the split
 IKEv2 entry and selected /32 routes after persistent guard staging, and
 GuardRuntime opens the tunnel interface only while the router's readiness
 endpoint confirms the path. `scripts/openwrt/client-desktop.sh` is the

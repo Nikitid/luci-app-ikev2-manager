@@ -58,6 +58,30 @@ internal static class ClientStatusTests
             }
             data["TunnelSubnet"] = "";
             if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).State != "protected") throw new Exception("Unknown address changed protection");
+            if (addressed.Entries.Length != 0 || addressed.ChoicePending) throw new Exception("An older status claimed services to choose");
+            // Version 5 carries the offered services as the window shows them,
+            // each in the one shape the service writes, or nothing is taken.
+            data["Version"] = 5; data["ChoicePending"] = true;
+            Func<string, string, bool, bool, Dictionary<string, object>> service = (id, label, required, on) => new Dictionary<string, object> {
+                { "Id", id }, { "Label", label }, { "Required", required }, { "On", on }, { "Closed", required }, { "ChooseClosed", !required } };
+            data["Entries"] = new object[] { service("mail", "Почта", true, true), service("wiki", "Wiki", false, false) };
+            var offered = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
+            if (offered.State != "protected" || offered.Entries.Length != 2 || !offered.ChoicePending || offered.Entries[0].Label != "Почта" ||
+                !offered.Entries[0].Required || !offered.Entries[0].Closed || offered.Entries[1].On || !offered.Entries[1].ChooseClosed)
+                throw new Exception("Offered services were lost");
+            var extra = service("wiki", "Wiki", false, false); extra["Domains"] = 3;
+            var many = new object[65];
+            for (int i = 0; i < many.Length; i++) many[i] = service("s" + i, "S", false, false);
+            foreach (object[] spoiled in new[] {
+                new object[] { extra }, new object[] { service("../wiki", "Wiki", false, false) }, new object[] { service("wiki", "<b>", false, false) },
+                new object[] { service("wiki", "", false, false) }, new object[] { service("wiki", new string('x', 65), false, false) },
+                new object[] { service("mail", "Mail", true, false) }, new object[] { service("wiki", "Wiki", false, false), service("wiki", "Wiki", false, false) },
+                many })
+            {
+                data["Entries"] = spoiled; Check(data, 123, now, "status_invalid");
+            }
+            data["Entries"] = new object[0]; data.Remove("ChoicePending"); Check(data, 123, now, "status_invalid");
+            data.Remove("Entries"); data["Version"] = 4;
             data["Version"] = 3; foreach (string key in new[] { "ServerName", "ServerIP", "ServicesSubnet", "TunnelSubnet" }) data.Remove(key);
             if (open.Warnings.Length != 1 || open.Warnings[0] != "proxy") throw new Exception("A warning was lost");
             data["Warnings"] = new[] { "<b>" }; Check(data, 123, now, "status_invalid");

@@ -403,16 +403,41 @@ out-of-pool and bootstrap allocations.
 
 ## Windows enforcement implementation
 
-`desktop-clients/windows/build.ps1 -Version X.Y.Z` builds the service, the
-window and `WaypointSetup.exe`, which carries both. Setup requires
-elevation, installs an automatic SYSTEM service under a protected Program Files
-folder with service recovery, a Start menu shortcut and an uninstall entry, and
-opens the window. Running it again updates the binaries and keeps the
-registration and the persistent filters. `/uninstall` stops the service, has
-the service binary remove what it installed (filters, managed names, the VPN
-profile, an abandoned connection and the state directory) and then removes the
-files; `/quiet` suppresses dialogs. The binaries are unsigned, so Windows shows
-its unknown-publisher warning.
+`desktop-clients/windows/build.ps1 -Version X.Y.Z` builds, for x64 and for
+ARM64, the service and the WinUI 3 window on current .NET, self-contained, and
+an installer of the two (`Waypoint-X.Y.Z-x64.msi`, `Waypoint-X.Y.Z-arm64.msi`),
+and then `WaypointSetup.exe`. The service's JSON goes through `JsonCompat.cs`,
+which `test.ps1` holds to what the .NET Framework serializer writes and reads,
+so state left by an earlier release reads the same. Building and testing need
+the .NET SDK (`WAYPOINT_DOTNET` or `dotnet` on the path); the installer is
+built with WiX from NuGet.
+
+The installer is for the whole machine: an automatic SYSTEM service with
+recovery, the window under Program Files, a Start menu shortcut and the icon in
+the notification area at every sign-in. An update keeps the registration and
+the persistent filters. Removal, from the list of installed programs or
+`msiexec /x`, stops the service and runs `ClientService.exe --uninstall`, which
+removes what it installed (filters, managed names, the VPN profile, an
+abandoned connection, the state directory and the browser settings it made);
+a removal it cannot finish stops the uninstallation. The installer refuses to
+run over an installation made by the setup program of earlier releases.
+
+`WaypointSetup.exe` is what a person runs and what an earlier window opens to
+update. It requires elevation, takes the installer for the machine's own
+processor - lying next to it, or from the same release - and checks it
+against the SHA-256 written into it at build time. An installation made by
+the earlier setup program is moved over: its service, files, shortcut and
+uninstall entry go, its registration and filters in ProgramData stay for the
+new service. Then it installs and opens the window as the signed-in user;
+`/quiet` asks nothing and opens the window only if it was open. The binaries
+are unsigned, so Windows shows its unknown-publisher warning.
+
+What needs an administrator after installation is done by the service's own
+binary, started by the window with Windows asking for the right: `--reset`
+(stop the service, remove its protection and registration, start it again),
+`--browsers-on` and `--browsers-off` (the policy that tells Chrome, Edge,
+Brave, Yandex Browser and Firefox to ask the system for names; only values it
+wrote are taken back).
 
 ### Permission, status and recovery
 
@@ -441,11 +466,19 @@ killed service is ended before dialing, at startup and on removal. A policy
 poll that got no answer keeps the committed policy and the connection; a
 refused one closes them.
 
-The status is version 3: state, guard, protection, connection intent, error
-code, assigned and available service names, domain count and policy revision.
-The window shows them as blocking outside the tunnel, tunnel and routes, router
+The status is version 5: state, guard, protection, connection intent, error
+code, assigned and available service names, domain count, policy revision, the
+addresses another VPN needs, the services offered to the person (on or off,
+blocked without the tunnel or not, and what of that is theirs to change) and
+whether a choice made on this computer is still on its way to the router. The
+window shows them as blocking outside the tunnel, tunnel and routes, router
 path and services, offers only the actions that apply, and connects by itself
-after a registration started in it. The report preview contains the same
+after a registration started in it. A switch in the services list sends the
+service a `choose` request with the optional services that stay on and the
+ones the person blocks; the service takes only what the offer leaves to the
+person, sends it to the router (`POST /client/v1/choices`) before it next reads
+the offer, and keeps the switches waiting until the offer shows the choice or
+two minutes pass. The report preview contains the same
 fields and no addresses, names of hosts or credentials.
 
 `WfpGuard.cs` installs persistent IPv4 destination denials at connection
@@ -546,8 +579,11 @@ memory, pins the connection identity and closes only its owned handle.
 interface: profile routes alone are insufficient evidence. Installed rows are
 read back, verified and removed only while their owned state is unchanged.
 
-`ClientApp.cs` provides a Windows status and registration window and a previewable
-report that the user can save explicitly. `ClientStatusReader.cs` verifies the
+The window (`app/`, WinUI 3) shows what `ClientPresentation.cs` makes of one
+status reading - the words, the checks, the services and the actions offered -
+and a previewable report that the user can save explicitly or send with a
+problem report; it lives in the notification area when closed.
+`ClientStatusReader.cs` verifies the
 status file permissions, running SCM process identity, timestamp and supported
 state before displaying it. Stale, inconsistent or unsupported protection
 claims are rejected. Reports contain only allowlisted status fields. Native
@@ -1000,11 +1036,11 @@ form. The icon is drawn by `desktop-clients/assets/make-icon.py`; its results
 are committed. Both windows follow the system's light or dark appearance and
 let the user choose one.
 
-Supported: Windows 10 22H2 and Windows 11 on x64, with the .NET Framework 4.8
-they include; Windows 11 24H2 on ARM64; macOS 14 and later on Apple silicon.
+Supported: Windows 10 22H2 and Windows 11 on x64 (the setup program uses the
+.NET Framework 4.8 they include; the service and the window carry their own
+runtime); Windows 11 24H2 on ARM64; macOS 14 and later on Apple silicon.
 Intel Macs are not supported: the package is built for Apple silicon only.
-Windows 10 on ARM is not supported: it cannot run the window and the setup
-program, which are x64.
+Windows 10 on ARM is not tested.
 
 Run from a clean installation of the system, against a router with a real
 inbound server and exit - installation, registration, the tunnel, a service
@@ -1187,8 +1223,9 @@ registration listener, an inbound server for a native client, the installed
 controller in automatic mode and a namespace that terminates the required exit
 with a service and a resolver behind it. A direct route to that service exists
 on purpose and is counted, so a leak would be seen. The Windows side is
-`EnrollmentIntegrationTests.exe` with `probe_host` set (test service) and
-`ProductIntegrationTests.exe` (the installed product): registration,
+`Waypoint.Tests.exe EnrollmentIntegrationTests` with `probe_host` set (test
+service) and `Waypoint.Tests.exe ProductIntegrationTests` (the installed
+product), both built by `test.ps1`: registration,
 `protected` only with router readiness, the service answering only through the
 exit SA, a closed port, exit loss and recovery, disconnect, restart, a killed
 service, update and complete uninstallation. The same installed-product check

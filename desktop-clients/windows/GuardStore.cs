@@ -38,11 +38,11 @@ namespace IkeV2Manager.Client
                 security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl,
                     InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
                     PropagationFlags.None, AccessControlType.Allow));
-            Directory.CreateDirectory(directory, security);
+            SecureFile.CreateDirectory(directory, security);
             VerifyDirectory();
             string lockPath = Path.Combine(directory, "controller.lock");
             if (File.Exists(lockPath)) VerifyFile(lockPath);
-            controllerLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileSystemRights.Read | FileSystemRights.Write,
+            controllerLock = SecureFile.Create(lockPath, FileMode.OpenOrCreate, FileSystemRights.Read | FileSystemRights.Write,
                 FileShare.None, 4096, FileOptions.WriteThrough, FileSecurity());
         }
 
@@ -84,7 +84,7 @@ namespace IkeV2Manager.Client
             string temporary = Path.Combine(directory, "journal-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
-                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileSystemRights.Write, FileShare.None,
+                using (var stream = SecureFile.Create(temporary, FileMode.CreateNew, FileSystemRights.Write, FileShare.None,
                     4096, FileOptions.WriteThrough, FileSecurity()))
                 {
                     stream.Write(data, 0, data.Length);
@@ -432,7 +432,7 @@ namespace IkeV2Manager.Client
                 FileSystemRights.Read, AccessControlType.Allow));
             try
             {
-                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileSystemRights.Write, FileShare.None,
+                using (var stream = SecureFile.Create(temporary, FileMode.CreateNew, FileSystemRights.Write, FileShare.None,
                     4096, FileOptions.WriteThrough, security))
                 {
                     stream.Write(data, 0, data.Length);
@@ -451,7 +451,7 @@ namespace IkeV2Manager.Client
         private void VerifyDirectory()
         {
             RejectLink(directory);
-            DirectorySecurity security = Directory.GetAccessControl(directory, AccessControlSections.Access | AccessControlSections.Owner);
+            DirectorySecurity security = new DirectoryInfo(directory).GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner);
             var owner = (SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier));
             if ((!owner.Equals(Administrators) && !owner.Equals(SystemAccount)) || !security.AreAccessRulesProtected)
                 throw new InvalidOperationException("Protection store ownership is unsafe");
@@ -488,7 +488,7 @@ namespace IkeV2Manager.Client
         private static void VerifyFile(string path)
         {
             RejectLink(path);
-            var security = File.GetAccessControl(path, AccessControlSections.Access | AccessControlSections.Owner);
+            var security = new FileInfo(path).GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner);
             var owner = (SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier));
             if ((!owner.Equals(Administrators) && !owner.Equals(SystemAccount)) || !security.AreAccessRulesProtected)
                 throw new InvalidOperationException("Protection file ownership is unsafe");
@@ -508,5 +508,29 @@ namespace IkeV2Manager.Client
         private static extern bool MoveFileExW(string existing, string destination, uint flags);
 
         public void Dispose() { controllerLock.Dispose(); }
+    }
+
+    // A file or directory that has its access rules from the moment it
+    // exists. Current .NET offers this only as extensions, .NET Framework only
+    // as constructors.
+    internal static class SecureFile
+    {
+        internal static FileStream Create(string path, FileMode mode, FileSystemRights rights, FileShare share, int buffer, FileOptions options, FileSecurity security)
+        {
+#if NET
+            return new FileInfo(path).Create(mode, rights, share, buffer, options, security);
+#else
+            return new FileStream(path, mode, rights, share, buffer, options, security);
+#endif
+        }
+
+        internal static void CreateDirectory(string path, DirectorySecurity security)
+        {
+#if NET
+            security.CreateDirectory(path);
+#else
+            Directory.CreateDirectory(path, security);
+#endif
+        }
     }
 }

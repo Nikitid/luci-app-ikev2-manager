@@ -96,6 +96,12 @@ namespace System.Web.Script.Serialization
                 for (int i = 0; i < list.Length; i++) result.SetValue(Convert(list[i], type.GetElementType()), i);
                 return result;
             }
+            if (value is object[] entries && type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                var result = (IList)Activator.CreateInstance(type);
+                foreach (object entry in entries) result.Add(Convert(entry, type.GetGenericArguments()[0]));
+                return result;
+            }
             if (type.IsPrimitive || type == typeof(decimal)) return System.Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
             if (value is Dictionary<string, object> fields && type.GetConstructor(Type.EmptyTypes) != null)
             {

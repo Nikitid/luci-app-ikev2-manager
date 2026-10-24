@@ -87,6 +87,8 @@ namespace IkeV2Manager.Client
         {
             string name = "IKEv2ManagerClient";
             if (args.Length == 1 && args[0] == "--remove") return RemoveProtection(name);
+            // Asked for by the window or the installer, with an administrator's right.
+            if (args.Length == 1 && Array.IndexOf(Maintenance.Requests, args[0]) >= 0) return Maintenance.Run(name, args[0], RemoveProtection);
             if (args.Length != 0)
             {
                 // Isolated service integration tests use their own protected

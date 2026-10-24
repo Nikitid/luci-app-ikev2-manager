@@ -67,11 +67,11 @@ internal static class EnrollmentStoreTests
                     !faults[1].Contains(" policy DirectoryNotFoundException 0x") || faults[1].Contains("such"))
                     throw new Exception("Fault journal is wrong: " + faults.Length);
                 RestrictedAccessTests.Run(directory, "enrollment.json", "enrollment-initialized");
-                var security = File.GetAccessControl(path);
-                var unsafeSecurity = File.GetAccessControl(path);
+                var security = new FileInfo(path).GetAccessControl();
+                var unsafeSecurity = new FileInfo(path).GetAccessControl();
                 unsafeSecurity.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
                     FileSystemRights.Read, AccessControlType.Allow));
-                File.SetAccessControl(path, unsafeSecurity);
+                new FileInfo(path).SetAccessControl(unsafeSecurity);
                 try { Reject(() => EnrollmentRegistration.Load(restarted)); }
                 finally { RestoreSecurity(path, security); }
                 string cipher = File.ReadAllText(path);
@@ -114,6 +114,6 @@ internal static class EnrollmentStoreTests
         var restored = new FileSecurity();
         restored.SetSecurityDescriptorBinaryForm(original.GetSecurityDescriptorBinaryForm(),
             AccessControlSections.Access | AccessControlSections.Owner);
-        File.SetAccessControl(path, restored);
+        new FileInfo(path).SetAccessControl(restored);
     }
 }

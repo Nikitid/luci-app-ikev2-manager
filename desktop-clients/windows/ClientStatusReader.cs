@@ -12,6 +12,18 @@ using System.Web.Script.Serialization;
 
 namespace IkeV2Manager.Client
 {
+    // A service as the window shows it: offered to this person, on or off,
+    // blocked without the tunnel or not, and what of it is theirs to change.
+    public sealed class ServiceChoice
+    {
+        public string Id { get; set; }
+        public string Label { get; set; }
+        public bool Required { get; set; }
+        public bool On { get; set; }
+        public bool Closed { get; set; }
+        public bool ChooseClosed { get; set; }
+    }
+
     public sealed class ClientView
     {
         public string State { get; private set; }
@@ -31,6 +43,7 @@ namespace IkeV2Manager.Client
         {
             State = state; GuardInstalled = installed; ConnectionError = connectionError;
             Services = services ?? new string[0]; Available = available ?? new string[0]; Domains = domains; Revision = revision; Wanted = wanted;
+            Entries = new ServiceChoice[0];
         }
         public string[] Available { get; private set; }
         public string Release { get; internal set; }
@@ -41,6 +54,10 @@ namespace IkeV2Manager.Client
         public string[] Warnings { get; internal set; }
         // The service's own journal of what went wrong; empty when unreadable.
         public string[] Faults { get; internal set; }
+        // The offered services, empty where the router gives none; and whether
+        // a choice made here is still on its way to the router.
+        public ServiceChoice[] Entries { get; internal set; }
+        public bool ChoicePending { get; internal set; }
 
         // Whether the router runs a newer release than this program.
         public static bool Newer(string release, Version own)
@@ -82,7 +99,7 @@ namespace IkeV2Manager.Client
                 if (!TrustedFile(path)) return new ClientView("status_untrusted");
                 using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 {
-                    if (file.Length == 0 || file.Length > 8192) return new ClientView("status_invalid");
+                    if (file.Length == 0 || file.Length > 32768) return new ClientView("status_invalid");
                     using (var reader = new StreamReader(file, new UTF8Encoding(false, true), false))
                     {
                         var view = Evaluate(reader.ReadToEnd(), status.Process, DateTime.UtcNow);
@@ -115,11 +132,11 @@ namespace IkeV2Manager.Client
         {
             try
             {
-                var serializer = new JavaScriptSerializer { MaxJsonLength = 8192, RecursionLimit = 4 };
+                var serializer = new JavaScriptSerializer { MaxJsonLength = 32768, RecursionLimit = 4 };
                 var data = serializer.DeserializeObject(json) as Dictionary<string, object>;
                 if (data == null || !data.ContainsKey("Version") || !(data["Version"] is int)) return new ClientView("status_invalid");
                 int version = (int)data["Version"];
-                if (version < 1 || version > 4 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : version == 3 ? 14 : 18) || !data.ContainsKey("State") ||
+                if (version < 1 || version > 5 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : version == 3 ? 14 : version == 4 ? 18 : 20) || !data.ContainsKey("State") ||
                     !data.ContainsKey("GuardInstalled") || !data.ContainsKey("Protected") ||
                     !data.ContainsKey("UpdatedAtUtc") || !data.ContainsKey("ProcessId") ||
                     !(data["ProcessId"] is int) ||
@@ -166,7 +183,7 @@ namespace IkeV2Manager.Client
                     ((state == "protected" || state == "tunnel_connected") && !(bool)data["Wanted"]))
                     return new ClientView("status_invalid");
                 string server = "", ipText = "", servicesSubnet = "", tunnelSubnet = "";
-                if (version == 4) {
+                if (version >= 4) {
                     foreach (string key in new[] { "ServerName", "ServerIP", "ServicesSubnet", "TunnelSubnet" })
                         if (!data.ContainsKey(key) || !(data[key] is string)) return new ClientView("status_invalid");
                     server = (string)data["ServerName"]; ipText = (string)data["ServerIP"];
@@ -176,8 +193,34 @@ namespace IkeV2Manager.Client
                         (ipText != "" && (!System.Net.IPAddress.TryParse(ipText, out ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || ip.ToString() != ipText)) ||
                         !ValidNetwork(servicesSubnet) || !ValidNetwork(tunnelSubnet)) return new ClientView("status_invalid");
                 }
+                var entries = new List<ServiceChoice>();
+                bool choicePending = false;
+                if (version == 5)
+                {
+                    object[] items = data.ContainsKey("Entries") ? data["Entries"] as object[] : null;
+                    if (items == null || items.Length > 64 || !data.ContainsKey("ChoicePending") || !(data["ChoicePending"] is bool))
+                        return new ClientView("status_invalid");
+                    choicePending = (bool)data["ChoicePending"];
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (object item in items)
+                    {
+                        var entry = item as Dictionary<string, object>;
+                        if (entry == null || entry.Count != 6) return new ClientView("status_invalid");
+                        object id, label, required, on, closed, choose;
+                        if (!entry.TryGetValue("Id", out id) || !(id is string) || !Regex.IsMatch((string)id, @"\A[a-z0-9][a-z0-9_-]{0,47}\z") || !seen.Add((string)id) ||
+                            !entry.TryGetValue("Label", out label) || !(label is string) || ((string)label).Length < 1 || ((string)label).Length > 64 ||
+                            ((string)label).Any(c => Char.IsControl(c) || c == '<' || c == '>') ||
+                            !entry.TryGetValue("Required", out required) || !(required is bool) || !entry.TryGetValue("On", out on) || !(on is bool) ||
+                            !entry.TryGetValue("Closed", out closed) || !(closed is bool) || !entry.TryGetValue("ChooseClosed", out choose) || !(choose is bool) ||
+                            ((bool)required && !(bool)on))
+                            return new ClientView("status_invalid");
+                        entries.Add(new ServiceChoice { Id = (string)id, Label = (string)label, Required = (bool)required, On = (bool)on,
+                            Closed = (bool)closed, ChooseClosed = (bool)choose });
+                    }
+                }
                 return new ClientView(state, guard, connectionError, listed.Cast<string>().ToArray(), (int)data["Domains"], (int)data["Revision"], (bool)data["Wanted"], offered.Cast<string>().ToArray())
-                    { Release = (string)data["Release"], Warnings = warned.Cast<string>().ToArray(), ServerName = server, ServerIP = ipText, ServicesSubnet = servicesSubnet, TunnelSubnet = tunnelSubnet };
+                    { Release = (string)data["Release"], Warnings = warned.Cast<string>().ToArray(), ServerName = server, ServerIP = ipText, ServicesSubnet = servicesSubnet, TunnelSubnet = tunnelSubnet,
+                      Entries = entries.ToArray(), ChoicePending = choicePending };
             }
             catch (ArgumentException) { return new ClientView("status_invalid"); }
             catch (InvalidOperationException) { return new ClientView("status_invalid"); }
@@ -204,7 +247,7 @@ namespace IkeV2Manager.Client
             var administrators = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
             var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
-            var security = File.GetAccessControl(path, AccessControlSections.Owner | AccessControlSections.Access);
+            var security = new FileInfo(path).GetAccessControl(AccessControlSections.Owner | AccessControlSections.Access);
             var owner = (SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier));
             if ((!owner.Equals(administrators) && !owner.Equals(system)) || !security.AreAccessRulesProtected) return false;
             var granted = new HashSet<string>();

@@ -173,12 +173,12 @@ internal static class WfpGuardTests
             catch (InvalidOperationException) { immutable = true; }
             Require(immutable, "existing protection plan cannot be overwritten");
             string path = Path.Combine(directory, "guard.json");
-            var permissions = File.GetAccessControl(path);
+            var permissions = new FileInfo(path).GetAccessControl();
             string original = permissions.GetSecurityDescriptorSddlForm(System.Security.AccessControl.AccessControlSections.Access);
             permissions.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
                 new System.Security.Principal.SecurityIdentifier(System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null),
                 System.Security.AccessControl.FileSystemRights.Write, System.Security.AccessControl.AccessControlType.Allow));
-            File.SetAccessControl(path, permissions);
+            new FileInfo(path).SetAccessControl(permissions);
             bool unsafeRejected = false;
             try { store.LoadPlan(); }
             catch (InvalidOperationException) { unsafeRejected = true; }
@@ -186,7 +186,7 @@ internal static class WfpGuardTests
             {
                 var restored = new System.Security.AccessControl.FileSecurity();
                 restored.SetSecurityDescriptorSddlForm(original, System.Security.AccessControl.AccessControlSections.Access);
-                File.SetAccessControl(path, restored);
+                new FileInfo(path).SetAccessControl(restored);
             }
             Require(unsafeRejected, "unsafe journal permissions rejected");
             IPAddress added = IPAddress.Parse("127.0.0.3");
@@ -477,23 +477,32 @@ internal static class WfpGuardTests
         }
     }
 
+    // Each connection is answered on its own, so one cut off by a denial
+    // while it was open never holds up the probe that follows it.
     private static void Echo(TcpListener listener)
     {
         while (!stopping)
         {
-            try
-            {
-                using (var client = listener.AcceptTcpClient())
-                {
-                    client.ReceiveTimeout = client.SendTimeout = 1500;
-                    var stream = client.GetStream();
-                    int value;
-                    while ((value = stream.ReadByte()) >= 0) stream.WriteByte((byte)value);
-                }
-            }
-            catch (SocketException) { if (stopping) return; }
-            catch (System.IO.IOException) { }
+            TcpClient client;
+            try { client = listener.AcceptTcpClient(); }
+            catch (SocketException) { if (stopping) return; continue; }
             catch (ObjectDisposedException) { return; }
+            ThreadPool.QueueUserWorkItem(ignored =>
+            {
+                using (client)
+                {
+                    try
+                    {
+                        client.ReceiveTimeout = client.SendTimeout = 1500;
+                        var stream = client.GetStream();
+                        int value;
+                        while ((value = stream.ReadByte()) >= 0) stream.WriteByte((byte)value);
+                    }
+                    catch (SocketException) { }
+                    catch (System.IO.IOException) { }
+                    catch (ObjectDisposedException) { }
+                }
+            });
         }
     }
 }

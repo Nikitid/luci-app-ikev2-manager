@@ -4,6 +4,7 @@ using System.IO.Pipes;
 using System.Security.Principal;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
@@ -31,10 +32,11 @@ namespace IkeV2Manager.Client
         }
 
         public static string Send(string operation, string endpoint = null, string invitation = null,
-            string service = "IKEv2ManagerClient")
+            string service = "IKEv2ManagerClient", string[] on = null, string[] closed = null)
         {
             var request = new Dictionary<string, object> { { "version", 1 }, { "operation", operation } };
             if (operation == "begin") { request.Add("endpoint", endpoint); request.Add("invitation", invitation); }
+            if (operation == "choose") { request.Add("on", on); request.Add("closed", closed); }
             Validate(request);
             uint expected = ServicePid(service);
             using (var pipe = new NamedPipeClientStream(".", PipeName(service),
@@ -72,6 +74,19 @@ namespace IkeV2Manager.Client
                 !request.ContainsKey("operation") || !(request["operation"] is string)) throw new ArgumentException("Invalid control request");
             string operation = (string)request["operation"];
             if (operation == "continue" || operation == "connect" || operation == "disconnect") { if (request.Count != 2) throw new ArgumentException("Invalid control request"); return; }
+            if (operation == "choose")
+            {
+                // The services turned on and the ones blocked by the person's
+                // word: names only, each once.
+                if (request.Count != 4 || !request.ContainsKey("on") || !request.ContainsKey("closed")) throw new ArgumentException("Invalid control request");
+                foreach (string key in new[] { "on", "closed" })
+                {
+                    var ids = request[key] as object[];
+                    if (ids == null || ids.Length > 128 || ids.Any(id => !(id is string) || !Regex.IsMatch((string)id, @"\A[a-z0-9][a-z0-9_-]{0,47}\z")) ||
+                        ids.Distinct().Count() != ids.Length) throw new ArgumentException("Invalid control request");
+                }
+                return;
+            }
             if (operation != "begin" || request.Count != 4 || !request.ContainsKey("endpoint") || !request.ContainsKey("invitation") ||
                 !(request["endpoint"] is string) || !(request["invitation"] is string)) throw new ArgumentException("Invalid control request");
             EnrollmentTransportClient.ValidateEndpoint(new Uri((string)request["endpoint"]), (string)request["invitation"], true);

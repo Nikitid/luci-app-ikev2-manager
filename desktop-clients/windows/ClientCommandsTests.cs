@@ -23,6 +23,18 @@ internal static class ClientCommandsTests
                 "{\"version\":1,\"operation\":\"delete\"}", "{\"version\":1,\"operation\":\"continue\",\"path\":\"file\"}",
                 "{\"version\":1,\"operation\":\"begin\"}", "[]", "{}" })
                 Reject(() => ClientCommands.Validate(ClientCommands.Parse(json)));
+            // A choice names services only, each once, in two lists and nothing else.
+            ClientCommands.Validate(ClientCommands.Parse("{\"version\":1,\"operation\":\"choose\",\"on\":[\"wiki\"],\"closed\":[]}"));
+            var crowd = new List<string>();
+            for (int i = 0; i < 129; i++) crowd.Add("\"s" + i + "\"");
+            foreach (string json in new[] { "{\"version\":1,\"operation\":\"choose\",\"on\":[\"wiki\"]}",
+                "{\"version\":1,\"operation\":\"choose\",\"on\":[1],\"closed\":[]}",
+                "{\"version\":1,\"operation\":\"choose\",\"on\":[\"../wiki\"],\"closed\":[]}",
+                "{\"version\":1,\"operation\":\"choose\",\"on\":[\"wiki\",\"wiki\"],\"closed\":[]}",
+                "{\"version\":1,\"operation\":\"choose\",\"on\":\"wiki\",\"closed\":[]}",
+                "{\"version\":1,\"operation\":\"choose\",\"on\":[],\"closed\":[],\"path\":\"file\"}",
+                "{\"version\":1,\"operation\":\"choose\",\"on\":[" + String.Join(",", crowd.ToArray()) + "],\"closed\":[]}" })
+                Reject(() => ClientCommands.Validate(ClientCommands.Parse(json)));
             Reject(() => ClientCommands.PipeName("other-service"));
             Console.WriteLine("Control protocol checks passed: invitation separation, endpoint restrictions, operations and fields");
             return 0;

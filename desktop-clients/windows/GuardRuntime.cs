@@ -9,7 +9,7 @@ namespace IkeV2Manager.Client
 {
     public sealed class ClientStatus
     {
-        public int Version { get { return 4; } }
+        public int Version { get { return 5; } }
         public string State { get; internal set; }
         public bool GuardInstalled { get; internal set; }
         // True only while every gate holds at once: persistent denials, the
@@ -35,6 +35,10 @@ namespace IkeV2Manager.Client
         public string ServerIP { get; internal set; }
         public string ServicesSubnet { get; internal set; }
         public string TunnelSubnet { get; internal set; }
+        // The services offered to this person as the window shows them, and
+        // whether a choice made here has yet to come back from the router.
+        public ServiceChoice[] Entries { get; internal set; }
+        public bool ChoicePending { get; internal set; }
     }
 
     public sealed class GuardRuntime : IDisposable
@@ -64,6 +68,10 @@ namespace IkeV2Manager.Client
         private ulong permittedInterface;
         private DateTime readyUntil;
         private DeviceServices assigned;
+        // A choice made at this computer on its way to the router: first
+        // waiting to be sent, then sent and waiting to come back in the offer.
+        private sealed class Choice { internal string[] On; internal string[] Closed; internal DateTime SentAt; }
+        private Choice pendingChoice, sentChoice;
         private bool namesApplied = true;
         // Names left to the system while the tunnel is not confirmed, as they
         // were last applied; empty without an offer.
@@ -234,9 +242,12 @@ namespace IkeV2Manager.Client
         {
             EnrollmentRegistration registration;
             PolicyHistory previous;
+            Choice choice;
+            bool choiceSent = false;
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                choice = pendingChoice;
                 registration = EnrollmentRegistration.Load(store);
                 previous = registration == null || registration.Policy == null ? null : store.LoadPolicyHistory();
             }
@@ -263,6 +274,11 @@ namespace IkeV2Manager.Client
                 catch (Exception other) { refused = other; }
                 if (refused == null)
                 {
+                    // Sent before the offer is read, so the answer can already
+                    // carry it; one that is not taken is sent again next time.
+                    if (choice != null)
+                        try { choiceSent = PolicyTransportClient.SendChoices(endpoint, registration.DeviceToken, choice.On, choice.Closed); }
+                        catch (Exception) { }
                     try { fetchedServices = PolicyTransportClient.FetchServices(endpoint, registration.DeviceToken, registration.Id); }
                     catch (PolicyFetchException) { }
                     try { fetchedRelease = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
@@ -291,6 +307,16 @@ namespace IkeV2Manager.Client
                     if (committed == null || committed.Current.Canonical != previous.Current.Canonical) return;
                     if (fetchedServices != null) assigned = fetchedServices;
                     if (fetchedRelease != null) release = fetchedRelease;
+                    if (choiceSent && pendingChoice == choice) { pendingChoice = null; sentChoice = choice; choice.SentAt = DateTime.UtcNow; }
+                    if (sentChoice != null && fetchedServices != null)
+                    {
+                        if (Reflects(assigned, sentChoice.On, sentChoice.Closed)) sentChoice = null;
+                        else if (DateTime.UtcNow - sentChoice.SentAt > TimeSpan.FromMinutes(2))
+                        {
+                            sentChoice = null;
+                            store.RecordFault("choice", new InvalidOperationException("Choice not applied by the router"));
+                        }
+                    }
                     warnings = observed;
                     // Another VPN is worth a word only where it can still get in
                     // the way: with names asked over HTTPS it does not.
@@ -636,6 +662,39 @@ namespace IkeV2Manager.Client
 
         // What the router said this device was offered, applied to the networks
         // guard alone, without the system's names and connection. For tests.
+        // What the person chose among the services offered to them. Only what
+        // the offer leaves to them is taken; the router checks it again.
+        public bool Choose(string[] on, string[] closed)
+        {
+            lock (gate)
+            {
+                if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                if (assigned == null || assigned.Entries == null || on == null || closed == null) return false;
+                var entries = assigned.Entries.ToDictionary(e => e.Id, StringComparer.Ordinal);
+                ServiceEntry entry;
+                if (on.Any(id => !entries.TryGetValue(id, out entry) || entry.Required) ||
+                    closed.Any(id => !entries.TryGetValue(id, out entry) || !entry.ChooseClosed)) return false;
+                pendingChoice = new Choice { On = on.Distinct().OrderBy(id => id, StringComparer.Ordinal).ToArray(),
+                    Closed = closed.Distinct().OrderBy(id => id, StringComparer.Ordinal).ToArray() };
+                if (publishedState != null) Publish(publishedState);
+                return true;
+            }
+        }
+
+        public bool ChoicePending() { lock (gate) return pendingChoice != null || sentChoice != null; }
+
+        // The offer shows the choice: the optional services on and the ones
+        // blocked by the person's own word are exactly the ones chosen.
+        internal static bool Reflects(DeviceServices services, string[] chosenOn, string[] chosenClosed)
+        {
+            if (services == null || services.Entries == null) return false;
+            var on = services.Entries.Where(e => !e.Required && e.On).Select(e => e.Id);
+            var closed = services.Entries.Where(e => e.ChooseClosed && e.Closed).Select(e => e.Id);
+            var offered = new HashSet<string>(services.Entries.Select(e => e.Id), StringComparer.Ordinal);
+            return new HashSet<string>(on, StringComparer.Ordinal).SetEquals(chosenOn.Where(offered.Contains)) &&
+                new HashSet<string>(closed, StringComparer.Ordinal).SetEquals(chosenClosed.Where(offered.Contains));
+        }
+
         internal void HoldNetworks(DeviceServices services)
         {
             lock (gate) { assigned = services; SyncNetworkGuard(store.LoadPolicyHistory().Current); }
@@ -949,6 +1008,10 @@ namespace IkeV2Manager.Client
                 Available = assigned == null ? new string[0] : assigned.Available.Take(64).ToArray(),
                 Domains = domains, Revision = revision, Wanted = connectionWanted, Release = release, Warnings = warnings,
                 ServerName = server, ServerIP = ip, ServicesSubnet = subnet, TunnelSubnet = assigned == null ? "" : assigned.TunnelSubnet,
+                Entries = assigned == null || assigned.Entries == null ? new ServiceChoice[0] : assigned.Entries.Take(64).Select(e => new ServiceChoice {
+                    Id = e.Id, Label = String.IsNullOrEmpty(e.Label) ? e.Id : e.Label, Required = e.Required, On = e.On, Closed = e.Closed,
+                    ChooseClosed = e.ChooseClosed }).ToArray(),
+                ChoicePending = pendingChoice != null || sentChoice != null,
                 Protected = healthy && state == "protected" && permittedInterface != 0,
                 ConnectionError = state == "error" ? faultCode : state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),

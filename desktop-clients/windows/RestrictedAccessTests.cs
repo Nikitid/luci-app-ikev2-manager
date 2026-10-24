@@ -3,40 +3,23 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 
 internal static class RestrictedAccessTests
 {
     internal static void CheckControl(Func<string> command)
     {
-        IntPtr admin = Sid(WellKnownSidType.BuiltinAdministratorsSid), users = Sid(WellKnownSidType.BuiltinUsersSid), token = IntPtr.Zero;
-        try
-        {
-            var disabled = new SidAndAttributes { Sid = admin };
-            var restricted = new SidAndAttributes { Sid = users };
-            using (var current = WindowsIdentity.GetCurrent())
-                if (!CreateRestrictedToken(current.Token, 1, 1, ref disabled, 0, IntPtr.Zero, 1, ref restricted, out token))
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-            using (WindowsIdentity.Impersonate(token))
-                if (command() != "administrator_required") throw new Exception("Restricted client can replace registration ownership");
-            Console.WriteLine("PASS restricted client cannot begin machine registration");
-        }
-        finally { if (token != IntPtr.Zero) CloseHandle(token); Marshal.FreeHGlobal(admin); Marshal.FreeHGlobal(users); }
+        string answer;
+        using (var token = Restricted()) answer = WindowsIdentity.RunImpersonated(token, command);
+        if (answer != "administrator_required") throw new Exception("Restricted client can replace registration ownership: " + answer);
+        Console.WriteLine("PASS restricted client cannot begin machine registration");
     }
     internal static void Run(string directory, params string[] journals)
     {
-        IntPtr admin = Sid(WellKnownSidType.BuiltinAdministratorsSid);
-        IntPtr users = Sid(WellKnownSidType.BuiltinUsersSid);
-        IntPtr token = IntPtr.Zero;
-        try
-        {
-            var disabled = new SidAndAttributes { Sid = admin };
-            var restricted = new SidAndAttributes { Sid = users };
-            using (var current = WindowsIdentity.GetCurrent())
-                if (!CreateRestrictedToken(current.Token, 1, 1, ref disabled, 0, IntPtr.Zero, 1, ref restricted, out token))
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-            if (journals.Length == 0) journals = new[] { "guard.json" };
-            bool journalReadDenied = true, journalWriteDenied = true, statusWriteDenied, statusReadable;
-            using (WindowsIdentity.Impersonate(token))
+        if (journals.Length == 0) journals = new[] { "guard.json" };
+        bool journalReadDenied = true, journalWriteDenied = true, statusWriteDenied = false, statusReadable = false;
+        using (var token = Restricted())
+            WindowsIdentity.RunImpersonated(token, () =>
             {
                 foreach (string name in journals)
                 {
@@ -45,17 +28,27 @@ internal static class RestrictedAccessTests
                 }
                 statusWriteDenied = Denied(() => OpenForWrite(Path.Combine(directory, "status.json")));
                 statusReadable = File.ReadAllText(Path.Combine(directory, "status.json")).Length > 0;
-            }
-            if (!journalReadDenied || !journalWriteDenied || !statusWriteDenied || !statusReadable)
-                throw new Exception("Restricted token can access protected state or cannot read status");
-            Console.WriteLine("PASS restricted client can read status but cannot access journal or change status");
-        }
-        finally
+            });
+        if (!journalReadDenied || !journalWriteDenied || !statusWriteDenied || !statusReadable)
+            throw new Exception("Restricted token can access protected state or cannot read status");
+        Console.WriteLine("PASS restricted client can read status but cannot access journal or change status");
+    }
+
+    // This process's token without Administrators and restricted to Users.
+    private static SafeAccessTokenHandle Restricted()
+    {
+        IntPtr admin = Sid(WellKnownSidType.BuiltinAdministratorsSid), users = Sid(WellKnownSidType.BuiltinUsersSid);
+        try
         {
-            if (token != IntPtr.Zero) CloseHandle(token);
-            Marshal.FreeHGlobal(admin);
-            Marshal.FreeHGlobal(users);
+            var disabled = new SidAndAttributes { Sid = admin };
+            var restricted = new SidAndAttributes { Sid = users };
+            SafeAccessTokenHandle token;
+            using (var current = WindowsIdentity.GetCurrent())
+                if (!CreateRestrictedToken(current.Token, 1, 1, ref disabled, 0, IntPtr.Zero, 1, ref restricted, out token))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+            return token;
         }
+        finally { Marshal.FreeHGlobal(admin); Marshal.FreeHGlobal(users); }
     }
 
     private static void OpenForWrite(string path)
@@ -83,6 +76,5 @@ internal static class RestrictedAccessTests
     [StructLayout(LayoutKind.Sequential)] private struct SidAndAttributes { internal IntPtr Sid; internal uint Attributes; }
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool CreateRestrictedToken(IntPtr existing, uint flags, uint disableCount, ref SidAndAttributes disable,
-        uint deleteCount, IntPtr delete, uint restrictCount, ref SidAndAttributes restrict, out IntPtr token);
-    [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+        uint deleteCount, IntPtr delete, uint restrictCount, ref SidAndAttributes restrict, out SafeAccessTokenHandle token);
 }
