@@ -27,7 +27,8 @@ public sealed partial class MainWindow : Window
     const string Downloads = "https://github.com/Nikitid/luci-app-ikev2-manager/releases/download/v";
     static readonly Version Own = typeof(MainWindow).Assembly.GetName().Version;
 
-    readonly DispatcherQueueTimerHolder timer;
+    readonly DispatcherQueueTimerHolder timer, reportTimer;
+    readonly Reports reports = new();
     readonly Tray tray;
     readonly TextBox[] addressValues = new TextBox[4];
     readonly Button[] addressCopy = new Button[4];
@@ -71,6 +72,10 @@ public sealed partial class MainWindow : Window
         };
 
         timer = new DispatcherQueueTimerHolder(DispatcherQueue, TimeSpan.FromSeconds(3), Refresh);
+        // Support's answers are looked for at start and every ten minutes.
+        reports.Changed += () => SupportNotice.IsOpen = reports.Unread > 0;
+        reportTimer = new DispatcherQueueTimerHolder(DispatcherQueue, TimeSpan.FromMinutes(10), () => reports.LookAround());
+        reports.LookAround();
         ThreadPool.RegisterWaitForSingleObject(Program.ShowRequests, (_, _) => DispatcherQueue.TryEnqueue(ShowWindow), null, -1, false);
         Activated += FirstActivation;
         Refresh();
@@ -106,6 +111,7 @@ public sealed partial class MainWindow : Window
     void Teardown()
     {
         timer.Stop();
+        reportTimer.Stop();
         tray.Dispose();
     }
 
@@ -396,12 +402,15 @@ public sealed partial class MainWindow : Window
         Refresh();
     }
 
-    async void OnReport(object sender, RoutedEventArgs args)
+    void OnReport(object sender, RoutedEventArgs args) => _ = new ReportDialog(this, reports, StateReport(), current.State, false).ShowAsync();
+    void OnReplies(object sender, RoutedEventArgs args) => _ = new ReportDialog(this, reports, StateReport(), current.State, true).ShowAsync();
+
+    // The state report, one field to a line, as the person sees and sends it.
+    string StateReport()
     {
         var serializer = new JavaScriptSerializer();
         var fields = serializer.Deserialize<Dictionary<string, object>>(current.Report());
-        string json = "{\r\n" + string.Join(",\r\n", fields.Select(pair => "  " + serializer.Serialize(pair.Key) + ": " + serializer.Serialize(pair.Value))) + "\r\n}";
-        await new ReportDialog(this, json, current.State).ShowAsync();
+        return "{\r\n" + string.Join(",\r\n", fields.Select(pair => "  " + serializer.Serialize(pair.Key) + ": " + serializer.Serialize(pair.Value))) + "\r\n}";
     }
 
     // ---- Look -------------------------------------------------------------

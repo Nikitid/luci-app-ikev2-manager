@@ -1304,16 +1304,30 @@ addresses that lead nowhere, so nothing reaches the real service.
 
 ## Problem reports to the developer
 
-The **Report** window of both clients, beside the state report it shows,
-sends a problem report to the developer's report service
-(`https://reports.nikitid.ru`, project `waypoint`): the person's text, an
-optional address for a reply, up to five PNG or JPEG pictures pasted with
-Cmd+V or Ctrl+V or dropped on the window (5 MB each) and, when ticked, that
-state report as a file. Context carries the application and system versions,
-the processor, the language and the current state code. A report is sent and
-forgotten: the client keeps no copy, number or status of it, and an answer,
-if one is asked for, comes by mail. Each report has its own random claim
-token, used only while it is sent. Text alone is one request that submits it;
+The **Report** window of both clients has two parts. **New report**, beside
+the state report it shows, sends a report to the developer's report service
+(`https://reports.nikitid.ru`, project `waypoint`): its kind as the person
+picks it (problem, idea, question or feedback - `bug`, `feature`, `question`,
+`feedback`), the person's text, an optional address for a reply, up to five
+PNG or JPEG pictures pasted with Cmd+V or Ctrl+V or dropped on the window
+(5 MB each) and, when ticked, that state report as a file. Context carries the
+application and system versions, the processor, the language and the current
+state code. Every report names its sender by a random reporter ID made once
+per installation and user (macOS: the app's settings; Windows: the user's
+`Software\Waypoint` key); the service keeps only a keyed hash of it. Each report
+has its own random claim token. Text alone is one request that submits it;
 with files the client registers each with its size and SHA-256, uploads it
-and finalizes. `ProblemReports.swift` and `ProblemReports.cs` hold this,
-tested against a recorder of the service contract.
+and finalizes.
+
+**My reports** lists the reports sent from this computer, newest first, with
+their state and support's replies, and lets the person answer one (`POST
+.../messages`, which reopens a resolved or closed report). The client keeps a
+journal of at most fifty reports - number, claim, kind, first line, when sent
+and how many of support's replies were seen - in a file only this user can
+read: `~/Library/Application Support/Waypoint/reports.json` (mode 0600), or
+`%LOCALAPPDATA%\Waypoint\reports.dat` encrypted with DPAPI for the user. It
+asks the service about the twenty newest at start, every ten minutes and when
+the list is opened; a report the service no longer knows leaves the journal.
+Unread replies show a notice in the main window. `ProblemReports.swift` and
+`ProblemReports.cs` hold this, tested against a recorder of the service
+contract.

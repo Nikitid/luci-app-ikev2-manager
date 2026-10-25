@@ -49,6 +49,11 @@
                     </Grid>
 
                     <InfoBar x:Name="Notice" Severity="Warning" IsClosable="False" />
+                    <InfoBar x:Name="SupportNotice" Severity="Success" IsClosable="False" Message="Поддержка ответила на ваше обращение.">
+                        <InfoBar.ActionButton>
+                            <Button Content="Открыть" Click="OnReplies" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
 
                     <Border Style="{StaticResource Card}">
                         <StackPanel Spacing="6">

@@ -97,7 +97,7 @@ else
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-build.log '$BASE/upload/windows-build.log' | Out-Null; Get-ChildItem C:\\waypoint\\out -File | Where-Object { \$_.Extension -in '.exe','.msi','.zip' } | ForEach-Object { Invoke-WebRequest -UseBasicParsing -Method Put -InFile \$_.FullName ('$BASE/upload/' + \$_.Name) | Out-Null }"
 fi
 # Parallels rejects long -Command arguments; the script goes encoded.
-COMMAND="\$ProgressPreference='SilentlyContinue'; \$env:WAYPOINT_DOTNET='C:\\build\\dotnet\\dotnet.exe'; New-Item -ItemType Directory -Force C:\\waypoint | Out-Null; New-Item -ItemType File -Force C:\\waypoint\\windows-$MODE.log | Out-Null; Invoke-WebRequest -UseBasicParsing '$BASE/source.zip' -OutFile C:\\waypoint\\source.zip; Expand-Archive -Force C:\\waypoint\\source.zip C:\\waypoint\\src; $RUN; $UPLOAD; exit \$code"
+COMMAND="\$ProgressPreference='SilentlyContinue'; \$env:WAYPOINT_DOTNET='C:\\build\\dotnet\\dotnet.exe'; New-Item -ItemType Directory -Force C:\\waypoint | Out-Null; New-Item -ItemType File -Force C:\\waypoint\\windows-$MODE.log | Out-Null; Invoke-WebRequest -UseBasicParsing '$BASE/source.zip' -OutFile C:\\waypoint\\source.zip; Remove-Item -Recurse -Force C:\\waypoint\\src -ErrorAction SilentlyContinue; Expand-Archive -Force C:\\waypoint\\source.zip C:\\waypoint\\src; $RUN; $UPLOAD; exit \$code"
 set +e
 prlctl exec "$VM" powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand "$(printf '%s' "$COMMAND" | iconv -f utf-8 -t utf-16le | base64)"
 rc=$?

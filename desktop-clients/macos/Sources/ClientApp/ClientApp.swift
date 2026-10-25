@@ -22,6 +22,10 @@ final class ClientModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        lookAtReports()
+        reportTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.lookAtReports() }
+        }
     }
 
     private func ask(_ request: Control.Request, then: @escaping @MainActor (Control.Response?) -> Void) {
@@ -205,14 +209,83 @@ final class ClientModel: ObservableObject {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    // Problem reports to the developer: the person's words, an address for a
-    // reply if they give one, pictures they pasted and the state report above
-    // if they tick it. Sent and forgotten: nothing is kept here.
+    // Reports to the developer: their kind, the person's words, an address
+    // for a reply if they give one, pictures they pasted and the state report
+    // above if they tick it. The journal keeps each report's number and claim,
+    // so support's answers can be read here and answered.
     @Published var reportMessage = ""
     @Published var reportSending = false
+    @Published var reports: [SentReport] = []
+    @Published var conversations: [String: ReportConversation] = [:]
+    private let journal = ReportJournal()
+    private var reportTimer: Timer?
+    private var lookingAtReports = false
+
+    /// Support's replies the person has not opened yet.
+    var unread: Int { reports.reduce(0) { $0 + unread($1) } }
+    func unread(_ report: SentReport) -> Int { max(0, (conversations[report.id]?.fromSupport ?? 0) - report.seen) }
+
+    /// Asks the service about the twenty newest reports; one it no longer
+    /// knows leaves the journal.
+    func lookAtReports() {
+        reports = journal.load()
+        guard !lookingAtReports else { return }
+        lookingAtReports = true
+        let asked = Array(reports.prefix(20))
+        Task {
+            for report in asked {
+                do {
+                    let conversation = try await ProblemReporter().conversation(report)
+                    await MainActor.run { conversations[report.id] = conversation }
+                } catch ProblemReportError.gone {
+                    try? journal.remove(report.id)
+                    await MainActor.run { conversations[report.id] = nil }
+                } catch {}
+            }
+            await MainActor.run { reports = journal.load(); lookingAtReports = false }
+        }
+    }
+
+    /// The person opened REPORT: what support said so far is seen.
+    func markRead(_ report: SentReport) {
+        guard let conversation = conversations[report.id], conversation.fromSupport != report.seen else { return }
+        try? journal.markSeen(report.id, conversation.fromSupport)
+        reports = journal.load()
+    }
+
+    /// The person's answer on REPORT; called with true once it is sent.
+    func answer(_ report: SentReport, _ text: String, done: @escaping @MainActor (Bool) -> Void) {
+        guard !reportSending else { return }
+        reportSending = true
+        reportMessage = ""
+        Task {
+            do {
+                try await ProblemReporter().reply(report, text)
+                let conversation = try? await ProblemReporter().conversation(report)
+                await MainActor.run {
+                    if let conversation { conversations[report.id] = conversation }
+                    reportSending = false
+                    done(true)
+                }
+            } catch {
+                await MainActor.run { reportMessage = Self.words(error); reportSending = false; done(false) }
+            }
+        }
+    }
+
+    static func words(_ error: Error) -> String {
+        switch error as? ProblemReportError {
+        case .unavailable: "Сервис отчётов сейчас не принимает отчёты Waypoint."
+        case .busy: "Сервис отчётов занят; отправьте снова через несколько минут."
+        case .unreachable: "Сервис отчётов недоступен. Проверьте интернет и отправьте снова."
+        case .gone: "Обращение больше не найдено на сервере."
+        case .refused(let status, let code): "Сервис отклонил отчёт (" + String(status) + (code.isEmpty ? "" : ", " + code) + ")."
+        case nil: "Отчёт не отправлен."
+        }
+    }
 
     /// Called with true when the report went out, so the form can be cleared.
-    func sendReport(_ text: String, contact: String, attach: Bool, pictures: [Data], done: @escaping @MainActor (Bool) -> Void) {
+    func sendReport(_ text: String, kind: ReportKind, contact: String, attach: Bool, pictures: [Data], done: @escaping @MainActor (Bool) -> Void) {
         guard !reportSending else { return }
         reportSending = true
         reportMessage = "Отправка…"
@@ -233,23 +306,17 @@ final class ClientModel: ObservableObject {
         if attach { files.append(ReportFile(name: "waypoint-state.json", contentType: "application/json", data: Data(report.utf8))) }
         Task {
             do {
-                _ = try await ProblemReporter().send(description: text, contact: contact, context: context, files: files)
+                let sent = try await ProblemReporter().send(description: text, kind: kind, reporter: ReporterIdentity.id(),
+                                                            contact: contact, context: context, files: files)
                 await MainActor.run {
-                    reportMessage = "Отчёт отправлен."
+                    try? journal.add(sent)
+                    reports = journal.load()
+                    reportMessage = "Отправлено. Ответ поддержки появится во вкладке «Мои обращения»."
                     reportSending = false
                     done(true)
                 }
-            } catch let error as ProblemReportError {
-                let text: String
-                switch error {
-                case .unavailable: text = "Сервис отчётов сейчас не принимает отчёты Waypoint."
-                case .busy: text = "Сервис отчётов занят; отправьте снова через несколько минут."
-                case .unreachable: text = "Сервис отчётов недоступен. Проверьте интернет и отправьте снова."
-                case .refused(let status, let code): text = "Сервис отклонил отчёт (" + String(status) + (code.isEmpty ? "" : ", " + code) + ")."
-                }
-                await MainActor.run { reportMessage = text; reportSending = false; done(false) }
             } catch {
-                await MainActor.run { reportMessage = "Отчёт не отправлен."; reportSending = false; done(false) }
+                await MainActor.run { reportMessage = Self.words(error); reportSending = false; done(false) }
             }
         }
     }
@@ -447,6 +514,82 @@ struct MenuBarView: View {
     }
 }
 
+/// The reports sent from this Mac: a list, and for the one opened its
+/// conversation with support and a field to answer.
+struct ReportsView: View {
+    @ObservedObject var model: ClientModel
+    @State private var opened: String?
+    @State private var answerText = ""
+
+    var body: some View {
+        if let id = opened, let report = model.reports.first(where: { $0.id == id }) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Button { opened = nil; answerText = "" } label: { Image(systemName: "chevron.left") }.buttonStyle(.borderless)
+                    Text(report.kind.label + " · " + report.title).bold().lineLimit(1)
+                    Spacer()
+                    if let conversation = model.conversations[report.id] { Text(conversation.stateLabel).foregroundStyle(.secondary) }
+                }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        let replies = model.conversations[report.id]?.replies ?? []
+                        if replies.isEmpty { Text("Ответов пока нет.").foregroundStyle(.secondary) }
+                        ForEach(Array(replies.enumerated()), id: \.offset) { _, reply in
+                            HStack {
+                                if reply.from == .reporter { Spacer(minLength: 60) }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(reply.from == .support ? "Поддержка" : "Вы").font(.caption).foregroundStyle(.secondary)
+                                    Text(reply.body).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                    if let created = reply.createdAt {
+                                        Text(created.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .padding(8)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(reply.from == .support ? Color.secondary.opacity(0.12) : Color.accentColor.opacity(0.15)))
+                                if reply.from == .support { Spacer(minLength: 60) }
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(width: 520, height: 260)
+                TextEditor(text: $answerText).font(.body).frame(width: 520, height: 60)
+                    .overlay(alignment: .topLeading) {
+                        if answerText.isEmpty { Text("Ответ поддержке").foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
+                    }
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3)))
+                if !model.reportMessage.isEmpty { Text(model.reportMessage).font(.callout).foregroundStyle(.secondary) }
+                HStack {
+                    Spacer()
+                    Button("Ответить") { model.answer(report, answerText) { sent in if sent { answerText = "" } } }
+                        .disabled(model.reportSending || answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || answerText.count > 5000)
+                }
+            }
+            .onAppear { model.markRead(report) }
+            .onChange(of: model.conversations[report.id]?.fromSupport) { model.markRead(report) }
+        } else if model.reports.isEmpty {
+            Text("Отсюда ещё ничего не отправляли.").foregroundStyle(.secondary).frame(width: 520, height: 120)
+        } else {
+            List(model.reports) { report in
+                Button { model.reportMessage = ""; opened = report.id } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(report.title.isEmpty ? report.kind.label : report.title).lineLimit(1)
+                            Text(report.kind.label + " · " + report.sentAt.formatted(date: .abbreviated, time: .omitted) +
+                                 (model.conversations[report.id].map { " · " + $0.stateLabel } ?? ""))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if model.unread(report) > 0 {
+                            Text("\(model.unread(report))").font(.caption.bold()).foregroundStyle(.white)
+                                .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(Color.accentColor))
+                        }
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
+            .frame(width: 520, height: 320)
+        }
+    }
+}
+
 struct ClientView: View {
     @ObservedObject var model: ClientModel
     @State private var invitation = ""
@@ -455,6 +598,9 @@ struct ClientView: View {
     @State private var problem = ""
     @State private var problemContact = ""
     @State private var problemAttach = true
+    @State private var problemKind: ReportKind = .bug
+    /// 0: a new report; 1: the reports sent from here and their conversations.
+    @State private var reportTab = 0
     /// Pictures pasted with ⌘V or dropped on the form, as PNG or JPEG.
     @State private var problemPictures: [Data] = []
     @State private var pasteMonitor: Any?
@@ -531,6 +677,15 @@ struct ClientView: View {
                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(10)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Tone.working.color.opacity(0.12)))
             }
+            if model.unread > 0 {
+                HStack {
+                    Text("Поддержка ответила на ваше обращение.").fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Открыть") { reportTab = 1; reporting = true }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Tone.open.color.opacity(0.12)))
+            }
             if !model.message.isEmpty { Text(model.message).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 0)
             HStack {
@@ -592,11 +747,22 @@ struct ClientView: View {
         }
         .sheet(isPresented: $reporting) {
             VStack(alignment: .leading, spacing: 12) {
+                Picker("", selection: $reportTab) {
+                    Text("Новое обращение").tag(0)
+                    Text(model.unread > 0 ? "Мои обращения (\(model.unread))" : "Мои обращения").tag(1)
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 520)
+                if reportTab == 1 {
+                    ReportsView(model: model)
+                    HStack { Spacer(); Button("Закрыть") { reporting = false } }
+                } else {
                 Text("Отчёт").font(.headline)
                 ScrollView { Text(model.report).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                     .frame(width: 520, height: 200)
                 Divider()
-                Text("Сообщить о проблеме разработчику").font(.subheadline).bold()
+                Text("Написать разработчику").font(.subheadline).bold()
+                Picker("", selection: $problemKind) {
+                    ForEach(ReportKind.allCases, id: \.self) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 520)
                 TextEditor(text: $problem).font(.body).frame(width: 520, height: 80)
                     .overlay(alignment: .topLeading) {
                         if problem.isEmpty { Text("Что случилось и что вы делали перед этим").foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
@@ -630,7 +796,7 @@ struct ClientView: View {
                     Button("Закрыть") { reporting = false }
                     Button("Отправить") {
                         let contact = problemContact.trimmingCharacters(in: .whitespaces)
-                        model.sendReport(problem.trimmingCharacters(in: .whitespacesAndNewlines), contact: contact,
+                        model.sendReport(problem.trimmingCharacters(in: .whitespacesAndNewlines), kind: problemKind, contact: contact,
                                          attach: problemAttach, pictures: problemPictures) { sent in
                             guard sent else { return }
                             problem = ""
@@ -640,6 +806,7 @@ struct ClientView: View {
                     }.keyboardShortcut(.defaultAction)
                         .disabled(model.reportSending || problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                                   !(problemContact.isEmpty || problemContact.range(of: "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]+$", options: .regularExpression) != nil))
+                }
                 }
             }.padding(20)
             .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
@@ -660,6 +827,7 @@ struct ClientView: View {
             }
             .onAppear {
                 model.reportMessage = ""
+                if reportTab == 1 { model.lookAtReports() }
                 // ⌘V with a picture on the clipboard and no text: the picture
                 // goes to the report, wherever the cursor is in the form.
                 pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
