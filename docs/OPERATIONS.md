@@ -927,11 +927,16 @@ profile, which is made when the link is opened; the pending links are in
 `/var/run/ikev2-profile-links`, mode 700. The Windows XML contains a
 catch-all NRPT rule for the VPN resolver but no password and is also suitable
 for MDM. Download the reusable `Nikitid-IKEv2-Setup.exe` once from the top of
-the page, select any downloaded XML in it and choose Install. It requests UAC
-and provisions the selected VPNv2 CSP profile directly through the built-in
-WMI Bridge; it doesn't run PowerShell or retain a scheduled task or service. The same UI
-can edit the connection name, update or remove the profile, and detailed
-failures are written under the user's local application-data directory. The
+the page, select any downloaded XML in it and choose Install. It needs no
+administrator: it makes the connection for the signed-in user with Windows'
+own VPN commands (`VpnProfile.ps1`, carried inside the program) - IKEv2 with
+the XML's EAP configuration and cipher suite, the XML's routes in split mode -
+and puts the connection's interface first, so names go to the VPN resolver
+while it is connected and nothing stays in force after; Windows 10 and 11
+alike. It no longer uses the MDM WMI bridge, which Windows 10 refuses outside
+the system account. It retains no scheduled task or service. The same UI can
+edit the connection name, update or remove the profile, and detailed failures
+are written under the user's local application-data directory. The
 server domain is used as the default connection name. Plain double-click
 installation of CSP XML itself is not supported by Windows.
 

@@ -24,7 +24,7 @@ One OpenWrt package, `luci-app-ikev2-manager`, containing three things:
   network namespaces, failover and return with real traffic. That one needs
   the kernel's XFRM interfaces, which CI has and OrbStack does not; without
   them it says it was skipped
-- **Windows client** - `scripts/windows-vm.sh test|build` runs `desktop-clients/windows/test.ps1 -Wfp` or `build.ps1` in a Parallels Windows VM on the Mac, reverted to its snapshot before each run
+- **Windows client** - `scripts/windows-vm.sh test|build|install` runs `desktop-clients/windows/test.ps1 -Wfp`, `build.ps1` or `install-check.ps1`, and `run SCRIPT.ps1 [--user]` any repository script (the profile installer's checks), in a Parallels Windows VM on the Mac, reverted to its snapshot before each run
 
 One sibling repository, not in this tree: `openwrt-feed` (the shared signed
 feed every router installs from).

@@ -5,6 +5,9 @@
 #   scripts/windows-vm.sh build    desktop-clients/windows/build.ps1, outputs in dist/windows/
 #   scripts/windows-vm.sh install  desktop-clients/windows/install-check.ps1 with the outputs of
 #                                  build and the setup of release IKEV2_WINDOWS_EARLIER (default v2.2.8)
+#   scripts/windows-vm.sh run SCRIPT.ps1 [--user]
+#                                  a PowerShell script of the repository, as an administrator or, with
+#                                  --user, as the user signed in to the VM; log in dist/windows/windows-run.log
 #
 # The VM (IKEV2_WINDOWS_VM, default "WeExport Build") is reverted to its snapshot
 # (IKEV2_WINDOWS_SNAPSHOT, default "build-ready") first and suspended afterwards, so
@@ -14,7 +17,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:-test}"
-case "$MODE" in test | build | install) ;; *) echo "usage: $0 test|build|install" >&2; exit 2 ;; esac
+case "$MODE" in test | build | install | run) ;; *) echo "usage: $0 test|build|install|run SCRIPT.ps1 [--user]" >&2; exit 2 ;; esac
+SCRIPT="${2:-}"
+AS=()
+if [ "$MODE" = run ]; then
+    case "$SCRIPT" in *.ps1) ;; *) echo "usage: $0 run SCRIPT.ps1 [--user]" >&2; exit 2 ;; esac
+    git ls-files --error-unmatch "$SCRIPT" >/dev/null 2>&1 || [ -f "$SCRIPT" ] || { echo "$SCRIPT not found" >&2; exit 2; }
+    [ "${3:-}" != --user ] || AS=(--current-user)
+fi
 VM="${IKEV2_WINDOWS_VM:-WeExport Build}"
 SNAPSHOT="${IKEV2_WINDOWS_SNAPSHOT:-build-ready}"
 HOST=$(prlsrvctl net info Shared | awk '/Parallels adapter/{getline; print $3}')
@@ -39,9 +49,10 @@ snapshot=$(prlctl snapshot-list "$VM" -j | python3 -c "import json,sys; print(ne
 prlctl snapshot-switch "$VM" --id "$snapshot" >/dev/null
 prlctl start "$VM" >/dev/null 2>&1 || true
 # A restored VM answers simple commands before it can open a PowerShell session.
-for _ in $(seq 1 120); do prlctl exec "$VM" powershell -NoProfile -Command exit >/dev/null 2>&1 && break; sleep 3; done
+for _ in $(seq 1 120); do prlctl exec "$VM" ${AS[@]+"${AS[@]}"} powershell -NoProfile -Command exit >/dev/null 2>&1 && break; sleep 3; done
 
-{ git ls-files desktop-clients; git ls-files --others --exclude-standard desktop-clients; } | sort -u | zip -q "$WORK/source.zip" -@
+{ git ls-files desktop-clients windows-profile-installer; git ls-files --others --exclude-standard desktop-clients windows-profile-installer; } |
+    sort -u | zip -q "$WORK/source.zip" -@
 mkdir -p "$WORK/files/earlier"
 if [ "$MODE" = install ]; then
     for file in dist/windows/WaypointSetup.exe dist/windows/Waypoint-*-x64.msi dist/windows/Waypoint-*-arm64.msi; do
@@ -92,6 +103,9 @@ elif [ "$MODE" = install ]; then
     # Long command lines are cut short by Parallels: the check fetches its own files.
     RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\install-check.ps1 -Base '$BASE/files' -Files C:\\waypoint\\files *>&1 | Tee-Object C:\\waypoint\\windows-install.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-install.log; \$code = 1 }"
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-install.log '$BASE/upload/windows-install.log' | Out-Null"
+elif [ "$MODE" = run ]; then
+    RUN="try { & C:\\waypoint\\src\\$(printf '%s' "$SCRIPT" | sed 's|/|\\|g') *>&1 | Tee-Object C:\\waypoint\\windows-run.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-run.log; \$code = 1 }"
+    UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-run.log '$BASE/upload/windows-run.log' | Out-Null"
 else
     RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\build.ps1 -Output C:\\waypoint\\out *>&1 | Tee-Object C:\\waypoint\\windows-build.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-build.log; \$code = 1 }"
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-build.log '$BASE/upload/windows-build.log' | Out-Null; Get-ChildItem C:\\waypoint\\out -File | Where-Object { \$_.Extension -in '.exe','.msi','.zip' } | ForEach-Object { Invoke-WebRequest -UseBasicParsing -Method Put -InFile \$_.FullName ('$BASE/upload/' + \$_.Name) | Out-Null }"
@@ -99,7 +113,7 @@ fi
 # Parallels rejects long -Command arguments; the script goes encoded.
 COMMAND="\$ProgressPreference='SilentlyContinue'; \$env:WAYPOINT_DOTNET='C:\\build\\dotnet\\dotnet.exe'; New-Item -ItemType Directory -Force C:\\waypoint | Out-Null; New-Item -ItemType File -Force C:\\waypoint\\windows-$MODE.log | Out-Null; Invoke-WebRequest -UseBasicParsing '$BASE/source.zip' -OutFile C:\\waypoint\\source.zip; Remove-Item -Recurse -Force C:\\waypoint\\src -ErrorAction SilentlyContinue; Expand-Archive -Force C:\\waypoint\\source.zip C:\\waypoint\\src; $RUN; $UPLOAD; exit \$code"
 set +e
-prlctl exec "$VM" powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand "$(printf '%s' "$COMMAND" | iconv -f utf-8 -t utf-16le | base64)"
+prlctl exec "$VM" ${AS[@]+"${AS[@]}"} powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand "$(printf '%s' "$COMMAND" | iconv -f utf-8 -t utf-16le | base64)"
 rc=$?
 set -e
 echo "Windows $MODE finished with $rc; log in dist/windows/windows-$MODE.log"

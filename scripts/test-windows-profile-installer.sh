@@ -3,6 +3,7 @@ set -eu
 
 root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 source="$root/windows-profile-installer/Program.cs"
+script="$root/windows-profile-installer/VpnProfile.ps1"
 binary="$root/windows-profile-installer/bin/Nikitid-IKEv2-Setup.exe"
 
 [ -s "$binary" ] || {
@@ -17,32 +18,23 @@ binary="$root/windows-profile-installer/bin/Nikitid-IKEv2-Setup.exe"
 	exit 1
 }
 
-grep -Fq 'SecurityElement.Escape(document.Xml)' "$source"
-grep -Fq 'MDM_VPNv2_01' "$source"
-grep -Fq 'Verb = "runas"' "$source"
-grep -Fq 'profile.Put()' "$source"
-grep -Fq 'Windows не вернула установленный профиль' "$source"
-grep -Fq 'Icon.ExtractAssociatedIcon(Application.ExecutablePath)' "$source"
-grep -Fq 'DarkTitleBar.Apply(Handle)' "$source"
-grep -Fq 'BackColor = AppPalette.Surface;' "$source"
-grep -Fq 'Panel card = new Panel' "$source"
-grep -Fq 'nameInput.Controls.Add(nameTextBox)' "$source"
-grep -Fq 'card.Controls.Add(nameInput)' "$source"
-grep -Fq 'AppPalette.Background' "$source"
-grep -Fq 'SetStatus(message, AppPalette.Success)' "$source"
-grep -Fq 'class ModernButton' "$source"
-grep -Fq 'OpenFileDialog' "$source"
-grep -Fq 'Выберите XML-профиль, чтобы продолжить.' "$source"
-grep -Fq 'installButton.Enabled = true;' "$source"
-grep -Fq 'MakeButton("Журнал", 44, 336, 136' "$source"
-grep -Fq 'MakeButton("Открыть VPN", 209, 336, 136' "$source"
-grep -Fq 'MakeButton("Удалить", 374, 336, 136' "$source"
-grep -Fq 'MakeButton("Установить", 540, 336, 136' "$source"
-grep -Fq 'class WorkerOperation' "$source"
-grep -Fq 'EnableRaisingEvents = true' "$source"
-grep -Fq 'CompleteWorker(operation, capturedPath, exitCode)' "$source"
-grep -Fq 'WindowStyle = ProcessWindowStyle.Hidden' "$source"
-grep -Fq -- '-win32icon:' "$root/windows-profile-installer/build.sh"
+# The shipped program carries the profile script as it is now: a source
+# change without a rebuild would ship the old behaviour.
+python3 - "$binary" "$script" <<'EOF' || {
+import sys
+binary, script = (open(path, 'rb').read() for path in sys.argv[1:3])
+sys.exit(0 if script in binary else 1)
+EOF
+	printf 'Windows profile installer binary does not carry the current VpnProfile.ps1; run windows-profile-installer/build.sh\n' >&2
+	exit 1
+}
+
+# The profile is made for the user who runs the program, with Windows' own
+# VPN commands: no administrator, no MDM bridge.
+if grep -Eq 'MDM_VPNv2|Verb = "runas"' "$source"; then
+	printf 'Windows profile installer went back to the MDM bridge or to elevation\n' >&2
+	exit 1
+fi
 
 if grep -Fq 'button.Region =' "$source"; then
 	printf 'Windows profile installer still clips native button borders\n' >&2
@@ -59,9 +51,9 @@ if grep -Fq 'DNS-политика действует только' "$source"; th
 	exit 1
 fi
 
-if grep -Eqi 'powershell|scheduledtask|create(service|process)' "$source"; then
-	printf 'Windows profile installer gained an external script or background worker\n' >&2
-	exit 1
+# Reading a profile, the script's answers and the friendly name, under Mono.
+if command -v mcs >/dev/null 2>&1 && command -v mono >/dev/null 2>&1; then
+	"$root/windows-profile-installer/test.sh"
 fi
 
 printf 'Windows profile installer tests OK\n'

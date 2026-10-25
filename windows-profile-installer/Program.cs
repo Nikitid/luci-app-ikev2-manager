@@ -7,9 +7,11 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Net;
+using System.Reflection;
 using System.Security;
 using System.Security.Principal;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Xml;
@@ -32,12 +34,6 @@ namespace Nikitid.IkeV2ProfileInstaller
                     null : ProfileDocument.Load(invocation.ProfilePath);
                 if (profile != null && !String.IsNullOrEmpty(invocation.FriendlyName))
                     profile.SetName(invocation.FriendlyName);
-                if (invocation.Worker)
-                {
-                    WorkerOperation.Run(profile, invocation.Operation,
-                        invocation.ResultPath);
-                    return;
-                }
                 Application.Run(new InstallerForm(profile, invocation.Operation));
             }
             catch (Exception exception)
@@ -181,10 +177,7 @@ namespace Nikitid.IkeV2ProfileInstaller
             if (profile != null && automaticOperation == "install")
                 InstallProfile(this, EventArgs.Empty);
             else if (profile != null && automaticOperation == "remove")
-                RunElevated("remove", delegate {
-                    VpnProfileStore.Remove(profile.Name);
-                    return "Профиль удалён.";
-                });
+                RunOperation("remove", delegate { return VpnProfileStore.Remove(profile); });
         }
 
         protected override void OnHandleCreated(EventArgs args)
@@ -255,42 +248,40 @@ namespace Nikitid.IkeV2ProfileInstaller
 				return;
 			}
 			nameTextBox.Enabled = true;
-			if (!Elevation.IsAdministrator())
-			{
-				SetStatus("Можно установить или обновить профиль.",
-					AppPalette.Accent);
-				installButton.Text = "Установить";
-				installButton.Enabled = true;
-				removeButton.Enabled = true;
-				openButton.Enabled = true;
-				return;
-			}
-
-            try
-            {
-                bool installed = VpnProfileStore.Exists(profile.Name);
-                SetStatus(installed
-                    ? "Профиль установлен. Его можно безопасно обновить."
-                    : "Профиль ещё не установлен.", installed ?
-                    AppPalette.Success : AppPalette.Accent);
-                installButton.Text = installed ? "Обновить" : "Установить";
-                removeButton.Enabled = installed;
-                openButton.Enabled = installed;
-            }
-            catch (Exception exception)
-            {
-                SetStatus("Не удалось прочитать состояние: " +
-                    ExceptionText.Format(exception), AppPalette.Error);
-                removeButton.Enabled = false;
-            }
+            // Asked off the window's thread: Windows' VPN commands take a moment.
+            ProfileDocument asked = profile;
+            SetStatus("Проверка профиля…", AppPalette.Muted);
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate {
+                bool installed = false;
+                Exception failure = null;
+                try { installed = VpnProfileStore.Exists(asked); }
+                catch (Exception exception) { failure = exception; }
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke((MethodInvoker)delegate {
+                    if (profile != asked) return;
+                    if (failure != null)
+                    {
+                        SetStatus("Не удалось прочитать состояние: " + ExceptionText.Format(failure), AppPalette.Error);
+                        installButton.Text = "Установить";
+                        installButton.Enabled = true;
+                        removeButton.Enabled = true;
+                        return;
+                    }
+                    SetStatus(installed
+                        ? "Профиль установлен. Его можно безопасно обновить."
+                        : "Профиль ещё не установлен.", installed ?
+                        AppPalette.Success : AppPalette.Accent);
+                    installButton.Text = installed ? "Обновить" : "Установить";
+                    installButton.Enabled = true;
+                    removeButton.Enabled = installed;
+                    openButton.Enabled = installed;
+                });
+            });
         }
 
         private void InstallProfile(object sender, EventArgs args)
         {
-            RunElevated("install", delegate {
-                VpnProfileStore.Install(profile);
-                return "Профиль установлен и проверен. Откройте VPN и подключитесь.";
-            });
+            RunOperation("install", delegate { return VpnProfileStore.Install(profile); });
         }
 
         private void RemoveProfile(object sender, EventArgs args)
@@ -310,13 +301,12 @@ namespace Nikitid.IkeV2ProfileInstaller
                     MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
 
-            RunElevated("remove", delegate {
-                VpnProfileStore.Remove(profile.Name);
-                return "Профиль удалён.";
-            });
+            RunOperation("remove", delegate { return VpnProfileStore.Remove(profile); });
         }
 
-        private void RunElevated(string operation, Func<string> action)
+        // Everything is done for the person running this, with no
+        // administrator's right asked for, on a thread of its own.
+        private void RunOperation(string operation, Func<string> action)
         {
             try
             {
@@ -329,126 +319,29 @@ namespace Nikitid.IkeV2ProfileInstaller
                 return;
             }
 
-            if (!Elevation.IsAdministrator())
-            {
-                string resultPath = null;
-                try
-                {
-                    resultPath = WorkerResult.Create();
-                    Process process = new Process {
-                        StartInfo = new ProcessStartInfo {
-                            FileName = Application.ExecutablePath,
-                            Arguments = "--worker --" + operation + " --result \"" +
-                                resultPath.Replace("\"", "") + "\" --name \"" +
-                                profile.Name + "\" \"" +
-                                profile.Path.Replace("\"", "") + "\"",
-                            Verb = "runas",
-                            UseShellExecute = true,
-                            WindowStyle = ProcessWindowStyle.Hidden
-                        },
-                        EnableRaisingEvents = true
-                    };
-                    string capturedPath = resultPath;
-                    process.Exited += delegate {
-                        int exitCode = process.ExitCode;
-                        process.Dispose();
-                        if (IsDisposed || !IsHandleCreated)
-                        {
-                            WorkerResult.Delete(capturedPath);
-                            return;
-                        }
-                        try
-                        {
-                            BeginInvoke((MethodInvoker)delegate {
-                                CompleteWorker(operation, capturedPath, exitCode);
-                            });
-                        }
-                        catch
-                        {
-                            WorkerResult.Delete(capturedPath);
-                        }
-                    };
-                    SetBusy(true);
-                    SetStatus("Подтвердите действие в окне контроля учётных записей Windows.",
-                        AppPalette.Accent);
-                    if (!process.Start())
-                        throw new InvalidOperationException("Windows не запустила служебную операцию.");
-                }
-                catch (System.ComponentModel.Win32Exception exception)
-                {
-                    WorkerResult.Delete(resultPath);
-                    SetBusy(false);
-                    if (exception.NativeErrorCode == 1223)
-                        SetStatus("Операция отменена.", AppPalette.Muted);
-                    else
-                        ShowFailure(operation, exception);
-                }
-                catch (Exception exception)
-                {
-                    WorkerResult.Delete(resultPath);
-                    SetBusy(false);
-                    ShowFailure(operation, exception);
-                }
-                return;
-            }
-
             SetBusy(true);
-            try
-            {
-                InstallerLog.Write(operation + " started for " + profile.Name);
-                string message = action();
-                InstallerLog.Write(operation + " completed for " + profile.Name);
-                SetStatus(message, AppPalette.Success);
-                RefreshStatus();
-            }
-            catch (Exception exception)
-            {
-                ShowFailure(operation, exception);
-            }
-            finally
-            {
-                SetBusy(false);
-            }
-        }
-
-        private void CompleteWorker(string operation, string resultPath, int exitCode)
-        {
-            bool success;
-            string message;
-            try
-            {
-                message = WorkerResult.Read(resultPath, out success);
-            }
-            catch (Exception exception)
-            {
-                success = false;
-                message = ExceptionText.Format(exception);
-            }
-            finally
-            {
-                WorkerResult.Delete(resultPath);
-                SetBusy(false);
-            }
-
-            if (!success || exitCode != 0)
-            {
-                ShowFailure(operation, new InvalidOperationException(message));
-                return;
-            }
-
-            if (operation == "install")
-            {
-                installButton.Text = "Обновить";
-                removeButton.Enabled = true;
-                openButton.Enabled = true;
-            }
-            else
-            {
-                installButton.Text = "Установить";
-                removeButton.Enabled = false;
-                openButton.Enabled = true;
-            }
-            SetStatus(message, AppPalette.Success);
+            SetStatus(operation == "install" ? "Установка профиля…" : "Удаление профиля…", AppPalette.Accent);
+            InstallerLog.Write(operation + " started for " + profile.Name);
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate {
+                string message = null;
+                Exception failure = null;
+                try { message = action(); }
+                catch (Exception exception) { failure = exception; }
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke((MethodInvoker)delegate {
+                    SetBusy(false);
+                    if (failure != null)
+                    {
+                        ShowFailure(operation, failure);
+                        return;
+                    }
+                    InstallerLog.Write(operation + " completed for " + profile.Name);
+                    installButton.Text = operation == "install" ? "Обновить" : "Установить";
+                    removeButton.Enabled = operation == "install";
+                    openButton.Enabled = true;
+                    SetStatus(message, AppPalette.Success);
+                });
+            });
         }
 
         private void SetBusy(bool busy)
@@ -792,137 +685,27 @@ namespace Nikitid.IkeV2ProfileInstaller
         }
     }
 
-    internal static class WorkerResult
-    {
-        private const string Prefix = "Nikitid-IKEv2-";
-        private const string Suffix = ".result";
-
-        internal static string Create()
-        {
-            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                Prefix + Guid.NewGuid().ToString("N") + Suffix);
-            using (new FileStream(path, FileMode.CreateNew, FileAccess.Write,
-                    FileShare.Read)) {}
-            return path;
-        }
-
-        internal static bool IsValid(string path)
-        {
-            if (String.IsNullOrEmpty(path))
-                return false;
-            string fullPath;
-            try { fullPath = System.IO.Path.GetFullPath(path); }
-            catch { return false; }
-            string directory = System.IO.Path.GetDirectoryName(fullPath) ?? "";
-            string temporary = System.IO.Path.GetFullPath(System.IO.Path.GetTempPath())
-                .TrimEnd(System.IO.Path.DirectorySeparatorChar,
-                    System.IO.Path.AltDirectorySeparatorChar);
-            string name = System.IO.Path.GetFileName(fullPath);
-            return String.Equals(directory.TrimEnd(System.IO.Path.DirectorySeparatorChar,
-                    System.IO.Path.AltDirectorySeparatorChar), temporary,
-                    StringComparison.OrdinalIgnoreCase) &&
-                name.StartsWith(Prefix, StringComparison.Ordinal) &&
-                name.EndsWith(Suffix, StringComparison.Ordinal) && File.Exists(fullPath);
-        }
-
-        internal static void Write(string path, bool success, string message)
-        {
-            if (!IsValid(path))
-                throw new InvalidOperationException("Служебный файл результата недоступен.");
-            File.WriteAllText(path, (success ? "OK\n" : "ERROR\n") +
-                (message ?? ""), new UTF8Encoding(false));
-        }
-
-        internal static string Read(string path, out bool success)
-        {
-            success = false;
-            string text = File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : "";
-            int split = text.IndexOf('\n');
-            string state = split < 0 ? text.Trim() : text.Substring(0, split).Trim();
-            string message = split < 0 ? "" : text.Substring(split + 1).Trim();
-            success = state == "OK";
-            if (message.Length == 0)
-                message = success ? "Операция выполнена." :
-                    "Служебная операция завершилась без подробного ответа.";
-            return message;
-        }
-
-        internal static void Delete(string path)
-        {
-            try { if (!String.IsNullOrEmpty(path) && File.Exists(path)) File.Delete(path); }
-            catch {}
-        }
-    }
-
-    internal static class WorkerOperation
-    {
-        internal static void Run(ProfileDocument profile, string operation,
-            string resultPath)
-        {
-            try
-            {
-                if (profile == null)
-                    throw new InvalidOperationException("XML-профиль не выбран.");
-                InstallerLog.Write(operation + " worker started for " + profile.Name);
-                string message;
-                if (operation == "install")
-                {
-                    VpnProfileStore.Install(profile);
-                    message = "Профиль установлен и проверен. Откройте VPN и подключитесь.";
-                }
-                else if (operation == "remove")
-                {
-                    VpnProfileStore.Remove(profile.Name);
-                    message = "Профиль удалён.";
-                }
-                else
-                    throw new ArgumentException("Неизвестная служебная операция.");
-                InstallerLog.Write(operation + " worker completed for " + profile.Name);
-                WorkerResult.Write(resultPath, true, message);
-            }
-            catch (Exception exception)
-            {
-                InstallerLog.Write(operation + " worker failed", exception);
-                try { WorkerResult.Write(resultPath, false, ExceptionText.Format(exception)); }
-                catch {}
-                Environment.ExitCode = 1;
-            }
-        }
-    }
-
     internal sealed class AppInvocation
     {
         internal string ProfilePath { get; private set; }
         internal string Operation { get; private set; }
         internal string FriendlyName { get; private set; }
-        internal bool Worker { get; private set; }
-        internal string ResultPath { get; private set; }
 
         internal static AppInvocation Parse(string[] args, string directory)
         {
             string operation = null;
             string friendlyName = null;
-            string resultPath = null;
-            bool worker = false;
             List<string> paths = new List<string>();
             for (int index = 0; index < args.Length; index++)
             {
                 string argument = args[index];
                 if (argument == "--install" || argument == "--remove")
                     operation = argument.Substring(2);
-                else if (argument == "--worker")
-                    worker = true;
                 else if (argument == "--name")
                 {
                     if (++index >= args.Length)
                         throw new ArgumentException("После --name отсутствует имя подключения.");
                     friendlyName = args[index];
-                }
-                else if (argument == "--result")
-                {
-                    if (++index >= args.Length)
-                        throw new ArgumentException("После --result отсутствует путь.");
-                    resultPath = args[index];
                 }
                 else
                     paths.Add(argument);
@@ -932,15 +715,10 @@ namespace Nikitid.IkeV2ProfileInstaller
                 throw new ArgumentException("Для автоматической операции нужен XML-профиль.");
             if (!String.IsNullOrEmpty(friendlyName) && String.IsNullOrEmpty(profilePath))
                 throw new ArgumentException("Для изменения имени нужен XML-профиль.");
-            if (worker && (String.IsNullOrEmpty(operation) ||
-                    !WorkerResult.IsValid(resultPath)))
-                throw new ArgumentException("Некорректный запуск служебной операции.");
             return new AppInvocation {
                 ProfilePath = profilePath,
                 Operation = operation,
-                FriendlyName = friendlyName,
-                Worker = worker,
-                ResultPath = resultPath
+                FriendlyName = friendlyName
             };
         }
     }
@@ -1055,114 +833,70 @@ namespace Nikitid.IkeV2ProfileInstaller
         }
     }
 
+    // The connection, made by VpnProfile.ps1 - carried inside this program -
+    // with Windows' own VPN commands for the user who runs it. It used to go
+    // through the MDM bridge, which Windows 10 refuses outside the system's
+    // own account; these commands need no administrator on Windows 10 or 11.
     internal static class VpnProfileStore
     {
-        private const string NamespacePath = @"\\.\root\cimv2\mdm\dmmap";
-        private const string ClassName = "MDM_VPNv2_01";
-        private const string ParentId = "./Vendor/MSFT/VPNv2";
-
-        internal static bool Exists(string name)
+        internal static bool Exists(ProfileDocument document)
         {
-            using (ManagementClass profileClass = OpenClass())
-                return Find(profileClass, name).Count != 0;
+            return Run("status", document).Contains("\"installed\":true");
         }
 
-        internal static void Install(ProfileDocument document)
-        {
-            using (ManagementClass profileClass = OpenClass())
-            {
-                List<ManagementObject> existing = Find(profileClass, document.Name);
-                string previousXml = existing.Count == 1
-                    ? Convert.ToString(existing[0]["ProfileXML"]) : null;
-                Delete(existing);
+        internal static string Install(ProfileDocument document) { return Message(Run("install", document)); }
 
-                try
-                {
-                    Create(profileClass, document.Name, SecurityElement.Escape(document.Xml));
-                    List<ManagementObject> verified = Find(profileClass, document.Name);
-                    try
-                    {
-                        if (verified.Count != 1)
-                            throw new InvalidOperationException(
-                                "Windows не вернула установленный профиль при проверке.");
-                    }
-                    finally { Dispose(verified); }
-                }
-                catch
-                {
-                    if (!String.IsNullOrEmpty(previousXml))
-                    {
-                        try
-                        {
-                            Delete(Find(profileClass, document.Name));
-                            Create(profileClass, document.Name, previousXml);
-                        }
-                        catch (Exception rollback)
-                        {
-                            InstallerLog.Write("Profile rollback failed", rollback);
-                        }
-                    }
-                    throw;
-                }
-                finally { Dispose(existing); }
-            }
+        internal static string Remove(ProfileDocument document) { return Message(Run("remove", document)); }
+
+        // The script's one line of JSON: {"ok":..., "message":"..."}.
+        internal static string Message(string answer)
+        {
+            Match message = Regex.Match(answer, "\"message\":\"((?:[^\"\\\\]|\\\\.)*)\"");
+            string text = message.Success ? Regex.Unescape(message.Groups[1].Value) : answer;
+            if (!answer.Contains("\"ok\":true")) throw new InvalidOperationException(text);
+            return text;
         }
 
-        internal static void Remove(string name)
+        private static string Run(string operation, ProfileDocument document)
         {
-            using (ManagementClass profileClass = OpenClass())
-                Delete(Find(profileClass, name));
-        }
-
-        private static ManagementClass OpenClass()
-        {
-            ManagementScope scope = new ManagementScope(NamespacePath);
-            scope.Connect();
-            return new ManagementClass(scope, new ManagementPath(ClassName), null);
-        }
-
-        private static List<ManagementObject> Find(ManagementClass profileClass, string name)
-        {
-            string instanceId = Uri.EscapeDataString(name);
-            List<ManagementObject> matches = new List<ManagementObject>();
-            foreach (ManagementObject profile in profileClass.GetInstances())
-            {
-                if (String.Equals(Convert.ToString(profile["ParentID"]), ParentId,
-                        StringComparison.Ordinal) &&
-                    String.Equals(Convert.ToString(profile["InstanceID"]), instanceId,
-                        StringComparison.Ordinal))
-                    matches.Add(profile);
-                else
-                    profile.Dispose();
-            }
-            return matches;
-        }
-
-        private static void Delete(List<ManagementObject> profiles)
-        {
+            string folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Nikitid-IKEv2-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
             try
             {
-                foreach (ManagementObject profile in profiles)
-                    profile.Delete();
+                string script = System.IO.Path.Combine(folder, "VpnProfile.ps1");
+                string xml = System.IO.Path.Combine(folder, "profile.vpnv2.xml");
+                using (Stream source = Assembly.GetExecutingAssembly().GetManifestResourceStream("VpnProfile.ps1"))
+                using (FileStream target = File.Create(script))
+                {
+                    if (source == null) throw new InvalidOperationException("Программа повреждена: нет сценария профиля.");
+                    source.CopyTo(target);
+                }
+                File.WriteAllText(xml, document.Xml, new UTF8Encoding(false));
+                string shell = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                    @"WindowsPowerShell\v1.0\powershell.exe");
+                var start = new ProcessStartInfo(shell, "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + script +
+                    "\" -Operation " + operation + " -Profile \"" + xml + "\" -Name \"" + document.Name + "\"") {
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8 };
+                using (Process process = Process.Start(start))
+                {
+                    var error = process.StandardError.ReadToEndAsync();
+                    string output = process.StandardOutput.ReadToEnd();
+                    if (!process.WaitForExit(120000))
+                    {
+                        try { process.Kill(); } catch {}
+                        throw new TimeoutException("Windows не ответила за две минуты.");
+                    }
+                    string line = output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("{"));
+                    if (line == null)
+                        throw new InvalidOperationException("Windows не выполнила команду VPN. " + error.Result.Trim());
+                    return line;
+                }
             }
-            finally { Dispose(profiles); }
-        }
-
-        private static void Create(ManagementClass profileClass, string name, string xml)
-        {
-            using (ManagementObject profile = profileClass.CreateInstance())
+            finally
             {
-                profile["ParentID"] = ParentId;
-                profile["InstanceID"] = Uri.EscapeDataString(name);
-                profile["ProfileXML"] = xml;
-                profile.Put();
+                try { Directory.Delete(folder, true); } catch {}
             }
-        }
-
-        private static void Dispose(IEnumerable<ManagementObject> profiles)
-        {
-            foreach (ManagementObject profile in profiles)
-                profile.Dispose();
         }
     }
 

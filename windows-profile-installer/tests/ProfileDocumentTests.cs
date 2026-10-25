@@ -35,16 +35,12 @@ namespace Nikitid.IkeV2ProfileInstaller
 				Assert(ProfileDocument.Find(new string[0], emptyDirectory) == null,
 					"installer can start without an adjacent profile");
 
-				string resultPath = WorkerResult.Create();
-				try
-				{
-					Assert(WorkerResult.IsValid(resultPath), "worker result path validation");
-					WorkerResult.Write(resultPath, true, "done");
-					bool workerSuccess;
-					Assert(WorkerResult.Read(resultPath, out workerSuccess) == "done" &&
-						workerSuccess, "worker result round trip");
-				}
-				finally { WorkerResult.Delete(resultPath); }
+				Assert(VpnProfileStore.Message("{\"ok\":true,\"message\":\"Профиль \\\"VPN\\\" удалён.\"}") == "Профиль \"VPN\" удалён.",
+					"the script's answer is read with its quotes");
+				bool refused = false;
+				try { VpnProfileStore.Message("{\"message\":\"Windows отказала\",\"ok\":false}"); }
+				catch (InvalidOperationException error) { refused = error.Message == "Windows отказала"; }
+				Assert(refused, "a refusal of the script is a failure with its words");
 
                 document.SetName("Office VPN");
                 Assert(document.Name == "Office VPN", "edited friendly name");
