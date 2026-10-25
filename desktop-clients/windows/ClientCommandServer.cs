@@ -131,9 +131,7 @@ namespace IkeV2Manager.Client
                         bool pending = true;
                         try
                         {
-                            pending = runtime.HasPendingEnrollment();
-                            if (pending) pending = !runtime.ContinueEnrollment();
-                            else runtime.RefreshPolicy();
+                            pending = runtime.Step();
                         }
                         catch { }
                         // Asked in every registered state: a device that cannot

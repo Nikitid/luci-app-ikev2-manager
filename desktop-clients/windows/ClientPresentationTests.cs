@@ -31,6 +31,9 @@ internal static class ClientPresentationTests
             var away = ClientPresentation.Of(new ClientView("error", true, "policy_connection_failed"), Own, null, false);
             Require(away.Heading == "Нет связи с сервером" && away.Tone == Tone.Attention, "an unreachable router is named as the cause");
 
+            var lost = ClientPresentation.Of(new ClientView("error", true, "enrollment_missing"), Own, null, false);
+            Require(lost.Heading == "Регистрация потеряна" && lost.Description.Contains("Сбросить"), "a lost registration says what to do");
+
             var newer = ClientPresentation.Of(new ClientView("blocked", true) { Release = "2.4.0" }, Own, new[] { "Chrome" }, false);
             Require(newer.Update && newer.Notes.Any(n => n.Contains("2.4.0")) && newer.Browsers && newer.Checks[3].Tone == Tone.Attention,
                 "a newer release and a browser around the tunnel are both raised");

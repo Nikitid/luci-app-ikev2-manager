@@ -134,6 +134,12 @@ namespace IkeV2Manager.Client
                         code == "services_unavailable" || code == "release_unavailable";
                     bool rejected = code == "policy_http_rejected" || code == "policy_update_rejected";
                     bool garbled = (code != null && code.EndsWith("_invalid", StringComparison.Ordinal)) || code == "policy_response_too_large";
+                    if (code == "enrollment_missing")
+                    {
+                        p.Heading = "Регистрация потеряна";
+                        p.Description = "Данные регистрации на этом компьютере не найдены. Нажмите «Сбросить…», затем зарегистрируйте устройство по новой ссылке.";
+                        break;
+                    }
                     p.Heading = unreachable ? "Нет связи с сервером" : rejected ? "Сервер не выдал настройки" : garbled ? "Ответ сервера не принят" : "Ошибка службы";
                     p.Description = unreachable ? "Настройки не получены: сервер недоступен из этой сети. Попытка повторится сама." :
                         rejected ? "Сервер отказал в настройках. Если это повторяется, отправьте отчёт администратору." :

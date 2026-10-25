@@ -232,6 +232,26 @@ namespace IkeV2Manager.Client
             }
         }
 
+        // One turn of the service's work for a registered device; true while
+        // the registration itself is unfinished. A registration whose policy
+        // is no longer committed here - a step that failed after the router
+        // had answered, a state file lost - is staged again from the
+        // registration, as a start would, before the router is asked: every
+        // poll used to end in an error from which nothing led out.
+        public bool Step()
+        {
+            if (HasPendingEnrollment()) return !ContinueEnrollment();
+            bool committed;
+            lock (gate)
+            {
+                if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                committed = EnrollmentRegistration.Load(store) == null || store.LoadPolicyHistory() != null;
+            }
+            if (!committed) ContinueEnrollment();
+            RefreshPolicy();
+            return false;
+        }
+
         // The router is asked outside the service lock: each question may wait
         // up to ten seconds, and while it waited the two-second step that
         // checks the tunnel, its routes and the router's readiness waited too,
@@ -257,7 +277,10 @@ namespace IkeV2Manager.Client
             string[] observed = null;
             Exception refused = null;
             Uri endpoint = null;
-            if (registration == null || registration.Policy == null || previous == null)
+            // The registration went while the service ran: the window says so
+            // and offers a reset, not a fault of the service.
+            if (registration == null) refused = new PolicyFetchException("enrollment_missing");
+            else if (registration.Policy == null || previous == null)
                 refused = new InvalidOperationException("Completed registration required");
             else
             {

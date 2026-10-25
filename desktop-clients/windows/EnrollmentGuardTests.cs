@@ -47,6 +47,17 @@ internal static class EnrollmentGuardTests
             using (var guard = WfpGuard.Recover(plan)) guard.VerifyProtection();
             using (var runtime = new GuardRuntime(name)) { }
             using (var guard = WfpGuard.Recover(plan)) guard.VerifyProtection();
+            // The committed policy lost while the service runs: the next step
+            // stages it again from the registration, and nothing ends in error.
+            using (var runtime = new GuardRuntime(name))
+            {
+                File.Delete(Path.Combine(directory, "policy.json"));
+                try { runtime.Step(); } catch (PolicyFetchException) { }
+                var status = serializer.Deserialize<Dictionary<string, object>>(File.ReadAllText(Path.Combine(directory, "status.json")));
+                if (!File.Exists(Path.Combine(directory, "policy.json")) || (string)status["State"] == "error")
+                    throw new Exception("A registration without its committed policy stayed in error");
+            }
+            Console.WriteLine("PASS a registration that lost its policy stages it again");
             // Corrupt credentials: restart must refuse and retain the denials.
             File.WriteAllText(Path.Combine(directory, "enrollment.json"), "corrupted");
             bool refused = false;
