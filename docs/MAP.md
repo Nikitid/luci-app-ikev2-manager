@@ -129,7 +129,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 
 `luci-ikev2-manager/shared.js` is the design system and the action lifecycle
-used by all of them; it installs as `shared-v20.js`. Russian strings live in
+used by all of them; it installs as `shared-v21.js`. Russian strings live in
 `po/ru/ikev2-manager.po`, compiled by `scripts/po2lmo.py` into
 `/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo`, which LuCI's own `_()` reads.
 `luci-ikev2-manager/menu.json` wires the pages, `acl.json` grants every helper

@@ -155,7 +155,7 @@ mkdir -p "$stage/usr/lib/lua/luci/i18n"
 python3 "$root/scripts/po2lmo.py" "$root/po/ru/ikev2-manager.po" \
 	"$stage/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo"
 chmod 644 "$stage/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo"
-install_file 644 luci-ikev2-manager/shared.js /www/luci-static/resources/ikev2-manager/shared-v20.js
+install_file 644 luci-ikev2-manager/shared.js /www/luci-static/resources/ikev2-manager/shared-v21.js
 install_file 644 luci-ikev2-manager/status-widget.js \
 	/www/luci-static/resources/view/status/include/06_ikev2-manager.js
 # LuCI asks for a view resource with its own version in the query string, which
@@ -362,6 +362,7 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/ikev2-manager/inbound-panel-v2.js \
 	/www/luci-static/resources/ikev2-manager/shared-v18.js \
 	/www/luci-static/resources/ikev2-manager/shared-v19.js \
+	/www/luci-static/resources/ikev2-manager/shared-v20.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v17.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v18.js \
 	/www/luci-static/resources/view/ikev2-manager/remote-clients-v28.js \

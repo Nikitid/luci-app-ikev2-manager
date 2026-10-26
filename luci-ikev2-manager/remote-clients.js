@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require ui';
-'require ikev2-manager.shared-v20 as common';
+'require ikev2-manager.shared-v21 as common';
 'require ikev2-manager.users-panel-v7 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
@@ -642,10 +642,10 @@ function pageStyles() {
   // The middle column lists sessions; without one it only says so, which a row does not need.
   '.ikev2-page .ikev2-person-profiles .ikev2-user-card > :nth-child(2):not(:has(.ikev2-session)) { display: none !important; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-card:has(.ikev2-session) { grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr) auto; }' +
-  '.ikev2-page .ikev2-person-profiles .ikev2-user-name { margin-bottom: .2rem; font-weight: 600; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-name { margin-bottom: .2rem; font-weight: 500; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions .cbi-button { border-color: transparent; background: transparent; box-shadow: none; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions .cbi-button:hover { border-color: var(--ikev2-border); }' +
-  '.ikev2-page details.ikev2-fold > summary { cursor: pointer; font-weight: 600; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); margin: var(--ikev2-s4) 0; } .ikev2-page details.ikev2-fold[open] > summary { margin-bottom: 0; }' +
+  '.ikev2-page details.ikev2-fold > summary { cursor: pointer; font-weight: 500; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); margin: var(--ikev2-s4) 0; } .ikev2-page details.ikev2-fold[open] > summary { margin-bottom: 0; }' +
   '.ikev2-page .ikev2-people-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; margin-bottom: .9rem; }' +
   '.ikev2-page .ikev2-search-box { position: relative; flex: 0 1 20rem; min-width: 0; max-width: 100%; }' +
   '.ikev2-page .ikev2-people-bar > :first-child { min-width: 0; }' +

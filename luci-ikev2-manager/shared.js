@@ -103,28 +103,29 @@ var CSS = `
 			}
 
 			.ikev2-page {
-				--ikev2-accent: #4f7dff;
-				--ikev2-accent-2: #8b5cf6;
-				--ikev2-grad: linear-gradient(135deg, #4f7dff, #8b5cf6);
-				--ikev2-grad-soft: linear-gradient(135deg,
-					color-mix(in srgb, #4f7dff 16%, transparent),
-					color-mix(in srgb, #8b5cf6 12%, transparent));
+				/* One quiet cool accent on a neutral page, no gradients on any
+				   surface: the owner's own look, in light and in dark. The
+				   values are a working proposal, not a settled palette. */
+				--ikev2-accent: #5d6d94;
+				--ikev2-accent-2: var(--ikev2-accent);
+				--ikev2-grad: var(--ikev2-accent);
+				--ikev2-grad-soft: color-mix(in srgb, var(--ikev2-accent) 11%, transparent);
 				--ikev2-border: rgba(128, 128, 128, .22);
 				--ikev2-border-strong: rgba(128, 128, 128, .34);
 				--ikev2-surface: rgba(128, 128, 128, .06);
 				--ikev2-surface-2: rgba(128, 128, 128, .11);
 				--ikev2-muted: rgba(128, 128, 128, .85);
-				--ikev2-good: #16a34a;
-				--ikev2-warn: #d97706;
-				--ikev2-bad: #e11d48;
-				--ikev2-info: #2f6fbe;
+				--ikev2-good: #5d7f56;
+				--ikev2-warn: #9a7330;
+				--ikev2-bad: #a8524b;
+				--ikev2-info: #5d6d94;
 				/* Controls are painted in flat accent. The gradient stays as a
 				   decorative wash on the hero and the card rules, where it is
 				   scenery rather than a surface a label has to sit on: colour
 				   that shifts under text is what makes a control read as a
 				   sticker instead of a button. */
-				--ikev2-fill: #4f7dff;
-				--ikev2-fill-hover: #3f6bef;
+				--ikev2-fill: #5d6d94;
+				--ikev2-fill-hover: #4f5e83;
 				--ikev2-on-fill: #fff;
 
 				/* One 4px step. Every gap, pad and margin below is drawn from
@@ -141,8 +142,8 @@ var CSS = `
 				   the page, cards and sections lift a little, the hero sits one
 				   step above them. Two steps are all the page uses - a third
 				   was declared here and never applied to anything. */
-				--ikev2-e1: 0 1px 2px rgba(0, 0, 0, .04);
-				--ikev2-e2: 0 1px 2px rgba(0, 0, 0, .05), 0 8px 20px -14px rgba(0, 0, 0, .4);
+				--ikev2-e1: 0 1px 2px rgba(41, 52, 41, .05);
+				--ikev2-e2: 0 1px 2px rgba(41, 52, 41, .05), 0 10px 24px -16px rgba(41, 52, 41, .28);
 
 				--ikev2-radius: 16px;
 				--ikev2-radius-sm: 11px;
@@ -162,6 +163,33 @@ var CSS = `
 				max-width: 1220px;
 				font-feature-settings: "tnum" 0;
 			}
+			/* The dark look: soft graphite rather than black, grey text and
+			   lines, the accent a lighter cool grey-blue. LuCI marks its dark
+			   theme on the root; a theme that follows the system does not. */
+			:root[data-darkmode="true"] .ikev2-page {
+				--ikev2-accent: #a9b4c9;
+				--ikev2-good: #a9bfa1;
+				--ikev2-warn: #d6bb86;
+				--ikev2-bad: #d9a19b;
+				--ikev2-info: #a9b4c9;
+				--ikev2-fill: #8f9bb3;
+				--ikev2-fill-hover: #a9b4c9;
+				--ikev2-on-fill: #1f2224;
+				--ikev2-e1: 0 1px 2px rgba(0, 0, 0, .18);
+				--ikev2-e2: 0 1px 2px rgba(0, 0, 0, .18), 0 10px 24px -16px rgba(0, 0, 0, .55);
+			}
+			@media (prefers-color-scheme: dark) {
+				:root:not([data-darkmode="false"]) .ikev2-page {
+					--ikev2-accent: #a9b4c9;
+					--ikev2-good: #a9bfa1;
+					--ikev2-warn: #d6bb86;
+					--ikev2-bad: #d9a19b;
+					--ikev2-info: #a9b4c9;
+					--ikev2-fill: #8f9bb3;
+					--ikev2-fill-hover: #a9b4c9;
+					--ikev2-on-fill: #1f2224;
+				}
+			}
 			.ikev2-page * { box-sizing: border-box; }
 
 			/* ── Header ─────────────────────────────────────────────── */
@@ -177,9 +205,9 @@ var CSS = `
 			.ikev2-header h2 {
 				margin: 0 0 var(--ikev2-s1);
 				font-size: clamp(1.5rem, 2.6vw, 1.95rem);
-				font-weight: 700;
-				line-height: 1.12;
-				letter-spacing: -.022em;
+				font-weight: 300;
+				line-height: 1.15;
+				letter-spacing: -.012em;
 			}
 			.ikev2-subtitle {
 				margin: 0;
@@ -218,24 +246,23 @@ var CSS = `
 				content: "";
 				position: absolute;
 				inset: 0 0 auto 0;
-				height: 3px;
-				background: var(--ikev2-grad);
-				opacity: .25;
+				height: 2px;
+				background: var(--ikev2-accent);
+				opacity: 0;
 				transition: opacity .16s var(--ikev2-ease);
 			}
 			.ikev2-card:hover {
 				box-shadow: var(--ikev2-shadow-lg);
 				border-color: var(--ikev2-border-strong);
 			}
-			.ikev2-card:hover::before { opacity: 1; }
+			.ikev2-card:hover::before { opacity: .45; }
 			.ikev2-card.wide { grid-column: span 6; }
 			.ikev2-card.full { grid-column: 1 / -1; }
 			.ikev2-card-label {
 				margin-bottom: .5rem;
 				font-size: .72rem;
-				font-weight: 600;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				font-weight: 500;
+				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-card-value {
@@ -244,7 +271,7 @@ var CSS = `
 				gap: .5rem;
 				min-height: 1.8rem;
 				font-size: clamp(1.4rem, 2.4vw, 1.7rem);
-				font-weight: 700;
+				font-weight: 400;
 				line-height: 1.15;
 				letter-spacing: -.02em;
 				font-variant-numeric: tabular-nums;
@@ -267,16 +294,13 @@ var CSS = `
 				padding: var(--ikev2-s6);
 				border: 1px solid var(--ikev2-border);
 				border-radius: var(--ikev2-radius);
-				background:
-					radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--ikev2-accent) 18%, transparent), transparent 55%),
-					radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--ikev2-accent-2) 16%, transparent), transparent 55%),
-					var(--ikev2-surface);
+				background: var(--ikev2-surface);
 				box-shadow: var(--ikev2-e2);
 			}
 			.ikev2-hero h3 {
 				margin: 0 0 .4rem;
 				font-size: 1.3rem;
-				font-weight: 700;
+				font-weight: 500;
 				letter-spacing: -.01em;
 			}
 			.ikev2-hero p { margin: 0; color: var(--ikev2-muted); line-height: 1.55; }
@@ -314,7 +338,7 @@ var CSS = `
 			}
 			.ikev2-gauge__center b {
 				font-size: 1.55rem;
-				font-weight: 700;
+				font-weight: 500;
 				line-height: 1;
 				letter-spacing: -.02em;
 				font-variant-numeric: tabular-nums;
@@ -323,8 +347,7 @@ var CSS = `
 				display: block;
 				margin-top: .2rem;
 				font-size: .68rem;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
 
@@ -397,7 +420,7 @@ var CSS = `
 				border-radius: var(--ikev2-radius-sm);
 				background: color-mix(in srgb, currentColor 5%, transparent);
 				text-decoration: none;
-				font-weight: 600;
+				font-weight: 500;
 				transition: transform var(--ikev2-press) var(--ikev2-ease),
 					background .14s var(--ikev2-ease), border-color .14s var(--ikev2-ease);
 			}
@@ -416,7 +439,7 @@ var CSS = `
 				border-radius: 999px;
 				background: color-mix(in srgb, currentColor 12%, transparent);
 				font-size: .78rem;
-				font-weight: 600;
+				font-weight: 500;
 				line-height: 1.2;
 				white-space: nowrap;
 			}
@@ -470,7 +493,7 @@ var CSS = `
 			.ikev2-section-head h4 {
 				margin: 0 0 var(--ikev2-s1);
 				font-size: 1.05rem;
-				font-weight: 700;
+				font-weight: 500;
 				line-height: 1.3;
 				letter-spacing: -.012em;
 			}
@@ -521,7 +544,7 @@ var CSS = `
 				min-height: 2.25rem;
 				padding: .42rem .72rem !important;
 				border-radius: var(--ikev2-radius-sm) !important;
-				font-weight: 600;
+				font-weight: 500;
 				white-space: nowrap;
 			}
 			.ikev2-icon {
@@ -577,7 +600,7 @@ var CSS = `
 				gap: .5rem;
 				padding: .75rem .9rem;
 				cursor: pointer;
-				font-weight: 600;
+				font-weight: 500;
 				list-style: none;
 			}
 			.ikev2-diagnostics > summary::-webkit-details-marker { display: none; }
@@ -644,8 +667,7 @@ var CSS = `
 				border-radius: var(--ikev2-radius-sm);
 				background: var(--ikev2-grad-soft);
 				color: var(--ikev2-accent);
-				font-weight: 700;
-				text-transform: uppercase;
+				font-weight: 500;
 			}
 			.ikev2-user-name {
 				display: block;
@@ -665,7 +687,7 @@ var CSS = `
 			.ikev2-session-address {
 				display: block;
 				margin-bottom: .2rem;
-				font-weight: 600;
+				font-weight: 500;
 				overflow-wrap: anywhere;
 			}
 			.ikev2-session-meta {
@@ -736,9 +758,8 @@ var CSS = `
 				background: transparent;
 				color: var(--ikev2-muted);
 				font-size: .72rem;
-				font-weight: 600;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				font-weight: 500;
+				letter-spacing: .01em;
 			}
 			/* With more than one tunnel a full-route device names its own. */
 			.ikev2-device-policy-table.ikev2-with-tunnel { min-width: 60rem; }
@@ -794,7 +815,7 @@ var CSS = `
 				content: "\\2713";
 				color: #fff;
 				font-size: .78rem;
-				font-weight: 700;
+				font-weight: 500;
 			}
 			.ikev2-policy-check input:focus-visible + span {
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
@@ -827,9 +848,8 @@ var CSS = `
 			.ikev2-widget-summary-label {
 				color: var(--ikev2-muted);
 				font-size: .72rem;
-				font-weight: 600;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				font-weight: 500;
+				letter-spacing: .01em;
 			}
 			.ikev2-widget-overview {
 				display: grid;
@@ -849,9 +869,8 @@ var CSS = `
 				margin-bottom: .5rem;
 				color: var(--ikev2-muted);
 				font-size: .72rem;
-				font-weight: 600;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				font-weight: 500;
+				letter-spacing: .01em;
 			}
 			.ikev2-widget-component-head {
 				display: flex;
@@ -948,7 +967,7 @@ var CSS = `
 				gap: .9rem 1.4rem;
 				align-items: center;
 			}
-			.ikev2-field-label { font-weight: 600; }
+			.ikev2-field-label { font-weight: 500; }
 			.ikev2-field-help {
 				display: block;
 				margin-top: .22rem;
@@ -1167,7 +1186,7 @@ var CSS = `
 				padding: .5rem 1rem;
 				border: 1px solid var(--ikev2-border);
 				background: var(--ikev2-surface-2);
-				font-weight: 600;
+				font-weight: 500;
 				line-height: 1.2;
 				white-space: nowrap;
 				cursor: pointer;
@@ -1190,17 +1209,19 @@ var CSS = `
 			.ikev2-page .cbi-button-positive,
 			.ikev2-page .cbi-button-add,
 			.ikev2-page .cbi-button-save {
-				background: var(--ikev2-fill);
+				/* Outlined, like every other button, and set apart by the
+				   accent: the owner's buttons are drawn, not filled. */
+				background: transparent;
 				background-image: none;
-				border-color: transparent;
-				color: var(--ikev2-on-fill);
-				box-shadow: 0 6px 16px -10px var(--ikev2-fill);
+				border-color: var(--ikev2-accent);
+				color: var(--ikev2-accent);
+				box-shadow: none;
 			}
 			.ikev2-page .cbi-button-apply:hover,
 			.ikev2-page .cbi-button-positive:hover,
 			.ikev2-page .cbi-button-add:hover,
 			.ikev2-page .cbi-button-save:hover {
-				background: var(--ikev2-fill-hover);
+				background: color-mix(in srgb, var(--ikev2-accent) 12%, transparent);
 				background-image: none;
 			}
 			.ikev2-page .cbi-button-action,
@@ -1355,7 +1376,7 @@ var CSS = `
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
 			}
 			.ikev2-switch input:disabled + .ikev2-switch-track { opacity: .5; cursor: not-allowed; }
-			.ikev2-switch-text { font-weight: 600; }
+			.ikev2-switch-text { font-weight: 500; }
 
 			/* ── Toggle row (label + switch on one line) ─────────────── */
 			.ikev2-toggle-row {
@@ -1374,7 +1395,7 @@ var CSS = `
 			   bare switch beside a label. */
 			.ikev2-form-grid > .ikev2-toggle-row { grid-column: 1 / -1; margin-top: 0; }
 			.ikev2-toggle-row > :first-child { min-width: 0; }
-			.ikev2-toggle-row .ikev2-toggle-text { font-weight: 600; }
+			.ikev2-toggle-row .ikev2-toggle-text { font-weight: 500; }
 			.ikev2-toggle-row .ikev2-toggle-sub {
 				display: block;
 				font-weight: 400;
@@ -1479,7 +1500,7 @@ var CSS = `
 			.ikev2-advanced summary,
 			.ikev2-section > details > summary {
 				cursor: pointer;
-				font-weight: 600;
+				font-weight: 500;
 				margin-bottom: .9rem;
 				list-style: none;
 			}
@@ -1526,7 +1547,7 @@ var CSS = `
 			.ikev2-advanced-group > h4 {
 				margin: 0 0 .7rem;
 				font-size: .86rem;
-				font-weight: 600;
+				font-weight: 500;
 				letter-spacing: .02em;
 				color: var(--ikev2-muted);
 			}
@@ -1584,7 +1605,7 @@ var CSS = `
 				margin: 0 0 .6rem;
 				padding-bottom: .45rem;
 				border-bottom: 1px solid var(--ikev2-border);
-				font-weight: 700;
+				font-weight: 500;
 			}
 			.ikev2-service-option {
 				display: flex;
@@ -1605,9 +1626,8 @@ var CSS = `
 			.ikev2-chip-group h4 {
 				margin: 0 0 .55rem;
 				font-size: .72rem;
-				font-weight: 600;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				font-weight: 500;
+				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-chips { display: flex; flex-wrap: wrap; gap: .45rem; }
@@ -1623,7 +1643,7 @@ var CSS = `
 				cursor: pointer;
 				user-select: none;
 				font-size: .85rem;
-				font-weight: 600;
+				font-weight: 500;
 				line-height: 1.3;
 				transition: transform var(--ikev2-press) var(--ikev2-ease),
 					background .12s var(--ikev2-ease), border-color .12s var(--ikev2-ease),
@@ -1907,7 +1927,7 @@ var CSS = `
 			}
 			.ikev2-netpick.selected .ikev2-netpick-check::after { content: "\\2713"; }
 			.ikev2-netpick-body { min-width: 0; }
-			.ikev2-netpick-name { font-weight: 600; }
+			.ikev2-netpick-name { font-weight: 500; }
 			.ikev2-netpick-meta {
 				display: block;
 				font-size: .8rem;
@@ -1936,7 +1956,7 @@ var CSS = `
 				border-radius: 999px;
 				background: color-mix(in srgb, currentColor 10%, transparent);
 				font-size: .7rem;
-				font-weight: 600;
+				font-weight: 500;
 				vertical-align: middle;
 			}
 			.ikev2-tags .ikev2-tag { margin-left: 0; }
@@ -2078,7 +2098,7 @@ var CSS = `
 				padding: .45rem 1.1rem;
 				border-radius: 999px;
 				text-decoration: none;
-				font-weight: 600;
+				font-weight: 500;
 				color: var(--ikev2-muted);
 				transition: background .14s var(--ikev2-ease), color .14s var(--ikev2-ease);
 			}
@@ -2099,8 +2119,7 @@ var CSS = `
 			.ikev2-page .table .td { vertical-align: middle; padding: .55rem .6rem; }
 			.ikev2-page .table .tr.table-titles .th {
 				font-size: .72rem;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-page .cbi-section-descr { color: var(--ikev2-muted); line-height: 1.5; }
@@ -2143,7 +2162,7 @@ var CSS = `
 				color: var(--ikev2-muted);
 				font: inherit;
 				font-size: .82rem;
-				font-weight: 600;
+				font-weight: 500;
 				font-variant-numeric: tabular-nums;
 				cursor: pointer;
 				transition: background-color .16s var(--ikev2-ease), color .16s var(--ikev2-ease),
@@ -2198,7 +2217,7 @@ var CSS = `
 			}
 			.ikev2-page .ikev2-quality-verdict b {
 				font-size: 1.25rem;
-				font-weight: 700;
+				font-weight: 500;
 				letter-spacing: -.015em;
 			}
 			.ikev2-page .ikev2-quality-verdict b.good { color: var(--ikev2-good); }
@@ -2278,7 +2297,7 @@ var CSS = `
 				font-variant-numeric: tabular-nums;
 				pointer-events: none;
 			}
-			.ikev2-page .ikev2-quality-tip b { display: block; margin-bottom: .15rem; font-weight: 650; }
+			.ikev2-page .ikev2-quality-tip b { display: block; margin-bottom: .15rem; font-weight: 500; }
 			.ikev2-page .ikev2-quality-tip span { color: var(--ikev2-muted); }
 			.ikev2-page .ikev2-quality-legend {
 				display: flex;
@@ -2316,7 +2335,7 @@ var CSS = `
 				gap: var(--ikev2-s5);
 				align-items: start;
 			}
-			.ikev2-record-state { margin: var(--ikev2-s3) 0; font-weight: 600; }
+			.ikev2-record-state { margin: var(--ikev2-s3) 0; font-weight: 500; }
 			.ikev2-record-state:empty { display: none; }
 			.ikev2-record-groups { display: grid; gap: .45rem; margin-bottom: var(--ikev2-s3); }
 			.ikev2-record-group { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .6rem; align-items: baseline; cursor: pointer; }
@@ -2327,9 +2346,8 @@ var CSS = `
 			.ikev2-page .ikev2-quality-lower h4 {
 				margin: 0 0 .55rem;
 				font-size: .72rem;
-				font-weight: 600;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				font-weight: 500;
+				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-page .ikev2-quality-events {
@@ -2370,7 +2388,7 @@ var CSS = `
 				margin: 0 0 .7rem;
 			}
 			.ikev2-page .ikev2-speed-column { display: grid; gap: .55rem; align-content: start; min-width: 0; }
-			.ikev2-page .ikev2-speed-column-title { font-size: .86rem; font-weight: 650; }
+			.ikev2-page .ikev2-speed-column-title { font-size: .86rem; font-weight: 500; }
 			.ikev2-page .ikev2-speed-row { display: grid; gap: .3rem; }
 			.ikev2-page .ikev2-speed-row-head {
 				display: flex;
@@ -2443,9 +2461,8 @@ var CSS = `
 			.ikev2-page .ikev2-speed-option { display: grid; gap: .25rem; min-width: 0; }
 			.ikev2-page .ikev2-speed-option > span {
 				font-size: .72rem;
-				font-weight: 600;
-				letter-spacing: .06em;
-				text-transform: uppercase;
+				font-weight: 500;
+				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-page .ikev2-speed-option select,
