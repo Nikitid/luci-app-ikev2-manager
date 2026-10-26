@@ -504,11 +504,11 @@ elif [ -x "$ikev2_policy_init" ]; then
 	"$ikev2_policy_init" disable >/dev/null 2>&1 || true
 fi
 # inbound-policy-watcher end
-# The office board runs where it was turned on, and comes back with the new page.
+# The services board runs where it was turned on, and comes back with the new page.
 if [ -x /etc/init.d/ikev2-board ]; then
 	if [ "$(uci -q get ikev2-manager.board.enabled)" = 1 ]; then
 		/etc/init.d/ikev2-board enable >/dev/null 2>&1 || true
-		/etc/init.d/ikev2-board restart >/dev/null 2>&1 || echo "Could not start the office board." >&2
+		/etc/init.d/ikev2-board restart >/dev/null 2>&1 || echo "Could not start the services board." >&2
 	else
 		/etc/init.d/ikev2-board disable >/dev/null 2>&1 || true
 	fi

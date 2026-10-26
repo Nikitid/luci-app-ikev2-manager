@@ -77,9 +77,9 @@ class PublicationTests(unittest.TestCase):
         initial = self.publish(value)
         self.retain(value, initial)
         value['services'][0]['networks'] = ['149.154.160.0/20', '91.108.4.0/22']
-        value['services'].append({'id': 'office', 'client_access': True, 'domains': [], 'networks': ['91.108.4.0/22'],
+        value['services'].append({'id': 'intranet', 'client_access': True, 'domains': [], 'networks': ['91.108.4.0/22'],
                                   'transports': [{'protocol': 'udp', 'ports': [53]}]})
-        value['devices'][0]['selected_services'] = ['api', 'office']
+        value['devices'][0]['selected_services'] = ['api', 'intranet']
         output = self.publish(value)
         alice, bob = (device['policy'] for device in output['api']['devices'])
         self.assertEqual(alice['version'], 2)

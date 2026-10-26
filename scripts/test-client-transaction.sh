@@ -36,7 +36,7 @@ case "$command" in
 			ikev2-manager.client.enabled) printf '%s\n' 1 ;;
 			ikev2-manager.client.remote_address) printf '%s\n' vpn.example.test ;;
 			ikev2-manager.client.remote_id) printf '%s\n' vpn.example.test ;;
-			ikev2-manager.client.username) printf '%s\n' office-user ;;
+			ikev2-manager.client.username) printf '%s\n' tunnel-user ;;
 			ikev2-manager.client.dpd) printf '%s\n' 30 ;;
 			ikev2-manager.client.mtu) printf '%s\n' 1400 ;;
 			ikev2-manager.client.reconnect_cooldown) printf '%s\n' 15 ;;
@@ -85,10 +85,10 @@ save
 1
 $remote_address
 $remote_id
-office-user
+tunnel-user
 30
 1400
-office-password
+tunnel-password
 15
 google
 https://dns.google/dns-query https://dns.cloudflare.com/dns-query
@@ -125,8 +125,8 @@ write_input
 : >"$tmp/uci.log"
 run_manager client-input
 grep -q 'proxy-out {' "$tmp/root/etc/swanctl/conf.d/20-proxy-out.conf"
-grep -q 'id = "office-user"' "$tmp/root/etc/swanctl/conf.d/90-proxy-out-secret.conf"
-if grep -q 'office-password' "$tmp/root/etc/ikev2-manager/client.secret"; then
+grep -q 'id = "tunnel-user"' "$tmp/root/etc/swanctl/conf.d/90-proxy-out-secret.conf"
+if grep -q 'tunnel-password' "$tmp/root/etc/ikev2-manager/client.secret"; then
 	printf 'client password was stored in plaintext\n' >&2
 	exit 1
 fi

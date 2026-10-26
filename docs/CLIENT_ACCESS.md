@@ -1276,7 +1276,7 @@ disconnects it, so the window and the system's menu always agree.
 
 `IKEv2ManagerClient` is the window. Both windows are built the same way: a
 status with one sign and colour, three checks (denial outside the tunnel,
-tunnel and routes, path through the office), the assigned services, a notice
+tunnel and routes, path through the router), the assigned services, a notice
 for an update or a proxy, and one prominent button for the next step; the
 macOS one adds "a VPN profile is needed". A permanent right-hand panel shows
 the server name, its known IPv4 address, the services network and the tunnel

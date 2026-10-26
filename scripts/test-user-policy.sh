@@ -455,7 +455,7 @@ grep -A5 'set router_allowed' "$tmp/rules-raw.nft" | grep -Fq '10.20.30.15' || {
 # sessions. Its virtual IP must never be read as a client's, or the real
 # client is left unauthorised and loses all forwarded traffic.
 cat >"$tmp/sa.json" <<'EOF'
-{"errors":[],"data":[{"ikev2-in":{"uniqueid":"7","state":"ESTABLISHED","remote-eap-id":"alice","remote-vips":["10.20.30.15"],"child-sas":{"net-1":{"name":"net","state":"INSTALLED"}}}},{"site-link-in":{"uniqueid":"9","state":"ESTABLISHED","remote-eap-id":"site-link-office","remote-vips":["10.253.44.2"],"child-sas":{"site-link-net-1":{"name":"site-link-net","state":"INSTALLED"}}}}]}
+{"errors":[],"data":[{"ikev2-in":{"uniqueid":"7","state":"ESTABLISHED","remote-eap-id":"alice","remote-vips":["10.20.30.15"],"child-sas":{"net-1":{"name":"net","state":"INSTALLED"}}}},{"site-link-in":{"uniqueid":"9","state":"ESTABLISHED","remote-eap-id":"site-link-branch","remote-vips":["10.253.44.2"],"child-sas":{"site-link-net-1":{"name":"site-link-net","state":"INSTALLED"}}}}]}
 EOF
 PATH="$tmp/bin:$PATH" \
 IKEV2_UCI_BIN="$tmp/bin/uci" \

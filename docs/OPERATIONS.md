@@ -106,7 +106,7 @@ package on the router, including kernel modules tied to the running kernel.
 
 Dependency installation fills missing packages; it deliberately does not
 upgrade an already installed runtime. Review runtime updates separately and
-test them on a non-office router before promotion. Do not use a bare
+test them on a router nobody depends on before promotion. Do not use a bare
 `apk upgrade` as part of application maintenance.
 
 On apk firmware, dependency repair pins any missing strongSwan component to the
@@ -1063,10 +1063,13 @@ On macOS the device's password is kept in the daemon's own directory
 keychain; FileVault is what protects it at rest. On Windows it is encrypted
 with DPAPI for the machine.
 
-## Office board
+## Services board
 
 An optional page on the local network: which services go through the tunnel,
-with their domains, and a form for "something does not open". It is off
+with their domains and whether the tunnel each leaves through is up now, a
+search that also says whether a pasted site goes through the tunnel, and a
+form for "something does not open". The list follows the router by itself: a
+page opened a few minutes after a change sets off a new snapshot. It is off
 until turned on:
 
 ```sh
@@ -1086,7 +1089,7 @@ requests in ten minutes.
 
 Telegram: the bot token goes into `/etc/ikev2-manager/board/telegram.token`
 (mode 600) and never into the configuration. `owner_chat` hears of each new
-request; in `office_chat` the bot keeps one pinned message with the open
+request; in `group_chat` the bot keeps one pinned message with the open
 requests and edits it as they change.
 
 An agent works on requests over SSH with its own key, which the router
@@ -1104,12 +1107,12 @@ applied as the Policy Routing page applies it. Nothing else runs with it.
 `agent/ikev2-board-mcp.py` serves those actions to Claude Code or Codex:
 
 ```sh
-claude mcp add office -- python3 agent/ikev2-board-mcp.py --router office
-codex mcp add office -- python3 agent/ikev2-board-mcp.py --router office
+claude mcp add board -- python3 agent/ikev2-board-mcp.py --router home
+codex mcp add board -- python3 agent/ikev2-board-mcp.py --router home
 ```
 
 with the router named in `~/.config/ikev2-board/routers.json`
-(`{"office": {"host": ..., "port": ..., "user": "root", "key": "~/.ssh/..."}}`).
+(`{"home": {"host": ..., "port": ..., "user": "root", "key": "~/.ssh/..."}}`).
 The agent proposes; adding domains needs the person's yes in the chat first.
 
 ## Page access

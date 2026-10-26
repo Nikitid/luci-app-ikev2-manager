@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""MCP server for the office board's requests, for Claude Code and Codex alike.
+"""MCP server for the services board's requests, for Claude Code and Codex alike.
 
 It speaks MCP over stdio and reaches one router over SSH with a key whose
 authorized_keys entry forces "/usr/libexec/ikev2-board agent": the router
 decides what may be done, this server only names it.
 
-    claude mcp add office -- python3 agent/ikev2-board-mcp.py --router home
-    codex mcp add office -- python3 agent/ikev2-board-mcp.py --router home
+    claude mcp add board -- python3 agent/ikev2-board-mcp.py --router home
+    codex mcp add board -- python3 agent/ikev2-board-mcp.py --router home
 
 Routers are named in ~/.config/ikev2-board/routers.json, never in this
 repository:
@@ -28,7 +28,7 @@ ID = re.compile(r"^[0-9a-f-]{1,40}$")
 DOMAIN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}\.)+[a-z]{2,63}$")
 
 TOOLS = [
-    {"name": "list_requests", "description": "The newest office requests (up to 50): who asked, which service or site does not work, what happens, status and note.",
+    {"name": "list_requests", "description": "The newest requests (up to 50): who asked, which service or site does not work, what happens, status and note.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "show_request", "description": "One request in full.",
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},

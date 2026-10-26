@@ -41,10 +41,10 @@ internal static class PolicyTransportTests
             Reject(() => PolicyTransportClient.Decode(new MemoryStream(new byte[1048577]), "application/json", -1), "policy_response_too_large");
             Reject(() => PolicyTransportClient.Decode(new MemoryStream(new byte[] { 255 }), "application/json", 1));
             Reject(() => PolicyTransportClient.Decode(new MemoryStream(Encoding.UTF8.GetBytes("{\"secret\":\"do-not-print\"}")), "application/json", -1));
-            string ready = "{\"version\":1,\"state\":\"ready\",\"id\":\"office-pc\",\"revision\":4,\"policy_sha256\":\"" + new string('a', 64) +
+            string ready = "{\"version\":1,\"state\":\"ready\",\"id\":\"alice-pc\",\"revision\":4,\"policy_sha256\":\"" + new string('a', 64) +
                 "\",\"address\":\"10.77.0.2\",\"generation\":3,\"expires_at\":1790000000}";
             var readiness = DeviceReadiness.Parse(ready);
-            if (readiness.Id != "office-pc" || readiness.Address != "10.77.0.2" || readiness.Revision != 4) throw new Exception("Readiness was not read");
+            if (readiness.Id != "alice-pc" || readiness.Address != "10.77.0.2" || readiness.Revision != 4) throw new Exception("Readiness was not read");
             foreach (string broken in new[] {
                 ready.Replace("\"ready\"", "\"pending\""), ready.Replace("\"version\":1", "\"version\":2"),
                 ready.Replace("\"revision\":4", "\"revision\":0"), ready.Replace("10.77.0.2", "10.77.0.256"),
@@ -56,27 +56,27 @@ internal static class PolicyTransportTests
                 throw new Exception("Readiness body was not read");
             Reject(() => PolicyTransportClient.ReadBody(new MemoryStream(new byte[4097]), "application/json", -1, 4096, "path_response_invalid"), "path_response_invalid");
             Reject(() => PolicyTransportClient.ReadBody(new MemoryStream(body), "text/plain", body.Length, 4096, "path_response_invalid"), "path_response_invalid");
-            string offered = "{\"version\":1,\"id\":\"office-pc\",\"revision\":4,\"selected\":[{\"id\":\"api\",\"domains\":3},{\"id\":\"mail\",\"domains\":2}],\"available\":[{\"id\":\"wiki\",\"domains\":9}]}";
-            var names = DeviceServices.Parse(offered, "office-pc");
+            string offered = "{\"version\":1,\"id\":\"alice-pc\",\"revision\":4,\"selected\":[{\"id\":\"api\",\"domains\":3},{\"id\":\"mail\",\"domains\":2}],\"available\":[{\"id\":\"wiki\",\"domains\":9}]}";
+            var names = DeviceServices.Parse(offered, "alice-pc");
             if (names.Selected.Length != 2 || names.Available.Length != 1 || names.Available[0] != "wiki" || names.Domains != 5) throw new Exception("Service names were not read");
-            if (names.NamesHttps || !DeviceServices.Parse(offered.Replace("\"revision\":4", "\"revision\":4,\"names_https\":true"), "office-pc").NamesHttps)
+            if (names.NamesHttps || !DeviceServices.Parse(offered.Replace("\"revision\":4", "\"revision\":4,\"names_https\":true"), "alice-pc").NamesHttps)
                 throw new Exception("Names over HTTPS were not read as offered");
-            Reject(() => DeviceServices.Parse(offered.Replace("\"revision\":4", "\"revision\":4,\"names_https\":\"yes\""), "office-pc"), "services_response_invalid");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"revision\":4", "\"revision\":4,\"names_https\":\"yes\""), "alice-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered, "other-pc"), "services_response_invalid");
             // An offer: each entry read strictly, its name shown as plain text.
             string entry = "{\"id\":\"chat\",\"label\":\"Telegram\",\"required\":false,\"on\":true,\"closed\":false,\"choose_closed\":true,\"domains\":3,\"networks\":1,\"resources\":[\"host-4\"],\"cidrs\":[\"149.154.160.0/20\"]}";
             Func<string, string> withEntry = e => offered.Replace("\"revision\":4", "\"revision\":4,\"entries\":[" + e + "]");
-            var chosen = DeviceServices.Parse(withEntry(entry), "office-pc").Entries;
+            var chosen = DeviceServices.Parse(withEntry(entry), "alice-pc").Entries;
             if (chosen == null || chosen.Length != 1 || chosen[0].Label != "Telegram" || !chosen[0].On || chosen[0].Closed || !chosen[0].ChooseClosed ||
                 chosen[0].Resources[0] != "host-4" || chosen[0].Cidrs[0] != "149.154.160.0/20")
                 throw new Exception("The offer was not read as given");
             if (names.Entries != null) throw new Exception("A router without offers was read as giving one");
             foreach (string bad in new[] { entry.Replace("Telegram", "Tele\\ngram"), entry.Replace("\"required\":false,\"on\":true", "\"required\":true,\"on\":false"),
                 entry.Replace("149.154.160.0/20", "127.0.0.0/8"), entry.Replace("host-4", "../4"), entry.Replace("\"cidrs\"", "\"extra\":1,\"cidrs\"") })
-                Reject(() => DeviceServices.Parse(withEntry(bad), "office-pc"), "services_response_invalid");
-            Reject(() => DeviceServices.Parse(offered.Replace("\"mail\"", "\"api\""), "office-pc"), "services_response_invalid");
-            Reject(() => DeviceServices.Parse(offered.Replace("\"wiki\"", "\"../wiki\""), "office-pc"), "services_response_invalid");
-            Reject(() => DeviceServices.Parse(offered.Replace("\"domains\":9", "\"domains\":9,\"address\":\"10.0.0.1\""), "office-pc"), "services_response_invalid");
+                Reject(() => DeviceServices.Parse(withEntry(bad), "alice-pc"), "services_response_invalid");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"mail\"", "\"api\""), "alice-pc"), "services_response_invalid");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"wiki\"", "\"../wiki\""), "alice-pc"), "services_response_invalid");
+            Reject(() => DeviceServices.Parse(offered.Replace("\"domains\":9", "\"domains\":9,\"address\":\"10.0.0.1\""), "alice-pc"), "services_response_invalid");
             if (PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\"}") != "2.3.0") throw new Exception("Release was not read");
             Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\",\"url\":\"https://example.com\"}"), "release_response_invalid");
             Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"../2.3\"}"), "release_response_invalid");

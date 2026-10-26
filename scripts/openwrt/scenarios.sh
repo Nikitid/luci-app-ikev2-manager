@@ -685,7 +685,7 @@ sed -n '/^normalize_domains() {/,/^}/p; /^normalize_remote_domains() {/,/^}/p' \
 step 'recording the names of one device with the BusyBox tools'
 sh /src/scripts/test-name-record.sh
 
-step 'the office board executor with the BusyBox tools'
+step 'the services board executor with the BusyBox tools'
 sh /src/scripts/test-board.sh
 
 step 'per-service providers preserve offline coverage with real OpenWrt tools'

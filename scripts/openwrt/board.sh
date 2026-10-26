@@ -1,5 +1,5 @@
 #!/bin/sh
-# The office board's page and request form on the real uhttpd: a request with
+# The services board's page and request form on the real uhttpd: a request with
 # a screenshot is kept, listed without who sent it, and an incomplete one is
 # refused.
 set -eu
@@ -13,7 +13,7 @@ until curl -fsS -o /dev/null http://127.0.0.1:18090/board 2>/dev/null; do
 	[ "$tries" -lt 20 ] || fail "uhttpd did not start: $(cat /tmp/board-uhttpd.log)"
 	sleep 1
 done
-curl -fsS http://127.0.0.1:18090/board | grep -q '<form id="form">' || fail 'the page was not served'
+curl -fsS http://127.0.0.1:18090/board | grep -q 'id="form"' || fail 'the page was not served'
 # The first bytes of a PNG and a word, as base64.
 png=iVBORw0KGgpmYWtl
 curl -fsS -o /tmp/board-sent -H 'Content-Type: application/json' \

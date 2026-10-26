@@ -1,5 +1,5 @@
 #!/bin/sh
-# The office board: a page on the local network that shows which services go
+# The services board: a page on the local network that shows which services go
 # through the tunnel, with their domains, and takes requests about a service
 # that does not open. Requests are kept on this router; the owner hears of each
 # one in Telegram, and an agent works on them over a restricted SSH key.
@@ -26,6 +26,10 @@ token_file="$board_dir/telegram.token"
 manual_file="${IKEV2_MANUAL_FILE:-/etc/pbr-ikev2-domains.manual.txt}"
 manual_cidr_file="${IKEV2_MANUAL_CIDR_FILE:-/etc/pbr-ikev2-addresses.manual.txt}"
 selected_file="${IKEV2_SELECTED_FILE:-/etc/pbr-ikev2-community-selected.txt}"
+exits_file="${IKEV2_EXITS_FILE:-/etc/pbr-ikev2-exits.txt}"
+tunnel_state="${IKEV2_TUNNEL_STATE:-/var/run/ikev2-tunnels.state}"
+manager="${IKEV2_MANAGER:-/usr/libexec/ikev2-manager}"
+tunnels=''
 input_prefix="${IKEV2_INPUT_PREFIX:-/tmp/ikev2-domains-input}"
 telegram="${IKEV2_TELEGRAM_API:-https://api.telegram.org}"
 
@@ -48,22 +52,36 @@ json_string() {
 		printf '"%s"' "$(printf '%s' "$1" | sed 's/["\\]/\\&/g')"
 }
 
-# The selected services, each with its domains, and the operator's own
-# domains. Read from the lists the routing already uses; nothing is fetched
-# that the router does not fetch anyway.
+# Whether the tunnel a service leaves through is up: its exit from the exits
+# list (the first exit when it has none), the tunnel carrying that exit from
+# the watcher's state, and that tunnel's state now.
+service_up() {
+	local exit tunnel
+	exit="$(awk -v id="$1" '$1 == id { print $2; exit }' "$exits_file" 2>/dev/null)"
+	tunnel="$(awk -v want="${exit:-1}" '$1 == "exit" && $2 == want { print $3; exit }' "$tunnel_state" 2>/dev/null)"
+	printf '%s\n' "$tunnels" | grep -q "^tunnel=${tunnel:-1} up=1 "
+}
+
+# The selected services, each with its domains and whether its tunnel is up,
+# and the operator's own domains. Read from the lists the routing already
+# uses; nothing is fetched that the router does not fetch anyway.
 snapshot() {
-	local work service label first=1 records
+	local work service label first=1 records up any=false
 	mkdir -p "$run_dir" || return 1
 	work="$(mktemp -d)" || return 1
 	records="$("$community" services 2>/dev/null)"
+	tunnels="$("$manager" tunnels-status 2>/dev/null)"
+	printf '%s\n' "$tunnels" | grep -q ' up=1 ' && any=true
 	{
-		printf '{"updated":%s,"services":[' "$(date +%s)"
+		printf '{"updated":%s,"tunnel":%s,"services":[' "$(date +%s)" "$any"
 		for service in $(sed -n 's/^[ \t]*\([a-z0-9_.-]\{1,64\}\)[ \t]*$/\1/p' "$selected_file" 2>/dev/null); do
 			label="$(printf '%s\n' "$records" | awk -F'|' -v id="$service" '$1 == id { print $2; exit }')"
 			"$community" service-read "$service" >"$work/read" 2>/dev/null || :
 			[ "$first" = 1 ] || printf ','
 			first=0
-			printf '{"id":%s,"label":%s,"domains":[' "$(json_string "$service")" "$(json_string "${label:-$service}")"
+			up=false
+			service_up "$service" && up=true
+			printf '{"id":%s,"label":%s,"up":%s,"domains":[' "$(json_string "$service")" "$(json_string "${label:-$service}")" "$up"
 			sed -n '/^---domains---$/,/^---/p' "$work/read" | sed '1d;/^---/d' | head -n 500 |
 				awk 'NF { printf "%s\"%s\"", (n++ ? "," : ""), $1 }'
 			printf ']}'
@@ -117,11 +135,11 @@ $problem")}" >/dev/null
 	pin || :
 }
 
-# One message in the office chat lists the open requests; the bot edits it in
+# One message in the group chat lists the open requests; the bot edits it in
 # place, and posts and pins a new one the first time.
 pin() {
 	local chat text message reply
-	chat="$(setting office_chat)"
+	chat="$(setting group_chat)"
 	[ -n "$chat" ] || return 0
 	text="$(open_summary)"
 	message="$(cat "$board_dir/pinned" 2>/dev/null)"

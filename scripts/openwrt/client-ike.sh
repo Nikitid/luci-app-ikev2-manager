@@ -107,7 +107,7 @@ secrets { eap-alice { id = alice
 CONF
 cat >"/etc/netns/$client/swanctl/swanctl.conf" <<CONF
 connections {
- office {
+ site {
   version = 2
   local_addrs = 10.232.254.2
   remote_addrs = 10.232.254.1
@@ -191,7 +191,7 @@ if [ "${CLIENT_ACCESS_TEST_PATH:-0}" = 1 ]; then
 	# shellcheck disable=SC1090
 	. "${CLIENT_ACCESS_PATH_SCENARIO:-/src/scripts/openwrt/client-path.sh}"
 fi
-pkg_run_bounded 10 role "$client" swanctl --terminate --ike office >"$work/terminate.log" 2>&1 || fail 'isolated session termination failed'
+pkg_run_bounded 10 role "$client" swanctl --terminate --ike site >"$work/terminate.log" 2>&1 || fail 'isolated session termination failed'
 controller sync || fail 'disconnected reconciliation failed'
 grep -q '^grants=0$' "$work/runtime/status" || fail 'disconnected client retained grants'
 [ -z "$root_pid" ] || {

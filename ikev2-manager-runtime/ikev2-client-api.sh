@@ -21,8 +21,8 @@ cleanup() {
 }
 # The port is open to the internet. A token cannot be guessed, but every
 # request costs this router a process, so one address may open ten new
-# connections a second after a burst of a hundred; the rest are dropped. An
-# office behind one address stays far below that. The server holds a few
+# connections a second after a burst of a hundred; the rest are dropped. A
+# network behind one address stays far below that. The server holds a few
 # dozen connections at once, so one address may also hold no more than eight
 # of them: before, a single address that kept eight idle connections open
 # took every place and no device could ask whether it was admitted. Counting

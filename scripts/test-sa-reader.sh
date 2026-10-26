@@ -62,7 +62,7 @@ snapshot ''
 [ "$(answers tunnels)" = '' ] && [ "$(status tunnels)" = 0 ] || fail 'no tunnel was not an empty answer'
 
 # Inbound sessions: each EAP client of the server, in order, and nothing else.
-snapshot '{"ikev2-in":{"remote-eap-id":"alice","remote-vips":["10.20.30.15"]}},{"site-link-in":{"remote-eap-id":"office","remote-vips":["10.253.44.2"]}},{"ikev2-in":{"remote-id":"no-eap","remote-vips":["10.20.30.16"]}},{"ikev2-in":{"remote-eap-id":"bob","remote-vips":["10.20.30.17","10.20.30.18"]}},{"ikev2-in":{"remote-eap-id":"carol"}},{"ikev2-in":{"remote-eap-id":"x\ty","remote-vips":["10.20.30.19"]}}'
+snapshot '{"ikev2-in":{"remote-eap-id":"alice","remote-vips":["10.20.30.15"]}},{"site-link-in":{"remote-eap-id":"branch","remote-vips":["10.253.44.2"]}},{"ikev2-in":{"remote-id":"no-eap","remote-vips":["10.20.30.16"]}},{"ikev2-in":{"remote-eap-id":"bob","remote-vips":["10.20.30.17","10.20.30.18"]}},{"ikev2-in":{"remote-eap-id":"carol"}},{"ikev2-in":{"remote-eap-id":"x\ty","remote-vips":["10.20.30.19"]}}'
 printf 'alice\t10.20.30.15\nbob\t10.20.30.17\n' >"$tmp/expected"
 answers sessions ikev2-in >"$tmp/sessions"
 cmp -s "$tmp/expected" "$tmp/sessions" || {

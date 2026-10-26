@@ -8,7 +8,7 @@ using IkeV2Manager.Client;
 // only, replaced whole when that changes, and gone when nothing is blocked.
 internal static class NetworkGuardTests
 {
-    private const string Policy = "{\"version\":2,\"id\":\"office-pc\",\"revision\":1,\"server\":{\"address\":\"vpn.example.com\",\"remote_id\":\"vpn.example.com\"}," +
+    private const string Policy = "{\"version\":2,\"id\":\"alice-pc\",\"revision\":1,\"server\":{\"address\":\"vpn.example.com\",\"remote_id\":\"vpn.example.com\"}," +
         "\"virtual_subnet\":\"172.31.254.0/24\",\"exit\":\"1\",\"resources\":[]," +
         "\"networks\":[{\"network\":\"198.51.100.0/24\",\"transports\":[{\"protocol\":\"tcp\",\"ports\":[443]}]}," +
         "{\"network\":\"203.0.113.0/24\",\"transports\":[{\"protocol\":\"tcp\",\"ports\":[443]}]}]}";
@@ -17,8 +17,8 @@ internal static class NetworkGuardTests
     {
         Func<string, string, bool, string> entry = (id, cidr, closed) => "{\"id\":\"" + id + "\",\"required\":true,\"on\":true,\"closed\":" + (closed ? "true" : "false") +
             ",\"choose_closed\":false,\"domains\":0,\"networks\":1,\"resources\":[],\"cidrs\":[\"" + cidr + "\"]}";
-        return DeviceServices.Parse("{\"version\":1,\"id\":\"office-pc\",\"revision\":1,\"selected\":[],\"available\":[],\"entries\":[" +
-            entry("chat", "198.51.100.0/24", chatClosed) + "," + entry("api", "203.0.113.0/24", apiClosed) + "]}", "office-pc");
+        return DeviceServices.Parse("{\"version\":1,\"id\":\"alice-pc\",\"revision\":1,\"selected\":[],\"available\":[],\"entries\":[" +
+            entry("chat", "198.51.100.0/24", chatClosed) + "," + entry("api", "203.0.113.0/24", apiClosed) + "]}", "alice-pc");
     }
 
     // The chat service is required and blocked; the api service is the
@@ -26,9 +26,9 @@ internal static class NetworkGuardTests
     private static DeviceServices Choosable(bool apiChosen)
     {
         string chosen = apiChosen ? "true" : "false";
-        return DeviceServices.Parse("{\"version\":1,\"id\":\"office-pc\",\"revision\":1,\"selected\":[],\"available\":[],\"entries\":[" +
+        return DeviceServices.Parse("{\"version\":1,\"id\":\"alice-pc\",\"revision\":1,\"selected\":[],\"available\":[],\"entries\":[" +
             "{\"id\":\"chat\",\"required\":true,\"on\":true,\"closed\":true,\"choose_closed\":false,\"domains\":0,\"networks\":1,\"resources\":[],\"cidrs\":[\"198.51.100.0/24\"]}," +
-            "{\"id\":\"api\",\"required\":false,\"on\":" + chosen + ",\"closed\":" + chosen + ",\"choose_closed\":true,\"domains\":0,\"networks\":1,\"resources\":[],\"cidrs\":[\"203.0.113.0/24\"]}]}", "office-pc");
+            "{\"id\":\"api\",\"required\":false,\"on\":" + chosen + ",\"closed\":" + chosen + ",\"choose_closed\":true,\"domains\":0,\"networks\":1,\"resources\":[],\"cidrs\":[\"203.0.113.0/24\"]}]}", "alice-pc");
     }
 
     private static bool Installed(GuardReceipt plan)

@@ -42,10 +42,10 @@ namespace Nikitid.IkeV2ProfileInstaller
 				catch (InvalidOperationException error) { refused = error.Message == "Windows отказала"; }
 				Assert(refused, "a refusal of the script is a failure with its words");
 
-                document.SetName("Office VPN");
-                Assert(document.Name == "Office VPN", "edited friendly name");
+                document.SetName("Work VPN");
+                Assert(document.Name == "Work VPN", "edited friendly name");
                 Assert(document.Xml.Contains(
-                    "<ProfileName>Office VPN</ProfileName>"), "edited XML profile name");
+                    "<ProfileName>Work VPN</ProfileName>"), "edited XML profile name");
 
                 File.WriteAllText(path, Profile.Replace(
                     "<DomainName>.</DomainName>",

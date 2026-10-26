@@ -573,7 +573,7 @@ The published client state was compiled and compared again on every read: by
 the device API on each request, by the controller three times every two
 seconds, by the page on each load. Compiling checked every domain of every
 service once per device, so the cost grew with devices times domains. With
-three services it took 0.6 s on a four-core router; a synthetic office of 60
+three services it took 0.6 s on a four-core router; a synthetic network of 60
 devices and 300 domains took 38 s per read, which no test showed because every
 fixture has two devices. Only whoever changes the state compiles it in full
 now. Readers take the per-device views written at publication
@@ -679,7 +679,7 @@ restart`); the package's postinst does this for the board.
 
 ## A new file goes into two package lists
 
-The office board ran on a router it was copied to and was missing from the
+The services board ran on a router it was copied to and was missing from the
 package: `scripts/stage-package.sh`, which builds the IPK and the OpenWrt
 scenarios' install, keeps its own file list and postinst beside the
 Makefile's. A new installed file, and a postinst change, go into both; the

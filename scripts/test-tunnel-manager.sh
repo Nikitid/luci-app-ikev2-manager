@@ -35,9 +35,9 @@ client=client
 client.enabled=1
 client.remote_address=home.example.test
 client.remote_id=home.example.test
-client.username=office-user
+client.username=tunnel-user
 EOF
-printf 'office-user\t0sc2VjcmV0\n' >"$tmp/root/etc/ikev2-manager/client.secret"
+printf 'tunnel-user\t0sc2VjcmV0\n' >"$tmp/root/etc/ikev2-manager/client.secret"
 
 conf="$tmp/root/etc/swanctl/conf.d/21-proxy-out-extra.conf"
 secrets="$tmp/root/etc/swanctl/conf.d/92-proxy-out-extra-secret.conf"
@@ -74,7 +74,7 @@ snapshot() {
 }
 
 # A new tunnel takes the first free index and its own names.
-input save new 'Backup NL' 1 nl.example.test nl.example.test office-user 30 1400 1 's3cret pass'
+input save new 'Backup NL' 1 nl.example.test nl.example.test tunnel-user 30 1400 1 's3cret pass'
 manager tunnel-input >"$tmp/out" 2>"$tmp/err" || fail "a new tunnel was refused: $(cat "$tmp/err")"
 grep -qx 'tunnel=2' "$tmp/out" || fail 'a new tunnel did not take index 2'
 grep -qx "tunnel_2.name=Backup NL" "$tmp/root/etc/config/ikev2-manager" || fail 'the tunnel name was not stored'
@@ -83,7 +83,7 @@ grep -q 'proxy-out-2 {' "$conf" && grep -q 'proxy4-2 {' "$conf" ||
 [ "$(grep -c 'if_id_in = 52\|if_id_out = 52' "$conf")" = 2 ] || fail 'the tunnel is not on its own XFRM interface'
 grep -q 'remote_addrs = nl.example.test' "$conf" || fail 'the tunnel server was not rendered'
 ! grep -q 's3cret' "$db" "$secrets" || fail 'a tunnel password was stored in plaintext'
-grep -q 'id-user = "office-user"' "$secrets" && grep -q 'id-server = "nl.example.test"' "$secrets" ||
+grep -q 'id-user = "tunnel-user"' "$secrets" && grep -q 'id-server = "nl.example.test"' "$secrets" ||
 	fail 'the tunnel secret is not bound to its server'
 grep -q 'id-server = "home.example.test"' "$first_secret" ||
 	fail 'the first tunnel secret, with the same user, is not bound to its server'
@@ -124,7 +124,7 @@ for bad in \
 done
 
 # A disabled tunnel is configured but not rendered.
-input save new 'Spare' 0 de.example.test de.example.test office-user 30 1400 1 'other'
+input save new 'Spare' 0 de.example.test de.example.test tunnel-user 30 1400 1 'other'
 manager tunnel-input >"$tmp/out" 2>"$tmp/err" || fail "a disabled tunnel was refused: $(cat "$tmp/err")"
 grep -qx 'tunnel=3' "$tmp/out" || fail 'the second new tunnel did not take index 3'
 ! grep -q 'proxy-out-3' "$conf" "$secrets" || fail 'a disabled tunnel was rendered'

@@ -1,5 +1,5 @@
 #!/bin/sh
-# The office board's executor: the agent's key may only name the actions it
+# The services board's executor: the agent's key may only name the actions it
 # allows, a request id cannot reach outside the request store, a status change
 # is kept, and added domains are staged the way the Policy Routing page stages
 # them.
@@ -58,4 +58,31 @@ staged="$(sed -n 's/^schedule //p' "$tmp/community")"
 [ -n "$staged" ] || fail 'nothing was scheduled'
 [ "$(tr '\n' ' ' <"$tmp/input-$staged.domains")" = 'one.example two.example three.example ' ] || fail 'the staged list is not the old one plus the new names'
 [ "$(cat "$tmp/input-$staged.services")" = svc ] || fail 'the selected services were not carried over'
+
+# The page says which services work now: a service is up when the tunnel
+# carrying its exit is, and one without an exit of its own uses the first.
+cat >"$tmp/bin/manager" <<'EOF'
+#!/bin/sh
+printf 'tunnel=1 up=1 address=10.0.0.2 carries=1\ntunnel=2 up=0 address= carries=2\n'
+EOF
+cat >>"$tmp/bin/community" <<'EOF'
+case "$1" in
+	services) printf 'chat|Chat\nmail|Mail\n' ;;
+	service-read) printf -- '---domains---\n%s.example\n---end---\n' "$2" ;;
+esac
+EOF
+chmod 755 "$tmp/bin/manager"
+printf 'chat\nmail\n' >"$tmp/selected"
+printf 'mail 2\n' >"$tmp/exits"
+printf 'exit 1 1\nexit 2 2\n' >"$tmp/state"
+IKEV2_MANAGER="$tmp/bin/manager" IKEV2_EXITS_FILE="$tmp/exits" IKEV2_TUNNEL_STATE="$tmp/state" sh "$helper" snapshot ||
+	fail 'the snapshot failed'
+python3 - "$tmp/run/services.json" <<'EOF' || fail 'the snapshot does not say which services work'
+import json, sys
+value = json.load(open(sys.argv[1]))
+up = {service['id']: service['up'] for service in value['services']}
+assert value['tunnel'] is True, value
+assert up == {'chat': True, 'mail': False}, up
+assert value['services'][0]['domains'] == ['chat.example'], value
+EOF
 printf '%s\n' 'board tests OK'

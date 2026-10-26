@@ -5784,23 +5784,11 @@ msgstr "Скрыть списки v2fly"
 msgid "Hide v2fly lists (%d)"
 msgstr "Скрыть списки v2fly (%d)"
 
-msgid "Office services"
-msgstr "Сервисы офиса"
-
-msgid "These services go through the tunnel. Open one to see its domains."
-msgstr "Эти сервисы идут через туннель. Откройте сервис, чтобы увидеть его домены."
-
-msgid "Other domains"
-msgstr "Другие домены"
-
 msgid "Something does not open"
 msgstr "Что-то не открывается"
 
 msgid "Your name"
 msgstr "Ваше имя"
-
-msgid "Work e-mail (optional)"
-msgstr "Рабочая почта (необязательно)"
 
 msgid "Service or site"
 msgstr "Сервис или сайт"
@@ -5810,9 +5798,6 @@ msgstr "Ссылка"
 
 msgid "What does not work"
 msgstr "Что не работает"
-
-msgid "Screenshots: paste with Ctrl+V or drop here, up to 3"
-msgstr "Скриншоты: вставьте через Ctrl+V или перетащите сюда, до 3"
 
 msgid "Send request"
 msgstr "Отправить заявку"
@@ -5843,12 +5828,6 @@ msgstr "Не наше"
 
 msgid "Loading..."
 msgstr "Загрузка..."
-
-msgid "No services."
-msgstr "Сервисов нет."
-
-msgid "domains"
-msgstr "доменов"
 
 msgid "Exclusions go direct"
 msgstr "Исключения напрямую"
@@ -5906,3 +5885,66 @@ msgstr "Блокируется без туннеля"
 
 msgid "Ordinary way without the tunnel"
 msgstr "Без туннеля обычным путём"
+
+msgid "Network services"
+msgstr "Сервисы сети"
+
+msgid "Services that go through the tunnel on this network, and whether they work now."
+msgstr "Сервисы, которые в этой сети идут через туннель, и работают ли они сейчас."
+
+msgid "Find a service or check a site"
+msgstr "Найти сервис или проверить сайт"
+
+msgid "Other sites"
+msgstr "Другие сайты"
+
+msgid "Works"
+msgstr "Работает"
+
+msgid "All services work"
+msgstr "Все сервисы работают"
+
+msgid "The tunnel is down: services are unavailable"
+msgstr "Туннель недоступен: сервисы не работают"
+
+msgid "%d of %d services work"
+msgstr "Работают %d из %d сервисов"
+
+msgid "goes through the tunnel as"
+msgstr "идёт через туннель в составе"
+
+msgid "is not in the tunnel: it opens the ordinary way."
+msgstr "не в туннеле: открывается напрямую."
+
+msgid "Nothing found."
+msgstr "Ничего не найдено."
+
+msgid "No services yet."
+msgstr "Сервисов пока нет."
+
+msgid "The list of services could not be loaded."
+msgstr "Не удалось загрузить список сервисов."
+
+msgid "Does not open"
+msgstr "Не открывается"
+
+msgid "Ask to add it"
+msgstr "Попросить добавить"
+
+msgid "Updated %d"
+msgstr "Обновлено %d"
+
+msgid "Say what you tried to open and what happened. The request is kept on this router and its status is shown below."
+msgstr "Напишите, что пытались открыть и что произошло. Заявка хранится на этом роутере, её статус виден ниже."
+
+msgid "E-mail (optional)"
+msgstr "E-mail (необязательно)"
+
+msgid "Screenshots: paste with Ctrl+V, drop here or click to choose, up to 3"
+msgstr "Скриншоты: вставьте через Ctrl+V, перетащите сюда или нажмите, чтобы выбрать, до 3"
+
+msgid "Click to remove"
+msgstr "Нажмите, чтобы убрать"
+
+msgid "Too many requests from this device. Try again in a few minutes."
+msgstr "Слишком много заявок с этого устройства. Попробуйте через несколько минут."

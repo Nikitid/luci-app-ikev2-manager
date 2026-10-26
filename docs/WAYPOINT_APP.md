@@ -12,7 +12,7 @@ A service is a name and what it reaches:
 - **domains** - as now: each gets a stable virtual address, names resolve to it
   inside the tunnel and the router's exit reaches the real domain;
 - **networks** - new: address ranges reached as themselves (Telegram, a
-  provider's IP ranges, an office network). They travel as traffic selectors,
+  provider's IP ranges, a company network). They travel as traffic selectors,
   so every system routes them without a hosts file. At most 64 networks for
   one device.
 
