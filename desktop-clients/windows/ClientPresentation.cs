@@ -54,6 +54,12 @@ namespace IkeV2Manager.Client
         public bool Registered { get; private set; }
         // While a choice is on its way the switches wait for it.
         public bool Choosing { get; private set; }
+        // The person's own sites and networks, where allowed: the list, what
+        // may still be added, and a line about it; null where not allowed.
+        public string[] OwnItems { get; private set; }
+        public bool OwnCanAdd { get; private set; }
+        public string OwnLine { get; private set; }
+        public string OwnProblem { get; private set; }
         public string[] Addresses { get; private set; }
 
         public static readonly string[] AddressLabels = { "Сервер", "IP сервера", "Сеть сервисов", "Сеть туннеля" };
@@ -178,8 +184,19 @@ namespace IkeV2Manager.Client
 
             // With an offer the services are rows the person can change where
             // it is theirs to; without one, the names the router assigned.
-            var entries = view.Entries ?? new ServiceChoice[0];
+            // The person's own addresses have their own part of the window.
+            var entries = (view.Entries ?? new ServiceChoice[0]).Where(e => !OwnAddresses.IsService(e.Id)).ToArray();
             p.Choosing = view.ChoicePending;
+            if (view.Own != null)
+            {
+                p.OwnItems = view.Own.Domains.Concat(view.Own.Networks).ToArray();
+                p.OwnCanAdd = !view.Own.Pending && p.OwnItems.Length < view.Own.Limit;
+                p.OwnLine = "Добавлено " + p.OwnItems.Length + " из " + view.Own.Limit + " · порты " + String.Join(", ", view.Own.Ports) +
+                    " · без туннеля идут напрямую" + (view.Own.Pending ? " · отправляется на сервер" : "");
+                p.OwnProblem = view.Own.Answer == "refused" ? "Сервер не принял список: нужен публичный сайт или адрес, не частная сеть." :
+                    view.Own.Answer == "not_allowed" ? "Добавлять свои адреса больше не разрешено." :
+                    view.Own.Answer == "too_often" ? "Слишком много изменений за сутки. Попробуйте завтра." : "";
+            }
             p.Services = entries.Select(e => new ServiceRow {
                 Id = e.Id, Label = e.Label, On = e.On, Closed = e.Closed, CanTurn = !e.Required, ChooseClosed = e.ChooseClosed, CanClose = e.ChooseClosed && e.On,
                 Note = e.Required ? (e.Closed ? "обязательный · без туннеля закрыт" : "обязательный · без туннеля напрямую") :
@@ -187,7 +204,8 @@ namespace IkeV2Manager.Client
             p.ServicesLine = unassigned ? "Не назначены" : view.Services.Length != 0 ? String.Join(" · ", view.Services) :
                 view.Domains == 0 ? "Не назначены" : "Доменов: " + view.Domains;
             p.ServicesNote = view.Services.Length == 0 ? "" : "Доменов: " + view.Domains;
-            p.AvailableLine = view.Available.Length == 0 || entries.Length != 0 ? "" : "По запросу: " + String.Join(", ", view.Available);
+            var available = view.Available.Where(id => !OwnAddresses.IsService(id)).ToArray();
+            p.AvailableLine = available.Length == 0 || entries.Length != 0 ? "" : "По запросу: " + String.Join(", ", available);
 
             p.Registered = view.GuardInstalled && view.State != "registration_pending" && view.State != "registration_error";
             p.Register = view.State == "enrollment_required" || view.State == "registration_error";
@@ -205,6 +223,21 @@ namespace IkeV2Manager.Client
             p.Notes = notes.ToArray();
             p.Addresses = new[] { view.ServerName ?? "", view.ServerIP ?? "", view.ServicesSubnet ?? "", view.TunnelSubnet ?? "" };
             return p;
+        }
+
+        // The whole own list the service is asked for after one is added or
+        // taken away: null when what was typed is neither a site nor an address.
+        public static bool OwnChanged(ClientView view, string add, string remove, out string[] domains, out string[] networks)
+        {
+            domains = view.Own == null ? new string[0] : view.Own.Domains.Where(d => d != remove).ToArray();
+            networks = view.Own == null ? new string[0] : view.Own.Networks.Where(n => n != remove).ToArray();
+            if (view.Own == null) return false;
+            if (add == null) return true;
+            var parsed = OwnAddresses.Input(add);
+            if (parsed == null) return false;
+            if (parsed[0] != null && !domains.Contains(parsed[0])) domains = domains.Concat(new[] { parsed[0] }).ToArray();
+            if (parsed[1] != null && !networks.Contains(parsed[1])) networks = networks.Concat(new[] { parsed[1] }).ToArray();
+            return domains.Length + networks.Length <= view.Own.Limit;
         }
 
         // The lists the service is asked for when one switch of one row turns:

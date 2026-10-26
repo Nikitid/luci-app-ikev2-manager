@@ -80,7 +80,24 @@ internal static class ClientStatusTests
             {
                 data["Entries"] = spoiled; Check(data, 123, now, "status_invalid");
             }
-            data["Entries"] = new object[0]; data.Remove("ChoicePending"); Check(data, 123, now, "status_invalid");
+            // Version 6 adds the person's own addresses, null where not allowed.
+            data["Entries"] = new object[0];
+            data["Version"] = 6; Check(data, 123, now, "status_invalid");
+            data["Own"] = null;
+            if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).Own != null) throw new Exception("No right was read as one");
+            Func<Dictionary<string, object>> own = () => new Dictionary<string, object> { { "Limit", 3 }, { "Ports", new[] { 80, 443 } },
+                { "Domains", new[] { "home.example.org" } }, { "Networks", new[] { "203.0.113.0/24" } }, { "Pending", true }, { "Answer", "" } };
+            data["Own"] = own();
+            var kept = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).Own;
+            if (kept == null || kept.Limit != 3 || kept.Domains[0] != "home.example.org" || kept.Networks[0] != "203.0.113.0/24" || !kept.Pending)
+                throw new Exception("The own addresses were lost");
+            foreach (var spoil in new Action<Dictionary<string, object>>[] { d => d["Limit"] = 40, d => d["Ports"] = new int[0], d => d["Domains"] = new[] { "not a name" },
+                d => d["Networks"] = new[] { "999.1.1.1/32" }, d => d["Answer"] = "<b>", d => d["Extra"] = 1 })
+            {
+                var spoiled = own(); spoil(spoiled); data["Own"] = spoiled; Check(data, 123, now, "status_invalid");
+            }
+            data.Remove("Own"); data["Version"] = 5;
+            data.Remove("ChoicePending"); Check(data, 123, now, "status_invalid");
             data.Remove("Entries"); data["Version"] = 4;
             data["Version"] = 3; foreach (string key in new[] { "ServerName", "ServerIP", "ServicesSubnet", "TunnelSubnet" }) data.Remove(key);
             if (open.Warnings.Length != 1 || open.Warnings[0] != "proxy") throw new Exception("A warning was lost");

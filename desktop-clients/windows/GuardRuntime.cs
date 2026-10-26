@@ -9,7 +9,7 @@ namespace IkeV2Manager.Client
 {
     public sealed class ClientStatus
     {
-        public int Version { get { return 5; } }
+        public int Version { get { return 6; } }
         public string State { get; internal set; }
         public bool GuardInstalled { get; internal set; }
         // True only while every gate holds at once: persistent denials, the
@@ -38,6 +38,8 @@ namespace IkeV2Manager.Client
         // The services offered to this person as the window shows them, and
         // whether a choice made here has yet to come back from the router.
         public ServiceChoice[] Entries { get; internal set; }
+        // The person's own sites and networks, where allowed; null where not.
+        public OwnStatus Own { get; internal set; }
         public bool ChoicePending { get; internal set; }
     }
 
@@ -72,6 +74,11 @@ namespace IkeV2Manager.Client
         // waiting to be sent, then sent and waiting to come back in the offer.
         private sealed class Choice { internal string[] On; internal string[] Closed; internal DateTime SentAt; }
         private Choice pendingChoice, sentChoice;
+        // The person's own sites and networks on their way to the router, and
+        // what the router said of the last list: "" when it was taken.
+        private sealed class OwnList { internal string[] Domains; internal string[] Networks; }
+        private OwnList pendingOwn;
+        private string ownAnswer = "";
         private bool namesApplied = true;
         // Names left to the system while the tunnel is not confirmed, as they
         // were last applied; empty without an offer.
@@ -264,10 +271,13 @@ namespace IkeV2Manager.Client
             PolicyHistory previous;
             Choice choice;
             bool choiceSent = false;
+            OwnList own;
+            string ownSent = null;
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("GuardRuntime");
                 choice = pendingChoice;
+                own = pendingOwn;
                 registration = EnrollmentRegistration.Load(store);
                 previous = registration == null || registration.Policy == null ? null : store.LoadPolicyHistory();
             }
@@ -302,6 +312,9 @@ namespace IkeV2Manager.Client
                     if (choice != null)
                         try { choiceSent = PolicyTransportClient.SendChoices(endpoint, registration.DeviceToken, choice.On, choice.Closed); }
                         catch (Exception) { }
+                    if (own != null)
+                        try { ownSent = PolicyTransportClient.SendOwn(endpoint, registration.DeviceToken, own.Domains, own.Networks); }
+                        catch (Exception) { ownSent = "failed"; }
                     try { fetchedServices = PolicyTransportClient.FetchServices(endpoint, registration.DeviceToken, registration.Id); }
                     catch (PolicyFetchException) { }
                     try { fetchedRelease = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
@@ -331,6 +344,13 @@ namespace IkeV2Manager.Client
                     if (fetchedServices != null) assigned = fetchedServices;
                     if (fetchedRelease != null) release = fetchedRelease;
                     if (choiceSent && pendingChoice == choice) { pendingChoice = null; sentChoice = choice; choice.SentAt = DateTime.UtcNow; }
+                    // A list the router answered is done with, taken or not; one
+                    // it could not be asked about is sent again next time.
+                    if (ownSent != null && ownSent != "failed" && pendingOwn == own)
+                    {
+                        pendingOwn = null;
+                        ownAnswer = ownSent == "accepted" ? "" : ownSent;
+                    }
                     if (sentChoice != null && fetchedServices != null)
                     {
                         if (Reflects(assigned, sentChoice.On, sentChoice.Closed)) sentChoice = null;
@@ -706,6 +726,27 @@ namespace IkeV2Manager.Client
 
         public bool ChoicePending() { lock (gate) return pendingChoice != null || sentChoice != null; }
 
+        // The person's own sites and networks for this device, as a whole list,
+        // within what the administrator allows. The router checks it again.
+        public bool SetOwn(string[] domains, string[] networks)
+        {
+            lock (gate)
+            {
+                if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                if (assigned == null || assigned.Own == null || domains == null || networks == null ||
+                    domains.Length + networks.Length > assigned.Own.Limit) return false;
+                foreach (string item in domains.Concat(networks))
+                {
+                    var parsed = OwnAddresses.Input(item);
+                    if (parsed == null || (parsed[0] ?? parsed[1]) != item) return false;
+                }
+                pendingOwn = new OwnList { Domains = domains.Distinct(StringComparer.Ordinal).ToArray(), Networks = networks.Distinct(StringComparer.Ordinal).ToArray() };
+                ownAnswer = "";
+                if (publishedState != null) Publish(publishedState);
+                return true;
+            }
+        }
+
         // The offer shows the choice: the optional services on and the ones
         // blocked by the person's own word are exactly the ones chosen.
         internal static bool Reflects(DeviceServices services, string[] chosenOn, string[] chosenClosed)
@@ -1035,6 +1076,9 @@ namespace IkeV2Manager.Client
                     Id = e.Id, Label = String.IsNullOrEmpty(e.Label) ? e.Id : e.Label, Required = e.Required, On = e.On, Closed = e.Closed,
                     ChooseClosed = e.ChooseClosed }).ToArray(),
                 ChoicePending = pendingChoice != null || sentChoice != null,
+                Own = assigned == null || assigned.Own == null ? null : new OwnStatus { Limit = assigned.Own.Limit, Ports = assigned.Own.Ports,
+                    Domains = pendingOwn != null ? pendingOwn.Domains : assigned.Own.Domains, Networks = pendingOwn != null ? pendingOwn.Networks : assigned.Own.Networks,
+                    Pending = pendingOwn != null, Answer = ownAnswer },
                 Protected = healthy && state == "protected" && permittedInterface != 0,
                 ConnectionError = state == "error" ? faultCode : state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),

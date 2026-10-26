@@ -58,6 +58,29 @@ internal static class ClientPresentationTests
             ClientPresentation.Chosen(offered.Services, "wiki", false, null, out on, out closed);
             Require(on.Length == 0 && !on.Contains("chat"), "a required service is never part of a choice");
 
+            // The person's own addresses: their own part of the window, never a service row.
+            var mine = new ClientView("protected", true, "none", new[] { "chat" }, 3, 1, true) {
+                Entries = new[] { new ServiceChoice { Id = "chat", Label = "Чат", Required = true, On = true, Closed = true },
+                    new ServiceChoice { Id = "own-alice-pc", Label = "own-alice-pc", Required = true, On = true, Closed = false } },
+                Own = new OwnStatus { Limit = 3, Ports = new[] { 80, 443 }, Domains = new[] { "home.example.org" }, Networks = new[] { "203.0.113.0/24" }, Answer = "" } };
+            var withOwn = ClientPresentation.Of(mine, Own, null, false);
+            Require(withOwn.Services.Length == 1 && withOwn.Services[0].Id == "chat", "the own service is not shown as a service");
+            Require(withOwn.OwnItems.SequenceEqual(new[] { "home.example.org", "203.0.113.0/24" }) && withOwn.OwnCanAdd && withOwn.OwnLine.Contains("2 из 3"),
+                "the own list is shown with what may still be added");
+            string[] domains, networks;
+            Require(ClientPresentation.OwnChanged(mine, "https://NAS.example.net/login", null, out domains, out networks) &&
+                domains.SequenceEqual(new[] { "home.example.org", "nas.example.net" }) && networks.SequenceEqual(new[] { "203.0.113.0/24" }),
+                "a pasted link is added as its host");
+            Require(!ClientPresentation.OwnChanged(mine, "printer local", null, out domains, out networks), "what is neither a site nor an address is refused");
+            Require(ClientPresentation.OwnChanged(mine, null, "203.0.113.0/24", out domains, out networks) && networks.Length == 0, "an entry is taken away");
+            mine.Own.Domains = new[] { "a.example.org", "b.example.org" };
+            Require(!ClientPresentation.OwnChanged(mine, "c.example.org", null, out domains, out networks), "the limit holds");
+            mine.Own.Answer = "refused";
+            Require(ClientPresentation.Of(mine, Own, null, false).OwnProblem.Length != 0, "a list the router did not take is said so");
+            Require(ClientPresentation.Of(new ClientView("protected", true), Own, null, false).OwnItems == null, "without the right there is no own part");
+            Require(OwnAddresses.Input("203.0.113.5")[1] == "203.0.113.5/32" && OwnAddresses.Input("999.1.1.1") == null && OwnAddresses.Input("localhost") == null &&
+                OwnAddresses.Input("home.example.org.")[0] == "home.example.org", "what a person types is read as a site or an address");
+
             Console.WriteLine("Window presentation checks passed: states, actions, services and choices");
             return 0;
         }

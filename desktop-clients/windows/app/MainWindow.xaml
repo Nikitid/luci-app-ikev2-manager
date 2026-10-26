@@ -75,6 +75,29 @@
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                     </Border>
+
+                    <!-- The person's own sites and networks, where the administrator allows them. -->
+                    <Border x:Name="OwnCard" Style="{StaticResource Card}" Visibility="Collapsed">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="МОИ АДРЕСА" Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="OwnEmpty" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Text="Пока ничего. Добавьте сайт или адрес, который должен идти через туннель на этом компьютере." />
+                            <StackPanel x:Name="OwnList" Spacing="2" />
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="OwnInput" PlaceholderText="example.com или 203.0.113.5" />
+                                <Button x:Name="OwnAdd" Grid.Column="1" Content="Добавить" Click="OnOwnAdd" />
+                            </Grid>
+                            <TextBlock x:Name="OwnLine" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="OwnProblem" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- The addresses another VPN needs to leave this one alone. -->

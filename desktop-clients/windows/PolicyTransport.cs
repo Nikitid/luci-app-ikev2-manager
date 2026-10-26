@@ -102,6 +102,8 @@ namespace IkeV2Manager.Client
     {
         // What the person was offered, where the router gives an offer.
         public ServiceEntry[] Entries { get; private set; }
+        // Present where the person may add addresses of their own.
+        public OwnAddresses Own { get; private set; }
         public readonly string[] Selected, Available;
         public readonly int Domains;
         // Whether services stay blocked while the tunnel is down. That is the
@@ -172,7 +174,8 @@ namespace IkeV2Manager.Client
                     if ((address & (UInt32.MaxValue << (32-prefix))) != address) throw new ArgumentException();
                 }
                 return new DeviceServices(lists[0], lists[1], domains, block, full, namesHttps) { TunnelSubnet = tunnel,
-                    Entries = data.ContainsKey("entries") ? ServiceEntry.ParseAll(data["entries"]) : null };
+                    Entries = data.ContainsKey("entries") ? ServiceEntry.ParseAll(data["entries"]) : null,
+                    Own = data.ContainsKey("own") ? OwnAddresses.Parse(data["own"]) : null };
             }
             catch (ArgumentException) { throw new PolicyFetchException("services_response_invalid"); }
             catch (InvalidOperationException) { throw new PolicyFetchException("services_response_invalid"); }
@@ -437,6 +440,38 @@ namespace IkeV2Manager.Client
             }
             catch (WebException) { return false; }
             catch (IOException) { return false; }
+        }
+
+        // This device's own sites and networks, as a whole list. What the router
+        // said: "accepted", "refused" (not valid), "not_allowed", "too_often",
+        // or "failed" when it could not be asked.
+        public static string SendOwn(Uri policyEndpoint, string token, string[] domains, string[] networks)
+        {
+            ValidateEndpoint(policyEndpoint, token);
+            if (domains == null || networks == null || domains.Length + networks.Length > 32 ||
+                domains.Concat(networks).Any(item => item == null || item.Length > 253)) return "refused";
+            byte[] body = new UTF8Encoding(false).GetBytes(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(
+                new System.Collections.Generic.Dictionary<string, object> { { "domains", domains }, { "networks", networks } }));
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = ReportRequest(policyEndpoint, token, "POST", "/client/v1/own");
+            request.ContentType = "application/json";
+            request.ContentLength = body.Length;
+            request.ServicePoint.Expect100Continue = false;
+            using (var deadline = new Timer(ignored => request.Abort(), null, 10000, Timeout.Infinite))
+            try
+            {
+                using (var stream = request.GetRequestStream()) stream.Write(body, 0, body.Length);
+                using (var response = (HttpWebResponse)request.GetResponse())
+                    return response.StatusCode == HttpStatusCode.Accepted ? "accepted" : "failed";
+            }
+            catch (WebException error)
+            {
+                var answer = error.Response as HttpWebResponse;
+                int status = answer == null ? 0 : (int)answer.StatusCode;
+                if (answer != null) answer.Close();
+                return status == 400 ? "refused" : status == 403 ? "not_allowed" : status == 429 ? "too_often" : "failed";
+            }
+            catch (IOException) { return "failed"; }
         }
 
         private static HttpWebRequest ReportRequest(Uri policyEndpoint, string token, string method, string path = "/client/v1/report")

@@ -24,6 +24,72 @@ namespace IkeV2Manager.Client
         public bool ChooseClosed { get; set; }
     }
 
+    // Sites and networks the person added for this device, and how many and on
+    // which ports the administrator allows. The router checks every one again.
+    public sealed class OwnAddresses
+    {
+        public int Limit { get; private set; }
+        public int[] Ports { get; private set; }
+        public string[] Domains { get; private set; }
+        public string[] Networks { get; private set; }
+
+        // The service the router makes of them, which the window shows apart.
+        public static bool IsService(string id) { return id != null && id.StartsWith("own-", StringComparison.Ordinal); }
+
+        internal static OwnAddresses Parse(object value)
+        {
+            var data = ClientPolicy.Object(value);
+            ClientPolicy.Fields(data, "limit", "ports", "domains", "networks");
+            int limit = ClientPolicy.Integer(data["limit"], 1, 32);
+            var ports = ClientPolicy.ArrayValue(data["ports"], 1, 16).Select(port => ClientPolicy.Integer(port, 1, 65535)).ToArray();
+            var domains = ClientPolicy.ArrayValue(data["domains"], 0, 32).Select(ClientPolicy.Text).ToArray();
+            var networks = ClientPolicy.ArrayValue(data["networks"], 0, 32).Select(ClientPolicy.Text).ToArray();
+            if (domains.Length + networks.Length > 32 ||
+                domains.Any(name => name.Length > 253 || !Regex.IsMatch(name, @"\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z")) ||
+                networks.Any(network => Input(network) == null || Input(network)[1] != network)) throw new ArgumentException();
+            return new OwnAddresses { Limit = limit, Ports = ports, Domains = domains, Networks = networks };
+        }
+
+        // What the person typed or pasted: a link is taken for its host, an
+        // address alone is the host itself, a range is kept as written. Null
+        // for anything else; otherwise { domain, null } or { null, network }.
+        public static string[] Input(string text)
+        {
+            string value = (text ?? "").Trim().ToLowerInvariant();
+            int scheme = value.IndexOf("://", StringComparison.Ordinal);
+            if (scheme >= 0) value = value.Substring(scheme + 3);
+            if (value.Length > 0 && value.All(c => Char.IsDigit(c) || c == '.' || c == '/'))
+            {
+                string network = value.Contains("/") ? value : value + "/32";
+                var pieces = network.Split('/'); int prefix; uint address;
+                try { address = ClientPolicy.Address(pieces[0]); } catch (ArgumentException) { return null; }
+                if (pieces.Length != 2 || !Int32.TryParse(pieces[1], out prefix) || prefix < 1 || prefix > 32 || prefix.ToString() != pieces[1] ||
+                    (address & (UInt32.MaxValue << (32 - prefix))) != address) return null;
+                return new[] { null, network };
+            }
+            int cut = value.IndexOfAny(new[] { '/', '?', '#', ':' });
+            if (cut >= 0) value = value.Substring(0, cut);
+            if (value.EndsWith(".", StringComparison.Ordinal)) value = value.Substring(0, value.Length - 1);
+            var labels = value.Split('.');
+            if (labels.Length < 2 || labels.Last().All(Char.IsDigit) || value.Length > 253 ||
+                labels.Any(label => label.Length < 1 || label.Length > 63 || !Regex.IsMatch(label, @"\A[a-z0-9-]+\z"))) return null;
+            return new[] { value, null };
+        }
+    }
+
+    // The person's own sites and networks as the window shows them: what the
+    // administrator allows, what this device keeps or is sending, and what the
+    // router said of the last list ("" when it was taken).
+    public sealed class OwnStatus
+    {
+        public int Limit { get; set; }
+        public int[] Ports { get; set; }
+        public string[] Domains { get; set; }
+        public string[] Networks { get; set; }
+        public bool Pending { get; set; }
+        public string Answer { get; set; }
+    }
+
     public sealed class ClientView
     {
         public string State { get; private set; }
@@ -58,6 +124,8 @@ namespace IkeV2Manager.Client
         // a choice made here is still on its way to the router.
         public ServiceChoice[] Entries { get; internal set; }
         public bool ChoicePending { get; internal set; }
+        // Where the person may add addresses of their own; null where not.
+        public OwnStatus Own { get; internal set; }
 
         // Whether the router runs a newer release than this program.
         public static bool Newer(string release, Version own)
@@ -136,7 +204,7 @@ namespace IkeV2Manager.Client
                 var data = serializer.DeserializeObject(json) as Dictionary<string, object>;
                 if (data == null || !data.ContainsKey("Version") || !(data["Version"] is int)) return new ClientView("status_invalid");
                 int version = (int)data["Version"];
-                if (version < 1 || version > 5 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : version == 3 ? 14 : version == 4 ? 18 : 20) || !data.ContainsKey("State") ||
+                if (version < 1 || version > 6 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : version == 3 ? 14 : version == 4 ? 18 : version == 5 ? 20 : 21) || !data.ContainsKey("State") ||
                     !data.ContainsKey("GuardInstalled") || !data.ContainsKey("Protected") ||
                     !data.ContainsKey("UpdatedAtUtc") || !data.ContainsKey("ProcessId") ||
                     !(data["ProcessId"] is int) ||
@@ -195,7 +263,7 @@ namespace IkeV2Manager.Client
                 }
                 var entries = new List<ServiceChoice>();
                 bool choicePending = false;
-                if (version == 5)
+                if (version >= 5)
                 {
                     object[] items = data.ContainsKey("Entries") ? data["Entries"] as object[] : null;
                     if (items == null || items.Length > 64 || !data.ContainsKey("ChoicePending") || !(data["ChoicePending"] is bool))
@@ -218,12 +286,38 @@ namespace IkeV2Manager.Client
                             Closed = (bool)closed, ChooseClosed = (bool)choose });
                     }
                 }
+                OwnStatus own = null;
+                // Version 6 carries the person's own addresses, null where not allowed.
+                if (version == 6 && !data.ContainsKey("Own")) return new ClientView("status_invalid");
+                if (version == 6 && data["Own"] != null)
+                {
+                    own = ReadOwn(data["Own"] as Dictionary<string, object>);
+                    if (own == null) return new ClientView("status_invalid");
+                }
                 return new ClientView(state, guard, connectionError, listed.Cast<string>().ToArray(), (int)data["Domains"], (int)data["Revision"], (bool)data["Wanted"], offered.Cast<string>().ToArray())
                     { Release = (string)data["Release"], Warnings = warned.Cast<string>().ToArray(), ServerName = server, ServerIP = ipText, ServicesSubnet = servicesSubnet, TunnelSubnet = tunnelSubnet,
-                      Entries = entries.ToArray(), ChoicePending = choicePending };
+                      Entries = entries.ToArray(), ChoicePending = choicePending, Own = own };
             }
             catch (ArgumentException) { return new ClientView("status_invalid"); }
             catch (InvalidOperationException) { return new ClientView("status_invalid"); }
+        }
+
+        // The own list in the exact shape the service writes it, or null.
+        private static OwnStatus ReadOwn(Dictionary<string, object> data)
+        {
+            if (data == null || data.Count != 6) return null;
+            object limit, ports, domains, networks, pending, answer;
+            if (!data.TryGetValue("Limit", out limit) || !(limit is int) || (int)limit < 1 || (int)limit > 32 ||
+                !data.TryGetValue("Ports", out ports) || !(ports is object[]) || ((object[])ports).Length < 1 || ((object[])ports).Length > 16 ||
+                ((object[])ports).Any(port => !(port is int) || (int)port < 1 || (int)port > 65535) ||
+                !data.TryGetValue("Domains", out domains) || !(domains is object[]) || !data.TryGetValue("Networks", out networks) || !(networks is object[]) ||
+                ((object[])domains).Length + ((object[])networks).Length > 32 ||
+                ((object[])domains).Concat((object[])networks).Any(item => !(item is string) || OwnAddresses.Input((string)item) == null) ||
+                !data.TryGetValue("Pending", out pending) || !(pending is bool) ||
+                !data.TryGetValue("Answer", out answer) || !(answer is string) || !Regex.IsMatch((string)answer, @"\A(?:|refused|not_allowed|too_often)\z"))
+                return null;
+            return new OwnStatus { Limit = (int)limit, Ports = ((object[])ports).Cast<int>().ToArray(), Domains = ((object[])domains).Cast<string>().ToArray(),
+                Networks = ((object[])networks).Cast<string>().ToArray(), Pending = (bool)pending, Answer = (string)answer };
         }
 
         // Lines the service wrote, taken only in the shape it writes them.

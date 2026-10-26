@@ -82,6 +82,7 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     /// What the person was offered and this device has of it, where the
     /// router gives an offer; the window shows and changes it.
     public var entries: [ServiceEntry]? = nil
+    public var own: OwnAddresses? = nil
     public var addresses: ConnectionAddresses? = nil
     public var updatedAt: Int
 
@@ -186,7 +187,7 @@ public actor ClientRuntime {
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
             revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true, fullTunnel: names?.full ?? false,
-            warnings: conditions, entries: names?.entries,
+            warnings: conditions, entries: names?.entries, own: names?.own,
             addresses: history.map { ConnectionAddresses(server: $0.current.serverAddress, serverIP: serverIP,
                 services: $0.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "") }, updatedAt: Int(now.timeIntervalSince1970))
     }
@@ -392,6 +393,15 @@ public actor ClientRuntime {
         guard let registration = try store.loadRegistration(), registration.complete, names?.entries != nil
         else { throw StoreError.invalid }
         try await transport.choose(endpoint: registration.endpoint, deviceToken: registration.deviceToken, on: on, closed: closed)
+        nextPolicyPoll = .distantPast
+    }
+
+    /// The person's own sites and networks for this device, sent whole; the
+    /// next policy poll, made at once, brings back what the router took.
+    public func setOwn(domains: [String], networks: [String]) async throws {
+        guard let registration = try store.loadRegistration(), registration.complete, names?.own != nil
+        else { throw StoreError.invalid }
+        try await transport.setOwn(endpoint: registration.endpoint, deviceToken: registration.deviceToken, domains: domains, networks: networks)
         nextPolicyPoll = .distantPast
     }
 

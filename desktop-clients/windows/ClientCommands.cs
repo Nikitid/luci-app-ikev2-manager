@@ -32,11 +32,12 @@ namespace IkeV2Manager.Client
         }
 
         public static string Send(string operation, string endpoint = null, string invitation = null,
-            string service = "IKEv2ManagerClient", string[] on = null, string[] closed = null)
+            string service = "IKEv2ManagerClient", string[] on = null, string[] closed = null, string[] domains = null, string[] networks = null)
         {
             var request = new Dictionary<string, object> { { "version", 1 }, { "operation", operation } };
             if (operation == "begin") { request.Add("endpoint", endpoint); request.Add("invitation", invitation); }
             if (operation == "choose") { request.Add("on", on); request.Add("closed", closed); }
+            if (operation == "own") { request.Add("domains", domains); request.Add("networks", networks); }
             Validate(request);
             uint expected = ServicePid(service);
             using (var pipe = new NamedPipeClientStream(".", PipeName(service),
@@ -85,6 +86,16 @@ namespace IkeV2Manager.Client
                     if (ids == null || ids.Length > 128 || ids.Any(id => !(id is string) || !Regex.IsMatch((string)id, @"\A[a-z0-9][a-z0-9_-]{0,47}\z")) ||
                         ids.Distinct().Count() != ids.Length) throw new ArgumentException("Invalid control request");
                 }
+                return;
+            }
+            if (operation == "own")
+            {
+                // Sites and networks as the person gave them; the runtime and
+                // the router check each one again.
+                if (request.Count != 4 || !request.ContainsKey("domains") || !request.ContainsKey("networks")) throw new ArgumentException("Invalid control request");
+                var domains = request["domains"] as object[]; var networks = request["networks"] as object[];
+                if (domains == null || networks == null || domains.Length + networks.Length > 32 ||
+                    domains.Concat(networks).Any(item => !(item is string) || ((string)item).Length > 253)) throw new ArgumentException("Invalid control request");
                 return;
             }
             if (operation != "begin" || request.Count != 4 || !request.ContainsKey("endpoint") || !request.ContainsKey("invitation") ||

@@ -174,6 +174,7 @@ public sealed partial class MainWindow : Window
         }
 
         PresentServices(p);
+        PresentOwn(p);
 
         for (int i = 0; i < 4; i++)
         {
@@ -243,6 +244,57 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    string ownShown = "";
+    void PresentOwn(ClientPresentation p)
+    {
+        OwnCard.Visibility = Shown(p.OwnItems != null);
+        if (p.OwnItems == null) return;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(OwnInput, "Сайт или адрес");
+        OwnEmpty.Visibility = Shown(p.OwnItems.Length == 0);
+        OwnLine.Text = p.OwnLine;
+        OwnProblem.Text = p.OwnProblem;
+        OwnProblem.Visibility = Shown(p.OwnProblem.Length != 0);
+        OwnInput.IsEnabled = OwnAdd.IsEnabled = p.OwnCanAdd;
+        string signature = string.Join("|", p.OwnItems) + "|" + p.OwnCanAdd;
+        if (signature == ownShown) return;
+        ownShown = signature;
+        OwnList.Children.Clear();
+        foreach (string item in p.OwnItems)
+        {
+            var row = new Grid { ColumnSpacing = 8 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock { Text = item, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true });
+            var remove = new Button { Content = new FontIcon { Glyph = "\uE738", FontSize = 12 } };
+            ToolTipService.SetToolTip(remove, "Убрать");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(remove, "Убрать " + item);
+            string gone = item;
+            remove.Click += (_, _) => SendOwn(null, gone);
+            Grid.SetColumn(remove, 1);
+            row.Children.Add(remove);
+            OwnList.Children.Add(row);
+        }
+    }
+
+    void OnOwnAdd(object sender, RoutedEventArgs e)
+    {
+        string typed = OwnInput.Text;
+        if (OwnAddresses.Input(typed) == null) { _ = Say("Мои адреса", "Введите сайт (example.com) или публичный адрес (203.0.113.5)."); return; }
+        OwnInput.Text = "";
+        SendOwn(typed, null);
+    }
+
+    void SendOwn(string add, string remove)
+    {
+        if (!ClientPresentation.OwnChanged(current, add, remove, out var domains, out var networks))
+        {
+            _ = Say("Мои адреса", "Больше добавить нельзя: достигнут предел.");
+            return;
+        }
+        ownShown = "";
+        _ = Command("own", domains: domains, networks: networks);
+    }
+
     void Choose(string id, bool? on, bool? closed)
     {
         if (shown == null || shown.Choosing) return;
@@ -282,19 +334,22 @@ public sealed partial class MainWindow : Window
 
     // ---- Commands ---------------------------------------------------------
 
-    async Task Command(string operation, string endpoint = null, string invitation = null, string[] chosenOn = null, string[] chosenClosed = null)
+    async Task Command(string operation, string endpoint = null, string invitation = null, string[] chosenOn = null, string[] chosenClosed = null,
+        string[] domains = null, string[] networks = null)
     {
         if (busy) return;
         busy = true;
         try
         {
-            string result = await Task.Run(() => ClientCommands.Send(operation, endpoint, invitation, on: chosenOn, closed: chosenClosed));
+            string result = await Task.Run(() => ClientCommands.Send(operation, endpoint, invitation, on: chosenOn, closed: chosenClosed,
+                domains: domains, networks: networks));
             if (result == "accepted" && operation == "begin")
                 await Task.Run(() => ClientCommands.Send("continue"));
             else if (result != "accepted" && result != "busy")
-                await Say(operation == "choose" ? "Сервисы" : "Waypoint",
+                await Say(operation == "choose" ? "Сервисы" : operation == "own" ? "Мои адреса" : "Waypoint",
                     result == "administrator_required" ? "Требуются права администратора." :
-                    operation == "choose" ? "Этот выбор сейчас недоступен: предложение изменилось. Посмотрите на список ещё раз." : "Действие отклонено.");
+                    operation == "choose" ? "Этот выбор сейчас недоступен: предложение изменилось. Посмотрите на список ещё раз." :
+                    operation == "own" ? "Список не принят: проверьте, что это сайт или публичный адрес и что предел не превышен." : "Действие отклонено.");
         }
         catch (Exception) { await Say("Waypoint", "Служба не отвечает."); }
         finally { busy = false; Refresh(); }

@@ -87,6 +87,25 @@ final class ClientModel: ObservableObject {
         }
     }
 
+    /// The person's own sites and networks for this Mac, sent as a whole list.
+    func setOwn(domains: [String], networks: [String]) {
+        guard !busy else { return }
+        busy = true
+        message = ""
+        ask(Control.Request(op: "own", domains: domains, networks: networks)) { [self] response in
+            busy = false
+            if let next = response?.status { status = next }
+            switch response?.result {
+            case "ok": break
+            case "own_refused": message = "Роутер не принял адрес: нужен публичный сайт или адрес, не частная сеть."
+            case "own_not_allowed": message = "Добавлять свои адреса больше не разрешено."
+            case "own_too_often": message = "Слишком много изменений за сутки. Попробуйте завтра."
+            case nil: message = "Служба не отвечает."
+            default: message = "Список не принят. Попробуйте ещё раз."
+            }
+        }
+    }
+
     func register(_ invitation: String) {
         connectAfterRegistration = true
         command("begin", invitation: invitation)
@@ -448,6 +467,8 @@ struct ServiceList: View {
     let entries: [ServiceEntry]
     @ObservedObject var model: ClientModel
     var body: some View {
+        // The person's own addresses have their own card.
+        let entries = entries.filter { !OwnAddresses.isService($0.id) }
         if entries.isEmpty {
             Text("Не назначены").foregroundStyle(.secondary)
         }
@@ -479,6 +500,48 @@ struct ServiceList: View {
     }
 }
 
+/// Sites and networks the person sends through the tunnel on this Mac, within
+/// what the administrator allows. The router checks each one again.
+struct OwnAddressesView: View {
+    let own: OwnAddresses
+    @ObservedObject var model: ClientModel
+    @State private var draft = ""
+    private var items: [String] { own.domains + own.networks }
+
+    private func add() {
+        guard let parsed = OwnAddresses.parse(draft) else { model.message = "Введите сайт (example.com) или публичный адрес (203.0.113.5)."; return }
+        var domains = own.domains, networks = own.networks
+        if let domain = parsed.domain, !domains.contains(domain) { domains.append(domain) }
+        if let network = parsed.network, !networks.contains(network) { networks.append(network) }
+        guard domains.count + networks.count <= own.limit else { model.message = "Можно не больше \(own.limit)."; return }
+        draft = ""
+        model.setOwn(domains: domains, networks: networks)
+    }
+
+    var body: some View {
+        if items.isEmpty {
+            Text("Пока ничего. Добавьте сайт или адрес, который должен идти через туннель на этом Mac.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        ForEach(items, id: \.self) { item in
+            HStack {
+                Text(item).textSelection(.enabled)
+                Spacer()
+                Button(role: .destructive) {
+                    model.setOwn(domains: own.domains.filter { $0 != item }, networks: own.networks.filter { $0 != item })
+                } label: { Image(systemName: "minus.circle") }
+                    .buttonStyle(.borderless).help("Убрать").disabled(model.busy)
+            }
+        }
+        HStack {
+            TextField("example.com или 203.0.113.5", text: $draft).onSubmit(add).disabled(model.busy || items.count >= own.limit)
+            Button("Добавить", action: add).disabled(model.busy || draft.trimmingCharacters(in: .whitespaces).isEmpty || items.count >= own.limit)
+        }
+        Text("Добавлено \(items.count) из \(own.limit) · порты \(own.ports.map(String.init).joined(separator: ", ")) · без туннеля идут напрямую")
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 /// The menu-bar item: the state at a glance, the switch, and the services
 /// the person may turn on - the window is for everything else.
 struct MenuBarView: View {
@@ -497,7 +560,7 @@ struct MenuBarView: View {
             }
             if let entries = model.status?.entries, entries.contains(where: { !$0.required }) {
                 Divider()
-                ForEach(entries.filter { !$0.required }, id: \.id) { entry in
+                ForEach(entries.filter { !$0.required && !OwnAddresses.isService($0.id) }, id: \.id) { entry in
                     Toggle(entry.label, isOn: Binding(get: { entry.on }, set: { model.choose(entry, on: $0) })).disabled(model.busy)
                 }
             }
@@ -656,9 +719,12 @@ struct ClientView: View {
                         .foregroundStyle(.secondary)
                 }
                 if let status, !status.available.isEmpty {
-                    Text("По запросу: " + status.available.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
+                    Text("По запросу: " + status.available.filter { !OwnAddresses.isService($0) }.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            if let own = status?.own {
+                Card(title: "Мои адреса") { OwnAddressesView(own: own, model: model) }
             }
             if let update = model.update {
                 HStack {

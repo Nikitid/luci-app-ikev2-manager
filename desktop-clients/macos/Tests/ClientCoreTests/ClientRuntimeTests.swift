@@ -452,3 +452,30 @@ private let offeredPolicy = #"{"version":2,"id":"alice-mac","revision":1,"server
         #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeServices(answer(bad), id: "alice-mac") }
     }
 }
+
+@Test func ownAddressesAreReadAndTypedInStrictly() throws {
+    func answer(_ own: String) -> Data {
+        Data((#"{"version":1,"id":"alice-mac","revision":2,"selected":[],"available":[],"own":"# + own + "}").utf8)
+    }
+    let good = #"{"limit":5,"ports":[80,443],"domains":["home.example.org"],"networks":["203.0.113.0/24"]}"#
+    let own = try #require(try DeviceTransport.decodeServices(answer(good), id: "alice-mac").own)
+    #expect(own == OwnAddresses(limit: 5, ports: [80, 443], domains: ["home.example.org"], networks: ["203.0.113.0/24"]))
+    for bad in [good.replacingOccurrences(of: #""limit":5"#, with: #""limit":99"#),
+                good.replacingOccurrences(of: "[80,443]", with: "[]"),
+                good.replacingOccurrences(of: "home.example.org", with: "Home Example"),
+                good.replacingOccurrences(of: "203.0.113.0/24", with: "127.0.0.0/8"),
+                good.replacingOccurrences(of: #""networks""#, with: #""extra":1,"networks""#)] {
+        #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeServices(answer(bad), id: "alice-mac") }
+    }
+    // Without the right, the answer has no own list and the window shows none.
+    #expect(try DeviceTransport.decodeServices(Data(#"{"version":1,"id":"alice-mac","revision":2,"selected":[],"available":[]}"#.utf8), id: "alice-mac").own == nil)
+    // What a person types: a link is its host, an address its own /32.
+    #expect(OwnAddresses.parse("https://Nas.Example.net:8443/login?x=1")?.domain == "nas.example.net")
+    #expect(OwnAddresses.parse(" home.example.org. ")?.domain == "home.example.org")
+    #expect(OwnAddresses.parse("203.0.113.5")?.network == "203.0.113.5/32")
+    #expect(OwnAddresses.parse("203.0.113.0/24")?.network == "203.0.113.0/24")
+    for bad in ["", "localhost", "999.1.1.1", "exa mple.com", "пример.рф", "1.2.3"] {
+        #expect(OwnAddresses.parse(bad) == nil, "\(bad)")
+    }
+    #expect(OwnAddresses.isService("own-alice-mac") && !OwnAddresses.isService("openai"))
+}

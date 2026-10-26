@@ -12,12 +12,18 @@ public enum Control {
         /// "choose": the optional services turned on, and those blocked without the tunnel.
         public var on: [String]?
         public var closed: [String]?
-        public init(op: String, invitation: String? = nil, on: [String]? = nil, closed: [String]? = nil) {
+        /// "own": the whole list of the person's own sites and networks.
+        public var domains: [String]?
+        public var networks: [String]?
+        public init(op: String, invitation: String? = nil, on: [String]? = nil, closed: [String]? = nil,
+                    domains: [String]? = nil, networks: [String]? = nil) {
             self.op = op; self.invitation = invitation; self.on = on; self.closed = closed
+            self.domains = domains; self.networks = networks
         }
     }
 
     public struct Response: Codable, Sendable {
+        /// "ok", "refused", or why the router did not take the person's own addresses.
         public var result: String
         public var status: ClientStatusReport?
         /// The VPN profile, base64, for an administrator only.

@@ -77,6 +77,16 @@ internal static class PolicyTransportTests
             Reject(() => DeviceServices.Parse(offered.Replace("\"mail\"", "\"api\""), "alice-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"wiki\"", "\"../wiki\""), "alice-pc"), "services_response_invalid");
             Reject(() => DeviceServices.Parse(offered.Replace("\"domains\":9", "\"domains\":9,\"address\":\"10.0.0.1\""), "alice-pc"), "services_response_invalid");
+            // The person's own addresses: read strictly where the router allows them.
+            string own = "{\"limit\":5,\"ports\":[80,443],\"domains\":[\"home.example.org\"],\"networks\":[\"203.0.113.0/24\"]}";
+            Func<string, string> withOwn = o => offered.Replace("\"revision\":4", "\"revision\":4,\"own\":" + o);
+            var kept = DeviceServices.Parse(withOwn(own), "alice-pc").Own;
+            if (kept == null || kept.Limit != 5 || kept.Ports.Length != 2 || kept.Domains[0] != "home.example.org" || kept.Networks[0] != "203.0.113.0/24")
+                throw new Exception("The own addresses were not read as given");
+            if (names.Own != null) throw new Exception("A router that allows none was read as allowing own addresses");
+            foreach (string bad in new[] { own.Replace("\"limit\":5", "\"limit\":99"), own.Replace("[80,443]", "[]"), own.Replace("home.example.org", "Home Example"),
+                own.Replace("203.0.113.0/24", "203.0.113.1/24"), own.Replace("\"networks\"", "\"extra\":1,\"networks\"") })
+                Reject(() => DeviceServices.Parse(withOwn(bad), "alice-pc"), "services_response_invalid");
             if (PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\"}") != "2.3.0") throw new Exception("Release was not read");
             Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"2.3.0\",\"url\":\"https://example.com\"}"), "release_response_invalid");
             Reject(() => PolicyTransportClient.ParseRelease("{\"version\":1,\"release\":\"../2.3\"}"), "release_response_invalid");

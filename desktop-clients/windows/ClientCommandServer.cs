@@ -99,6 +99,15 @@ namespace IkeV2Manager.Client
                     if (!runtime.Choose(on, closed)) return "invalid_request";
                     wake.Set(); StartRegistration(); return "accepted";
                 }
+                else if (operation == "own")
+                {
+                    // The person's own sites and networks, as a whole list; any
+                    // user of this computer is that person here, as with choices.
+                    var domains = ((object[])request["domains"]).Cast<string>().ToArray();
+                    var networks = ((object[])request["networks"]).Cast<string>().ToArray();
+                    if (!runtime.SetOwn(domains, networks)) return "invalid_request";
+                    wake.Set(); StartRegistration(); return "accepted";
+                }
                 else
                 {
                     if (operation == "connect" || operation == "disconnect")

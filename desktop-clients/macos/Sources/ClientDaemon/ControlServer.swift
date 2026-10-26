@@ -75,6 +75,13 @@ final class ControlServer: @unchecked Sendable {
             case "choose":
                 guard let on = request.on, let closed = request.closed else { return Control.Response(result: "refused") }
                 try await runtime.choose(on: on, closed: closed)
+            // The person's own sites and networks; the router checks each one.
+            case "own":
+                guard let domains = request.domains, let networks = request.networks else { return Control.Response(result: "refused") }
+                do { try await runtime.setOwn(domains: domains, networks: networks) }
+                catch DeviceError.ownRefused { return Control.Response(result: "own_refused", status: await runtime.status()) }
+                catch DeviceError.ownNotAllowed { return Control.Response(result: "own_not_allowed", status: await runtime.status()) }
+                catch DeviceError.ownTooOften { return Control.Response(result: "own_too_often", status: await runtime.status()) }
             case "begin":
                 guard privileged else { return Control.Response(result: "administrator_required") }
                 guard let invitation = request.invitation else { return Control.Response(result: "refused") }

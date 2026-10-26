@@ -4,6 +4,8 @@ import Security
 public enum DeviceError: String, Error, Sendable {
     case invalidEndpoint, connectionFailed, accessRejected, noServices, httpRejected, invalidResponse
     case pathUnavailable, differentPolicy
+    /// The router did not take the person's own addresses: not valid, not allowed, too often.
+    case ownRefused, ownNotAllowed, ownTooOften
 }
 
 /// A registration that is still waiting for the router, or its result.
@@ -45,6 +47,39 @@ public struct ServiceEntry: Sendable, Equatable, Codable {
     }
 }
 
+/// Sites and networks the person added for this device, and how many and on
+/// which ports the administrator allows. The router checks every one again.
+public struct OwnAddresses: Sendable, Equatable, Codable {
+    public let limit: Int
+    public let ports: [Int]
+    public let domains: [String]
+    public let networks: [String]
+    public init(limit: Int, ports: [Int], domains: [String], networks: [String]) {
+        self.limit = limit; self.ports = ports; self.domains = domains; self.networks = networks
+    }
+    /// The service the router makes of them, which the window shows apart.
+    public static func isService(_ id: String) -> Bool { id.hasPrefix("own-") }
+
+    /// What the person typed or pasted: a link is taken for its host, an
+    /// address alone is the host itself, a range is kept as written. Nil for
+    /// anything else. The router checks what is sent again.
+    public static func parse(_ text: String) -> (domain: String?, network: String?)? {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let range = value.range(of: "://") { value = String(value[range.upperBound...]) }
+        if !value.isEmpty, value.allSatisfy({ $0.isNumber || $0 == "." || $0 == "/" }) {
+            let network = value.contains("/") ? value : value + "/32"
+            return (try? PolicyValue.network(network)) != nil ? (nil, network) : nil
+        }
+        if let cut = value.firstIndex(where: { "/?#:".contains($0) }) { value = String(value[..<cut]) }
+        if value.hasSuffix(".") { value.removeLast() }
+        let labels = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 2, !labels.last!.allSatisfy(\.isNumber),
+              labels.allSatisfy({ !$0.isEmpty && $0.count <= 63 && $0.allSatisfy { ($0.isASCII && ($0.isLetter || $0.isNumber)) || $0 == "-" } })
+        else { return nil }
+        return (value, nil)
+    }
+}
+
 /// Informational service names and tunnel network. It grants no access.
 public struct DeviceServices: Sendable, Equatable {
     public let selected: [String]
@@ -58,6 +93,8 @@ public struct DeviceServices: Sendable, Equatable {
     public var tunnelSubnet = ""
     /// What the person was offered, where the router gives an offer.
     public var entries: [ServiceEntry]? = nil
+    /// Present where the person may add addresses of their own.
+    public var own: OwnAddresses? = nil
     public init(selected: [String], available: [String], domains: Int) { self.selected = selected; self.available = available; self.domains = domains }
 }
 
@@ -76,12 +113,15 @@ public protocol DeviceRequests: Sendable {
     /// What this device chose of its offer: the optional services it turns
     /// on, and those it blocks without the tunnel where that is its choice.
     func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws
+    /// The sites and networks this device keeps of its own, as a whole list.
+    func setOwn(endpoint: URL, deviceToken: String, domains: [String], networks: [String]) async throws
 }
 
 public extension DeviceRequests {
     func reportWanted(endpoint: URL, deviceToken: String) async -> Bool { false }
     func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool { false }
     func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws { throw DeviceError.httpRejected }
+    func setOwn(endpoint: URL, deviceToken: String, domains: [String], networks: [String]) async throws { throw DeviceError.httpRejected }
 }
 
 /// Requests of an enrolled or enrolling device. Platform certificate and
@@ -293,7 +333,20 @@ public struct DeviceTransport: DeviceRequests {
             services.tunnelSubnet = subnet
         }
         if let value = root["entries"] { services.entries = try decodeEntries(value) }
+        if let value = root["own"] { services.own = try decodeOwn(value) }
         return services
+    }
+
+    static func decodeOwn(_ value: Any) throws -> OwnAddresses {
+        guard let item = value as? [String: Any], Set(item.keys) == ["limit", "ports", "domains", "networks"],
+              let ports = item["ports"] as? [Any], (1...16).contains(ports.count),
+              let domains = item["domains"] as? [String], let networks = item["networks"] as? [String],
+              domains.count + networks.count <= 32 else { throw DeviceError.invalidResponse }
+        let limit = try integer(item["limit"], 1...32)
+        let numbers = try ports.map { try integer($0, 1...65535) }
+        for name in domains { guard matches(name, #"\A[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?\z"#) else { throw DeviceError.invalidResponse } }
+        for network in networks { guard (try? PolicyValue.network(network)) != nil else { throw DeviceError.invalidResponse } }
+        return OwnAddresses(limit: limit, ports: numbers, domains: domains, networks: networks)
     }
 
     static func decodeEntries(_ value: Any) throws -> [ServiceEntry] {
@@ -334,6 +387,22 @@ public struct DeviceTransport: DeviceRequests {
         let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/choices"), method: "POST",
             headers: ["Authorization": "Bearer " + deviceToken, "Content-Type": "application/json"], limit: 1024, timeout: 10, body: body)
         guard answer.status == 202 else { throw DeviceError.httpRejected }
+    }
+
+    public func setOwn(endpoint: URL, deviceToken: String, domains: [String], networks: [String]) async throws {
+        guard Self.matches(deviceToken, Self.token), domains.count + networks.count <= 32,
+              (domains + networks).allSatisfy({ $0.utf8.count <= 253 }) else { throw DeviceError.invalidEndpoint }
+        let body = try JSONSerialization.data(withJSONObject: ["domains": domains, "networks": networks], options: [.sortedKeys])
+        let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/own"), method: "POST",
+            headers: ["Authorization": "Bearer " + deviceToken, "Content-Type": "application/json"], limit: 1024, timeout: 10, body: body)
+        // What the router refused is said plainly: not allowed, not accepted, too often.
+        switch answer.status {
+        case 202: return
+        case 400: throw DeviceError.ownRefused
+        case 403: throw DeviceError.ownNotAllowed
+        case 429: throw DeviceError.ownTooOften
+        default: throw DeviceError.httpRejected
+        }
     }
 
     static func decodeRelease(_ data: Data) throws -> String {
