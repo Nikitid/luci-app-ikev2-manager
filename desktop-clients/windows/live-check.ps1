@@ -89,13 +89,13 @@ Check (Until { $s = Status; -not $s.ChoicePending -and @($s.Entries | Where-Obje
 
 # The person's own address: refused for a private network, taken for a public site.
 Check (Until { $null -ne (Status).Own } 600) 'the right to own addresses reaches the window'
-$direct = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 'https://ifconfig.me/ip').Content.Trim()
+$direct = (Invoke-WebRequest -UseBasicParsing -DisableKeepAlive -TimeoutSec 20 'https://ifconfig.me/ip').Content.Trim()
 Check ((Send @{ version = 1; operation = 'own'; domains = @(); networks = @('192.168.1.0/24') }) -eq 'accepted') 'a private network is sent'
 Check (Until { (Status).Own.Answer -eq 'refused' } 120) 'the router refuses a private network and the window says so'
 Check ((Send @{ version = 1; operation = 'own'; domains = @('ifconfig.me'); networks = @() }) -eq 'accepted') 'a site of the person is sent'
 Check (Until { $s = Status; -not $s.Own.Pending -and $s.Own.Answer -eq '' -and @($s.Own.Domains) -contains 'ifconfig.me' } 120) 'the router keeps it for this device'
 Check (Until { (Managed) -match '(?m)^\s*\d+\.\d+\.\d+\.\d+\s+ifconfig\.me\s*$' } 120) 'it is reached through the tunnel'
-$through = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 'https://ifconfig.me/ip').Content.Trim()
+$through = (Invoke-WebRequest -UseBasicParsing -DisableKeepAlive -TimeoutSec 20 'https://ifconfig.me/ip').Content.Trim()
 Check ($through -ne $direct -and $through -match '^\d+\.\d+\.\d+\.\d+$') "the site sees the router's exit ($through), not this network ($direct)"
 
 Check ((Send @{ version = 1; operation = 'disconnect' }) -eq 'accepted') 'disconnecting is asked for'

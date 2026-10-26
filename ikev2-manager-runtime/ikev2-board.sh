@@ -6,6 +6,7 @@
 #
 #   ikev2-board serve          the page (run by the init script)
 #   ikev2-board snapshot       services and their domains, for the page
+#   ikev2-board icons          each service's icon from its own site
 #   ikev2-board notify ID      tell the owner about a new request
 #   ikev2-board pin            refresh the pinned status message in the chat
 #   ikev2-board agent          the forced command of the agent's SSH key
@@ -92,6 +93,81 @@ snapshot() {
 		printf ']}\n'
 	} >"$work/services.json" && mv "$work/services.json" "$run_dir/services.json"
 	rm -rf "$work"
+	# Icons come later, in the background: the page shows initials meanwhile.
+	[ "${IKEV2_BOARD_ICONS:-1}" = 0 ] || ( icons >/dev/null 2>&1 & )
+}
+
+# The domain that stands for a service on the page: the one named like the
+# service (openai.com for OpenAI), else the shortest.
+icon_domain() {
+	local id="$1" label="$2" word
+	word="$(printf '%s' "$label" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9')"
+	awk -v word="$word" -v id="$(printf '%s' "$id" | tr -cd 'a-z0-9')" '
+		/^[a-z0-9.-]+\.[a-z]+$/ {
+			split($1, parts, "."); name = parts[length(parts) - 1]
+			score = (name == word || name == id) ? 0 : (index(word, name) || index(id, name)) ? 1 : 2
+			if (best == "" || score < bestscore || (score == bestscore && length($1) < length(best))) { best = $1; bestscore = score }
+		}
+		END { print best }'
+}
+
+# Each service's own icon, fetched from its site the way any traffic goes and
+# kept for a week: no list of anyone's services leaves for an icon service.
+# Only PNG, ICO, JPEG and GIF are kept, at most 64 KB; SVG never, since it can
+# carry script. A service without one shows its initials.
+icons() {
+	local dir="$run_dir/icons" service label domain url file kind now
+	mkdir -p "$dir" || return 1
+	now="$(date +%s)"
+	jsonfilter -i "$run_dir/services.json" -e '@.services[*].id' 2>/dev/null | while IFS= read -r service; do
+		valid_service "$service" || continue
+		for file in "$dir/$service".*; do
+			[ -e "$file" ] || continue
+			[ $((now - $(date -r "$file" +%s 2>/dev/null || echo 0))) -lt 604800 ] && continue 2
+		done
+		label="$(jsonfilter -i "$run_dir/services.json" -e "@.services[@.id='$service'].label" 2>/dev/null)"
+		domain="$(jsonfilter -i "$run_dir/services.json" -e "@.services[@.id='$service'].domains[*]" 2>/dev/null | icon_domain "$service" "$label")"
+		[ -n "$domain" ] || continue
+		rm -f "$dir/$service".*
+		for url in $(icon_urls "$domain") "https://$domain/favicon.ico" "https://www.$domain/favicon.ico"; do
+			curl -fsL --max-time 8 --max-filesize 65536 -o "$dir/$service.tmp" "$url" 2>/dev/null || continue
+			kind="$(head -c 4 "$dir/$service.tmp" | od -An -tx1 | tr -d ' \n')"
+			case "$kind" in
+				89504e47) mv "$dir/$service.tmp" "$dir/$service.png"; break ;;
+				00000100) mv "$dir/$service.tmp" "$dir/$service.ico"; break ;;
+				ffd8ff*) mv "$dir/$service.tmp" "$dir/$service.jpg"; break ;;
+				47494638) mv "$dir/$service.tmp" "$dir/$service.gif"; break ;;
+			esac
+		done
+		rm -f "$dir/$service.tmp"
+		# A site without an icon is not asked again for a week.
+		ls "$dir/$service".* >/dev/null 2>&1 || : >"$dir/$service.none"
+	done
+}
+
+# The icons a site's own page names, the touch icon first: most sites keep
+# theirs at a path of their choosing rather than at /favicon.ico.
+icon_urls() {
+	local domain="$1" base
+	for base in "https://$domain" "https://www.$domain"; do
+		curl -fsL --max-time 8 --max-filesize 524288 -A 'Mozilla/5.0' "$base/" 2>/dev/null |
+			tr '\n' ' ' | grep -oiE '<link[^>]+>' |
+			awk -v base="$base" '
+				{ tag = tolower($0) }
+				tag !~ /rel="?(apple-touch-icon|shortcut icon|icon)/ || tag ~ /svg/ { next }
+				match($0, /[Hh][Rr][Ee][Ff]="[^"]+"/) {
+					href = substr($0, RSTART + 6, RLENGTH - 7)
+					if (href ~ /^\/\//) href = "https:" href
+					else if (href ~ /^\//) href = base href
+					else if (href !~ /^https?:\/\//) href = base "/" href
+					print (tag ~ /apple-touch-icon/ ? 0 : 1), href
+				}' | sort -n | cut -d' ' -f2- | head -n 3
+	done | awk '!seen[$0]++' | head -n 4
+}
+
+valid_service() {
+	case "$1" in '' | *[!a-z0-9_.-]*) return 1 ;; esac
+	[ "${#1}" -le 64 ]
 }
 
 serve() {
@@ -255,8 +331,9 @@ agent() {
 case "${1:-}" in
 	serve) serve ;;
 	snapshot) snapshot ;;
+	icons) icons ;;
 	notify) notify "${2:-}" ;;
 	pin) pin ;;
 	agent) agent ;;
-	*) die 'Usage: ikev2-board {serve|snapshot|notify ID|pin|agent}' ;;
+	*) die 'Usage: ikev2-board {serve|snapshot|icons|notify ID|pin|agent}' ;;
 esac

@@ -10,6 +10,8 @@ const requests_dir = board_dir + '/requests';
 const services_file = '/var/run/ikev2-board/services.json';
 const limit_dir = '/var/run/ikev2-board/limits';
 const refresh_stamp = '/var/run/ikev2-board/refresh';
+const icons_dir = '/var/run/ikev2-board/icons';
+const icon_types = { png: 'image/png', ico: 'image/x-icon', jpg: 'image/jpeg', gif: 'image/gif' };
 const max_body = 8 * 1024 * 1024, max_pictures = 3, max_picture = 2 * 1024 * 1024, max_kept = 200;
 
 function translation(env) {
@@ -23,7 +25,9 @@ function translation(env) {
 }
 
 function send(status, type, body, extra) {
-	uhttpd.send(sprintf('Status: %s\r\nContent-Type: %s\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n', status, type));
+	// Nothing is kept by the browser unless the answer says how long.
+	let cache = index(extra ?? '', 'Cache-Control:') >= 0 ? '' : 'Cache-Control: no-store\r\n';
+	uhttpd.send(sprintf('Status: %s\r\nContent-Type: %s\r\n%sX-Content-Type-Options: nosniff\r\n', status, type, cache));
 	uhttpd.send('X-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n');
 	if (extra) uhttpd.send(extra);
 	uhttpd.send(sprintf('Connection: close\r\nContent-Length: %d\r\n\r\n%s', length(body), body));
@@ -129,52 +133,69 @@ function submit(env) {
 	send_json('200 OK', public_view(request));
 }
 
-// The look of the page: light and dark from the system, one column on a
-// phone, cards on a wider screen.
+// The look of the page: light and dark from the system; on a wide screen the
+// services on the left and asking for help on the right, one column on a
+// phone. Warm paper and soft graphite, one quiet cool accent, thin headings,
+// cards with quiet borders. No gradients and no capitals for emphasis.
 const style = `
-:root{color-scheme:light dark;--bg:#f3f5f8;--card:#fff;--line:#e3e7ec;--text:#18202a;--muted:#5d6876;--soft:#eef1f5;--accent:#2563eb;--accent-text:#fff;--ok:#16a34a;--ok-soft:#dcfce7;--bad:#dc2626;--bad-soft:#fee2e2;--warn:#d97706;--warn-soft:#fef3c7;--shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08)}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1318;--card:#171c23;--line:#262d37;--text:#e7ecf2;--muted:#94a0ae;--soft:#1f2630;--accent:#4f8cff;--ok:#22c55e;--ok-soft:#12301f;--bad:#f87171;--bad-soft:#3a1717;--warn:#fbbf24;--warn-soft:#3a2a0c;--shadow:none}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-main{max-width:1040px;margin:0 auto;padding:28px 16px 48px}
-header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:20px}
-h1{font-size:28px;line-height:1.2;margin:0;letter-spacing:-.01em}h2{font-size:18px;margin:0 0 4px}
-.sub{color:var(--muted);margin:4px 0 0}
-.state{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;font-weight:600;font-size:14px;background:var(--soft)}
-.state.ok{background:var(--ok-soft);color:var(--ok)}.state.bad{background:var(--bad-soft);color:var(--bad)}.state.warn{background:var(--warn-soft);color:var(--warn)}
-.dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
-.search{position:relative;margin:0 0 16px}.search input{width:100%;padding:12px 14px 12px 40px;font:inherit;border:1px solid var(--line);border-radius:12px;background:var(--card);color:inherit;box-shadow:var(--shadow)}
+:root{color-scheme:light dark;--bg:#f7f6f2;--surface:#fffefa;--raised:#fafaf7;--line:#dfe2da;--text:#30382f;--muted:#697266;--faint:#8a9187;--accent:#5d6d94;--accent-soft:#e3e7ef;--ok:#5d7356;--ok-soft:#e5ebe1;--bad:#a2524c;--bad-soft:#f3e3e0;--warn:#8f6b2e;--warn-soft:#f2eadb;--shadow:0 1px 2px #2934290d,0 8px 24px #2934290a}
+@media (prefers-color-scheme:dark){:root{--bg:#232524;--surface:#2e302f;--raised:#353836;--line:#404341;--text:#e5e6e5;--muted:#adb0ad;--faint:#8f938f;--accent:#a9b4c9;--accent-soft:#363c46;--ok:#a9b4a3;--ok-soft:#323832;--bad:#d9a19b;--bad-soft:#40302e;--warn:#d6bb86;--warn-soft:#3d3628;--shadow:0 1px 2px #0000002e,0 8px 24px #0000001f}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",Roboto,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:1120px;margin:0 auto;padding:36px 20px 56px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px 28px;margin-bottom:26px}
+h1{font-size:30px;line-height:1.2;font-weight:300;letter-spacing:-.01em;margin:0}h2{font-size:17px;font-weight:500;margin:0 0 4px}
+.sub{color:var(--muted);margin:6px 0 0;max-width:46ch}
+.state{display:inline-flex;align-items:center;gap:9px;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:14px;color:var(--muted)}
+.state b{font-weight:500;color:var(--text)}.state.ok .dot{color:var(--ok)}.state.bad .dot{color:var(--bad)}.state.warn .dot{color:var(--warn)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none;display:inline-block}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px;align-items:start}
+aside{position:sticky;top:20px;display:flex;flex-direction:column;gap:18px}
+@media (max-width:900px){.layout{grid-template-columns:1fr}aside{position:static}}
+.search{position:relative;margin:0 0 12px}.search input{width:100%;padding:12px 14px 12px 42px;font:inherit;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:inherit}
 .search input:focus,.field input:focus,.field textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
-.search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
-.hint{margin:-6px 0 14px;color:var(--muted);font-size:14px}.hint b{color:var(--text)}.hint .ask{margin-left:8px;font-size:13px;padding:5px 10px;background:transparent;color:var(--accent);border:1px solid var(--line)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
-.svc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;min-width:0}
+.search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--faint)}
+.hint{min-height:22px;margin:0 0 12px;color:var(--muted);font-size:14px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}.hint b{color:var(--text);font-weight:500}
+.group{margin:0 0 8px;color:var(--faint);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.svc{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);min-width:0;transition:border-color .15s}
+.svc:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .svc.open{grid-column:1/-1}
-.top{display:flex;align-items:center;gap:12px;cursor:pointer;background:none;border:0;padding:0;color:inherit;font:inherit;text-align:left;width:100%}
-.mark{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-weight:700;color:#fff;flex:none;font-size:16px}
-.name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px}
-.meta .dot{width:7px;height:7px}.up{color:var(--ok)}.down{color:var(--bad)}
-.chips{display:flex;flex-wrap:wrap;gap:6px;max-height:240px;overflow:auto}.chip{font-size:13px;padding:3px 9px;border-radius:999px;background:var(--soft);color:var(--muted)}.chip.hit{background:var(--accent);color:var(--accent-text)}
-.svc .ask{align-self:flex-start;font-size:13px;padding:6px 10px;background:transparent;color:var(--accent);border:1px solid var(--line)}
-.empty{color:var(--muted);padding:24px;text-align:center;grid-column:1/-1}
-section.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-top:28px}
-.lead{color:var(--muted);margin:0 0 16px}
-.form{display:grid;grid-template-columns:1fr 1fr;gap:14px}.form .wide{grid-column:1/-1}
-@media (max-width:640px){.form{grid-template-columns:1fr}h1{font-size:24px}}
-.field label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--muted)}
-.field input,.field textarea{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:inherit}
-.field textarea{min-height:110px;resize:vertical}
-.drop{border:1.5px dashed var(--line);border-radius:12px;padding:14px;color:var(--muted);font-size:14px;text-align:center}
+.top{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;cursor:pointer;background:none;border:0;color:inherit;font:inherit;text-align:left;border-radius:14px}
+.top:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.mark{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--raised);border:1px solid var(--line);overflow:hidden;font-weight:500;font-size:14px;color:var(--muted)}
+.mark img{width:26px;height:26px;object-fit:contain}
+.name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px}.meta .dot{width:7px;height:7px}
+.up{color:var(--ok)}.down{color:var(--bad)}
+.more{padding:0 14px 14px;display:flex;flex-direction:column;gap:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;max-height:220px;overflow:auto}
+.chip{font-size:13px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}.chip.hit{border-color:var(--accent);color:var(--accent)}
+.outline{font:inherit;font-size:14px;padding:7px 13px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--accent);cursor:pointer}
+.outline:hover{border-color:var(--accent)}.outline:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.empty{color:var(--muted);padding:28px;text-align:center;grid-column:1/-1;border:1px dashed var(--line);border-radius:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow)}
+.lead{color:var(--muted);margin:0 0 14px;font-size:14px}
+.form{display:grid;gap:12px}
+.field{position:relative}
+.field input,.field textarea{width:100%;font:inherit;padding:18px 12px 7px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:inherit}
+.field textarea{min-height:104px;resize:vertical;padding-top:22px}
+.field label{position:absolute;left:12px;top:13px;color:var(--faint);font-size:14px;pointer-events:none;transition:all .15s}
+.field input:focus+label,.field input:not(:placeholder-shown)+label,.field textarea:focus+label,.field textarea:not(:placeholder-shown)+label{top:5px;font-size:11.5px;color:var(--muted)}
+.drop{border:1px dashed var(--line);border-radius:10px;padding:12px;color:var(--muted);font-size:13px;text-align:center;cursor:pointer}
 .drop.over{border-color:var(--accent);color:var(--accent)}
-.shots{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px}.shots img{height:72px;border-radius:8px;border:1px solid var(--line);cursor:pointer}
-button{font:inherit;font-weight:600;padding:10px 18px;border:0;border-radius:10px;background:var(--accent);color:var(--accent-text);cursor:pointer}
-button:disabled{opacity:.6;cursor:default}
-.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.msg{font-size:14px}.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
-.reqs{display:flex;flex-direction:column}.req{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)}.req:first-child{border-top:0}
-.req .what{font-weight:600}.req .note{color:var(--muted);font-size:14px}.req time{color:var(--muted);font-size:13px;display:block}
-.pill{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;white-space:nowrap;background:var(--soft);color:var(--muted)}
-.pill.new{background:var(--warn-soft);color:var(--warn)}.pill.working{background:#dbeafe;color:#1d4ed8}.pill.done{background:var(--ok-soft);color:var(--ok)}
-@media (prefers-color-scheme:dark){.pill.working{background:#172554;color:#93c5fd}}
-footer{color:var(--muted);font-size:13px;margin-top:28px;text-align:center}
+.shots{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.shots:not(:empty){margin-top:10px}.shots img{height:60px;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+button.send{font:inherit;font-weight:500;padding:9px 16px;border-radius:10px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer}
+button.send:hover{background:var(--accent-soft)}button:disabled{opacity:.55;cursor:default}
+.msg{font-size:14px}.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
+.reqs{display:flex;flex-direction:column}.req{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}.req:first-child{border-top:0;padding-top:0}
+.req .what{font-weight:500}.req .note{color:var(--muted);font-size:14px}.req time{color:var(--faint);font-size:12.5px;display:block}
+.pill{font-size:12px;padding:2px 9px;border-radius:999px;white-space:nowrap;border:1px solid var(--line);color:var(--muted)}
+.pill.new{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.pill.working{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}.pill.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+.none{color:var(--muted);font-size:14px}
+footer{color:var(--faint);font-size:12.5px;margin-top:30px;text-align:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 `;
 
 // What the page does: the services as cards with their state, a search that
@@ -183,8 +204,6 @@ const script = `
 const shots=[];let data=null,openId=null;
 const $=id=>document.getElementById(id);
 const el=(t,a,...c)=>{const e=document.createElement(t);Object.assign(e,a||{});c.forEach(x=>x!=null&&e.append(x));return e};
-const colors=['#2563eb','#7c3aed','#db2777','#ea580c','#0d9488','#16a34a','#0891b2','#4f46e5','#c026d3','#ca8a04'];
-function color(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;return colors[h%colors.length]}
 function initials(s){const w=s.replace(/[^\\p{L}\\p{N} ]/gu,' ').trim().split(/\\s+/);return ((w[0]||'?')[0]+(w[1]?w[1][0]:(w[0]||'').slice(1,2))).toUpperCase()}
 function fmt(t,n){return t.replace('%d',n)}
 function covers(domain,q){return q===domain||q.endsWith('.'+domain)}
@@ -200,18 +219,23 @@ function render(){
   if(q&&!nameHit&&!hits.length)continue;shown++;
   const open=openId===s.id||(q&&hits.length&&!nameHit);
   const card=el('div',{className:'svc'+(open?' open':'')});
-  const top=el('button',{className:'top',type:'button'},el('span',{className:'mark',style:'background:'+color(s.label),textContent:initials(s.label)}),
+  const mark=el('span',{className:'mark',textContent:initials(s.label)});
+  // The icon the router fetched from the service's site; the initials stay where there is none.
+  if(s.id!=='-own'){const img=el('img',{alt:'',decoding:'async'});img.onload=()=>{mark.textContent='';mark.append(img)};img.src='/board/icon/'+encodeURIComponent(s.id)}
+  const top=el('button',{className:'top',type:'button','aria-expanded':open?'true':'false'},mark,
    el('span',{style:'min-width:0'},el('div',{className:'name',textContent:s.label}),
     el('div',{className:'meta'},el('span',{className:'dot '+(s.up?'up':'down')}),el('span',{textContent:(s.up?T.works:T.down)+' · '+fmt(T.domains,s.domains.length)}))));
+  top.setAttribute('aria-expanded',open?'true':'false');
   top.onclick=()=>{openId=openId===s.id?null:s.id;render()};card.append(top);
-  if(open){card.append(el('div',{className:'chips'},...(hits.length?hits.concat(s.domains.filter(d=>!hits.includes(d))):s.domains).map(d=>el('span',{className:'chip'+(hits.includes(d)?' hit':''),textContent:d}))));
-   if(s.id!=='-own'){const ask=el('button',{className:'ask',type:'button',textContent:T.ask});ask.onclick=()=>{$('resource').value=s.label;$('form').scrollIntoView({behavior:'smooth'});$('problem').focus()};card.append(ask)}}
+  if(open){const more=el('div',{className:'more'},el('div',{className:'chips'},...(hits.length?hits.concat(s.domains.filter(d=>!hits.includes(d))):s.domains).map(d=>el('span',{className:'chip'+(hits.includes(d)?' hit':''),textContent:d}))));
+   if(s.id!=='-own'){const ask=el('button',{className:'outline',type:'button',textContent:T.ask});ask.onclick=()=>{$('resource').value=s.label;$('ask').scrollIntoView({behavior:'smooth',block:'start'});$('problem').focus()};more.append(el('div',{},ask))}
+   card.append(more)}
   box.append(card);
  }
  if(!shown&&!(host&&!found))box.append(el('div',{className:'empty',textContent:q?T.nothing:T.empty}));
  if(host&&found)hint.append(el('b',{textContent:host}),' '+T.through+' ',el('b',{textContent:found.label}));
- if(host&&!found){const add=el('button',{className:'ask',type:'button',textContent:T.ask_add});
-  add.onclick=()=>{$('resource').value=host;$('link').value=$('q').value.trim();$('form').scrollIntoView({behavior:'smooth'});$('problem').focus()};
+ if(host&&!found){const add=el('button',{className:'outline',type:'button',textContent:T.ask_add});
+  add.onclick=()=>{$('resource').value=host;$('link').value=$('q').value.trim();$('ask').scrollIntoView({behavior:'smooth',block:'start'});$('problem').focus()};
   hint.append(el('b',{textContent:host}),' '+T.direct+' ',add)}
 }
 function state(){
@@ -219,13 +243,13 @@ function state(){
  const all=data.services.length,up=data.services.filter(s=>s.up).length;
  const cls=!data.tunnel?'bad':up<all?'warn':'ok';
  const text=cls==='bad'?T.all_down:cls==='warn'?T.some.replace('%d',up).replace('%d',all):T.all_up;
- b.className='state '+cls;b.append(el('span',{className:'dot'}),el('span',{textContent:text}));
+ b.className='state '+cls;b.append(el('span',{className:'dot'}),el('b',{textContent:text}));
  $('updated').textContent=fmt(T.updated,new Date(data.updated*1000).toLocaleString());
 }
 async function load(){
  data=await fetch('/board/services').then(r=>r.json()).catch(()=>null);state();render();
  const q=await fetch('/board/requests').then(r=>r.json()).catch(()=>[]),rb=$('requests');rb.textContent='';
- if(!q.length){rb.append(el('div',{className:'note',textContent:T.none}));return}
+ if(!q.length){rb.append(el('div',{className:'none',textContent:T.none}));return}
  q.forEach(r=>rb.append(el('div',{className:'req'},el('div',{},el('div',{className:'what',textContent:r.resource}),r.note?el('div',{className:'note',textContent:r.note}):null,el('time',{textContent:new Date(r.created*1000).toLocaleString()})),el('span',{className:'pill '+r.status,textContent:T[r.status]||r.status}))));
 }
 function add(file){if(!file||!/^image\\/(png|jpeg)$/.test(file.type)||file.size>2097152||shots.length>=3)return;
@@ -264,24 +288,26 @@ function page(env) {
 	};
 	let nonce = new_id(), lang = substr(env.HTTP_ACCEPT_LANGUAGE ?? '', 0, 2) == 'ru' ? 'ru' : 'en';
 	let search = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+	let field = (id, label, extra) => `<div class="field"><input id="${id}" name="${id}" placeholder=" " ${extra}><label for="${id}">${label}</label></div>`;
 	let html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${text.title}</title><style>${style}</style></head><body><main>
 <header><div><h1>${text.title}</h1><p class="sub">${text.lead}</p></div><div class="state" id="state">${_('Loading...')}</div></header>
+<div class="layout"><section>
 <div class="search">${search}<input id="q" type="search" placeholder="${text.search}" aria-label="${text.search}" autocomplete="off"></div>
-<div class="hint" id="hint"></div><div class="grid" id="services"></div>
-<section class="card" id="ask"><h2>${text.request}</h2><p class="lead">${text.request_lead}</p><form id="form" class="form">
-<div class="field"><label for="name">${text.name}</label><input id="name" name="name" maxlength="100" autocomplete="name"></div>
-<div class="field"><label for="email">${text.email}</label><input id="email" name="email" type="email" maxlength="200" autocomplete="email"></div>
-<div class="field"><label for="resource">${text.resource}</label><input id="resource" name="resource" maxlength="200"></div>
-<div class="field"><label for="link">${text.link}</label><input id="link" name="link" maxlength="500" placeholder="https://"></div>
-<div class="field wide"><label for="problem">${text.problem}</label><textarea id="problem" name="problem" maxlength="4000"></textarea></div>
-<div class="drop wide" id="drop" tabindex="0" role="button">${text.pictures}<input id="pick" type="file" accept="image/png,image/jpeg" multiple hidden><div class="shots" id="shots"></div></div>
-<div class="actions wide"><button type="submit">${text.send}</button><span class="msg" id="msg" role="status"></span></div></form></section>
-<section class="card"><h2>${text.requests}</h2><div class="reqs" id="requests"></div></section>
+<div class="hint" id="hint"></div><div class="grid" id="services"></div></section>
+<aside><section class="card" id="ask"><h2>${text.request}</h2><p class="lead">${text.request_lead}</p><form id="form" class="form">
+${field('name', text.name, 'maxlength="100" autocomplete="name"')}
+${field('email', text.email, 'type="email" maxlength="200" autocomplete="email"')}
+${field('resource', text.resource, 'maxlength="200"')}
+${field('link', text.link, 'maxlength="500"')}
+<div class="field"><textarea id="problem" name="problem" placeholder=" " maxlength="4000"></textarea><label for="problem">${text.problem}</label></div>
+<div class="drop" id="drop" tabindex="0" role="button">${text.pictures}<input id="pick" type="file" accept="image/png,image/jpeg" multiple hidden><div class="shots" id="shots"></div></div>
+<div class="actions"><button class="send" type="submit">${text.send}</button><span class="msg" id="msg" role="status"></span></div></form></section>
+<section class="card"><h2>${text.requests}</h2><div class="reqs" id="requests"></div></section></aside></div>
 <footer id="updated"></footer></main>
 <script nonce="${nonce}">const T=${sprintf('%J', text)};${script}</script></body></html>`;
 	send('200 OK', 'text/html; charset=utf-8', html,
-		`Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; img-src data:; script-src 'nonce-${nonce}'\r\n`);
+		`Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'nonce-${nonce}'\r\n`);
 }
 
 // The snapshot is made when the board starts; a page asked for later sets off
@@ -301,6 +327,15 @@ global.handle_request = function(env) {
 		refresh();
 		let services = readfile(services_file);
 		return services ? send('200 OK', 'application/json', services) : send_json('200 OK', { updated: time(), tunnel: false, services: [], own: [] });
+	}
+	// A service's icon as the router fetched it from the service's own site.
+	let icon = match(path, /^\/board\/icon\/([a-z0-9_.-]{1,64})$/);
+	if (env.REQUEST_METHOD == 'GET' && icon) {
+		for (let kind, type in icon_types) {
+			let data = readfile(sprintf('%s/%s.%s', icons_dir, icon[1], kind), 65536);
+			if (data != null) return send('200 OK', type, data, 'Cache-Control: max-age=86400\r\n');
+		}
+		return send_json('404 Not Found', { error: 'no_icon' });
 	}
 	if (env.REQUEST_METHOD == 'GET' && path == '/board/requests')
 		return send_json('200 OK', map(slice(requests(), 0, 30), public_view));

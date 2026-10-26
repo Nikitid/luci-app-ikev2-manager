@@ -73,6 +73,15 @@ function blocked_without_tunnel(entries, label) {
 	return !(label?.open ?? false);
 }
 
+// The background pass that commits what devices left: one at a time by its
+// own pid file. Started by the executable alone, it was refused whenever any
+// other ucode ran at that moment - the access watcher runs one every two
+// seconds - and a choice or a list then waited for the next request.
+function apply_pass(pass) {
+	system([ '/sbin/start-stop-daemon', '-b', '-q', '-S', '-m', '-p', `/var/run/ikev2-client-${pass}.pid`, '-x', '/usr/bin/ucode', '--',
+		'/usr/libexec/ikev2-manager.d/client-access-control.uc', pass ]);
+}
+
 // The services answer. With an offer it lists every entry: on or off,
 // required or not, blocked without the tunnel or not and whose choice that is.
 function services_answer(id, revision, selected, available, entries, directory, own_list) {
@@ -124,7 +133,7 @@ function accept_own(id, server, headers, receive, directory) {
 		if (file == null || file.write(item[1]) != length(item[1]) || !file.close()) { unlink(item[0]); return reply(503, 'own_unavailable'); }
 	}
 	if (!rename(counted + '.new', counted) || !rename(staged, path)) { unlink(staged); return reply(503, 'own_unavailable'); }
-	system([ '/sbin/start-stop-daemon', '-b', '-q', '-S', '-x', '/usr/bin/ucode', '--', '/usr/libexec/ikev2-manager.d/client-access-control.uc', 'apply-own' ]);
+	apply_pass('apply-own');
 	return { status: 202, body: { version: 1, accepted: true } };
 }
 
@@ -152,7 +161,7 @@ function accept_choice(id, offer, headers, receive) {
 	unlink(staged);
 	let file = open(staged, 'wxe', 0600);
 	if (file == null || file.write(raw) != length(raw) || !file.close() || !rename(staged, path)) { unlink(staged); return reply(503, 'choice_unavailable'); }
-	system([ '/sbin/start-stop-daemon', '-b', '-q', '-S', '-x', '/usr/bin/ucode', '--', '/usr/libexec/ikev2-manager.d/client-access-control.uc', 'apply-choices' ]);
+	apply_pass('apply-choices');
 	return { status: 202, body: { version: 1, accepted: true } };
 }
 

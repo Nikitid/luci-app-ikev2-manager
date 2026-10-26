@@ -391,6 +391,9 @@ try {
   // it, so a newer choice arriving meanwhile waits for the next pass instead
   // of being lost; a commit that meets another edit is tried again.
   let pending = '/var/run/ikev2-client-choices';
+  // A choice left while this pass ran, which could not start a pass of its
+  // own, is taken in the next round.
+  for (let round = 0; round < 10 && length(filter(lsdir(pending) ?? [], name => match(name, /\.json$/))); round++)
   for (let name in sort(lsdir(pending) ?? [])) {
    let found = length(name) <= 53 ? match(name, /^([a-z][a-z0-9-]*)\.json$/) : null;
    if (found == null) continue;
@@ -426,6 +429,7 @@ try {
   // latest list of each device, taken the way choices are. The rule is read
   // again here: one withdrawn since the list came in stops it.
   let pending = '/var/run/ikev2-client-own';
+  for (let round = 0; round < 10 && length(filter(lsdir(pending) ?? [], name => match(name, /^[a-z][a-z0-9-]*\.json$/))); round++)
   for (let name in sort(lsdir(pending) ?? [])) {
    let found = length(name) <= 53 ? match(name, /^([a-z][a-z0-9-]*)\.json$/) : null;
    if (found == null) continue;

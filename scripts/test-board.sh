@@ -29,7 +29,7 @@ EOF
 chmod 755 "$tmp/bin/"*
 export PATH="$tmp/bin:$PATH" IKEV2_BOARD_DIR="$tmp/board" IKEV2_BOARD_RUN="$tmp/run" IKEV2_COMMUNITY="$tmp/bin/community" \
 	IKEV2_MANUAL_FILE="$tmp/manual" IKEV2_MANUAL_CIDR_FILE="$tmp/cidrs" IKEV2_SELECTED_FILE="$tmp/selected" \
-	IKEV2_INPUT_PREFIX="$tmp/input"
+	IKEV2_INPUT_PREFIX="$tmp/input" IKEV2_BOARD_ICONS=0
 agent() { SSH_ORIGINAL_COMMAND="$*" sh "$helper" agent; }
 
 id=1792664445-68c9b1b2ad23
