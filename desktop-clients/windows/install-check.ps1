@@ -68,7 +68,7 @@ $native = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq '
 Check ((Machine (Join-Path $folder 'ClientService.exe')) -eq $native) 'the service is built for this processor'
 Check (Until { (Get-Service $name).Status -eq 'Running' } 60) 'the service runs'
 Check ((Get-Content (Join-Path $state 'kept-by-update.txt')) -eq 'registration') 'the registration is kept'
-Check (Until { try { ((Get-Content (Join-Path $state 'status.json') -Raw) | ConvertFrom-Json).Version -eq 5 } catch { $false } } 60) 'the new service publishes its status'
+Check (Until { try { ((Get-Content (Join-Path $state 'status.json') -Raw) | ConvertFrom-Json).Version -eq 6 } catch { $false } } 60) 'the new service publishes its status'
 Check ($null -ne (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name Waypoint -ErrorAction SilentlyContinue)) 'the icon comes with sign-in'
 
 # The same release again: an update in place.

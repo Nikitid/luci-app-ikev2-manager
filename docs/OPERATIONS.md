@@ -1230,9 +1230,10 @@ identity must match the public DNS name used by clients.
 
 ACME links the certificate and key into `/etc/ssl/acme` only where no file is
 there yet, and a settings import writes copies there. Each sync of the server
-certificate, and each package update, replaces such copies with ACME's links
-when ACME holds a valid pair for the identity; until then the server serves
-the imported certificate. `ls -l /etc/ssl/acme` shows which it is.
+certificate, and each package update, makes those files plain copies of
+ACME's pair when ACME holds a valid one that differs; until then the server
+serves the imported certificate. They stay plain files because the client API
+refuses links for its certificate and key.
 
 ## Backup and recovery
 

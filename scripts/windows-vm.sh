@@ -5,6 +5,9 @@
 #   scripts/windows-vm.sh build    desktop-clients/windows/build.ps1, outputs in dist/windows/
 #   scripts/windows-vm.sh install  desktop-clients/windows/install-check.ps1 with the outputs of
 #                                  build and the setup of release IKEV2_WINDOWS_EARLIER (default v2.2.8)
+#   scripts/windows-vm.sh live     desktop-clients/windows/live-check.ps1: this build installed,
+#                                  registered with the link in the file IKEV2_WINDOWS_INVITATION
+#                                  against a real router, connected and used; see the script
 #   scripts/windows-vm.sh run SCRIPT.ps1 [--user]
 #                                  a PowerShell script of the repository, as an administrator or, with
 #                                  --user, as the user signed in to the VM; log in dist/windows/windows-run.log
@@ -17,7 +20,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:-test}"
-case "$MODE" in test | build | install | run) ;; *) echo "usage: $0 test|build|install|run SCRIPT.ps1 [--user]" >&2; exit 2 ;; esac
+case "$MODE" in test | build | install | live | run) ;; *) echo "usage: $0 test|build|install|live|run SCRIPT.ps1 [--user]" >&2; exit 2 ;; esac
+if [ "$MODE" = live ]; then
+    [ -s "${IKEV2_WINDOWS_INVITATION:-}" ] || { echo "IKEV2_WINDOWS_INVITATION must name a file with the link" >&2; exit 2; }
+fi
 SCRIPT="${2:-}"
 AS=()
 if [ "$MODE" = run ]; then
@@ -54,12 +60,16 @@ for _ in $(seq 1 120); do prlctl exec "$VM" ${AS[@]+"${AS[@]}"} powershell -NoPr
 { git ls-files desktop-clients windows-profile-installer; git ls-files --others --exclude-standard desktop-clients windows-profile-installer; } |
     sort -u | zip -q "$WORK/source.zip" -@
 mkdir -p "$WORK/files/earlier"
-if [ "$MODE" = install ]; then
+if [ "$MODE" = install ] || [ "$MODE" = live ]; then
     for file in dist/windows/WaypointSetup.exe dist/windows/Waypoint-*-x64.msi dist/windows/Waypoint-*-arm64.msi; do
         [ -f "$file" ] || { echo "Build first: $file is missing" >&2; exit 1; }
         cp "$file" "$WORK/files/"
     done
-    gh release download "${IKEV2_WINDOWS_EARLIER:-v2.2.8}" --pattern WaypointSetup.exe --dir "$WORK/files/earlier"
+    if [ "$MODE" = install ]; then
+        gh release download "${IKEV2_WINDOWS_EARLIER:-v2.2.8}" --pattern WaypointSetup.exe --dir "$WORK/files/earlier"
+    else
+        cp "$IKEV2_WINDOWS_INVITATION" "$WORK/files/invitation.txt"
+    fi
     (cd "$WORK/files" && find . -type f | sed 's|^\./||' > index.txt)
 fi
 # A failed run still brings its log back; none from an earlier run is left to be mistaken for it.
@@ -103,6 +113,9 @@ elif [ "$MODE" = install ]; then
     # Long command lines are cut short by Parallels: the check fetches its own files.
     RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\install-check.ps1 -Base '$BASE/files' -Files C:\\waypoint\\files *>&1 | Tee-Object C:\\waypoint\\windows-install.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-install.log; \$code = 1 }"
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-install.log '$BASE/upload/windows-install.log' | Out-Null"
+elif [ "$MODE" = live ]; then
+    RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\live-check.ps1 -Base '$BASE/files' -Files C:\\waypoint\\files *>&1 | Tee-Object C:\\waypoint\\windows-live.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-live.log; \$code = 1 }"
+    UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-live.log '$BASE/upload/windows-live.log' | Out-Null"
 elif [ "$MODE" = run ]; then
     RUN="try { & C:\\waypoint\\src\\$(printf '%s' "$SCRIPT" | sed 's|/|\\|g') *>&1 | Tee-Object C:\\waypoint\\windows-run.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-run.log; \$code = 1 }"
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-run.log '$BASE/upload/windows-run.log' | Out-Null"

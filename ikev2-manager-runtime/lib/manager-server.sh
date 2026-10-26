@@ -211,10 +211,12 @@ certificate_is_issued_by() {
 }
 
 # ACME links its certificate and key into the source directory only where no
-# file is there yet. A copy put there by a restore therefore stays in place of
-# every later renewal, and the server keeps serving the restored certificate
-# until it expires. When ACME holds a valid pair for the identity, the copies
-# are replaced by ACME's links. Succeeds only when something was replaced.
+# file is there yet, and a restore leaves copies there; a copy then stood in
+# for every later renewal, and the server kept serving it until it expired.
+# Where ACME holds a valid pair for the identity, the files in the source
+# directory are made plain copies of it again. Copies, not links: the client
+# API refuses a link for its certificate and key. Succeeds only when a file
+# was replaced.
 adopt_acme_certificate() {
 	local identity source state cert key dir
 	[ -z "$(getv server cert_file)$(getv server key_file)" ] || return 1
@@ -223,7 +225,6 @@ adopt_acme_certificate() {
 	source="$(getv server cert_source)"
 	cert="${source:-/etc/ssl/acme}/$identity.fullchain.crt"
 	key="${source:-/etc/ssl/acme}/$identity.key"
-	{ [ -f "$cert" ] && [ ! -L "$cert" ]; } || { [ -f "$key" ] && [ ! -L "$key" ]; } || return 1
 	state="$(uci -q get acme.@acme[0].state_dir 2>/dev/null || true)"
 	state="${state:-/etc/acme}"
 	# After a change of key type ACME issues into the other directory; the
@@ -231,8 +232,15 @@ adopt_acme_certificate() {
 	dir="$(ls -t "$state/${identity}_ecc/fullchain.cer" "$state/$identity/fullchain.cer" 2>/dev/null | head -n 1)"
 	dir="${dir%/fullchain.cer}"
 	[ -n "$dir" ] && [ -s "$dir/$identity.key" ] || return 1
+	if [ -f "$cert" ] && [ ! -L "$cert" ] && cmp -s "$dir/fullchain.cer" "$cert" &&
+	   [ -f "$key" ] && [ ! -L "$key" ] && cmp -s "$dir/$identity.key" "$key"; then
+		return 1
+	fi
 	validate_server_certificate_files "$dir/fullchain.cer" "$dir/$identity.key" "$identity" || return 1
-	ln -sf "$dir/fullchain.cer" "$cert" && ln -sf "$dir/$identity.key" "$key"
+	rm -f "$cert.new" "$key.new"
+	cp "$dir/fullchain.cer" "$cert.new" && chmod 644 "$cert.new" &&
+		( umask 077; cp "$dir/$identity.key" "$key.new" ) && chmod 600 "$key.new" &&
+		mv -f "$cert.new" "$cert" && mv -f "$key.new" "$key" || { rm -f "$cert.new" "$key.new"; return 1; }
 }
 
 sync_server_certificate() {

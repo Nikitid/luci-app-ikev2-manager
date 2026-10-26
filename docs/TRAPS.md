@@ -705,8 +705,11 @@ ACME's hook links `<name>.fullchain.crt` and `<name>.key` into
 into those paths, and BusyBox `cp` replaces a link it copies onto with a file
 rather than writing through it. From then on every renewal succeeded, every sync ran,
 and the server went on serving the imported certificate towards its expiry.
-Nothing failed: the copy was still valid. The sync now replaces the copies
-with ACME's links when ACME holds a valid pair.
+Nothing failed: the copy was still valid. The sync now makes those files
+plain copies of ACME's pair again whenever ACME holds a valid one that differs.
+Not links: the client API refuses a link for its certificate and key, and the
+first version of this fix, which made links, stopped registration and policy
+for every Waypoint device on the router it ran on.
 
 Guarded by `scripts/test-server-certificate-chain.sh`.
 

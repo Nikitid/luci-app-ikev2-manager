@@ -119,8 +119,8 @@ IKEV2_ROOT="$tmp/root" \
 IKEV2_UCI_BIN="$tmp/bin/uci" \
 IKEV2_RUNTIME_LIB_DIR="$tmp/root/usr/libexec/ikev2-manager.d" \
 	sh "$root/luci-ikev2-manager/ikev2-manager.sh" server-cert-sync >/dev/null
-[ ! -L "$tmp/root/etc/ssl/acme/vpn.example.test.fullchain.crt" ] || {
-	printf 'a mismatched ACME pair replaced the restored certificate\n' >&2
+cmp -s "$tmp/leaf.key" "$tmp/root/etc/ssl/acme/vpn.example.test.key" || {
+	printf 'a mismatched ACME pair replaced the restored key\n' >&2
 	exit 1
 }
 cmp -s "$tmp/leaf.crt" "$tmp/root/etc/swanctl/x509/ikev2.pem" || {
@@ -137,11 +137,28 @@ cmp -s "$tmp/renewed.crt" "$tmp/root/etc/swanctl/x509/ikev2.pem" || {
 	printf 'the server still serves the restored certificate after an ACME renewal\n' >&2
 	exit 1
 }
+# Plain copies of ACME's pair, which the client API accepts; a link it refuses.
 for file in vpn.example.test.fullchain.crt vpn.example.test.key; do
-	[ -L "$tmp/root/etc/ssl/acme/$file" ] || {
-		printf '%s is still a copy, so the next renewal would be missed again\n' "$file" >&2
+	[ -f "$tmp/root/etc/ssl/acme/$file" ] && [ ! -L "$tmp/root/etc/ssl/acme/$file" ] || {
+		printf '%s is not a plain file, which the client API refuses\n' "$file" >&2
 		exit 1
 	}
 done
+cmp -s "$acme/fullchain.cer" "$tmp/root/etc/ssl/acme/vpn.example.test.fullchain.crt" &&
+	cmp -s "$acme/vpn.example.test.key" "$tmp/root/etc/ssl/acme/vpn.example.test.key" || {
+	printf 'the source directory does not hold the renewed pair\n' >&2
+	exit 1
+}
+# A link ACME left is turned into a copy as well.
+rm "$tmp/root/etc/ssl/acme/vpn.example.test.fullchain.crt"
+ln -s "$acme/fullchain.cer" "$tmp/root/etc/ssl/acme/vpn.example.test.fullchain.crt"
+IKEV2_ROOT="$tmp/root" \
+IKEV2_UCI_BIN="$tmp/bin/uci" \
+IKEV2_RUNTIME_LIB_DIR="$tmp/root/usr/libexec/ikev2-manager.d" \
+	sh "$root/luci-ikev2-manager/ikev2-manager.sh" server-cert-sync >/dev/null
+[ ! -L "$tmp/root/etc/ssl/acme/vpn.example.test.fullchain.crt" ] || {
+	printf 'a link was left where the client API needs a file\n' >&2
+	exit 1
+}
 
 printf 'server certificate chain tests OK\n'
