@@ -349,14 +349,28 @@ extension JSONEncoder {
     }
 }
 
-/// How a state reads at a glance: one colour and one sign, the same on Windows.
+/// A colour for the light and the dark appearance.
+func appearanceColor(light: UInt32, dark: UInt32) -> Color {
+    func make(_ value: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat(value >> 16 & 0xff) / 255, green: CGFloat(value >> 8 & 0xff) / 255, blue: CGFloat(value & 0xff) / 255, alpha: 1)
+    }
+    return Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .vibrantDark, .accessibilityHighContrastDarkAqua]) != nil ? make(dark) : make(light)
+    })
+}
+
+/// One quiet cool accent instead of the system's: the owner's own look.
+let waypointAccent = appearanceColor(light: 0x5d6d94, dark: 0xa9b4c9)
+
+/// How a state reads at a glance: one colour and one sign, the same on
+/// Windows. Muted, and lighter on the dark appearance.
 enum Tone {
     case open, working, attention, off
     var color: Color {
         switch self {
-        case .open: return Color(red: 0.13, green: 0.55, blue: 0.27)
-        case .working: return Color(red: 0.85, green: 0.55, blue: 0.05)
-        case .attention: return Color(red: 0.78, green: 0.20, blue: 0.18)
+        case .open: return appearanceColor(light: 0x5d7f56, dark: 0xa9bfa1)
+        case .working: return appearanceColor(light: 0x9a7330, dark: 0xd6bb86)
+        case .attention: return appearanceColor(light: 0xa8524b, dark: 0xd9a19b)
         case .off: return Color.secondary
         }
     }
@@ -390,13 +404,14 @@ struct Card<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased()).font(.caption).foregroundStyle(.secondary)
+            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
             content
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .controlBackgroundColor))
+            .shadow(color: .black.opacity(0.05), radius: 8, y: 2))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1))
     }
 }
 
@@ -476,11 +491,11 @@ struct ServiceList: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     if entry.required {
-                        Text(entry.label).bold()
+                        Text(entry.label).fontWeight(.medium)
                         Spacer()
                         Text("обязательный").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Toggle(isOn: Binding(get: { entry.on }, set: { model.choose(entry, on: $0) })) { Text(entry.label).bold() }
+                        Toggle(isOn: Binding(get: { entry.on }, set: { model.choose(entry, on: $0) })) { Text(entry.label).fontWeight(.medium) }
                             .toggleStyle(.switch).disabled(model.busy)
                     }
                 }
@@ -551,7 +566,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: model.tone.symbol).foregroundStyle(model.tone.color)
-                Text(model.heading).bold()
+                Text(model.heading).fontWeight(.medium)
             }
             Text(model.detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let status = model.status, status.guardInstalled, status.profileInstalled, status.state != "access_closed" {
@@ -589,7 +604,7 @@ struct ReportsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Button { opened = nil; answerText = "" } label: { Image(systemName: "chevron.left") }.buttonStyle(.borderless)
-                    Text(report.kind.label + " · " + report.title).bold().lineLimit(1)
+                    Text(report.kind.label + " · " + report.title).fontWeight(.medium).lineLimit(1)
                     Spacer()
                     if let conversation = model.conversations[report.id] { Text(conversation.stateLabel).foregroundStyle(.secondary) }
                 }
@@ -642,7 +657,7 @@ struct ReportsView: View {
                         }
                         Spacer()
                         if model.unread(report) > 0 {
-                            Text("\(model.unread(report))").font(.caption.bold()).foregroundStyle(.white)
+                            Text("\(model.unread(report))").font(.caption.weight(.medium)).foregroundStyle(.white)
                                 .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(Color.accentColor))
                         }
                     }.contentShape(Rectangle())
@@ -682,7 +697,7 @@ struct ClientView: View {
                     Image(systemName: model.tone.symbol).font(.system(size: 18, weight: .bold)).foregroundStyle(model.tone.color)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.heading).font(.title2).bold()
+                    Text(model.heading).font(.title2.weight(.light))
                     Text(model.detail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -712,7 +727,7 @@ struct ClientView: View {
                 if let entries = status?.entries {
                     ServiceList(entries: entries, model: model)
                 } else if let status, !status.services.isEmpty {
-                    Text(status.services.joined(separator: " · ")).bold().fixedSize(horizontal: false, vertical: true)
+                    Text(status.services.joined(separator: " · ")).fontWeight(.medium).fixedSize(horizontal: false, vertical: true)
                     Text("Доменов: \(status.domains)").font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(status == nil ? "Нет данных" : status?.domains == 0 || (status?.state == "access_closed" && status?.error == "no_services") ? "Не назначены" : "Доменов: \(status?.domains ?? 0)")
@@ -760,7 +775,7 @@ struct ClientView: View {
                 if !model.selfResolving.isEmpty || model.browsersTold { Button("Браузеры…") { browsing = true } }
                 Button("Проверить") { model.refresh(); model.lookAtBrowsers() }
                 Button("Отчёт…") { reporting = true }
-                Button("Сбросить…") { removing = true }.buttonStyle(.borderedProminent).tint(Tone.attention.color)
+                Button("Сбросить…") { removing = true }.buttonStyle(.bordered).tint(Tone.attention.color)
                     .disabled(status == nil || status?.state == "enrollment_required")
             }.fixedSize(horizontal: false, vertical: true).disabled(model.busy)
             Text("Проверено " + model.checked.formatted(date: .omitted, time: .standard) + " · " + model.version)
@@ -825,7 +840,7 @@ struct ClientView: View {
                 ScrollView { Text(model.report).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                     .frame(width: 520, height: 200)
                 Divider()
-                Text("Написать разработчику").font(.subheadline).bold()
+                Text("Написать разработчику").font(.subheadline).fontWeight(.medium)
                 Picker("", selection: $problemKind) {
                     ForEach(ReportKind.allCases, id: \.self) { Text($0.label).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 520)
@@ -965,9 +980,9 @@ struct ClientView: View {
 struct ClientApplication: App {
     @StateObject private var model = ClientModel()
     var body: some Scene {
-        Window("Waypoint", id: "main") { ClientView(model: model) }.windowResizability(.contentSize)
+        Window("Waypoint", id: "main") { ClientView(model: model).tint(waypointAccent) }.windowResizability(.contentSize)
         MenuBarExtra {
-            MenuBarView(model: model)
+            MenuBarView(model: model).tint(waypointAccent)
         } label: {
             Image(systemName: model.status?.state == "protected" ? "lock.shield.fill" : "shield")
         }

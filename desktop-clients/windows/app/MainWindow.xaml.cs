@@ -129,13 +129,14 @@ public sealed partial class MainWindow : Window
         finally { reading = false; }
     }
 
-    static Color Shade(Tone tone) => tone switch
+    // The state's colour, muted, from the theme in force: the same tone reads
+    // lighter on the dark page.
+    Color Shade(Tone tone)
     {
-        Tone.Open => Color.FromArgb(255, 33, 140, 69),
-        Tone.Working => Color.FromArgb(255, 217, 140, 13),
-        Tone.Attention => Color.FromArgb(255, 199, 51, 46),
-        _ => Color.FromArgb(255, 128, 128, 133),
-    };
+        string key = tone switch { Tone.Open => "ToneOpen", Tone.Working => "ToneWorking", Tone.Attention => "ToneAttention", _ => "ToneOff" };
+        var themes = (ResourceDictionary)Application.Current.Resources.ThemeDictionaries[Root.ActualTheme == ElementTheme.Dark ? "Dark" : "Light"];
+        return (Color)themes[key];
+    }
 
     static string Glyph(Tone tone) => tone switch
     {

@@ -42,7 +42,7 @@
                             <FontIcon x:Name="Sign" FontSize="20" />
                         </Grid>
                         <StackPanel Grid.Column="1" Spacing="2">
-                            <TextBlock x:Name="Heading" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="Heading" Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="SemiLight" TextWrapping="Wrap" />
                             <TextBlock x:Name="Description" Style="{StaticResource BodyTextBlockStyle}" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
@@ -57,16 +57,14 @@
 
                     <Border Style="{StaticResource Card}">
                         <StackPanel Spacing="6">
-                            <TextBlock Text="ПРОВЕРКИ" Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="Проверки" Style="{StaticResource SectionLabel}" />
                             <StackPanel x:Name="Checks" Spacing="4" />
                         </StackPanel>
                     </Border>
 
                     <Border Style="{StaticResource Card}">
                         <StackPanel Spacing="6">
-                            <TextBlock Text="СЕРВИСЫ" Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="Сервисы" Style="{StaticResource SectionLabel}" />
                             <StackPanel x:Name="Services" Spacing="2" />
                             <TextBlock x:Name="ServicesLine" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
                             <TextBlock x:Name="ServicesNote" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
@@ -79,8 +77,7 @@
                     <!-- The person's own sites and networks, where the administrator allows them. -->
                     <Border x:Name="OwnCard" Style="{StaticResource Card}" Visibility="Collapsed">
                         <StackPanel Spacing="6">
-                            <TextBlock Text="МОИ АДРЕСА" Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="Мои адреса" Style="{StaticResource SectionLabel}" />
                             <TextBlock x:Name="OwnEmpty" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                        Text="Пока ничего. Добавьте сайт или адрес, который должен идти через туннель на этом компьютере." />
                             <StackPanel x:Name="OwnList" Spacing="2" />

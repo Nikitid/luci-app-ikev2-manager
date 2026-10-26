@@ -7,13 +7,48 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- A card: the window's sections sit on these. -->
+            <!-- One quiet cool accent instead of the system's, in light and in
+                 dark: the owner's own look. Controls draw it from these keys. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="SystemAccentColor">#5D6D94</Color>
+                    <Color x:Key="SystemAccentColorLight1">#7482A6</Color>
+                    <Color x:Key="SystemAccentColorLight2">#8F9BB8</Color>
+                    <Color x:Key="SystemAccentColorLight3">#A9B4C9</Color>
+                    <Color x:Key="SystemAccentColorDark1">#4F5E83</Color>
+                    <Color x:Key="SystemAccentColorDark2">#434F6F</Color>
+                    <Color x:Key="SystemAccentColorDark3">#36405A</Color>
+                    <Color x:Key="ToneOpen">#5D7F56</Color>
+                    <Color x:Key="ToneWorking">#9A7330</Color>
+                    <Color x:Key="ToneAttention">#A8524B</Color>
+                    <Color x:Key="ToneOff">#7B8378</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="SystemAccentColor">#8F9BB3</Color>
+                    <Color x:Key="SystemAccentColorLight1">#9BA6BD</Color>
+                    <Color x:Key="SystemAccentColorLight2">#A9B4C9</Color>
+                    <Color x:Key="SystemAccentColorLight3">#BCC5D6</Color>
+                    <Color x:Key="SystemAccentColorDark1">#7A869F</Color>
+                    <Color x:Key="SystemAccentColorDark2">#66728B</Color>
+                    <Color x:Key="SystemAccentColorDark3">#535E76</Color>
+                    <Color x:Key="ToneOpen">#A9BFA1</Color>
+                    <Color x:Key="ToneWorking">#D6BB86</Color>
+                    <Color x:Key="ToneAttention">#D9A19B</Color>
+                    <Color x:Key="ToneOff">#969B97</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast" />
+            </ResourceDictionary.ThemeDictionaries>
+            <!-- A card: the window's sections sit on these, with a quiet edge. -->
             <Style x:Key="Card" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="8" />
-                <Setter Property="Padding" Value="14,12,14,12" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Padding" Value="16,14,16,14" />
+            </Style>
+            <!-- The name of a section: plain words, not capitals. -->
+            <Style x:Key="SectionLabel" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>
