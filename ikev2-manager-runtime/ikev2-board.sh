@@ -131,7 +131,7 @@ icons() {
 		rm -f "$dir/$service".*
 		for url in $(icon_urls "$domain") "https://$domain/favicon.ico" "https://www.$domain/favicon.ico"; do
 			curl -fsL --max-time 8 --max-filesize 65536 -o "$dir/$service.tmp" "$url" 2>/dev/null || continue
-			kind="$(head -c 4 "$dir/$service.tmp" | od -An -tx1 | tr -d ' \n')"
+			kind="$(head -c 4 "$dir/$service.tmp" | hexdump -v -e '4/1 "%02x"')"
 			case "$kind" in
 				89504e47) mv "$dir/$service.tmp" "$dir/$service.png"; break ;;
 				00000100) mv "$dir/$service.tmp" "$dir/$service.ico"; break ;;
