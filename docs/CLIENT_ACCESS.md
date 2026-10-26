@@ -1016,6 +1016,38 @@ started at once, commits it and tries again when another edit committed
 first. Its `block_without_tunnel` answers clients that know one rule: blocked
 as soon as any service it has on is (`client-api.sh`).
 
+## A person's own addresses
+
+The administrator may let a person's devices keep sites and networks of their
+own (`set-own-rule`: a limit of 1 to 32 entries and up to 16 ports, kept with
+the device's label; `null` withdraws it and the lists with it). A device then
+sends its list to `POST /client/v1/own` (`{"domains": [...], "networks":
+[...]}`), and its services answer carries `own`: the limit, the ports and what
+the device keeps now. The API checks the list against the rule and leaves it
+in `/var/run/ikev2-client-own`, at most forty lists a day per device, since
+every new name takes an address of the virtual subnet for good;
+`client-access-control.uc apply-own` commits it.
+
+The list becomes a service of that device alone, `own-` and the device's
+identifier (catalogue identifiers have no hyphen, so none can collide). It is
+required in the device's offer and goes the ordinary way without the tunnel,
+and every edit of the person's offer keeps it. No other device is shown it,
+the page does not list it as a service, a catalogue refresh leaves it as it
+is, and it goes when the device is removed. A person may add public names and
+public networks of /16 or narrower only: private, shared, loopback, FakeIP,
+documentation and multicast ranges, local names and the server's own names
+are refused (`client-access-own.uc`, `test-client-admin.py`,
+`scripts/openwrt/client-api.sh`).
+
+## Ways of working and saved sets
+
+The Users page starts a person's services from a way of working - only
+through the tunnel (required, closed without the tunnel), always on
+(required, the ordinary way without it), or the person chooses (optional,
+the person decides) - and any service can then be set by hand. A set can be
+saved under a name (`save-set`, kept in `sets.json` beside the labels, at most
+64) and taken for another person or ticked into a new link.
+
 ## Devices and their owners
 
 An invitation may carry the owner's name and a note. Registration records

@@ -5832,14 +5832,8 @@ msgstr "Загрузка..."
 msgid "Exclusions go direct"
 msgstr "Исключения напрямую"
 
-msgid "Required ones are on every device; the person turns the others on where they want them. Without the tunnel a service is blocked, goes the ordinary way, or as the person decides."
-msgstr "Обязательные включены на всех устройствах; остальные человек включает там, где нужно. Без туннеля сервис блокируется, идёт обычным путём или как решит человек."
-
 msgid "%s: given"
 msgstr "%s: выдача"
-
-msgid "Not given"
-msgstr "Не выдан"
 
 msgid "Required"
 msgstr "Обязательный"
@@ -5852,12 +5846,6 @@ msgstr "%s: без туннеля"
 
 msgid "Blocked"
 msgstr "Блокируется"
-
-msgid "Goes the ordinary way"
-msgstr "Идёт обычным путём"
-
-msgid "Person decides"
-msgstr "Решает человек"
 
 msgid "%d networks"
 msgstr "%d сетей"
@@ -5948,3 +5936,108 @@ msgstr "Нажмите, чтобы убрать"
 
 msgid "Too many requests from this device. Try again in a few minutes."
 msgstr "Слишком много заявок с этого устройства. Попробуйте через несколько минут."
+
+msgid "Only through the tunnel"
+msgstr "Только через туннель"
+
+msgid "Every service given is on and closed while the tunnel is down: work that must never leave the tunnel."
+msgstr "Все выданные сервисы включены и закрыты, пока туннеля нет: для работы, которая не должна идти мимо туннеля."
+
+msgid "Always on"
+msgstr "Всегда включены"
+
+msgid "Every service given is on; while the tunnel is down it opens the ordinary way."
+msgstr "Все выданные сервисы включены; пока туннеля нет, они открываются напрямую."
+
+msgid "The person chooses"
+msgstr "Человек выбирает сам"
+
+msgid "The person turns services on where they want them, and may close one while the tunnel is down."
+msgstr "Человек сам включает сервисы, где они нужны, и может закрыть любой из них на время без туннеля."
+
+msgid "Set by hand"
+msgstr "Вручную"
+
+msgid "Each service as chosen below."
+msgstr "Каждый сервис настроен отдельно ниже."
+
+msgid "How the person works"
+msgstr "Как работает человек"
+
+msgid "Add a service: type its name"
+msgstr "Добавить сервис: начните вводить название"
+
+msgid "Add a service"
+msgstr "Добавить сервис"
+
+msgid "%d given: %d required, %d for the person to turn on."
+msgstr "Выдано %d: обязательных %d, по желанию %d."
+
+msgid "Nothing given yet."
+msgstr "Пока ничего не выдано."
+
+msgid "Closed without the tunnel"
+msgstr "Без туннеля закрыт"
+
+msgid "Person decides without the tunnel"
+msgstr "Без туннеля решает человек"
+
+msgid "Take away"
+msgstr "Убрать"
+
+msgid "Take away %s"
+msgstr "Убрать %s"
+
+msgid "%d more: narrow the search."
+msgstr "Ещё %d: уточните поиск."
+
+msgid "Take a saved set..."
+msgstr "Взять сохранённый набор..."
+
+msgid "Take a saved set"
+msgstr "Взять сохранённый набор"
+
+msgid "Name of the set"
+msgstr "Название набора"
+
+msgid "Name the set."
+msgstr "Назовите набор."
+
+msgid "Give at least one service first."
+msgstr "Сначала выдайте хотя бы один сервис."
+
+msgid "Save set"
+msgstr "Сохранить набор"
+
+msgid "Save as set..."
+msgstr "Сохранить как набор..."
+
+msgid "Web: 80 and 443"
+msgstr "Веб: 80 и 443"
+
+msgid "Web and SSH: 22, 80, 443"
+msgstr "Веб и SSH: 22, 80, 443"
+
+msgid "Web, SSH and remote desktop"
+msgstr "Веб, SSH и удалённый рабочий стол"
+
+msgid "May add own sites and networks"
+msgstr "Может добавлять свои сайты и адреса"
+
+msgid "How many"
+msgstr "Сколько"
+
+msgid "Up to"
+msgstr "Не больше"
+
+msgid "Sites and networks on each device together."
+msgstr "Сайтов и адресов вместе на каждом устройстве."
+
+msgid "In Waypoint the person adds a site or a public address of their own, and it goes through the tunnel on that device. Private networks are never accepted."
+msgstr "Человек добавляет в Waypoint свой сайт или публичный адрес, и на этом устройстве он идёт через туннель. Частные сети не принимаются."
+
+msgid "Pick how the person works, then the services. Required ones are on every device; the person turns the others on where they want them."
+msgstr "Выберите, как работает человек, затем сервисы. Обязательные включены на всех его устройствах, остальные он включает сам, где нужно."
+
+msgid "Own addresses"
+msgstr "Свои адреса"

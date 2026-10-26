@@ -4,6 +4,8 @@
 // kept apart from the committed state so that describing a device can never
 // change what the device may reach.
 'use strict';
+import { check_own_rule } from './client-access-own.uc';
+import { check_client_offer } from './client-access-offer.uc';
 import { popen as run_command, lstat, open, readfile, writefile, chmod, rename, mkdir, unlink } from 'fs';
 
 function text(value, limit) {
@@ -34,6 +36,11 @@ function mail(value) {
 	return value == '' || (length(value) <= 254 && match(value, /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]+$/) != null);
 }
 
+function own_rule(value) {
+	if (value == null) return null;
+	try { return check_own_rule(value); } catch (error) { return null; }
+}
+
 export function read_client_labels(directory) {
 	let raw = private_file(directory + '/labels.json', 262144);
 	if (raw == null) return {};
@@ -43,7 +50,8 @@ export function read_client_labels(directory) {
 		if (identifier(id) && type(label) == 'object' && text(label.owner, 320) && text(label.note, 640))
 			result[id] = { owner: label.owner, note: label.note,
 				email: type(label.email) == 'string' && mail(label.email) ? label.email : '', open: label.open === true, full: label.full === true,
-				title: type(label.title) == 'string' && text(label.title, 320) ? label.title : '' };
+				title: type(label.title) == 'string' && text(label.title, 320) ? label.title : '',
+				own: own_rule(label.own) };
 	return result;
 };
 
@@ -109,9 +117,16 @@ export function write_client_label(directory, id, owner, note, more) {
 	// The name the administrator gave the device; without one the page shows
 	// the computer's own name.
 	let title = more?.title ?? before?.title ?? '';
+	// Whether the person may add addresses of their own, how many and on which
+	// ports; null when not.
+	let own = type(more) == 'object' && 'own' in more ? more.own : before?.own ?? null;
+	if (own != null) own = check_own_rule(own);
 	if (type(email) != 'string' || !mail(email) || type(open) != 'bool' || type(full) != 'bool' || !text(title, 320)) die('invalid label');
-	if (owner == '' && note == '' && email == '' && !open && !full && title == '') delete labels[id];
-	else labels[id] = { owner: owner, note: note, email: email, open: open, full: full, title: title };
+	if (owner == '' && note == '' && email == '' && !open && !full && title == '' && own == null) delete labels[id];
+	else {
+		labels[id] = { owner: owner, note: note, email: email, open: open, full: full, title: title };
+		if (own != null) labels[id].own = own;
+	}
 	if (length(keys(labels)) > 1024) die('too many labels');
 	record(directory, labels, read_profile_owners(directory), read_person_limits(directory));
 };
@@ -207,4 +222,32 @@ export function forget_client_device(directory, seen_directory, id) {
 	// The other parts of the file stay: removing a device once dropped whose profile was whose.
 	if (id in labels) { delete labels[id]; record(directory, labels, read_profile_owners(directory), read_person_limits(directory)); }
 	unlink(seen_directory + '/' + id + '.json');
+};
+
+// Sets of services the administrator saved to give the same way to several
+// people: a name and an offer. A description of the page, like the labels;
+// what a person has is still their own offer.
+export function read_client_sets(directory) {
+	let raw = private_file(directory + '/sets.json', 262144);
+	if (raw == null) return {};
+	let sets = json(raw), result = {};
+	if (type(sets) != 'object' || sets.version !== 1 || type(sets.sets) != 'object') die('invalid sets');
+	for (let name, offer in sets.sets) {
+		if (!text(name, 160) || !length(name)) continue;
+		try { check_client_offer(offer, null); result[name] = offer; } catch (error) { }
+	}
+	return result;
+};
+
+export function write_client_set(directory, name, offer) {
+	if (type(name) != 'string' || !text(name, 160) || !length(trim(name))) die('invalid set name');
+	let sets = read_client_sets(directory);
+	if (offer == null) delete sets[name];
+	else {
+		check_client_offer(offer, null);
+		for (let entry in offer) if (substr(entry.id, 0, 4) == 'own-') die('a device keeps its own addresses itself');
+		sets[name] = offer;
+	}
+	if (length(keys(sets)) > 64) die('too many sets');
+	replace_file(directory + '/sets.json', { version: 1, sets: sets });
 };

@@ -4,6 +4,7 @@
 // reads, let alone compiles, the whole state for every request. The state
 // stays the only truth; the views are rebuilt from it and never the reverse.
 'use strict';
+import { OWN_PREFIX, is_own_service } from './client-access-own.uc';
 import { sha256 } from 'digest';
 import { lstat, mkdir, open, rename, unlink, rmdir, symlink, readlink, lsdir } from 'fs';
 import { client_service_entries } from './client-access-offer.uc';
@@ -70,8 +71,12 @@ export function write_client_views(directory, state) {
 	for (let device in state.api.devices) {
 		if (retired[device.id]) continue;
 		let own = published[device.id], selected = [], available = [];
+		let mine = OWN_PREFIX + device.id, own_list = { domains: [], networks: [] };
 		for (let service in state.publication.services) {
 			if (!service.client_access) continue;
+			// Another device's own addresses are not even named to this one.
+			if (is_own_service(service.id) && service.id != mine) continue;
+			if (service.id == mine) own_list = { domains: service.domains, networks: service.networks ?? [] };
 			// With an offer, what is available is what the person was offered.
 			let listed = index(own.selected_services, service.id) >= 0 ? selected :
 				!('offer' in own) || length(filter(own.offer, entry => entry.id == service.id)) ? available : null;
@@ -84,7 +89,7 @@ export function write_client_views(directory, state) {
 			revision: device.policy.revision, policy: device.enabled ? device.policy : null,
 			// The state given here was checked in full by whoever read or made it.
 			policy_sha256: device.enabled ? sha256(sprintf('%J', device.policy)) : null,
-			selected: sort(selected, by_id), available: sort(available, by_id) };
+			selected: sort(selected, by_id), available: sort(available, by_id), own: own_list };
 		if ('offer' in own) {
 			document.offer = own.offer;
 			document.choices = own.choices ?? { on: [], closed: [] };

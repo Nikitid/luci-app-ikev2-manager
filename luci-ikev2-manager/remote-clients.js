@@ -655,7 +655,23 @@ function pageStyles() {
   '.ikev2-page .ikev2-search-box input.ikev2-search:focus { border-color: var(--ikev2-accent); }' +
   '.ikev2-page .ikev2-search-box input.ikev2-search::placeholder { color: var(--ikev2-muted); }' +
   '.ikev2-page .ikev2-offer { display: grid; gap: .45rem; }',
-  '.ikev2-page .ikev2-offer-row { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(9rem, auto) minmax(11rem, auto); gap: .6rem; align-items: center; }',
+  '.ikev2-page .ikev2-offer-row { display: grid; grid-template-columns: minmax(9rem, 1fr) auto minmax(12rem, auto) auto; gap: .6rem; align-items: center; padding: .45rem .6rem; border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
+  '.ikev2-page .ikev2-offer-row .cbi-input-select { margin: 0; } .ikev2-page .ikev2-offer-row .ikev2-platform-action { border-color: transparent; background: transparent; box-shadow: none; }' +
+  '.ikev2-page .ikev2-segmented { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--ikev2-border); border-radius: 999px; background: var(--ikev2-surface-2); flex-wrap: wrap; }' +
+  '.ikev2-page .ikev2-segmented button { margin: 0; padding: .3rem .8rem; border: 0; border-radius: 999px; background: transparent; color: var(--ikev2-muted); font: inherit; font-size: .85rem; cursor: pointer; white-space: nowrap; }' +
+  '.ikev2-page .ikev2-segmented button.is-on { background: var(--ikev2-accent); color: #fff; }' +
+  '.ikev2-page .ikev2-offer-row .ikev2-segmented button { padding: .2rem .65rem; font-size: .8rem; }' +
+  '.ikev2-page .ikev2-offer-head { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; margin-top: .4rem; }' +
+  '.ikev2-page .ikev2-offer-body { display: grid; gap: .6rem; margin-top: .7rem; }' +
+  '.ikev2-page .ikev2-offer-hint { margin: .4rem 0 0; color: var(--ikev2-muted); font-size: .85rem; }' +
+  '.ikev2-page .ikev2-offer-sets { display: inline-flex; gap: .4rem; align-items: center; } .ikev2-page .ikev2-offer-sets .cbi-button, .ikev2-page .ikev2-offer-sets select { margin: 0; }' +
+  '.ikev2-page .ikev2-offer-save { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .5rem; } .ikev2-page .ikev2-offer-save input { flex: 1 1 12rem; margin: 0; } .ikev2-page .ikev2-offer-save .cbi-button { margin: 0; }' +
+  '.ikev2-page .ikev2-offer-add { display: grid; gap: .45rem; padding: .6rem; border: 1px dashed var(--ikev2-border); border-radius: var(--ikev2-radius-sm); }' +
+  '.ikev2-page .ikev2-offer-add input.ikev2-offer-search { box-sizing: border-box; width: 100%; max-width: none; margin: 0; }' +
+  '.ikev2-page .ikev2-offer-picks { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }' +
+  '.ikev2-page .ikev2-offer-pick { margin: 0; padding: .2rem .65rem; border: 1px solid var(--ikev2-border); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: .82rem; cursor: pointer; }' +
+  '.ikev2-page .ikev2-offer-pick:hover { border-color: var(--ikev2-accent); color: var(--ikev2-accent); }' +
+  '@media (max-width: 700px) { .ikev2-page .ikev2-offer-row { grid-template-columns: 1fr auto; } .ikev2-page .ikev2-offer-row > :nth-child(2), .ikev2-page .ikev2-offer-row > :nth-child(3) { grid-column: 1 / -1; } }',
   '.ikev2-page .ikev2-offer-size { display: block; color: var(--ikev2-muted); }',
   '@media (max-width: 820px) { .ikev2-page .ikev2-person-head, .ikev2-page .ikev2-device { grid-template-columns: 1fr; } .ikev2-page .ikev2-person .ikev2-user-actions { flex-wrap: wrap; justify-content: flex-start; } }'
  ]);
@@ -731,38 +747,188 @@ function personOffer(registered) {
  return offer;
 }
 
-// One row a service: whether it is given and how, and what becomes of it
-// while the tunnel is down.
-function offerEditor(services, labels, offer) {
- var rows = services.map(function(service) {
-  var entry = offer[service.id];
-  var name = labels[service.id] || service.id;
-  var given = E('select', { 'class': 'cbi-input-select', 'aria-label': _('%s: given').format(name) }, [
-   E('option', { 'value': 'none' }, [ _('Not given') ]),
-   E('option', { 'value': 'required' }, [ _('Required') ]),
-   E('option', { 'value': 'optional' }, [ _('Person turns it on') ]) ]);
-  var closed = E('select', { 'class': 'cbi-input-select', 'aria-label': _('%s: without the tunnel').format(name) }, [
-   E('option', { 'value': 'yes' }, [ _('Blocked') ]),
-   E('option', { 'value': 'no' }, [ _('Goes the ordinary way') ]),
-   E('option', { 'value': 'choice' }, [ _('Person decides') ]) ]);
-  given.value = !entry ? 'none' : entry.required ? 'required' : 'optional';
-  closed.value = entry ? entry.closed : 'yes';
-  closed.disabled = given.value === 'none';
-  given.addEventListener('change', function() { closed.disabled = given.value === 'none'; });
-  var size = [ service.domain_count ? _('%d domains').format(service.domain_count) : '',
-   service.network_count ? _('%d networks').format(service.network_count) : '' ].filter(Boolean).join(', ');
-  return { id: service.id, given: given, closed: closed, node: E('div', { 'class': 'ikev2-offer-row' }, [
-   E('span', {}, [ E('strong', {}, [ name ]), entry && entry.part ? E('small', {}, [ ' ' + _('(some devices now)') ]) : '',
-    size ? E('small', { 'class': 'ikev2-offer-size' }, [ size ]) : '' ]), given, closed ]) };
+// Ways people work, each a starting point for what they are given: what the
+// owner picks for a person is applied to every service given to them, and a
+// service changed by hand afterwards makes the set the owner's own.
+var MODELS = [
+ { id: 'strict', required: true, closed: 'yes', title: _('Only through the tunnel'),
+  hint: _('Every service given is on and closed while the tunnel is down: work that must never leave the tunnel.') },
+ { id: 'steady', required: true, closed: 'no', title: _('Always on'),
+  hint: _('Every service given is on; while the tunnel is down it opens the ordinary way.') },
+ { id: 'choice', required: false, closed: 'choice', title: _('The person chooses'),
+  hint: _('The person turns services on where they want them, and may close one while the tunnel is down.') }
+];
+
+function isOwnService(id) { return /^own-/.test(id); }
+
+function modelOf(entries) {
+ if (!entries.length) return null;
+ return MODELS.filter(function(model) {
+  return entries.every(function(entry) { return entry.required === model.required && entry.closed === model.closed; });
+ })[0] || null;
+}
+
+// A row of buttons of which one is chosen, for a choice of two or three.
+function segmented(items, value, onChange, label) {
+ var box = E('div', { 'class': 'ikev2-segmented', 'role': 'radiogroup', 'aria-label': label || '' });
+ function draw() {
+  box.replaceChildren.apply(box, items.map(function(item) {
+   return E('button', { 'type': 'button', 'role': 'radio', 'aria-checked': item.value === value ? 'true' : 'false',
+    'class': item.value === value ? 'is-on' : '', 'title': item.hint || '', 'click': function() {
+     if (value === item.value) return;
+     value = item.value; draw(); onChange(value);
+    } }, [ item.text ]);
+  }));
+ }
+ draw();
+ return { node: box, set: function(next) { value = next; draw(); }, value: function() { return value; } };
+}
+
+// What a person is given: a way of working, the services in it, each
+// required or the person's to turn on and what it does while the tunnel is
+// down, and services added from the published ones with a search.
+function offerEditor(services, labels, offer, sets, saveSet) {
+ services = services.filter(function(service) { return !isOwnService(service.id); });
+ var given = {}, order = [], node = null;
+ Object.keys(offer).forEach(function(id) {
+  if (isOwnService(id) || !services.some(function(service) { return service.id === id; })) return;
+  given[id] = { required: offer[id].required, closed: offer[id].closed, part: offer[id].part };
+  order.push(id);
  });
+ var model = modelOf(order.map(function(id) { return given[id]; })) || (order.length ? null : MODELS[0]);
+ // The dialog's Save follows changes to its inputs; one made by a button is told to it.
+ var changed = function() { if (node && node.dispatchEvent) node.dispatchEvent(new Event('change', { bubbles: true })); };
+ function name(id) { return labels[id] || id; }
+ function size(service) {
+  return [ service.domain_count ? _('%d domains').format(service.domain_count) : '',
+   service.network_count ? _('%d networks').format(service.network_count) : '' ].filter(Boolean).join(', ');
+ }
+ var models = segmented(MODELS.map(function(item) { return { value: item.id, text: item.title, hint: item.hint }; }).concat([
+  { value: 'own', text: _('Set by hand'), hint: _('Each service as chosen below.') } ]),
+  model ? model.id : 'own', function(value) {
+   var picked = MODELS.filter(function(item) { return item.id === value; })[0];
+   if (picked) order.forEach(function(id) { given[id].required = picked.required; given[id].closed = picked.closed; });
+   model = picked || null; draw(); changed();
+  }, _('How the person works'));
+ var hint = E('p', { 'class': 'ikev2-offer-hint' });
+ var list = E('div', { 'class': 'ikev2-offer' });
+ var search = E('input', { 'type': 'search', 'class': 'cbi-input-text ikev2-offer-search', 'placeholder': _('Add a service: type its name'),
+  'aria-label': _('Add a service') });
+ var picks = E('div', { 'class': 'ikev2-offer-picks' });
+ var summary = E('span', { 'class': 'ikev2-offer-hint' });
+ function add(id) {
+  var base = model || MODELS[0];
+  given[id] = { required: base.required, closed: base.closed };
+  order.push(id); search.value = ''; draw(); changed();
+ }
+ function draw() {
+  var current = modelOf(order.map(function(id) { return given[id]; }));
+  model = current; models.set(current ? current.id : (order.length ? 'own' : MODELS[0].id));
+  hint.textContent = current ? current.hint : order.length ? _('Each service as chosen below.') : (model || MODELS[0]).hint;
+  var required = order.filter(function(id) { return given[id].required; }).length;
+  summary.textContent = order.length ? _('%d given: %d required, %d for the person to turn on.').format(order.length, required, order.length - required) : _('Nothing given yet.');
+  list.replaceChildren.apply(list, order.map(function(id) {
+   var entry = given[id], service = services.filter(function(item) { return item.id === id; })[0] || {};
+   var kind = segmented([ { value: 'required', text: _('Required') }, { value: 'optional', text: _('Person turns it on') } ],
+    entry.required ? 'required' : 'optional', function(value) { entry.required = value === 'required'; draw(); changed(); }, _('%s: given').format(name(id)));
+   var closed = E('select', { 'class': 'cbi-input-select', 'aria-label': _('%s: without the tunnel').format(name(id)), 'change': function() {
+    entry.closed = closed.value; draw(); changed(); } }, [
+    E('option', { 'value': 'yes' }, [ _('Closed without the tunnel') ]),
+    E('option', { 'value': 'no' }, [ _('Ordinary way without the tunnel') ]),
+    E('option', { 'value': 'choice' }, [ _('Person decides without the tunnel') ]) ]);
+   closed.value = entry.closed;
+   var remove = E('button', { 'type': 'button', 'class': 'cbi-button ikev2-platform-action', 'title': _('Take away'), 'aria-label': _('Take away %s').format(name(id)),
+    'click': function() { delete given[id]; order = order.filter(function(other) { return other !== id; }); draw(); changed(); } }, [ sign('M6 6l12 12M18 6 6 18') ]);
+   return E('div', { 'class': 'ikev2-offer-row' }, [
+    E('span', { 'style': 'min-width:0' }, [ E('strong', {}, [ name(id) ]), entry.part ? E('small', {}, [ ' ' + _('(some devices now)') ]) : '',
+     size(service) ? E('small', { 'class': 'ikev2-offer-size' }, [ size(service) ]) : '' ]),
+    kind.node, closed, remove ]);
+  }));
+  var term = search.value.trim().toLowerCase();
+  var free = services.filter(function(service) { return !given[service.id] && (!term || name(service.id).toLowerCase().indexOf(term) >= 0 || service.id.indexOf(term) >= 0); });
+  picks.replaceChildren.apply(picks, free.slice(0, term ? 24 : 12).map(function(service) {
+   return E('button', { 'type': 'button', 'class': 'ikev2-offer-pick', 'title': size(service), 'click': function() { add(service.id); } }, [ '+ ' + name(service.id) ]);
+  }).concat(free.length > (term ? 24 : 12) ? [ E('span', { 'class': 'ikev2-note' }, [ _('%d more: narrow the search.').format(free.length - (term ? 24 : 12)) ]) ] : []));
+ }
+ search.addEventListener('input', draw);
+ // Sets the owner saved, taken whole.
+ var setPick = null;
+ sets = sets || {};
+ function fillSets() {
+  if (!setPick) return;
+  setPick.replaceChildren.apply(setPick, [ E('option', { 'value': '' }, [ _('Take a saved set...') ]) ].concat(Object.keys(sets).sort().map(function(set) {
+   return E('option', { 'value': set }, [ set ]); })));
+  setPick.style.display = Object.keys(sets).length ? '' : 'none';
+ }
+ setPick = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Take a saved set'), 'change': function() {
+  var chosen = sets[setPick.value];
+  setPick.value = '';
+  if (!chosen) return;
+  given = {}; order = [];
+  chosen.forEach(function(entry) {
+   if (!services.some(function(service) { return service.id === entry.id; })) return;
+   given[entry.id] = { required: entry.required, closed: entry.closed }; order.push(entry.id);
+  });
+  draw(); changed();
+ } });
+ fillSets();
+ // The set as it stands now, saved under a name for other people.
+ var saving = null;
+ if (saveSet) {
+  var setName = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'maxlength': '40', 'placeholder': _('Name of the set'), 'aria-label': _('Name of the set') });
+  var setResult = common.inlineResult();
+  var keep = E('button', { 'type': 'button', 'class': 'cbi-button cbi-button-action', 'click': function() {
+   var title = setName.value.trim(), entries = order.map(function(id) { return { id: id, required: given[id].required, closed: given[id].closed }; });
+   if (!title) { setResult.err(_('Name the set.')); return; }
+   if (!entries.length) { setResult.err(_('Give at least one service first.')); return; }
+   return saveSet(title, entries, keep, setResult).then(function() { sets[title] = entries; fillSets(); setName.value = ''; saving.style.display = 'none'; });
+  } }, [ _('Save set') ]);
+  saving = E('div', { 'class': 'ikev2-offer-save', 'style': 'display:none' }, [ setName, keep, setResult.node ]);
+ }
+ var toSave = saveSet ? E('button', { 'type': 'button', 'class': 'cbi-button', 'click': function() {
+  saving.style.display = saving.style.display === 'none' ? '' : 'none'; if (saving.style.display === '') setName.focus(); } }, [ _('Save as set...') ]) : '';
+ draw();
+ node = E('div', { 'class': 'ikev2-offer-editor' }, [
+  E('div', { 'class': 'ikev2-offer-head' }, [ models.node, E('div', { 'class': 'ikev2-offer-sets' }, [ setPick || '', toSave ]) ]), hint, saving || '',
+  services.length ? E('div', { 'class': 'ikev2-offer-body' }, [ list, E('div', { 'class': 'ikev2-offer-add' }, [ search, picks ]), summary ]) :
+   E('p', { 'class': 'ikev2-note' }, [ _('No service is available to remote clients yet.') ]) ]);
  return {
-  node: rows.length ? E('div', { 'class': 'ikev2-offer' }, rows.map(function(row) { return row.node; })) :
-   E('p', { 'class': 'ikev2-note' }, [ _('No service is available to remote clients yet.') ]),
+  node: node,
   value: function() {
-   return rows.filter(function(row) { return row.given.value !== 'none'; }).map(function(row) {
-    return { id: row.id, required: row.given.value === 'required', closed: row.closed.value };
-   });
+   return order.map(function(id) { return { id: id, required: given[id].required, closed: given[id].closed }; });
   }
+ };
+}
+
+// Whether the person may add sites and networks of their own, how many and
+// on which ports, and what each of their devices keeps now.
+var OWN_PORTS = [ [ '80,443', _('Web: 80 and 443') ], [ '22,80,443', _('Web and SSH: 22, 80, 443') ], [ '22,80,443,3389,5900', _('Web, SSH and remote desktop') ] ];
+function ownEditor(registered) {
+ var rule = registered.map(function(device) { return device.own; }).filter(Boolean)[0] || null;
+ var allowed = E('input', { 'type': 'checkbox', 'checked': rule ? '' : null, 'aria-label': _('May add own sites and networks') });
+ var limit = E('select', { 'class': 'cbi-input-select', 'aria-label': _('How many') }, [ 3, 5, 10, 20, 32 ].map(function(n) {
+  return E('option', { 'value': String(n) }, [ String(n) ]); }));
+ limit.value = String(rule ? rule.limit : 10);
+ if (limit.value === '') { limit.append(E('option', { 'value': String(rule.limit) }, [ String(rule.limit) ])); limit.value = String(rule.limit); }
+ var ports = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Ports') }, OWN_PORTS.map(function(item) {
+  return E('option', { 'value': item[0] }, [ item[1] ]); }));
+ ports.value = rule ? rule.ports.join(',') : '80,443';
+ if (ports.value === '') { ports.append(E('option', { 'value': rule.ports.join(',') }, [ rule.ports.join(', ') ])); ports.value = rule.ports.join(','); }
+ var details = E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact', 'style': 'margin-top:.6rem' }, [
+  common.fieldLabel(_('Up to'), _('Sites and networks on each device together.')), limit,
+  common.fieldLabel(_('Ports')), ports ]);
+ var kept = registered.filter(function(device) { return device.own && (device.own.domains.length || device.own.networks.length); }).map(function(device) {
+  return E('div', { 'class': 'ikev2-note' }, [ E('strong', {}, [ device.host || device.id ]), ': ', device.own.domains.concat(device.own.networks).join(', ') ]);
+ });
+ function show() { details.style.display = allowed.checked ? '' : 'none'; }
+ allowed.addEventListener('change', show);
+ show();
+ return {
+  node: E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(allowed, _('May add own sites and networks'),
+    _('In Waypoint the person adds a site or a public address of their own, and it goes through the tunnel on that device. Private networks are never accepted.')),
+   details ].concat(kept)),
+  value: function() { return allowed.checked ? { limit: Number(limit.value), ports: ports.value.split(',').map(Number) } : null; },
+  changed: function() { return JSON.stringify(this.value()) !== JSON.stringify(rule ? { limit: rule.limit, ports: rule.ports } : null); }
  };
 }
 
@@ -804,7 +970,15 @@ function personDialog(person, state, labels, reload, pageResult, profileNames, p
  var enabled = E('input', { 'type': 'checkbox', 'checked': device.enabled ? '' : null, 'aria-label': _('Access enabled') });
  var email = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('E-mail'), 'value': device.email || '' });
  var registered = person.devices.filter(function(item) { return !item.waiting; });
- var offer = offerEditor(state.services.filter(function(service) { return service.client_access; }), labels, personOffer(registered));
+ var offer = offerEditor(state.services.filter(function(service) { return service.client_access; }), labels, personOffer(registered), state.sets,
+  function(name, entries, button, result) {
+   // A set is a description kept beside the state; it is saved apart from the person.
+   return new Promise(function(resolve, reject) {
+    saveRequest(button, result, { version: 1, expected_generation: state.generation, operation: 'save-set', payload: { name: name, offer: entries } },
+     function() { state.sets = state.sets || {}; state.sets[name] = entries; resolve(); }).then(null, reject);
+   });
+  });
+ var own = ownEditor(registered);
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
    common.fieldLabel(_('Who uses it')), owner,
@@ -814,8 +988,9 @@ function personDialog(person, state, labels, reload, pageResult, profileNames, p
   E('div', { 'style': 'margin-top:1rem' }, [ common.toggleRow(enabled, _('Access enabled'),
    person.devices.length > 1 ? _('Applies to all %d devices.').format(person.devices.length) : null) ]),
   E('div', { 'style': 'margin-top:1rem' }, [ common.fieldLabel(_('Services'),
-   _('Required ones are on every device; the person turns the others on where they want them. Without the tunnel a service is blocked, goes the ordinary way, or as the person decides.')),
+   _('Pick how the person works, then the services. Required ones are on every device; the person turns the others on where they want them.')),
    offer.node ]),
+  own.node,
   profileBox
  ]);
  editDialog(person.name, form, function() {
@@ -823,12 +998,22 @@ function personDialog(person, state, labels, reload, pageResult, profileNames, p
    payload: { ids: registered.map(function(item) { return item.id; }), enabled: enabled.checked, offer: offer.value(),
     owner: describeText(owner.value, 80, _('Who uses it')), note: describeText(note.value, 160, _('Note')),
     email: mailText(email.value) } };
- }, reload, pageResult, false, profiles.length ? function(button, result) {
-  // The profiles follow the name the person has after this save.
-  return new Promise(function(resolve, reject) {
+ }, reload, pageResult, false, function(button, result) {
+  // After the services: the person's own addresses, then the profiles, which
+  // follow the name the person has after this save.
+  var step = Promise.resolve();
+  if (own.changed()) step = step.then(function() { return new Promise(function(resolve, reject) {
+   readState().then(function(fresh) {
+    var generation = JSON.parse(fresh[0].stdout || '{}').generation;
+    saveRequest(button, result, { version: 1, expected_generation: generation, operation: 'set-own-rule',
+     payload: { ids: registered.map(function(item) { return item.id; }), own: own.value() } }, resolve).then(null, reject);
+   }, reject);
+  }); });
+  if (profiles.length) step = step.then(function() { return new Promise(function(resolve, reject) {
    saveRequest(button, result, profileRequest(describeText(owner.value, 80, _('Who uses it')) || person.name), resolve).then(null, reject);
-  });
- } : null);
+  }); });
+  return step;
+ });
 }
 
 function invitationDialog(state, labels, reload, person, replace, addProfile) {
@@ -858,7 +1043,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  var id = E('input', { type: 'text', 'class': 'cbi-input-text', 'aria-label': _('Device identifier'),
   value: person ? free(suggestId(person.name) || (known ? known.id.replace(/-[0-9]+$/, '') : '')) : '' });
  var endpoint = state.api_endpoint || 'https://' + state.server.address + ':8443/client/v1/enroll';
- var choices = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
+ var choices = state.services.filter(function(service) { return service.client_access && !isOwnService(service.id); }).map(function(service) {
   return { id: service.id, input: E('input', { type: 'checkbox', 'aria-label': labels[service.id] || service.id,
    checked: known && known.selected_services.indexOf(service.id) >= 0 ? '' : null }) };
  });
@@ -903,10 +1088,20 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
  rows.push(common.fieldLabel(_('Devices of the person'), _('How many Waypoint devices this person may have. Each registers with the same link and appears under the name of its computer.')), count);
  rows.push(common.fieldLabel(_('Link is valid for')), lifetime);
  // The identifier is made from the person's name; it is internal and rarely matters.
+ // A saved set ticks its services; how each is given is set when the person
+ // is edited, from the same set.
+ var savedSets = state.sets || {}, takeSet = Object.keys(savedSets).length && choices.length ? E('select', { 'class': 'cbi-input-select', 'aria-label': _('Take a saved set'),
+  'style': 'margin-top:.5rem', 'change': function() {
+   var chosen = savedSets[takeSet.value] || [];
+   choices.forEach(function(choice) { choice.input.checked = chosen.some(function(entry) { return entry.id === choice.id; }); });
+   form.dispatchEvent(new Event('change'));
+  } }, [ E('option', { 'value': '' }, [ _('Take a saved set...') ]) ].concat(Object.keys(savedSets).sort().map(function(name) {
+   return E('option', { 'value': name }, [ name ]); }))) : '';
  var form = E('div', {}, [
   E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, rows),
   places,
   E('div', { 'style': 'margin:1rem 0' }, [ common.fieldLabel(_('Services'), choices.length ? '' : _('None is published yet. A Waypoint device registers with at least one: publish a service below first. An ordinary VPN profile needs none.')),
+   takeSet,
    choices.length ? checkList(choices.map(function(choice) { return { input: choice.input, text: labels[choice.id] || choice.id }; })) : '' ])
  ]);
  function showLink(link) { showLinkDialog(link, email.value.trim(), freePlaces() > 1 ? id.value + '-1' : id.value); }
@@ -1011,6 +1206,8 @@ return view.extend({
    records = catalogRecords(next[1].stdout); labels = {};
    records.forEach(function(record) { labels[record.id] = record.label; });
    state.services.forEach(function(service) {
+    // A device's own addresses are named as such and are not a service of the list.
+    if (isOwnService(service.id)) { labels[service.id] = _('Own addresses'); return; }
     if (!labels[service.id]) { labels[service.id] = service.id; records.push({ id: service.id, label: service.id }); }
    });
    function portsText(service) {
@@ -1086,7 +1283,7 @@ return view.extend({
     },
     rename: function(device) {
      var name = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'aria-label': _('Device name'), 'value': device.title || '', 'placeholder': device.host || device.id });
-     var own = state.services.filter(function(service) { return service.client_access; }).map(function(service) {
+     var own = state.services.filter(function(service) { return service.client_access && !isOwnService(service.id); }).map(function(service) {
       return { id: service.id, input: E('input', { 'type': 'checkbox', 'checked': device.selected_services.indexOf(service.id) >= 0 ? '' : null, 'aria-label': labels[service.id] || service.id }) };
      });
      var before = device.title || '';

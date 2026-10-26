@@ -179,6 +179,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-link.uc $(1)/usr/libexec/ikev2-manager.d/client-access-link.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-view.uc $(1)/usr/libexec/ikev2-manager.d/client-access-view.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-offer.uc $(1)/usr/libexec/ikev2-manager.d/client-access-offer.uc
+	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-own.uc $(1)/usr/libexec/ikev2-manager.d/client-access-own.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-download.uc $(1)/usr/libexec/ikev2-manager.d/client-access-download.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-directory.uc $(1)/usr/libexec/ikev2-manager.d/client-access-directory.uc
 	$(INSTALL_DATA) ./ikev2-manager-runtime/lib/client-access-publication.uc $(1)/usr/libexec/ikev2-manager.d/client-access-publication.uc
@@ -282,7 +283,7 @@ define Package/luci-app-ikev2-manager/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ikev2-manager
 	$(INSTALL_DATA) ./luci-ikev2-manager/setup.js $(1)/www/luci-static/resources/view/ikev2-manager/setup-v19.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/users.js $(1)/www/luci-static/resources/ikev2-manager/users-panel-v7.js
-	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v29.js
+	$(INSTALL_DATA) ./luci-ikev2-manager/remote-clients.js $(1)/www/luci-static/resources/view/ikev2-manager/remote-clients-v30.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/settings.js $(1)/www/luci-static/resources/ikev2-manager/inbound-panel-v4.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/client.js $(1)/www/luci-static/resources/ikev2-manager/outbound-panel-v4.js
 	$(INSTALL_DATA) ./luci-ikev2-manager/tunnels.js $(1)/www/luci-static/resources/view/ikev2-manager/tunnels-v4.js
@@ -411,6 +412,7 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v17.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v18.js \
 	/www/luci-static/resources/view/ikev2-manager/remote-clients-v28.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v29.js \
 	/www/luci-static/resources/ikev2-manager/users-panel-v6.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v17.js \
 	/www/luci-static/resources/view/ikev2-manager/tunnels-v3.js \

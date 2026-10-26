@@ -5,16 +5,46 @@ import { publish_client_state, read_client_state, read_committed_client_state } 
 
 import { read_client_enrollment, write_client_enrollment } from './client-access-enrollment-store.uc';
 import { client_admin_catalog_ids, client_admin_network_ids, prepare_client_admin, inspect_client_admin } from './client-access-admin.uc';
-import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights, read_person_limits, write_person_limit } from './client-access-directory.uc';
+import { read_client_labels, write_client_label, client_device_sessions, describe_client_device, forget_client_device, read_profile_owners, write_profile_owners, set_account_rights, read_person_limits, write_person_limit, read_client_sets, write_client_set } from './client-access-directory.uc';
 import { cleanup_client_credentials } from './client-access-credentials.uc';
 import { record_client_event, read_client_events, read_client_mail } from './client-access-journal.uc';
 import { client_views_generation, write_client_views } from './client-access-view.uc';
+import { OWN_PREFIX, check_own_rule } from './client-access-own.uc';
 import { request_client_report, read_client_report, describe_client_report, forget_client_report } from './client-access-report.uc';
 import { read_client_link, forget_client_link, kept_client_places } from './client-access-link.uc';
 
 let seen_directory = '/var/run/ikev2-client-seen';
 
 let directory = '/etc/ikev2-manager/clients';
+
+// A device's own sites and networks as published now.
+function own_entries(state, id) {
+ let service = filter(state.publication.services, item => item.id == OWN_PREFIX + id)[0];
+ return { domains: service?.domains ?? [], networks: service?.networks ?? [] };
+}
+
+// Commits one device's own list, trying again when another edit committed
+// first. A list the rule no longer allows is refused with the attempt.
+function commit_own(id, entries, ports) {
+ for (let attempt = 0; attempt < 3; attempt++) {
+  let state = read_committed_client_state(directory);
+  try {
+   let prepared = prepare_client_admin(state, { version: 1, expected_generation: state.generation, operation: 'device-own',
+    payload: { id: id, domains: entries.domains, networks: entries.networks, ports: ports } }, []);
+   if (prepared.changed) {
+    publish_client_state(directory, prepared.desired, state.generation, false);
+    record_client_event('device-own', id + ' ' + (length(entries.domains) + length(entries.networks)));
+   }
+   return true;
+  } catch (error) {
+   if (read_committed_client_state(directory).generation == state.generation) {
+    warn(`client-access-control: the own addresses of ${id} were not applied: ${error}\n`);
+    return false;
+   }
+  }
+ }
+ return false;
+}
 try {
 	if (ARGV[0] == 'status' && length(ARGV) == 1) {
 		let state = read_committed_client_state(directory);
@@ -31,7 +61,15 @@ try {
   let listed = daemon?.read(16777217), listing = daemon?.close();
   if (listing == 0 && type(listed) == 'string' && length(listed) <= 16777216)
    try { sessions = client_device_sessions(json(listed)); } catch (error) { sessions = {}; }
-  for (let device in inspected.devices) describe_client_report(describe_client_device(device, labels, seen_directory, sessions, now), now);
+  for (let device in inspected.devices) {
+   describe_client_report(describe_client_device(device, labels, seen_directory, sessions, now), now);
+   // What the person may add for themselves and what this device keeps.
+   let rule = labels[device.id]?.own;
+   if (rule != null) {
+    let entries = own_entries(state_now, device.id);
+    device.own = { limit: rule.limit, ports: rule.ports, domains: entries.domains, networks: entries.networks };
+   }
+  }
   // Places a link still holds open: the administrator sees who has not
   // registered yet and until when the link works.
   let ledger = lstat(directory + '/invitations.json') == null && lstat(directory + '/enrollment-initialized') == null ? null : read_client_enrollment(directory).ledger;
@@ -93,6 +131,7 @@ try {
   inspected.events = read_client_events(40);
   inspected.profile_owners = read_profile_owners(directory);
   inspected.person_limits = read_person_limits(directory);
+  inspected.sets = read_client_sets(directory);
   let approve_reader = popen('/sbin/uci -q get ikev2-manager.client_access.approve', 'r');
   inspected.approve = replace(approve_reader?.read(8) ?? '', /\n$/, '') == '1';
   approve_reader?.close();
@@ -215,6 +254,42 @@ try {
    if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2) die('invalid profile owner');
    write_profile_owners(directory, payload.owner, payload.profiles);
    record_client_event('profiles-set', payload.owner + ' ' + join(',', payload.profiles));
+   print(`generation=${state.generation}\nchanged=1\n`);
+   closed = true;
+  }
+  // Whether a person's devices may keep addresses of their own: the limit and
+  // ports, or null to stop it. A list over a new limit keeps its first entries;
+  // with the right withdrawn the lists go.
+  if (type(request) == 'object' && request.operation == 'set-own-rule') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2 || type(payload.ids) != 'array' ||
+    !length(payload.ids) || length(payload.ids) > 16) die('invalid own rule');
+   let rule = payload.own == null ? null : check_own_rule(payload.own);
+   for (let id in payload.ids)
+    if (!length(filter(state.publication.devices, device => device.id == id)) || index(state.retired_ids, id) >= 0) die('invalid own rule');
+   for (let id in payload.ids) {
+    let label = read_client_labels(directory)[id];
+    write_client_label(directory, id, label?.owner ?? '', label?.note ?? '', { own: rule });
+    // A list the device keeps now is published again under the new rule: its
+    // ports, its limit, or nothing when the right is withdrawn.
+    let before = own_entries(read_committed_client_state(directory), id), after = { domains: [], networks: [] };
+    if (rule != null) {
+     after.domains = slice(before.domains, 0, rule.limit);
+     after.networks = slice(before.networks, 0, max(0, rule.limit - length(after.domains)));
+    }
+    if (length(before.domains) || length(before.networks))
+     commit_own(id, after, rule?.ports ?? [ 443 ]) || die('the own addresses were not changed');
+    record_client_event(rule == null ? 'own-off' : 'own-on', id + (rule == null ? '' : ' ' + rule.limit));
+   }
+   print(`generation=${read_committed_client_state(directory).generation}\nchanged=1\n`);
+   closed = true;
+  }
+  // A set of services saved under a name, or forgotten with none.
+  if (type(request) == 'object' && request.operation == 'save-set') {
+   let payload = request.payload;
+   if (request.version !== 1 || type(payload) != 'object' || length(keys(payload)) != 2 || !('name' in payload) || !('offer' in payload)) die('invalid set');
+   write_client_set(directory, payload.name, payload.offer);
+   record_client_event(payload.offer == null ? 'set-removed' : 'set-saved', payload.name);
    print(`generation=${state.generation}\nchanged=1\n`);
    closed = true;
   }
@@ -345,6 +420,25 @@ try {
      }
     }
    }
+  }
+ } else if (ARGV[0] == 'apply-own' && length(ARGV) == 1) {
+  // What devices sent as their own addresses, as the device API left it: the
+  // latest list of each device, taken the way choices are. The rule is read
+  // again here: one withdrawn since the list came in stops it.
+  let pending = '/var/run/ikev2-client-own';
+  for (let name in sort(lsdir(pending) ?? [])) {
+   let found = length(name) <= 53 ? match(name, /^([a-z][a-z0-9-]*)\.json$/) : null;
+   if (found == null) continue;
+   let path = pending + '/' + name, taken = path + '.taken';
+   if (!rename(path, taken)) continue;
+   let info = lstat(taken), list = null;
+   if (info?.type == 'file' && info.uid == 0 && info.mode == 0600 && info.nlink == 1 && info.size <= 16384)
+    try { list = json(readfile(taken)); } catch (error) { list = null; }
+   unlink(taken);
+   let rule = read_client_labels(directory)[found[1]]?.own;
+   if (type(list) != 'object' || rule == null || type(list.domains) != 'array' || type(list.networks) != 'array' ||
+    length(list.domains) + length(list.networks) > rule.limit) continue;
+   commit_own(found[1], { domains: list.domains, networks: list.networks }, rule.ports);
   }
  } else if ((ARGV[0] == 'initialize' || ARGV[0] == 'publish') && length(ARGV) == 1) {
 		let raw = stdin.read(16777217);

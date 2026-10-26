@@ -5,6 +5,7 @@ import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
 import { readfile, lstat, popen, mkdir, chmod, open, rename, unlink } from 'fs';
 import { check_client_choices, client_service_entries } from './client-access-offer.uc';
+import { OWN_PREFIX, is_own_service, check_own_entries } from './client-access-own.uc';
 import { record_client_seen, read_client_labels } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence, read_client_device_evidence_for } from './client-access-device-evidence.uc';
@@ -74,7 +75,7 @@ function blocked_without_tunnel(entries, label) {
 
 // The services answer. With an offer it lists every entry: on or off,
 // required or not, blocked without the tunnel or not and whose choice that is.
-function services_answer(id, revision, selected, available, entries, directory) {
+function services_answer(id, revision, selected, available, entries, directory, own_list) {
 	let label = null, mode = 'services';
 	try { label = read_client_labels(directory)[id]; } catch (error) { label = null; }
 	if (label?.full === true) mode = 'full';
@@ -82,7 +83,49 @@ function services_answer(id, revision, selected, available, entries, directory) 
 		block_without_tunnel: blocked_without_tunnel(entries, label), mode: mode,
 		names_https: names_over_https(), tunnel_subnet: tunnel_subnet() };
 	if (entries != null) body.entries = entries;
+	// What the person may add for themselves, and what this device keeps.
+	if (label?.own != null)
+		body.own = { limit: label.own.limit, ports: label.own.ports, domains: own_list?.domains ?? [], networks: own_list?.networks ?? [] };
 	return { status: 200, body: body };
+}
+
+// A device's own sites and networks, checked against its person's rule and
+// left for the publisher like a choice. At most forty lists a day: each new
+// site takes an address of the virtual subnet for good.
+const OWN_PENDING = '/var/run/ikev2-client-own';
+function accept_own(id, server, headers, receive, directory) {
+	let label = null;
+	try { label = read_client_labels(directory)[id]; } catch (error) { label = null; }
+	if (label?.own == null) return reply(403, 'own_not_allowed');
+	let announced = headers['content-length'];
+	if (type(receive) != 'function' || type(announced) != 'string' || !(length(announced) <= 5 ? match(announced, /^[1-9][0-9]*$/) : null) ||
+		int(announced) > 16384)
+		return reply(400, 'invalid_own');
+	let wanted = int(announced), text = '';
+	while (length(text) < wanted) {
+		let part = receive(wanted - length(text));
+		if (type(part) != 'string' || !length(part)) return reply(400, 'invalid_own');
+		text += part;
+	}
+	let list = null;
+	try { list = check_own_entries(json(text), label.own, server); } catch (error) { return reply(400, 'invalid_own'); }
+	let info = lstat(OWN_PENDING);
+	if (info == null && (!mkdir(OWN_PENDING, 0700) || !chmod(OWN_PENDING, 0700))) return reply(503, 'own_unavailable');
+	info = lstat(OWN_PENDING);
+	if (info?.type != 'directory' || info.uid != 0 || info.mode != 0700) return reply(503, 'own_unavailable');
+	let now = time(), counted = OWN_PENDING + '/' + id + '.count';
+	let stamps = filter(split(readfile(counted, 1024) ?? '', '\n'), stamp => length(stamp) && now - +stamp < 86400);
+	if (length(stamps) >= 40) return reply(429, 'own_too_often');
+	push(stamps, `${now}`);
+	let path = OWN_PENDING + '/' + id + '.json', staged = path + '.new', raw = sprintf('%J\n', list);
+	for (let item in [ [ staged, raw ], [ counted + '.new', join('\n', stamps) + '\n' ] ]) {
+		unlink(item[0]);
+		let file = open(item[0], 'wxe', 0600);
+		if (file == null || file.write(item[1]) != length(item[1]) || !file.close()) { unlink(item[0]); return reply(503, 'own_unavailable'); }
+	}
+	if (!rename(counted + '.new', counted) || !rename(staged, path)) { unlink(staged); return reply(503, 'own_unavailable'); }
+	system([ '/sbin/start-stop-daemon', '-b', '-q', '-S', '-x', '/usr/bin/ucode', '--', '/usr/libexec/ikev2-manager.d/client-access-control.uc', 'apply-own' ]);
+	return { status: 202, body: { version: 1, accepted: true } };
 }
 
 // A device's choice of its offer, checked here and left for the publisher:
@@ -121,17 +164,18 @@ function device_services(publication, id, revision, directory) {
 	let assigned = filter(publication.devices, item => item.id == id);
 	if (length(assigned) != 1 || type(assigned[0].selected_services) != 'array' || type(publication.services) != 'array')
 		die('inconsistent device assignment');
-	let own = assigned[0], selected = [], available = [];
+	let own = assigned[0], selected = [], available = [], mine = OWN_PREFIX + id, own_list = { domains: [], networks: [] };
 	for (let service in publication.services) {
-		if (!service.client_access)
+		if (!service.client_access || (is_own_service(service.id) && service.id != mine))
 			continue;
+		if (service.id == mine) own_list = { domains: service.domains, networks: service.networks ?? [] };
 		let listed = index(own.selected_services, service.id) >= 0 ? selected :
 			!('offer' in own) || length(filter(own.offer, entry => entry.id == service.id)) ? available : null;
 		if (listed != null) push(listed, { id: service.id, domains: length(service.domains) });
 	}
 	let by_id = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 	return services_answer(id, revision, sort(selected, by_id), sort(available, by_id),
-		'offer' in own ? client_service_entries(own.offer, own.choices, publication) : null, directory);
+		'offer' in own ? client_service_entries(own.offer, own.choices, publication) : null, directory, own_list);
 }
 
 // The one request that carries a body: the report the administrator asked
@@ -165,14 +209,14 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 	let readiness = env.REQUEST_URI == '/client/v1/readiness', services = env.REQUEST_URI == '/client/v1/services';
 	let release = env.REQUEST_URI == '/client/v1/release';
 	let report = env.REQUEST_URI == '/client/v1/report', sending = report && env.REQUEST_METHOD == 'POST';
-	let choosing = env.REQUEST_URI == '/client/v1/choices';
-	if (!readiness && !services && !release && !report && !choosing && env.REQUEST_URI != '/client/v1/policy')
+	let choosing = env.REQUEST_URI == '/client/v1/choices', owning = env.REQUEST_URI == '/client/v1/own';
+	if (!readiness && !services && !release && !report && !choosing && !owning && env.REQUEST_URI != '/client/v1/policy')
 		return reply(404, 'not_found');
-	if ((choosing && env.REQUEST_METHOD != 'POST') || (!choosing && env.REQUEST_METHOD != 'GET' && !sending))
-		return { status: 405, body: { error: 'method_not_allowed' }, allow: choosing ? 'POST' : report ? 'GET, POST' : 'GET' };
+	if (((choosing || owning) && env.REQUEST_METHOD != 'POST') || (!choosing && !owning && env.REQUEST_METHOD != 'GET' && !sending))
+		return { status: 405, body: { error: 'method_not_allowed' }, allow: choosing || owning ? 'POST' : report ? 'GET, POST' : 'GET' };
 	let headers = env.headers ?? {};
 	if (headers['transfer-encoding'] != null ||
-		(!sending && !choosing && headers['content-length'] != null && headers['content-length'] != '0'))
+		(!sending && !choosing && !owning && headers['content-length'] != null && headers['content-length'] != '0'))
 		return reply(400, 'body_not_allowed');
 	let authorization = headers.authorization;
 	if (type(authorization) != 'string' || !(length(authorization) == 71 ? match(authorization, /^Bearer [a-f0-9]+$/) : null))
@@ -201,16 +245,17 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 			// has turned anything on.
 			if ((services || choosing) && (device.enabled || device.idle) && type(device.entries) == 'array') {
 				if (choosing) return accept_choice(device.id, device.offer, headers, receive);
-				return services_answer(device.id, device.revision, device.selected, device.available, device.entries, directory);
+				return services_answer(device.id, device.revision, device.selected, device.available, device.entries, directory, device.own);
 			}
 			if (choosing) return reply(409, 'no_offer');
+			if (owning) return device.enabled || device.idle ? accept_own(device.id, device.policy?.server ?? null, headers, receive, directory) : reply(401, 'unauthorized');
 			if (!device.enabled) return device.idle ? reply(409, 'no_services') : reply(401, 'unauthorized');
 			if (readiness) {
 				if (type(headers['x-client-address']) != 'string') return reply(400, 'invalid_client_address');
 				return { status: 200, body: read_client_device_evidence_for('/var/run/ikev2-client-access', device, headers['x-client-address'], time()) };
 			}
 			if (services)
-				return services_answer(device.id, device.revision, device.selected, device.available, null, directory);
+				return services_answer(device.id, device.revision, device.selected, device.available, null, directory, device.own);
 			if (release) return release_answer();
 			let compiled = compile_client_policy(device.policy);
 			if (length(sprintf('%J', compiled.policy)) > 1048576)
@@ -269,6 +314,8 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 			return device_services(committed.publication, own.id, selected?.policy?.revision ?? own.previous_policy?.revision ?? 1, directory);
 		}
 		if (choosing) return reply(409, 'no_offer');
+		if (owning)
+			return own != null && (selected != null || idle != null) ? accept_own(own.id, committed.publication.server, headers, receive, directory) : reply(401, 'unauthorized');
 		if (idle != null)
 			return reply(409, 'no_services');
 		if (matches != 1 || selected == null)

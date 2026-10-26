@@ -66,6 +66,7 @@ install_file 644 ikev2-manager-runtime/lib/client-access-report.uc /usr/libexec/
 install_file 644 ikev2-manager-runtime/lib/client-access-link.uc /usr/libexec/ikev2-manager.d/client-access-link.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-view.uc /usr/libexec/ikev2-manager.d/client-access-view.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-offer.uc /usr/libexec/ikev2-manager.d/client-access-offer.uc
+install_file 644 ikev2-manager-runtime/lib/client-access-own.uc /usr/libexec/ikev2-manager.d/client-access-own.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-download.uc /usr/libexec/ikev2-manager.d/client-access-download.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-directory.uc /usr/libexec/ikev2-manager.d/client-access-directory.uc
 install_file 644 ikev2-manager-runtime/lib/client-access-publication.uc /usr/libexec/ikev2-manager.d/client-access-publication.uc
@@ -174,7 +175,7 @@ install_file 644 luci-ikev2-manager/setup.js \
 install_file 644 luci-ikev2-manager/users.js \
 	/www/luci-static/resources/ikev2-manager/users-panel-v7.js
 install_file 644 luci-ikev2-manager/remote-clients.js \
-	/www/luci-static/resources/view/ikev2-manager/remote-clients-v29.js
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v30.js
 install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v18.js
 
 # The pages show which build is installed. Stamping it here keeps status cheap:
@@ -364,6 +365,7 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v17.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v18.js \
 	/www/luci-static/resources/view/ikev2-manager/remote-clients-v28.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v29.js \
 	/www/luci-static/resources/ikev2-manager/users-panel-v6.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v17.js \
 	/www/luci-static/resources/view/ikev2-manager/tunnels-v3.js \

@@ -77,12 +77,9 @@ printf 'mail 2\n' >"$tmp/exits"
 printf 'exit 1 1\nexit 2 2\n' >"$tmp/state"
 IKEV2_MANAGER="$tmp/bin/manager" IKEV2_EXITS_FILE="$tmp/exits" IKEV2_TUNNEL_STATE="$tmp/state" sh "$helper" snapshot ||
 	fail 'the snapshot failed'
-python3 - "$tmp/run/services.json" <<'EOF' || fail 'the snapshot does not say which services work'
-import json, sys
-value = json.load(open(sys.argv[1]))
-up = {service['id']: service['up'] for service in value['services']}
-assert value['tunnel'] is True, value
-assert up == {'chat': True, 'mail': False}, up
-assert value['services'][0]['domains'] == ['chat.example'], value
-EOF
+ucode -e 'import { readfile } from "fs";
+	let value = json(readfile(ARGV[0])), up = {};
+	for (let service in value.services) up[service.id] = service.up;
+	if (value.tunnel !== true || up.chat !== true || up.mail !== false || value.services[0].domains[0] != "chat.example") exit(1);' \
+	-- "$tmp/run/services.json" || fail "the snapshot does not say which services work: $(cat "$tmp/run/services.json")"
 printf '%s\n' 'board tests OK'

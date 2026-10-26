@@ -31,7 +31,7 @@ const reportAsked = [];
 const ui = { showModal(title, body) { modal = E('div', {}, body); }, hideModal() { hidden++; } };
 const snapshot = { version: 1, generation: 17, enrollment_generation: 0, api_endpoint: 'https://vpn.example.com:9443/client/v1/enroll', server: {address:"vpn.example.com"},
  services: [{ id: 'example_service', client_access: true, domain_count: 1, transports: [{ protocol: 'tcp', ports: [443] }] }],
- devices: [{ id: 'alice', enabled: true, selected_services: ['example_service'], revision: 3, owner: 'Alice Example', note: 'accounting',
+ devices: [{ id: 'alice', enabled: true, selected_services: ['example_service'], revision: 3, owner: 'Alice Example', note: 'accounting', own: { limit: 5, ports: [80, 443], domains: ['home.example.org'], networks: [] },
   host: 'ALICE-PC', system: 'Windows 10.0.26100', client: '2.3.0', online: true, tunnel_address: '10.20.0.7', remote_address: '203.0.113.9', connected_seconds: 7300, seen_seconds: 4, seen_from: '203.0.113.9' },
   { id: 'bob-laptop', enabled: true, selected_services: ['example_service'], revision: 1, owner: '', note: '', online: false, seen_seconds: 90000, seen_from: '198.51.100.4' },
   { id: 'spare', enabled: false, selected_services: [], revision: 1, owner: '', note: '', online: false, seen_seconds: null }],
@@ -113,16 +113,38 @@ async function main() {
  assert(text(modal).includes('write rejected')); assert.strictEqual(jobs.length,3);
  failWrite = false;
  // Given as optional, left to the person to block.
- const given = nodes(modal).find(n => n.tagName === 'SELECT' && n.attrs['aria-label'] === 'Example service: given');
- const closed = nodes(modal).find(n => n.tagName === 'SELECT' && n.attrs['aria-label'] === 'Example service: without the tunnel');
- assert(given && closed, 'every published service has its two choices');
- given.value = 'optional'; closed.value = 'choice';
+ const kinds = () => nodes(modal).find(n => n.attrs.role === 'radiogroup' && n.attrs['aria-label'] === 'Example service: given');
+ const closed = () => nodes(modal).find(n => n.tagName === 'SELECT' && n.attrs['aria-label'] === 'Example service: without the tunnel');
+ assert(kinds() && closed(), 'a given service has its two choices');
+ click(button(kinds(), 'Person turns it on'));
+ closed().value = 'choice'; closed().attrs.change();
  await click(button(modal,'Save'));
  assert.deepStrictEqual(written[written.length-1].body.payload.offer, [{ id: 'example_service', required: false, closed: 'choice' }]);
- given.value = 'none';
+ // A way of working sets every service at once.
+ click(button(modal, 'Only through the tunnel'));
  await click(button(modal,'Save'));
- assert.deepStrictEqual(written[written.length-1].body.payload.offer, [], 'a service not given is left out of the offer');
- given.value = 'required'; closed.value = 'yes';
+ assert.deepStrictEqual(written[written.length-1].body.payload.offer, [{ id: 'example_service', required: true, closed: 'yes' }]);
+ click(nodes(modal).find(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'Take away Example service'));
+ await click(button(modal,'Save'));
+ assert.deepStrictEqual(written[written.length-1].body.payload.offer, [], 'a service taken away is left out of the offer');
+ // Added back from the published ones, the way the person works now.
+ click(button(modal, '+ Example service'));
+ assert(kinds(), 'a service added back is given again');
+ // What the person keeps of their own is shown, and taking the right away is
+ // sent after the services, against the state those left.
+ assert(text(modal).includes('home.example.org'), 'the own addresses a device keeps are not shown');
+ const ownSwitch = nodes(modal).find(n => n.tagName === 'INPUT' && n.attrs['aria-label'] === 'May add own sites and networks');
+ assert(ownSwitch && ownSwitch.checked, 'the right to own addresses is not shown as given');
+ ownSwitch.checked = false;
+ const ownBefore = written.length;
+ await click(button(modal,'Save'));
+ // The services' job reports success; the steps after it start at once, and
+ // the job they start never reports in this test, so it is not waited for.
+ jobs[jobs.length-1].onSuccess({ state: 'ok' });
+ for (let tick = 0; tick < 5; tick++) await new Promise(resolve => setImmediate(resolve));
+ const rule = written.slice(ownBefore).find(item => item.body.operation === 'set-own-rule');
+ assert(rule, 'taking the right away was not sent');
+ assert.deepStrictEqual(rule.body.payload, { ids: ['alice'], own: null });
  // What a device gets of a published service is on the page: its ports, and
  // that the networks it has in Policy Routing are not handed out.
  assert(/TCP [0-9, ]+/.test(text(tree)), 'the ports of a published service are not shown');

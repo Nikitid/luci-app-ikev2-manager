@@ -37,6 +37,16 @@ Today's per-person "open" flag becomes the default for new entries; existing
 assignments migrate to "required" entries with that flag, so nothing changes
 for a person until the owner edits them.
 
+How people work differs, and the owner starts from that rather than from
+single switches: only through the tunnel (required, closed without it - work
+bound to one place's resources), always on (required, the ordinary way without
+the tunnel), or the person chooses (optional, theirs to close). A set made
+once can be saved and given to the next person the same way. Where the owner
+allows it, a person adds sites and public addresses of their own in the
+application, up to a limit and on the ports the owner names; they go through
+the tunnel on that device only. Devices on the router's own network are not
+Waypoint's business: the router's policy routing already decides for them.
+
 ## What the owner sees
 
 On Remote clients, per person: the set as given, and per device what is chosen

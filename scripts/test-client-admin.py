@@ -137,6 +137,64 @@ class AdminTests(unittest.TestCase):
         device = next(d for d in updated['publication']['devices'] if d['id'] == 'alice')
         self.assertEqual((device['selected_services'], 'offer' in device, 'choices' in device), (['chat'], False, False))
 
+    def own(self, domains, networks, device='alice', ports=(80, 443)):
+        prepared, updated = self.apply(self.request('device-own', {'id': device, 'domains': domains, 'networks': networks,
+                                                                    'ports': list(ports)}), [])
+        self.snapshot = updated
+        return prepared, next(d for d in updated['publication']['devices'] if d['id'] == device)
+
+    def own_service(self, device='alice'):
+        return next((s for s in self.snapshot['publication']['services'] if s['id'] == 'own-' + device), None)
+
+    def test_a_device_keeps_its_own_sites_and_networks_as_a_service_of_its_own(self):
+        self.offer([{'id': 'api', 'required': True, 'closed': 'yes'}, {'id': 'chat', 'required': False, 'closed': 'no'}])
+        _, device = self.own(['Home.Example.ORG', 'https://nas.example.net/login'], ['8.8.8.0/24', '1.1.1.1'])
+        service = self.own_service()
+        self.assertEqual((service['domains'], service['networks']), (['home.example.org', 'nas.example.net'], ['1.1.1.1/32', '8.8.8.0/24']))
+        self.assertEqual(service['transports'], [{'protocol': 'tcp', 'ports': [80, 443]}, {'protocol': 'udp', 'ports': [80, 443]}])
+        # Required on this device, and going the ordinary way without the tunnel.
+        self.assertIn({'id': 'own-alice', 'required': True, 'closed': 'no'}, device['offer'])
+        self.assertIn('own-alice', device['selected_services'])
+        policy = next(d for d in self.snapshot['api']['devices'] if d['id'] == 'alice')['policy']
+        self.assertIn('home.example.org', [r['domain'] for r in policy['resources']])
+        self.assertIn('8.8.8.0/24', [n['network'] for n in policy['networks']])
+        # Another device is not given it.
+        bob = next(d for d in self.snapshot['api']['devices'] if d['id'] == 'bob')['policy']
+        self.assertNotIn('home.example.org', [r['domain'] for r in bob['resources']])
+        # The person's offer saved again keeps the device's own service.
+        device = self.offer([{'id': 'chat', 'required': True, 'closed': 'yes'}])
+        self.assertEqual(sorted(device['selected_services']), ['chat', 'own-alice'])
+        # An empty list takes the service away.
+        _, device = self.own([], [])
+        self.assertIsNone(self.own_service())
+        self.assertNotIn('own-alice', device['selected_services'])
+
+    def test_own_addresses_never_reach_private_networks_or_the_server(self):
+        server = self.snapshot['publication']['server']['address']
+        for domains, networks in [([], ['192.168.1.0/24']), ([], ['10.1.2.3']), ([], ['100.64.0.1']), ([], ['8.0.0.0/8']),
+                                  ([], ['198.18.0.1']), (['printer.local'], []), (['localhost'], []), ([server], []),
+                                  (['1.2.3.4'], []), (['bad..name'], [])]:
+            result = self.run_admin(self.request('device-own', {'id': 'alice', 'domains': domains, 'networks': networks,
+                                                                 'ports': [443]}), [])
+            self.assertNotEqual(result.returncode, 0, (domains, networks))
+        # Nobody else may name a device's own service: not the page, not a catalogue.
+        self.own(['home.example.org'], [])
+        for request in [self.request('assign-service', {'id': 'own-alice', 'devices': ['bob']}),
+                        self.request('configure-service', {'id': 'own-alice', 'client_access': False, 'transports': [{'protocol': 'tcp', 'ports': [443]}]}),
+                        self.request('assign-devices', {'ids': ['bob'], 'enabled': True, 'owner': 'B', 'note': '',
+                                                         'offer': [{'id': 'own-alice', 'required': True, 'closed': 'no'}]})]:
+            self.assertNotEqual(self.run_admin(request, []).returncode, 0, request['operation'])
+        # A refresh of the catalogue leaves it as it is.
+        catalog = [{'id': s['id'], 'domains': list(s['domains'])} for s in self.snapshot['publication']['services']
+                   if s['client_access'] and not s['id'].startswith('own-')]
+        prepared, _ = self.apply(self.request('refresh-catalog', {}), catalog)
+        self.assertIn('own-alice', [s['id'] for s in prepared['desired']['services']])
+
+    def test_a_removed_device_takes_its_own_addresses_with_it(self):
+        self.own(['home.example.org'], ['8.8.8.8'])
+        prepared, self.snapshot = self.apply(self.request('remove-device', {'id': 'alice'}), [])
+        self.assertIsNone(self.own_service())
+
     def test_unchanged_catalog_is_noop_and_bad_requests_are_refused(self):
         catalog = [{'id': s['id'], 'domains': s['domains']} for s in self.snapshot['publication']['services'] if s['client_access']]
         request = self.request('refresh-catalog', {})

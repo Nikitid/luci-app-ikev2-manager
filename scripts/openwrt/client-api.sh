@@ -152,7 +152,31 @@ done
 # A plain list leaves the offer behind, and with it the choosing.
 ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); print(sprintf("%J", {version:1, expected_generation:s.generation, operation:"assign-devices", payload:{ids:["team"], enabled:true, owner:"Team", note:"", selected_services:json(ARGV[1])}}));' "$state" "$team_before" | ucode "$control" update >/dev/null
 request 409 -X POST -H "Authorization: Bearer $first" -d '{"on":[],"closed":[]}' https://127.0.0.1:18443/client/v1/choices
-rm -rf /etc/ikev2-manager/clients /var/run/ikev2-client-choices
+# Addresses of the person's own: refused until the administrator allows them,
+# then kept for this device alone, within the limit, public only.
+test_step=own
+request 403 -X POST -H "Authorization: Bearer $first" -d '{"domains":["home.example.org"],"networks":[]}' https://127.0.0.1:18443/client/v1/own
+ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); print(sprintf("%J", {version:1, expected_generation:s.generation, operation:"set-own-rule", payload:{ids:["team"], own:{limit:3, ports:[443]}}}));' "$state" | ucode "$control" update >/dev/null
+request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+[ "$(jsonfilter -i "$work/body" -e '@.own.limit')" = 3 ] || { echo "client-api: the rule is not in the services answer: $(cat "$work/body")" >&2; exit 1; }
+request 400 -X POST -H "Authorization: Bearer $first" -d '{"domains":[],"networks":["192.168.1.0/24"]}' https://127.0.0.1:18443/client/v1/own
+request 400 -X POST -H "Authorization: Bearer $first" -d '{"domains":["a.example.org","b.example.org","c.example.org","d.example.org"],"networks":[]}' https://127.0.0.1:18443/client/v1/own
+request 405 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/own
+request 202 -X POST -H "Authorization: Bearer $first" -d '{"domains":["home.example.org"],"networks":["8.8.8.8"]}' https://127.0.0.1:18443/client/v1/own
+ucode "$control" apply-own
+i=0
+until request 200 -H "Authorization: Bearer $first" "$url" && grep -q '"home.example.org"' "$work/body" && grep -q '"8.8.8.8/32"' "$work/body"; do
+ i=$((i + 1)); [ "$i" -lt 10 ] || { echo "client-api: the own addresses did not reach the policy: $(cat "$work/body")" >&2; exit 1; }
+ sleep 1
+done
+request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+[ "$(jsonfilter -i "$work/body" -e '@.own.domains[0]')" = home.example.org ] || { echo "client-api: the own list is not shown: $(cat "$work/body")" >&2; exit 1; }
+# The right withdrawn takes the list away with it.
+ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); print(sprintf("%J", {version:1, expected_generation:s.generation, operation:"set-own-rule", payload:{ids:["team"], own:null}}));' "$state" | ucode "$control" update >/dev/null
+request 200 -H "Authorization: Bearer $first" "$url"
+! grep -q 'home.example.org' "$work/body" || { echo 'client-api: a withdrawn right left the own addresses in the policy' >&2; exit 1; }
+request 403 -X POST -H "Authorization: Bearer $first" -d '{"domains":[],"networks":[]}' https://127.0.0.1:18443/client/v1/own
+rm -rf /etc/ikev2-manager/clients /var/run/ikev2-client-choices /var/run/ikev2-client-own
 cp -a "$work/clients-before-offer" /etc/ikev2-manager/clients
 ucode "$control" views >/dev/null
 test_step=after-offer

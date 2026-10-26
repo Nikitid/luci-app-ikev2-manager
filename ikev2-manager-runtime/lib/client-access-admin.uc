@@ -2,11 +2,31 @@
 'use strict';
 import { validate_client_state, prepare_client_state } from './client-access-state.uc';
 import { check_client_offer, check_client_choices, client_effective_services, client_choices_within } from './client-access-offer.uc';
+import { OWN_PREFIX, OWN_LIMIT, own_service_id, is_own_service, check_own_rule, check_own_entries, own_service } from './client-access-own.uc';
+
+// The count was checked against the person's limit where the list came in.
+const OWN_RULE_LIMIT = OWN_LIMIT;
 
 // A device with an offer reaches what follows from it and its choices.
 function follow_offer(device) {
  device.choices = client_choices_within(device.offer, device.choices);
  device.selected_services = client_effective_services(device.offer, device.choices);
+}
+
+// The service of a device's own addresses stays given to it whatever its
+// person is offered: required, and going the ordinary way without the tunnel,
+// like the person's own traffic.
+function keep_own(device, services) {
+ let id = length(device.id) <= 44 ? own_service_id(device.id) : null;
+ let has = id != null && length(filter(services, service => service.id == id)) > 0;
+ if ('offer' in device) {
+  device.offer = filter(device.offer, entry => !is_own_service(entry.id));
+  if (has) push(device.offer, { id: id, required: true, closed: 'no' });
+  follow_offer(device);
+ } else {
+  device.selected_services = filter(device.selected_services, service => !is_own_service(service));
+  if (has) device.selected_services = sort([ ...device.selected_services, id ]);
+ }
 }
 
 function fields(value, names) {
@@ -41,6 +61,7 @@ export function client_admin_catalog_ids(state, request) {
   // published without, is not changed by their mere existence.
   fields(request.payload, 'networks' in request.payload ? [ 'id', 'client_access', 'transports', 'networks' ] : [ 'id', 'client_access', 'transports' ]);
   service_id(request.payload.id);
+  if (is_own_service(request.payload.id)) die('a device keeps its own addresses itself');
   if (type(request.payload.client_access) != 'bool') die('invalid service availability');
   if ('networks' in request.payload && type(request.payload.networks) != 'bool') die('invalid service networks');
   if (!request.payload.client_access) {
@@ -67,7 +88,10 @@ export function client_admin_catalog_ids(state, request) {
   // without the tunnel - or, as before, as a plain list of services.
   let offered = 'offer' in request.payload;
   let named = [ 'ids', 'enabled', offered ? 'offer' : 'selected_services', 'owner', 'note' ];
-  if (offered) check_client_offer(request.payload.offer, null);
+  if (offered) {
+   check_client_offer(request.payload.offer, null);
+   if (length(filter(request.payload.offer, entry => is_own_service(entry.id)))) die('a device keeps its own addresses itself');
+  }
   if ('email' in request.payload) push(named, 'email');
   if ('block_without_tunnel' in request.payload) {
    push(named, 'block_without_tunnel');
@@ -97,6 +121,14 @@ export function client_admin_catalog_ids(state, request) {
   for (let id in request.payload.selected_services ?? []) service_id(id);
   return [];
  }
+ // What one device keeps of its own: its sites and networks, and the ports
+ // its person was allowed.
+ if (request.operation == 'device-own') {
+  fields(request.payload, [ 'id', 'domains', 'networks', 'ports' ]);
+  identifier(request.payload.id);
+  own_service_id(request.payload.id);
+  return [];
+ }
  // What one device chose of its offer: the optional services it turned on and
  // those it blocks without the tunnel where that is the person's to choose.
  if (request.operation == 'device-choices') {
@@ -112,6 +144,7 @@ export function client_admin_catalog_ids(state, request) {
  if (request.operation == 'assign-service') {
   fields(request.payload, [ 'id', 'devices' ]);
   service_id(request.payload.id);
+  if (is_own_service(request.payload.id)) die('a device keeps its own addresses itself');
   if (type(request.payload.devices) != 'array' || length(request.payload.devices) > 512) die('invalid device list');
   let seen = {};
   for (let id in request.payload.devices) { identifier(id); if (seen[id]) die('invalid device list'); seen[id] = true; }
@@ -119,7 +152,7 @@ export function client_admin_catalog_ids(state, request) {
  }
  if (request.operation == 'refresh-catalog') {
   fields(request.payload, []);
-  return map(filter(state.publication.services, service => service.client_access), service => service.id);
+  return map(filter(state.publication.services, service => service.client_access && !is_own_service(service.id)), service => service.id);
  }
  die('unknown administrative operation');
 };
@@ -190,7 +223,10 @@ export function prepare_client_admin(state, request, catalog) {
    // person's offer and its own choices.
    if ('offer' in device) {
     if (sprintf('%J', sort(slice(payload.selected_services))) != sprintf('%J', device.selected_services)) die('the device follows an offer');
-   } else device.selected_services = payload.selected_services;
+   } else {
+    device.selected_services = payload.selected_services;
+    keep_own(device, desired.services);
+   }
   }
   if (!found) die('unknown or retired device');
  } else if (request.operation == 'assign-devices') {
@@ -206,7 +242,17 @@ export function prepare_client_admin(state, request, catalog) {
     delete device.offer; delete device.choices;
     device.selected_services = payload.per_device?.[id] ?? payload.selected_services;
    }
+   keep_own(device, desired.services);
   }
+ } else if (request.operation == 'device-own') {
+  let device = filter(desired.devices, item => item.id == payload.id)[0];
+  if (device == null) die('unknown or retired device');
+  let rule = check_own_rule({ limit: OWN_RULE_LIMIT, ports: payload.ports });
+  let entries = check_own_entries({ domains: payload.domains, networks: payload.networks }, rule, desired.server);
+  let id = own_service_id(payload.id), service = own_service(payload.id, entries, rule);
+  desired.services = filter(desired.services, item => item.id != id);
+  if (service != null) push(desired.services, service);
+  keep_own(device, desired.services);
  } else if (request.operation == 'device-choices') {
   let device = filter(desired.devices, item => item.id == payload.id)[0];
   if (device == null) die('unknown or retired device');
@@ -235,9 +281,11 @@ export function prepare_client_admin(state, request, catalog) {
   // lost invitation or an old key can never bring it back under that name.
   if (!length(filter(desired.devices, device => device.id == payload.id))) die('unknown or retired device');
   desired.devices = filter(desired.devices, device => device.id != payload.id);
+  // Its own addresses go with it.
+  desired.services = filter(desired.services, service => service.id != OWN_PREFIX + payload.id);
  } else {
   for (let service in desired.services) {
-   if (!service.client_access) continue;
+   if (!service.client_access || is_own_service(service.id)) continue;
    service.domains = domains[service.id];
    if (service.id in networks) service.networks = networks[service.id];
   }

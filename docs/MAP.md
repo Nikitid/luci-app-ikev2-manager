@@ -71,6 +71,8 @@ Enrollment remains a separate gate;
 device proposals; `client-access-enrollment-store.uc` journals them durably.
 `client-access-offer.uc` works out what a device may reach from what its person was
 offered and what it chose (see "What a person is given" in `docs/CLIENT_ACCESS.md`).
+`client-access-own.uc` checks the sites and networks a person adds for one device
+and makes them that device's own service ("A person's own addresses").
 `client-access-invitation.uc` issues random server-bound invitation links through
 a root-only command with private output. The
 dedicated HTTPS claim/poll endpoints now connect to a bounded background worker;
@@ -122,7 +124,7 @@ upgraded, so a stable name would serve stale code to the browser.
 | Outbound tunnels and DNS panel | `luci-ikev2-manager/client.js` | `ikev2-manager/outbound-panel-v4.js`; `parts()` returns `tunnel` and `dns` |
 | Policy Routing | `luci-ikev2-domains/editor.js` | `view/ikev2-domains/editor-v18.js` |
 | Inbound server panel | `luci-ikev2-manager/settings.js` | `ikev2-manager/inbound-panel-v4.js`; `parts()` returns `server` |
-| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v29.js` |
+| Users | `luci-ikev2-manager/remote-clients.js` | `view/ikev2-manager/remote-clients-v30.js` |
 | VPN profiles panel | `luci-ikev2-manager/users.js` | `ikev2-manager/users-panel-v7.js`, shown on the Users page |
 | Status widget | `luci-ikev2-manager/status-widget.js` | `view/status/include/06_ikev2-manager.js` |
 

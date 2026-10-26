@@ -62,7 +62,8 @@ const sources = [
 	'luci-ikev2-manager/shared.js', 'luci-ikev2-manager/client.js',
 	'luci-ikev2-manager/setup.js', 'luci-ikev2-manager/settings.js',
 	'luci-ikev2-manager/users.js', 'luci-ikev2-manager/status-widget.js',
-	'luci-ikev2-domains/editor.js'
+	'luci-ikev2-manager/remote-clients.js', 'luci-ikev2-manager/tunnels.js', 'luci-ikev2-manager/dns.js',
+	'luci-ikev2-domains/editor.js', 'ikev2-manager-runtime/lib/board-http.uc'
 ];
 const missing = [];
 let total = 0;
