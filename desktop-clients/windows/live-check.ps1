@@ -20,7 +20,18 @@ $state = Join-Path $env:ProgramData $name
 $hosts = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 
 function Check([bool]$ok, [string]$what) {
-    if (-not $ok) { Write-Host "FAIL $what"; Write-Host ('  status: ' + (Get-Content (Join-Path $state 'status.json') -Raw -ErrorAction SilentlyContinue)); exit 1 }
+    if (-not $ok) {
+        Write-Host "FAIL $what"
+        Write-Host ('  status: ' + (Get-Content (Join-Path $state 'status.json') -Raw -ErrorAction SilentlyContinue))
+        Get-Content (Join-Path $state 'faults.log') -ErrorAction SilentlyContinue | Select-Object -Last 15 | ForEach-Object { "  fault: $_" }
+        if ($script:server) {
+            $address = try { (Resolve-DnsName $script:server -Type A -ErrorAction Stop | Where-Object IPAddress | Select-Object -First 1).IPAddress } catch { "unresolved: $_" }
+            Write-Host "  $($script:server) resolves to $address"
+            $port = [int]([uri]$script:link).Port
+            Write-Host ("  TCP $port reachable: " + (Test-NetConnection $script:server -Port $port -WarningAction SilentlyContinue).TcpTestSucceeded)
+        }
+        exit 1
+    }
     Write-Host "PASS $what"
 }
 function Until([scriptblock]$condition, [int]$seconds) {
@@ -51,9 +62,13 @@ $setup = Start-Process (Join-Path $Files 'WaypointSetup.exe') '/quiet' -Wait -Pa
 Check ($setup.ExitCode -eq 0) 'this build installs'
 Check (Until { (Get-Service $name -ErrorAction SilentlyContinue).Status -eq 'Running' -and (Status) } 90) 'the service runs and says how it is'
 
-$link = (Get-Content (Join-Path $Files 'invitation.txt') -Raw).Trim()
+$script:link = (Get-Content (Join-Path $Files 'invitation.txt') -Raw).Trim()
+$link = $script:link
 $cut = $link.IndexOf('#')
+$script:server = ([uri]$link.Substring(0, $cut)).Host
 Check ((Send @{ version = 1; operation = 'begin'; endpoint = $link.Substring(0, $cut); invitation = $link.Substring($cut + 1) }) -eq 'accepted') 'registration with the link starts'
+# As the window does: the claim is made by the step that follows.
+Check ((Send @{ version = 1; operation = 'continue' }) -eq 'accepted') 'the registration is sent to the router'
 Check (Until { $s = Status; $s.State -eq 'registration_pending' -or $s.State -eq 'blocked' } 120) 'the device registers and waits for the administrator'
 Check (Until { $s = Status; $s.State -eq 'blocked' -and $s.Services.Count -ge 1 } 600) 'the administrator lets it in'
 

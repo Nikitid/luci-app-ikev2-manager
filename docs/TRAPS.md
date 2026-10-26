@@ -713,10 +713,15 @@ for every Waypoint device on the router it ran on.
 
 Guarded by `scripts/test-server-certificate-chain.sh`.
 
-## `swanctl --load-creds` adds, it does not replace
+## A renewed server certificate needs the connections loaded again
 
-A bare `--load-creds` loads the renewed server certificate beside the one it
-replaces on disk; charon keeps both and may present either until the old one
-expires. A certificate sync reloads with `--clear`, as user changes already
-did. `swanctl --list-certs --type x509` shows two certificates for the server
-name when this has happened.
+The connections name their certificate (`certs = ikev2.pem`) and keep the one
+they were loaded with. Loading credentials alone left the old certificate in
+the connection: a bare `--load-creds` kept its old chain loaded beside the new
+one, so clients went on getting the old certificate until it expired; with
+`--clear` the old chain went and the old certificate was sent without any
+issuer, which Windows refuses (RAS error 628) while iOS, which has the issuer
+cached, still connects. A certificate sync now clears and loads the
+credentials and loads the connections again; established SAs stay. The log
+says `sending issuer cert` after `sending end entity cert` when the chain goes
+out.
