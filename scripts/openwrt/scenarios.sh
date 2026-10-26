@@ -1232,6 +1232,22 @@ EOF2
 	grep -q '^carol' /etc/ikev2-manager/users.db || fail 'a failed import did not put the previous users back'
 	fail_apply=''
 
+	# Where ACME links its own pair, an import leaves the pair it renews alone.
+	mkdir -p /tmp/acme-pair
+	printf 'RENEWED\n' >/tmp/acme-pair/fullchain.cer
+	printf 'ACMEKEY\n' >/tmp/acme-pair/key
+	ln -sf /tmp/acme-pair/fullchain.cer /etc/ssl/acme/vpn.example.test.fullchain.crt
+	ln -sf /tmp/acme-pair/key /etc/ssl/acme/vpn.example.test.key
+	cp /tmp/backup.b64 /tmp/ikev2-manager-backup-t6.in
+	printf 'correct horse battery' >/tmp/ikev2-manager-backup-t6.pass
+	applied=0
+	( backup_import t6 ) 2>/tmp/import.err || fail "the backup did not import over ACME's pair: $(cat /tmp/import.err)"
+	[ "$(cat /tmp/acme-pair/fullchain.cer)" = RENEWED ] && [ "$(cat /tmp/acme-pair/key)" = ACMEKEY ] ||
+		fail 'an import wrote the backup certificate over the pair ACME renews'
+	[ -L /etc/ssl/acme/vpn.example.test.fullchain.crt ] && [ -L /etc/ssl/acme/vpn.example.test.key ] ||
+		fail "an import replaced ACME's links with copies"
+	rm -rf /tmp/acme-pair
+
 	# An archive with anything else in it is refused before it is unpacked.
 	mkdir -p /tmp/evil/files/etc
 	printf 'IKEV2-MANAGER-BACKUP 1\n' >/tmp/evil/manifest
@@ -1323,6 +1339,31 @@ fi
 [ ! -e /tmp/client-access-absent ] || fail 'missing publication was silently initialized'
 nft list table inet ikev2_client_access >/dev/null 2>&1 && fail 'missing publication created a guard with unknown range'
 rm -f /tmp/client-access-injected
+
+# A firmware upgrade restores the files of /etc/ikev2-manager into directories
+# it creates as 0755, and every reader of the client state refuses those.
+step 'starting client access tightens the directories a firmware upgrade loosened'
+mkdir -p /etc/ikev2-manager/upgrade-check/inner
+chmod 755 /etc/ikev2-manager/upgrade-check /etc/ikev2-manager/upgrade-check/inner
+printf 'x\n' >/etc/ikev2-manager/upgrade-check/inner/file
+chmod 644 /etc/ikev2-manager/upgrade-check/inner/file
+(
+	procd_open_instance() { :; }
+	procd_set_param() { :; }
+	procd_append_param() { :; }
+	procd_close_instance() { :; }
+	set +u
+	. /lib/functions.sh
+	. /etc/init.d/ikev2-client-access
+	start_service
+) >/dev/null 2>&1 || :
+for dir in /etc/ikev2-manager/upgrade-check /etc/ikev2-manager/upgrade-check/inner; do
+	mode="$(ls -ld "$dir" | cut -c1-10)"
+	[ "$mode" = drwx------ ] || fail "client access left $dir as $mode"
+done
+[ "$(ls -l /etc/ikev2-manager/upgrade-check/inner/file | cut -c1-10)" = -rw-r--r-- ] ||
+	fail 'client access changed the mode of a file along with the directories'
+rm -rf /etc/ikev2-manager/upgrade-check
 
 # --- teardown ---------------------------------------------------------------
 

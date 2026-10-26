@@ -282,9 +282,14 @@ $(backup_certificate_paths)
 EOF
 		case "$cert:$key" in /etc/*:/etc/*) ;; *) return 1 ;; esac
 		case "$cert$key" in *..*) return 1 ;; esac
-		mkdir -p "$backup_root_dir${cert%/*}" "$backup_root_dir${key%/*}" &&
-			cp "$dir/certificate" "$backup_root_dir$cert" &&
-			( umask 077; cp "$dir/key" "$backup_root_dir$key" ) || return 1
+		# Where ACME already links its own pair, copying would write through
+		# the links into ACME's files; the pair it renews stays.
+		if ! { [ -L "$backup_root_dir$cert" ] && [ -e "$backup_root_dir$cert" ] &&
+		   [ -L "$backup_root_dir$key" ] && [ -e "$backup_root_dir$key" ]; }; then
+			mkdir -p "$backup_root_dir${cert%/*}" "$backup_root_dir${key%/*}" &&
+				cp "$dir/certificate" "$backup_root_dir$cert" &&
+				( umask 077; cp "$dir/key" "$backup_root_dir$key" ) || return 1
+		fi
 	fi
 	if [ -s "$dir/acme.full" ]; then
 		uci -q import acme <"$dir/acme.full" && uci commit acme || return 1

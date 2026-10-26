@@ -6,6 +6,11 @@ USE_PROCD=1
 
 start_service() {
  local api_settings api_certificate api_key api_digest
+	# A firmware upgrade brings back the files of /etc/ikev2-manager but not
+	# its directories, which return as 0755; every reader below refuses them,
+	# and access stayed shut until someone changed them by hand. Only
+	# directories, and only ever tightened.
+	[ ! -d /etc/ikev2-manager ] || find /etc/ikev2-manager -type d ! -perm 700 -exec chmod 700 {} + 2>/dev/null
 	[ -f /etc/ikev2-manager/clients/initialized ] || return 0
 	[ -x /usr/libexec/ikev2-client-access ] || return 0
 	# The exit a device's services leave through is chosen by the health

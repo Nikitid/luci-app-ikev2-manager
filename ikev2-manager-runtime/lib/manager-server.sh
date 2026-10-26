@@ -210,10 +210,36 @@ certificate_is_issued_by() {
 	openssl verify -partial_chain -CAfile "$issuer" "$certificate" >/dev/null 2>&1
 }
 
+# ACME links its certificate and key into the source directory only where no
+# file is there yet. A copy put there by a restore therefore stays in place of
+# every later renewal, and the server keeps serving the restored certificate
+# until it expires. When ACME holds a valid pair for the identity, the copies
+# are replaced by ACME's links. Succeeds only when something was replaced.
+adopt_acme_certificate() {
+	local identity source state cert key dir
+	[ -z "$(getv server cert_file)$(getv server key_file)" ] || return 1
+	identity="$(getv server identity)"
+	[ -n "$identity" ] || return 1
+	source="$(getv server cert_source)"
+	cert="${source:-/etc/ssl/acme}/$identity.fullchain.crt"
+	key="${source:-/etc/ssl/acme}/$identity.key"
+	{ [ -f "$cert" ] && [ ! -L "$cert" ]; } || { [ -f "$key" ] && [ ! -L "$key" ]; } || return 1
+	state="$(uci -q get acme.@acme[0].state_dir 2>/dev/null || true)"
+	state="${state:-/etc/acme}"
+	# After a change of key type ACME issues into the other directory; the
+	# one it renewed last is the one in use.
+	dir="$(ls -t "$state/${identity}_ecc/fullchain.cer" "$state/$identity/fullchain.cer" 2>/dev/null | head -n 1)"
+	dir="${dir%/fullchain.cer}"
+	[ -n "$dir" ] && [ -s "$dir/$identity.key" ] || return 1
+	validate_server_certificate_files "$dir/fullchain.cer" "$dir/$identity.key" "$identity" || return 1
+	ln -sf "$dir/fullchain.cer" "$cert" && ln -sf "$dir/$identity.key" "$key"
+}
+
 sync_server_certificate() {
 	local identity cert_file key_file cert_source x509_dir ca_dir private_dir
 	local stage index current line chain_index pem old certificate_index
 	[ "$(getv server enabled)" = 1 ] || return 0
+	adopt_acme_certificate || :
 	identity="$(getv server identity)"
 	cert_file="$(getv server cert_file)"
 	key_file="$(getv server key_file)"

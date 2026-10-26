@@ -684,3 +684,36 @@ package: `scripts/stage-package.sh`, which builds the IPK and the OpenWrt
 scenarios' install, keeps its own file list and postinst beside the
 Makefile's. A new installed file, and a postinst change, go into both; the
 scenario that exercises the file is what notices a miss.
+
+## A firmware upgrade restores files, not directories
+
+`sysupgrade -b` archives files and links only. On the way back every directory
+is created anew as 0755, while the readers of the client state refuse any
+directory that is not 0700. After an upgrade, client access crash-looped
+with `local evidence unavailable`: the ucode helper's catch replaces the
+real error (`unsafe client views`). The other casualty was DNS: owut left
+`dnsmasq-full` out of the image because the package list said `dnsmasq`, and
+that looked like the cause of everything else. Client access now tightens the
+directories when it starts.
+
+Guarded by the client access scenario in `scripts/openwrt/scenarios.sh`.
+
+## A restored certificate hides ACME's renewals
+
+ACME's hook links `<name>.fullchain.crt` and `<name>.key` into
+`/etc/ssl/acme` only when nothing is there. A settings import copied the pair
+into those paths, and BusyBox `cp` replaces a link it copies onto with a file
+rather than writing through it. From then on every renewal succeeded, every sync ran,
+and the server went on serving the imported certificate towards its expiry.
+Nothing failed: the copy was still valid. The sync now replaces the copies
+with ACME's links when ACME holds a valid pair.
+
+Guarded by `scripts/test-server-certificate-chain.sh`.
+
+## `swanctl --load-creds` adds, it does not replace
+
+A bare `--load-creds` loads the renewed server certificate beside the one it
+replaces on disk; charon keeps both and may present either until the old one
+expires. A certificate sync reloads with `--clear`, as user changes already
+did. `swanctl --list-certs --type x509` shows two certificates for the server
+name when this has happened.

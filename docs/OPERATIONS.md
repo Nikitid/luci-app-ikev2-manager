@@ -179,6 +179,29 @@ the feature: saving the mail settings installs `msmtp` the same way. A router
 whose packages someone else manages is left alone. Progress is in
 `/tmp/ikev2-manager-deps.log`.
 
+### Firmware upgrade
+
+Attended sysupgrade (`owut` or the LuCI page) builds the image from official
+packages only, so the packages from the project feed are left out with `-r`
+and installed again after the reboot. Before flashing:
+
+1. take `sysupgrade -b` and copy it off the router;
+2. add the feed list and its key to `/etc/sysupgrade.conf`
+   (`/etc/apk/repositories.d/nikitid-openwrt.list`,
+   `/etc/apk/keys/nikitid-openwrt-release.pem`), and anything else installed
+   by hand outside the paths `sysupgrade -l` lists - files under `/opt`, for
+   example, are not kept;
+3. read `owut check --verbose`. A default package listed as provided by
+   another (`dnsmasq` by `dnsmasq-full`) can be left out of the image
+   altogether, and the router comes back without DNS; name it with
+   `-a dnsmasq-full`.
+
+After the reboot, `apk update && apk add luci-app-ikev2-manager`. Its install
+brings the runtime back, and client access tightens the directories under
+`/etc/ikev2-manager`, which a restore brings back as 0755, when it starts.
+Services enabled by hand need `/etc/init.d/<name> enable` again: the backup
+keeps their files, not the `/etc/rc.d` links.
+
 ## Diagnostics
 
 `ikev2-manager-system diagnostics` prints a text report for a bug report; the
@@ -1201,6 +1224,12 @@ openssl x509 -in /etc/swanctl/x509/ikev2.pem \
 
 The ACME hotplug hook reloads renewed credentials automatically. Certificate
 identity must match the public DNS name used by clients.
+
+ACME links the certificate and key into `/etc/ssl/acme` only where no file is
+there yet, and a settings import writes copies there. Each sync of the server
+certificate, and each package update, replaces such copies with ACME's links
+when ACME holds a valid pair for the identity; until then the server serves
+the imported certificate. `ls -l /etc/ssl/acme` shows which it is.
 
 ## Backup and recovery
 

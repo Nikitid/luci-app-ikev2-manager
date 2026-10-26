@@ -22,6 +22,7 @@ case "\$key" in
 	ikev2-manager.server.identity) echo vpn.example.test ;;
 	ikev2-manager.server.cert_source) echo "$tmp/root/etc/ssl/acme" ;;
 	ikev2-manager.server.cert_file|ikev2-manager.server.key_file) ;;
+	'acme.@acme[0].state_dir') echo "$tmp/root/etc/acme" ;;
 esac
 EOF
 chmod 755 "$tmp/bin/uci"
@@ -60,6 +61,7 @@ openssl x509 -req -days 2 -in "$tmp/leaf.csr" \
 	-extfile "$tmp/leaf.cnf" -extensions v3 -out "$tmp/leaf.crt" >/dev/null 2>&1
 cat "$tmp/leaf.crt" "$tmp/intermediate-one.crt" "$tmp/root.crt" \
 	>"$tmp/root/etc/ssl/acme/vpn.example.test.fullchain.crt"
+cp "$tmp/root/etc/ssl/acme/vpn.example.test.key" "$tmp/leaf.key"
 
 IKEV2_ROOT="$tmp/root" \
 IKEV2_UCI_BIN="$tmp/bin/uci" \
@@ -97,5 +99,49 @@ if IKEV2_ROOT="$tmp/root" \
 	exit 1
 fi
 diff -ru "$tmp/swanctl.before" "$tmp/root/etc/swanctl"
+
+# A restore left copies where ACME keeps its links; ACME has since renewed
+# into its own directory. The renewal is what the server must serve.
+cp "$tmp/leaf.key" "$tmp/root/etc/ssl/acme/vpn.example.test.key"
+acme="$tmp/root/etc/acme/vpn.example.test"
+mkdir -p "$acme"
+openssl req -new -newkey rsa:2048 -nodes -config "$tmp/leaf.cnf" \
+	-keyout "$acme/vpn.example.test.key" -out "$tmp/renewed.csr" >/dev/null 2>&1
+openssl x509 -req -days 2 -in "$tmp/renewed.csr" \
+	-CA "$tmp/intermediate-one.crt" -CAkey "$tmp/intermediate-one.key" -CAcreateserial \
+	-extfile "$tmp/leaf.cnf" -extensions v3 -out "$tmp/renewed.crt" >/dev/null 2>&1
+cat "$tmp/renewed.crt" "$tmp/intermediate-one.crt" "$tmp/root.crt" >"$acme/fullchain.cer"
+
+# An ACME pair that does not hold together is not taken over the copies.
+cp "$acme/vpn.example.test.key" "$tmp/renewed.key"
+cp "$tmp/leaf.key" "$acme/vpn.example.test.key"
+IKEV2_ROOT="$tmp/root" \
+IKEV2_UCI_BIN="$tmp/bin/uci" \
+IKEV2_RUNTIME_LIB_DIR="$tmp/root/usr/libexec/ikev2-manager.d" \
+	sh "$root/luci-ikev2-manager/ikev2-manager.sh" server-cert-sync >/dev/null
+[ ! -L "$tmp/root/etc/ssl/acme/vpn.example.test.fullchain.crt" ] || {
+	printf 'a mismatched ACME pair replaced the restored certificate\n' >&2
+	exit 1
+}
+cmp -s "$tmp/leaf.crt" "$tmp/root/etc/swanctl/x509/ikev2.pem" || {
+	printf 'a mismatched ACME pair changed the served certificate\n' >&2
+	exit 1
+}
+
+cp "$tmp/renewed.key" "$acme/vpn.example.test.key"
+IKEV2_ROOT="$tmp/root" \
+IKEV2_UCI_BIN="$tmp/bin/uci" \
+IKEV2_RUNTIME_LIB_DIR="$tmp/root/usr/libexec/ikev2-manager.d" \
+	sh "$root/luci-ikev2-manager/ikev2-manager.sh" server-cert-sync >/dev/null
+cmp -s "$tmp/renewed.crt" "$tmp/root/etc/swanctl/x509/ikev2.pem" || {
+	printf 'the server still serves the restored certificate after an ACME renewal\n' >&2
+	exit 1
+}
+for file in vpn.example.test.fullchain.crt vpn.example.test.key; do
+	[ -L "$tmp/root/etc/ssl/acme/$file" ] || {
+		printf '%s is still a copy, so the next renewal would be missed again\n' "$file" >&2
+		exit 1
+	}
+done
 
 printf 'server certificate chain tests OK\n'

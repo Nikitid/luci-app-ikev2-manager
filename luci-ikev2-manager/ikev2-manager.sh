@@ -2221,11 +2221,19 @@ case "${1:-}" in
 		[ "$(getv server enabled)" = 1 ] || exit 0
 		sync_server_certificate
 		if [ -z "$root" ]; then
-			swanctl_quiet --load-creds >/dev/null || die 'server-cert-sync: credential reload failed'
+			# A bare load adds the new certificate beside the old one, and
+			# charon may go on presenting the old one until it expires.
+			reload_credentials || die 'server-cert-sync: credential reload failed'
 		fi
 		printf 'server-cert-synced=1\n'
 		;;
 	_upgrade-server-profile)
+		# A router whose restored certificate hides ACME's renewals serves the
+		# renewed one from the next package update on, not from the next renewal.
+		if [ "$(getv server enabled)" = 1 ] && adopt_acme_certificate; then
+			sync_server_certificate
+			[ -n "$root" ] || reload_credentials || :
+		fi
 		upgrade_server_profile
 		;;
 	advanced-mode)
