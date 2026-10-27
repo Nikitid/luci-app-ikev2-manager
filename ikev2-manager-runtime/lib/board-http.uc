@@ -329,7 +329,7 @@ global.handle_request = function(env) {
 		return services ? send('200 OK', 'application/json', services) : send_json('200 OK', { updated: time(), tunnel: false, services: [], own: [] });
 	}
 	// A service's icon as the router fetched it from the service's own site.
-	let icon = match(path, /^\/board\/icon\/([a-z0-9_.-]{1,64})$/);
+	let icon = length(path) <= 76 ? match(path, /^\/board\/icon\/([a-z0-9_.-]+)$/) : null;
 	if (env.REQUEST_METHOD == 'GET' && icon) {
 		for (let kind, type in icon_types) {
 			let data = readfile(sprintf('%s/%s.%s', icons_dir, icon[1], kind), 65536);
