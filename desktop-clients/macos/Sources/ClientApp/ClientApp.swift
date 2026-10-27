@@ -554,6 +554,8 @@ struct OwnAddressesView: View {
         }
         Text("Добавлено \(items.count) из \(own.limit) · порты \(own.ports.map(String.init).joined(separator: ", ")) · без туннеля идут напрямую")
             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text("Если сайт уже был открыт, браузеру может понадобиться до минуты, чтобы пойти к нему через туннель.")
+            .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
     }
 }
 

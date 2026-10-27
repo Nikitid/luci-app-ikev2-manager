@@ -192,7 +192,8 @@ namespace IkeV2Manager.Client
                 p.OwnItems = view.Own.Domains.Concat(view.Own.Networks).ToArray();
                 p.OwnCanAdd = !view.Own.Pending && p.OwnItems.Length < view.Own.Limit;
                 p.OwnLine = "Добавлено " + p.OwnItems.Length + " из " + view.Own.Limit + " · порты " + String.Join(", ", view.Own.Ports) +
-                    " · без туннеля идут напрямую" + (view.Own.Pending ? " · отправляется на сервер" : "");
+                    " · без туннеля идут напрямую" + (view.Own.Pending ? " · отправляется на сервер" : "") +
+                    ". Если сайт уже был открыт, браузеру может понадобиться до минуты.";
                 p.OwnProblem = view.Own.Answer == "refused" ? "Сервер не принял список: нужен публичный сайт или адрес, не частная сеть." :
                     view.Own.Answer == "not_allowed" ? "Добавлять свои адреса больше не разрешено." :
                     view.Own.Answer == "too_often" ? "Слишком много изменений за сутки. Попробуйте завтра." : "";

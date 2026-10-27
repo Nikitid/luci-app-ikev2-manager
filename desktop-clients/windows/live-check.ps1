@@ -7,6 +7,14 @@ param([Parameter(Mandatory)] [string]$Files, [string]$Base)
 # optional service, and the right to two addresses of its own.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# The addresses a site sees are measured on the system's own routes: a proxy
+# set for this Windows would answer for every request alike.
+$systemProxy = [System.Net.WebRequest]::DefaultWebProxy
+[System.Net.WebRequest]::DefaultWebProxy = $null
+# .NET keeps a host's address for two minutes after the first request: the
+# site asked for directly would be asked for at that address again, around
+# the tunnel, after Waypoint has taken it.
+[System.Net.ServicePointManager]::DnsRefreshTimeout = 0
 if ($Base) {
     New-Item -ItemType Directory -Force $Files | Out-Null
     $index = Join-Path $Files 'index.txt'
@@ -96,6 +104,17 @@ Check ((Send @{ version = 1; operation = 'own'; domains = @('ifconfig.me'); netw
 Check (Until { $s = Status; -not $s.Own.Pending -and $s.Own.Answer -eq '' -and @($s.Own.Domains) -contains 'ifconfig.me' } 120) 'the router keeps it for this device'
 Check (Until { (Managed) -match '(?m)^\s*\d+\.\d+\.\d+\.\d+\s+ifconfig\.me\s*$' } 120) 'it is reached through the tunnel'
 $through = (Invoke-WebRequest -UseBasicParsing -DisableKeepAlive -TimeoutSec 20 'https://ifconfig.me/ip').Content.Trim()
+if ($through -eq $direct) {
+    # How the name and its address went, to tell a name answered around the
+    # tunnel from a tunnel that did not carry it.
+    $virtual = [regex]::Match((Managed), '(?m)^\s*(\d+\.\d+\.\d+\.\d+)\s+ifconfig\.me\s*$').Groups[1].Value
+    Write-Host "  hosts: ifconfig.me -> $virtual"
+    Write-Host ('  system proxy for the site: ' + $(if ($systemProxy) { $systemProxy.GetProxy([uri]'https://ifconfig.me/') } else { 'none' }))
+    Write-Host ('  warnings: ' + ((Status).Warnings -join ', '))
+    Write-Host ('  resolved: ' + ((Resolve-DnsName ifconfig.me -ErrorAction SilentlyContinue | Where-Object IPAddress | ForEach-Object IPAddress) -join ', '))
+    Write-Host ('  route: ' + ((Find-NetRoute -RemoteIPAddress $virtual -ErrorAction SilentlyContinue | Where-Object InterfaceAlias | Select-Object -First 1 | ForEach-Object { $_.InterfaceAlias + ' ' + $_.DestinationPrefix }) -join ''))
+    Write-Host ('  connections: ' + ((Get-NetTCPConnection -RemotePort 443 -ErrorAction SilentlyContinue | ForEach-Object RemoteAddress | Sort-Object -Unique) -join ', '))
+}
 Check ($through -ne $direct -and $through -match '^\d+\.\d+\.\d+\.\d+$') "the site sees the router's exit ($through), not this network ($direct)"
 
 Check ((Send @{ version = 1; operation = 'disconnect' }) -eq 'accepted') 'disconnecting is asked for'
