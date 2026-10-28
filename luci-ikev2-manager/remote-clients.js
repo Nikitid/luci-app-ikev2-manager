@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require ui';
-'require ikev2-manager.shared-v21 as common';
+'require ikev2-manager.shared-v22 as common';
 'require ikev2-manager.users-panel-v7 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
@@ -584,7 +584,8 @@ function pageStyles() {
   '.ikev2-page .ikev2-people-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: .6rem; flex-wrap: nowrap; white-space: nowrap; } .ikev2-page .ikev2-people-actions .cbi-button { margin: 0; height: 2.4rem; display: inline-flex; align-items: center; } @media (max-width: 700px) { .ikev2-page .ikev2-people-actions { flex-wrap: wrap; } }' +
   '.ikev2-page .ikev2-active-links { width: 100%; table-layout: fixed; } .ikev2-page .ikev2-active-links .td, .ikev2-page .ikev2-active-links .th { overflow-wrap: anywhere; white-space: normal; } .ikev2-page .ikev2-active-links .th:last-child { width: 44%; } .ikev2-page .ikev2-link-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: flex-end; } .ikev2-page .ikev2-link-actions .cbi-button { margin: 0; } .ikev2-page .ikev2-link-cell > .ikev2-result { display: flex; max-width: 100%; margin-top: .5rem; } @media (max-width: 600px) { .ikev2-page .ikev2-active-links .th:last-child { width: 48%; } }' +
   '.ikev2-page .ikev2-report { width: 100%; box-sizing: border-box; margin-top: .5rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; line-height: 1.35; white-space: pre; resize: vertical; }' +
-  '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
+  '.ikev2-page .ikev2-person { display: grid; gap: .75rem; padding: .9rem 1rem; border-top: 1px solid var(--ikev2-border); }' +
+  '.ikev2-page .ikev2-user-list:has(> .ikev2-person) { gap: 0; border-bottom: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem 1rem; }' +
   '.ikev2-page .ikev2-device { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem .9rem; }' +
   '.ikev2-page .ikev2-person-head .ikev2-user-actions { flex-wrap: nowrap; gap: .25rem; } .ikev2-page .ikev2-person-head .ikev2-settle { margin-left: .55rem; position: relative; } .ikev2-page .ikev2-person-head .ikev2-settle::before { content: ""; position: absolute; left: -.45rem; top: 15%; height: 70%; border-left: 1px solid var(--ikev2-border); }' +
@@ -609,12 +610,12 @@ function pageStyles() {
   '.ikev2-page .ikev2-checks input { margin: 0; flex: none; }' +
   '.ikev2-page .ikev2-checks span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }' +
   '.ikev2-page .ikev2-section > .ikev2-windows-app { margin-top: 1.1rem; margin-bottom: 0; }' +
-  '.ikev2-page .ikev2-person-profiles { display: grid; gap: .5rem; } .ikev2-page .ikev2-person-profiles:empty { display: none; }' +
+  '.ikev2-page .ikev2-person-profiles { display: grid; gap: 0; } .ikev2-page .ikev2-person-profiles:empty { display: none; }' +
   '.ikev2-page .ikev2-user-list:empty { display: none; }' +
   '.ikev2-page .ikev2-row-signs { flex-wrap: nowrap; gap: .25rem; justify-content: flex-end; } .ikev2-page .ikev2-row-signs .ikev2-platform-action { border-color: transparent; background-color: transparent; box-shadow: none; }' +
   '.ikev2-page .ikev2-row-signs > .ikev2-settle { margin-left: .55rem; position: relative; } .ikev2-page .ikev2-row-signs > .ikev2-settle::before { content: ""; position: absolute; left: -.45rem; top: 15%; height: 70%; border-left: 1px solid var(--ikev2-border); }' +
   // Waypoint devices on a faint green, ordinary profiles on a faint blue: told apart at a glance.
-  '.ikev2-page .ikev2-device { padding: .45rem .7rem; border-radius: var(--ikev2-radius-sm); background: color-mix(in srgb, var(--ikev2-good) 9%, transparent); }' +
+  '.ikev2-page .ikev2-device { padding: .5rem .25rem; } .ikev2-page .ikev2-device + .ikev2-device { border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person.is-open .ikev2-person-body { padding-left: .5rem; }' +
   // The same order of signs in every row: what the row offers, then a line, then settings and removal.
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions { flex-wrap: nowrap; gap: .25rem; }' +
@@ -624,12 +625,12 @@ function pageStyles() {
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions > button:nth-of-type(2)::before, .ikev2-page .ikev2-device .ikev2-user-actions > .ikev2-settle::before { content: ""; position: absolute; left: -.45rem; top: 15%; height: 70%; border-left: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions > button:nth-of-type(4), .ikev2-page .ikev2-device .ikev2-user-actions > .cbi-button-remove { order: 5; }' +
   '.ikev2-page .ikev2-device .ikev2-user-actions { flex-wrap: nowrap; gap: .25rem; } .ikev2-page .ikev2-mode { padding-right: 0; border-right: 0; }' +
-  '.ikev2-page .ikev2-person { gap: 0; padding: .7rem 1rem; }' +
+  '.ikev2-page .ikev2-person { gap: 0; padding: .75rem .25rem; }' +
   '.ikev2-page .ikev2-person-body { display: none; padding-top: .7rem; margin-top: .7rem; border-top: 1px solid var(--ikev2-border); }' +
   '.ikev2-page .ikev2-person.is-open .ikev2-person-body { display: grid; gap: .55rem; padding-left: 1.15rem; }' +
-  '.ikev2-page .ikev2-dot, .ikev2-page .ikev2-person-profiles .ikev2-user-name::before { content: ""; display: inline-block; width: .55rem; height: .55rem; margin-right: .5rem; border-radius: 50%; background: var(--ikev2-muted); opacity: .55; vertical-align: .05em; }' +
-  '.ikev2-page .ikev2-dot.good, .ikev2-page .ikev2-person-profiles .ikev2-user-card:has(.ikev2-user-identity .ikev2-pill.good) .ikev2-user-name::before { background: var(--ikev2-good); opacity: 1; }' +
-  '.ikev2-page .ikev2-dot.warn { background: var(--ikev2-warn); opacity: 1; } .ikev2-page .ikev2-dot.info { background: var(--ikev2-info); opacity: 1; }' +
+  '.ikev2-page .ikev2-dot, .ikev2-page .ikev2-person-profiles .ikev2-user-name::before { content: ""; display: inline-block; width: .45rem; height: .45rem; margin-right: .5rem; border-radius: 50%; background: var(--ikev2-muted); opacity: .4; vertical-align: .05em; }' +
+  '.ikev2-page .ikev2-dot.good, .ikev2-page .ikev2-person-profiles .ikev2-user-card:has(.ikev2-user-identity .ikev2-pill.good) .ikev2-user-name::before { background: var(--ikev2-text); opacity: .8; }' +
+  '.ikev2-page .ikev2-dot.warn { background: var(--ikev2-warn); opacity: 1; } .ikev2-page .ikev2-dot.info { background: var(--ikev2-muted); opacity: .8; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-identity .ikev2-pill { display: none; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-name { margin-bottom: 0; }' +
   '.ikev2-page .ikev2-device .ikev2-session-address { margin-bottom: .1rem; }' +
@@ -637,29 +638,29 @@ function pageStyles() {
   '.ikev2-page .ikev2-person-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; min-width: 0; cursor: pointer; }' +
   '.ikev2-page .ikev2-person-toggle::before { content: ""; width: .45rem; height: .45rem; border-right: 2px solid var(--ikev2-muted); border-bottom: 2px solid var(--ikev2-muted); transform: rotate(-45deg); transition: transform .12s; }' +
   '.ikev2-page .ikev2-person.is-open .ikev2-person-toggle::before { transform: rotate(45deg); }' +
-  '.ikev2-page .ikev2-person-profiles .ikev2-user-card { grid-template-columns: minmax(0, 1fr) auto; gap: .6rem .8rem; padding: .45rem .7rem; border: 0; border-radius: var(--ikev2-radius-sm); background: color-mix(in srgb, var(--ikev2-info) 10%, transparent); }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-card { grid-template-columns: minmax(0, 1fr) auto; gap: .6rem .8rem; padding: .5rem .25rem; border: 0; border-top: 1px solid var(--ikev2-border); border-radius: 0; background: transparent; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-avatar { display: none; }' +
   // The middle column lists sessions; without one it only says so, which a row does not need.
   '.ikev2-page .ikev2-person-profiles .ikev2-user-card > :nth-child(2):not(:has(.ikev2-session)) { display: none !important; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-card:has(.ikev2-session) { grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr) auto; }' +
-  '.ikev2-page .ikev2-person-profiles .ikev2-user-name { margin-bottom: .2rem; font-weight: 500; }' +
+  '.ikev2-page .ikev2-person-profiles .ikev2-user-name { margin-bottom: .2rem; font-weight: 480; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions .cbi-button { border-color: transparent; background: transparent; box-shadow: none; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions .cbi-button:hover { border-color: var(--ikev2-border); }' +
-  '.ikev2-page details.ikev2-fold > summary { cursor: pointer; font-weight: 500; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); margin: var(--ikev2-s4) 0; } .ikev2-page details.ikev2-fold[open] > summary { margin-bottom: 0; }' +
+  '.ikev2-page details.ikev2-fold > summary { cursor: pointer; font-weight: 480; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); margin: var(--ikev2-s4) 0; } .ikev2-page details.ikev2-fold[open] > summary { margin-bottom: 0; }' +
   '.ikev2-page .ikev2-people-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; margin-bottom: .9rem; }' +
   '.ikev2-page .ikev2-search-box { position: relative; flex: 0 1 20rem; min-width: 0; max-width: 100%; }' +
   '.ikev2-page .ikev2-people-bar > :first-child { min-width: 0; }' +
   '.ikev2-page .ikev2-search-box .ikev2-icon { position: absolute; left: .7rem; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%); color: var(--ikev2-muted); pointer-events: none; }' +
-  '.ikev2-page .ikev2-search-box input.ikev2-search { box-sizing: border-box; width: 100%; min-width: 0; height: 2.25rem; margin: 0; padding: 0 .8rem 0 2.1rem; border: 1px solid var(--ikev2-border); border-radius: 999px; background: var(--ikev2-surface-2); background-image: none; color: inherit; font: inherit; box-shadow: none; outline: none; -webkit-appearance: none; appearance: none; }' +
+  '.ikev2-page .ikev2-search-box input.ikev2-search { box-sizing: border-box; width: 100%; min-width: 0; height: 2.25rem; margin: 0; padding: 0 .8rem 0 2.1rem; border: 1px solid var(--ikev2-border-strong); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface); background-image: none; color: inherit; font: inherit; box-shadow: none; outline: none; -webkit-appearance: none; appearance: none; }' +
   '.ikev2-page .ikev2-search-box .ikev2-icon { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 0; }' +
   '.ikev2-page .ikev2-search-box input.ikev2-search:focus { border-color: var(--ikev2-accent); }' +
   '.ikev2-page .ikev2-search-box input.ikev2-search::placeholder { color: var(--ikev2-muted); }' +
   '.ikev2-page .ikev2-offer { display: grid; gap: .45rem; }',
   '.ikev2-page .ikev2-offer-row { display: grid; grid-template-columns: minmax(9rem, 1fr) auto minmax(12rem, auto) auto; gap: .6rem; align-items: center; padding: .45rem .6rem; border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); }' +
   '.ikev2-page .ikev2-offer-row .cbi-input-select { margin: 0; } .ikev2-page .ikev2-offer-row .ikev2-platform-action { border-color: transparent; background: transparent; box-shadow: none; }' +
-  '.ikev2-page .ikev2-segmented { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--ikev2-border); border-radius: 999px; background: var(--ikev2-surface-2); flex-wrap: wrap; }' +
-  '.ikev2-page .ikev2-segmented button { margin: 0; padding: .3rem .8rem; border: 0; border-radius: 999px; background: transparent; color: var(--ikev2-muted); font: inherit; font-size: .85rem; cursor: pointer; white-space: nowrap; }' +
-  '.ikev2-page .ikev2-segmented button.is-on { background: var(--ikev2-accent); color: #fff; }' +
+  '.ikev2-page .ikev2-segmented { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius-sm); background: var(--ikev2-surface-2); flex-wrap: wrap; }' +
+  '.ikev2-page .ikev2-segmented button { margin: 0; padding: .3rem .8rem; border: 0; border-radius: 3px; background: transparent; color: var(--ikev2-muted); font: inherit; font-size: .85rem; font-weight: 450; cursor: pointer; white-space: nowrap; }' +
+  '.ikev2-page .ikev2-segmented button.is-on { background: var(--ikev2-accent-soft); color: var(--ikev2-accent-text); box-shadow: inset 0 0 0 1px var(--ikev2-accent); }' +
   '.ikev2-page .ikev2-offer-row .ikev2-segmented button { padding: .2rem .65rem; font-size: .8rem; }' +
   '.ikev2-page .ikev2-offer-head { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; margin-top: .4rem; }' +
   '.ikev2-page .ikev2-offer-body { display: grid; gap: .6rem; margin-top: .7rem; }' +

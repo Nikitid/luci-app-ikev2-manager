@@ -148,7 +148,6 @@ public sealed partial class MainWindow : Window
         current = view;
         var p = shown = ClientPresentation.Of(view, Own, self, told);
         var brush = new SolidColorBrush(Shade(p.Tone));
-        Halo.Fill = brush;
         Sign.Glyph = Glyph(p.Tone);
         Sign.Foreground = brush;
         Heading.Text = p.Heading;
@@ -224,7 +223,7 @@ public sealed partial class MainWindow : Window
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            words.Children.Add(new TextBlock { Text = service.Label, Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"] });
+            words.Children.Add(new TextBlock { Text = service.Label, Style = (Style)Application.Current.Resources["Emphasis"] });
             words.Children.Add(new TextBlock { Text = service.Note, Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
                 Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
             row.Children.Add(words);

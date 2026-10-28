@@ -5886,17 +5886,23 @@ msgstr "Найти сервис или проверить сайт"
 msgid "Other sites"
 msgstr "Другие сайты"
 
-msgid "Works"
-msgstr "Работает"
-
-msgid "All services work"
-msgstr "Все сервисы работают"
+msgid "All work"
+msgstr "Работают все"
 
 msgid "The tunnel is down: services are unavailable"
 msgstr "Туннель недоступен: сервисы не работают"
 
-msgid "%d of %d services work"
-msgstr "Работают %d из %d сервисов"
+msgid "Not answering: %s"
+msgstr "Не отвечают: %s"
+
+msgid "the rest work"
+msgstr "остальные работают"
+
+msgid "No fresh data"
+msgstr "Нет свежих данных"
+
+msgid "last data %s"
+msgstr "последние данные %s"
 
 msgid "goes through the tunnel as"
 msgstr "идёт через туннель в составе"
@@ -5919,8 +5925,14 @@ msgstr "Не открывается"
 msgid "Ask to add it"
 msgstr "Попросить добавить"
 
-msgid "Updated %d"
-msgstr "Обновлено %d"
+msgid "just now"
+msgstr "только что"
+
+msgid "%d min ago"
+msgstr "%d мин назад"
+
+msgid "%d h ago"
+msgstr "%d ч назад"
 
 msgid "Say what you tried to open and what happened. The request is kept on this router and its status is shown below."
 msgstr "Напишите, что пытались открыть и что произошло. Заявка хранится на этом роутере, её статус виден ниже."

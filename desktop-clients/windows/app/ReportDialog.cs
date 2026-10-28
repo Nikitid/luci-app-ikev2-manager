@@ -129,7 +129,7 @@ sealed class ReportDialog
 
         return new StackPanel { Spacing = 10, Children = {
             report, save,
-            new TextBlock { Text = "Написать разработчику", Style = Resource("BodyStrongTextBlockStyle"), Margin = new Thickness(0, 8, 0, 0) },
+            new TextBlock { Text = "Написать разработчику", Style = Resource("Emphasis"), Margin = new Thickness(0, 8, 0, 0) },
             kind,
             description,
             new TextBlock { Text = "Скриншот можно вставить через Ctrl+V в поле выше.", Style = Resource("CaptionTextBlockStyle"), Foreground = Soft },
@@ -183,7 +183,7 @@ sealed class ReportDialog
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.Children.Add(back);
-        var title = new TextBlock { Text = ReportKinds.Label(report.Kind) + " · " + report.Title, Style = Resource("BodyStrongTextBlockStyle"),
+        var title = new TextBlock { Text = ReportKinds.Label(report.Kind) + " · " + report.Title, Style = Resource("Emphasis"),
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(title, 1);
         header.Children.Add(title);

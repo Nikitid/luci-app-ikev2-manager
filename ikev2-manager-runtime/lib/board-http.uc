@@ -11,6 +11,7 @@ const services_file = '/var/run/ikev2-board/services.json';
 const limit_dir = '/var/run/ikev2-board/limits';
 const refresh_stamp = '/var/run/ikev2-board/refresh';
 const icons_dir = '/var/run/ikev2-board/icons';
+const fonts_dir = '/www/luci-static/resources/ikev2-manager/fonts';
 const icon_types = { png: 'image/png', ico: 'image/x-icon', jpg: 'image/jpeg', gif: 'image/gif' };
 const max_body = 8 * 1024 * 1024, max_pictures = 3, max_picture = 2 * 1024 * 1024, max_kept = 200;
 
@@ -138,67 +139,73 @@ function submit(env) {
 
 // The look of the page: light and dark from the system; on a wide screen the
 // services on the left and asking for help on the right, one column on a
-// phone. Warm paper and soft graphite, one quiet cool accent, thin headings,
-// cards with quiet borders. No gradients and no capitals for emphasis.
+// phone. Warm paper by day and graphite at night, one patina accent, a thin
+// large heading over denser text, cards held by a hairline edge rather than a
+// shadow. The typeface is Onest, served by the router itself.
 const style = `
-:root{color-scheme:light dark;--bg:#f7f6f2;--surface:#fffefa;--raised:#fafaf7;--line:#dfe2da;--text:#30382f;--muted:#697266;--faint:#8a9187;--accent:#5d6d94;--accent-soft:#e3e7ef;--ok:#5d7356;--ok-soft:#e5ebe1;--bad:#a2524c;--bad-soft:#f3e3e0;--warn:#8f6b2e;--warn-soft:#f2eadb;--shadow:0 1px 2px #2934290d,0 8px 24px #2934290a}
-@media (prefers-color-scheme:dark){:root{--bg:#232524;--surface:#2e302f;--raised:#353836;--line:#404341;--text:#e5e6e5;--muted:#adb0ad;--faint:#8f938f;--accent:#a9b4c9;--accent-soft:#363c46;--ok:#a9b4a3;--ok-soft:#323832;--bad:#d9a19b;--bad-soft:#40302e;--warn:#d6bb86;--warn-soft:#3d3628;--shadow:0 1px 2px #0000002e,0 8px 24px #0000001f}}
+@font-face{font-family:Onest;font-style:normal;font-weight:100 900;font-display:swap;src:url(/board/font/onest-cyrillic.woff2) format('woff2');unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:Onest;font-style:normal;font-weight:100 900;font-display:swap;src:url(/board/font/onest-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+:root{color-scheme:light dark;--bg:oklch(0.962 0.006 85);--sunken:oklch(0.940 0.007 85);--surface:oklch(0.985 0.004 85);--line:oklch(0.885 0.008 85);--line-strong:oklch(0.800 0.010 85);--text:oklch(0.250 0.012 250);--text-2:oklch(0.430 0.012 250);--text-3:oklch(0.520 0.010 250);--accent:oklch(0.500 0.075 195);--accent-text:oklch(0.440 0.070 195);--accent-soft:oklch(0.930 0.020 195);--success:oklch(0.470 0.085 150);--warning:oklch(0.480 0.090 75);--danger:oklch(0.480 0.130 28);--lit:rgb(255 255 255/.75);--ease:cubic-bezier(.22,1,.36,1)}
+@media (prefers-color-scheme:dark){:root{--bg:oklch(0.225 0.005 255);--sunken:oklch(0.195 0.005 255);--surface:oklch(0.265 0.006 255);--line:oklch(0.350 0.008 255);--line-strong:oklch(0.450 0.010 255);--text:oklch(0.935 0.004 255);--text-2:oklch(0.760 0.008 255);--text-3:oklch(0.665 0.008 255);--accent:oklch(0.760 0.070 195);--accent-text:oklch(0.790 0.070 195);--accent-soft:oklch(0.320 0.032 195);--success:oklch(0.770 0.090 150);--warning:oklch(0.810 0.100 82);--danger:oklch(0.740 0.120 28);--lit:rgb(255 255 255/.055)}}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",Roboto,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-main{max-width:1120px;margin:0 auto;padding:36px 20px 56px}
-header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px 28px;margin-bottom:26px}
-h1{font-size:30px;line-height:1.2;font-weight:300;letter-spacing:-.01em;margin:0}h2{font-size:17px;font-weight:500;margin:0 0 4px}
-.sub{color:var(--muted);margin:6px 0 0;max-width:46ch}
-.state{display:inline-flex;align-items:center;gap:9px;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:14px;color:var(--muted)}
-.state b{font-weight:500;color:var(--text)}.state.ok .dot{color:var(--ok)}.state.bad .dot{color:var(--bad)}.state.warn .dot{color:var(--warn)}
-.dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none;display:inline-block}
-.layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px;align-items:start}
-aside{position:sticky;top:20px;display:flex;flex-direction:column;gap:18px}
-@media (max-width:900px){.layout{grid-template-columns:1fr}aside{position:static}}
-.search{position:relative;margin:0 0 12px}.search input{width:100%;padding:12px 14px 12px 42px;font:inherit;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:inherit}
+body{margin:0;background:var(--bg);color:var(--text);font:340 15.5px/1.55 Onest,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+b{font-weight:480}
+main{max-width:1160px;margin:0 auto;padding:56px 24px 72px}
+header{margin-bottom:40px}
+h1{font-size:clamp(40px,6vw,60px);line-height:1.04;font-weight:200;letter-spacing:-.025em;margin:0}
+h2{font-size:28px;line-height:1.1;font-weight:200;letter-spacing:-.015em;margin:0 0 10px}
+.rule{height:1px;background:var(--line);margin:18px 0 10px}.rule.bad{background:color-mix(in srgb,var(--danger) 55%,transparent)}
+.status{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 24px;font-size:12.5px;font-weight:400;color:var(--text-3);font-variant-numeric:tabular-nums}
+.status #state{color:var(--text-2)}.status .bad{color:var(--danger)}.status #state.warn{color:var(--warning)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:40px;align-items:start}
+aside{position:sticky;top:24px;display:flex;flex-direction:column;gap:24px}
+@media (max-width:900px){.layout{grid-template-columns:1fr}aside{position:static}main{padding:32px 16px 56px}header{margin-bottom:28px}}
+.search{position:relative;margin:0 0 16px}.search input{width:100%;padding:12px 14px 12px 42px;font:inherit;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface);color:inherit}
+.search input::placeholder{color:var(--text-3)}
 .search input:focus,.field input:focus,.field textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
-.search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--faint)}
-.hint{min-height:22px;margin:0 0 12px;color:var(--muted);font-size:14px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}.hint b{color:var(--text);font-weight:500}
-.group{margin:0 0 8px;color:var(--faint);font-size:13px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
-.svc{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);min-width:0;transition:border-color .15s}
-.svc:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--text-3)}
+.hint:empty{display:none}.hint{min-height:22px;margin:0 0 14px;color:var(--text-2);font-size:14px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}.hint b{color:var(--text)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.svc{background:var(--surface);border-radius:8px;box-shadow:0 0 0 1px var(--line),inset 0 1px 0 var(--lit);min-width:0;transition:box-shadow 140ms var(--ease)}
+.svc:hover{box-shadow:0 0 0 1px var(--line-strong),inset 0 1px 0 var(--lit)}
 .svc.open{grid-column:1/-1}
-.top{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;cursor:pointer;background:none;border:0;color:inherit;font:inherit;text-align:left;border-radius:14px}
+.top{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;cursor:pointer;background:none;border:0;color:inherit;font:inherit;text-align:left;border-radius:8px}
 .top:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-.mark{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--raised);border:1px solid var(--line);overflow:hidden;font-weight:500;font-size:14px;color:var(--muted)}
-.mark img{width:26px;height:26px;object-fit:contain}
-.name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.meta{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px}.meta .dot{width:7px;height:7px}
-.up{color:var(--ok)}.down{color:var(--bad)}
-.more{padding:0 14px 14px;display:flex;flex-direction:column;gap:12px}
+.mark{width:36px;height:36px;border-radius:5px;display:grid;place-items:center;flex:none;background:var(--sunken);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden;font-weight:450;font-size:13px;color:var(--text-2)}
+.mark img{width:24px;height:24px;object-fit:contain}
+.name{font-weight:480;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{color:var(--text-3);font-size:13px;font-weight:400;font-variant-numeric:tabular-nums}
+.down{color:var(--danger)}
+.more{padding:2px 14px 14px;display:flex;flex-direction:column;gap:12px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;max-height:220px;overflow:auto}
-.chip{font-size:13px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}.chip.hit{border-color:var(--accent);color:var(--accent)}
-.outline{font:inherit;font-size:14px;padding:7px 13px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--accent);cursor:pointer}
-.outline:hover{border-color:var(--accent)}.outline:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.empty{color:var(--muted);padding:28px;text-align:center;grid-column:1/-1;border:1px dashed var(--line);border-radius:14px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow)}
-.lead{color:var(--muted);margin:0 0 14px;font-size:14px}
-.form{display:grid;gap:12px}
+.chip{font-size:13px;font-weight:400;padding:2px 10px;border-radius:999px;border:1px solid var(--line);color:var(--text-2)}.chip.hit{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
+.outline{font:inherit;font-size:14px;font-weight:450;padding:7px 14px;border-radius:5px;border:1px solid var(--line-strong);background:transparent;color:var(--text);cursor:pointer;transition:background-color 140ms var(--ease),border-color 140ms var(--ease)}
+.outline:hover{background:var(--accent-soft);border-color:var(--accent)}.outline:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.empty{color:var(--text-2);padding:28px 0;grid-column:1/-1}
+.card{background:var(--surface);border-radius:8px;padding:22px;box-shadow:0 0 0 1px var(--line),inset 0 1px 0 var(--lit)}
+.lead{color:var(--text-2);margin:0 0 18px;font-size:14px}
+.form{display:grid;gap:10px}
 .field{position:relative}
-.field input,.field textarea{width:100%;font:inherit;padding:18px 12px 7px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:inherit}
-.field textarea{min-height:104px;resize:vertical;padding-top:22px}
-.field label{position:absolute;left:12px;top:13px;color:var(--faint);font-size:14px;pointer-events:none;transition:all .15s}
-.field input:focus+label,.field input:not(:placeholder-shown)+label,.field textarea:focus+label,.field textarea:not(:placeholder-shown)+label{top:5px;font-size:11.5px;color:var(--muted)}
-.drop{border:1px dashed var(--line);border-radius:10px;padding:12px;color:var(--muted);font-size:13px;text-align:center;cursor:pointer}
-.drop.over{border-color:var(--accent);color:var(--accent)}
-.shots{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.shots:not(:empty){margin-top:10px}.shots img{height:60px;border-radius:8px;border:1px solid var(--line);cursor:pointer}
-.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-button.send{font:inherit;font-weight:500;padding:9px 16px;border-radius:10px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer}
-button.send:hover{background:var(--accent-soft)}button:disabled{opacity:.55;cursor:default}
-.msg{font-size:14px}.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
-.reqs{display:flex;flex-direction:column}.req{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}.req:first-child{border-top:0;padding-top:0}
-.req .what{font-weight:500}.req .note{color:var(--muted);font-size:14px}.req time{color:var(--faint);font-size:12.5px;display:block}
-.pill{font-size:12px;padding:2px 9px;border-radius:999px;white-space:nowrap;border:1px solid var(--line);color:var(--muted)}
-.pill.new{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.pill.working{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}.pill.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
-.none{color:var(--muted);font-size:14px}
-footer{color:var(--faint);font-size:12.5px;margin-top:30px;text-align:center}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+.field input,.field textarea{width:100%;font:inherit;padding:19px 12px 6px;border:1px solid var(--line-strong);border-radius:5px;background:var(--bg);color:inherit}
+.field textarea{min-height:104px;resize:vertical;padding-top:23px}
+.field label{position:absolute;left:12px;top:13px;color:var(--text-3);font-size:15px;pointer-events:none;transform-origin:0 0;transition:transform 140ms var(--ease),color 140ms var(--ease)}
+.field input:focus+label,.field input:not(:placeholder-shown)+label,.field textarea:focus+label,.field textarea:not(:placeholder-shown)+label{transform:translateY(-8px) scale(.78);color:var(--text-2)}
+.drop{border:1px dashed var(--line-strong);border-radius:5px;padding:12px;color:var(--text-3);font-size:13px;font-weight:400;cursor:pointer}
+.drop.over{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
+.drop:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.shots{display:flex;gap:8px;flex-wrap:wrap}.shots:not(:empty){margin-top:10px}.shots img{height:60px;border-radius:5px;box-shadow:0 0 0 1px var(--line);cursor:pointer}
+.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px}
+button.send{font:inherit;font-weight:480;padding:9px 18px;border-radius:5px;border:1.5px solid var(--accent);background:transparent;color:var(--accent-text);cursor:pointer;transition:background-color 140ms var(--ease)}
+button.send:hover{background:var(--accent-soft)}button.send:focus-visible{outline:2px solid var(--accent);outline-offset:2px}button:disabled{opacity:.55;cursor:default}
+.msg{font-size:14px}.msg.ok{color:var(--success)}.msg.bad{color:var(--danger)}
+.reqs{display:flex;flex-direction:column}.req{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)}.req:first-child{border-top:0;padding-top:2px}
+.req .what{font-weight:480}.req .note{color:var(--text-2);font-size:14px}.req time{color:var(--text-3);font-size:12.5px;font-weight:400;display:block;font-variant-numeric:tabular-nums}
+.pill{font-size:12.5px;font-weight:450;padding:1px 10px;border-radius:999px;white-space:nowrap;border:1px solid var(--line);color:var(--text-2)}
+.pill.new{color:var(--warning);border-color:currentColor}.pill.working{color:var(--accent-text);background:var(--accent-soft);border-color:var(--accent)}.pill.done{color:var(--success);border-color:currentColor}
+.none{color:var(--text-3);font-size:14px}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}}
+header,.layout>section,aside>*{animation:rise 520ms var(--ease) backwards}.layout>section{animation-delay:55ms}aside>:first-child{animation-delay:110ms}aside>:last-child{animation-delay:165ms}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 `;
 
 // What the page does: the services as cards with their state, a search that
@@ -227,7 +234,7 @@ function render(){
   if(s.id!=='-own'){const img=el('img',{alt:'',decoding:'async'});img.onload=()=>{mark.textContent='';mark.append(img)};img.src='/board/icon/'+encodeURIComponent(s.id)}
   const top=el('button',{className:'top',type:'button','aria-expanded':open?'true':'false'},mark,
    el('span',{style:'min-width:0'},el('div',{className:'name',textContent:s.label}),
-    el('div',{className:'meta'},el('span',{className:'dot '+(s.up?'up':'down')}),el('span',{textContent:(s.up?T.works:T.down)+' · '+fmt(T.domains,s.domains.length)}))));
+    el('div',{className:'meta'},s.up?'':el('span',{className:'down',textContent:T.down+' · '}),fmt(T.domains,s.domains.length))));
   top.setAttribute('aria-expanded',open?'true':'false');
   top.onclick=()=>{openId=openId===s.id?null:s.id;render()};card.append(top);
   if(open){const more=el('div',{className:'more'},el('div',{className:'chips'},...(hits.length?hits.concat(s.domains.filter(d=>!hits.includes(d))):s.domains).map(d=>el('span',{className:'chip'+(hits.includes(d)?' hit':''),textContent:d}))));
@@ -241,13 +248,17 @@ function render(){
   add.onclick=()=>{$('resource').value=host;$('link').value=$('q').value.trim();$('ask').scrollIntoView({behavior:'smooth',block:'start'});$('problem').focus()};
   hint.append(el('b',{textContent:host}),' '+T.direct+' ',add)}
 }
+// The state of the page is a line of text under the heading: the norm in
+// grey on the right, and colour only when something is wrong.
+function ago(t){const m=Math.max(0,Math.round((Date.now()/1000-t)/60));return m<1?T.just_now:m<60?fmt(T.min_ago,m):fmt(T.h_ago,Math.round(m/60))}
 function state(){
- const b=$('state');b.textContent='';if(!data)return;
- const all=data.services.length,up=data.services.filter(s=>s.up).length;
- const cls=!data.tunnel?'bad':up<all?'warn':'ok';
- const text=cls==='bad'?T.all_down:cls==='warn'?T.some.replace('%d',up).replace('%d',all):T.all_up;
- b.className='state '+cls;b.append(el('span',{className:'dot'}),el('b',{textContent:text}));
- $('updated').textContent=fmt(T.updated,new Date(data.updated*1000).toLocaleString());
+ const what=$('what'),b=$('state'),rule=$('rule');what.className='';b.className='';rule.className='rule';
+ if(!data){what.textContent=T.failed_load;what.className='bad';rule.className='rule bad';b.textContent='';return}
+ const down=data.services.filter(s=>!s.up),age=ago(data.updated),old=Date.now()/1000-data.updated>900;
+ what.textContent=T.lead;b.textContent=T.all_up+' · '+age;
+ if(!data.tunnel){what.textContent=T.all_down;what.className='bad';rule.className='rule bad';b.textContent=age}
+ else if(down.length){what.textContent=T.not_answering.replace('%s',down.slice(0,3).map(s=>s.label).join(', ')+(down.length>3?' …':''));what.className='bad';rule.className='rule bad';b.textContent=(down.length<data.services.length?T.rest_work+' · ':'')+age}
+ if(old){b.textContent=T.stale+' · '+T.last_data.replace('%s',new Date(data.updated*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));b.className='warn'}
 }
 async function load(){
  data=await fetch('/board/services').then(r=>r.json()).catch(()=>null);state();render();
@@ -277,10 +288,11 @@ function page(env) {
 	let text = {
 		title: _('Network services'), lead: _('Services that go through the tunnel on this network, and whether they work now.'),
 		search: _('Find a service or check a site'), own: _('Other sites'), domains: _('%d domains'),
-		works: _('Works'), down: _('Unavailable'), all_up: _('All services work'), all_down: _('The tunnel is down: services are unavailable'),
-		some: _('%d of %d services work'), through: _('goes through the tunnel as'), direct: _('is not in the tunnel: it opens the ordinary way.'),
+		down: _('Unavailable'), all_up: _('All work'), all_down: _('The tunnel is down: services are unavailable'),
+		through: _('goes through the tunnel as'), direct: _('is not in the tunnel: it opens the ordinary way.'),
 		nothing: _('Nothing found.'), empty: _('No services yet.'), failed_load: _('The list of services could not be loaded.'),
-		ask: _('Does not open'), ask_add: _('Ask to add it'), updated: _('Updated %d'),
+		ask: _('Does not open'), ask_add: _('Ask to add it'), just_now: _('just now'), min_ago: _('%d min ago'), h_ago: _('%d h ago'),
+		not_answering: _('Not answering: %s'), rest_work: _('the rest work'), stale: _('No fresh data'), last_data: _('last data %s'),
 		request: _('Something does not open'), request_lead: _('Say what you tried to open and what happened. The request is kept on this router and its status is shown below.'),
 		name: _('Your name'), email: _('E-mail (optional)'), resource: _('Service or site'), link: _('Link'), problem: _('What does not work'),
 		pictures: _('Screenshots: paste with Ctrl+V, drop here or click to choose, up to 3'), remove: _('Click to remove'),
@@ -290,11 +302,11 @@ function page(env) {
 		new: _('New'), working: _('In progress'), done: _('Done'), rejected: _('Not ours')
 	};
 	let nonce = new_id(), lang = substr(env.HTTP_ACCEPT_LANGUAGE ?? '', 0, 2) == 'ru' ? 'ru' : 'en';
-	let search = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+	let search = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg>';
 	let field = (id, label, extra) => `<div class="field"><input id="${id}" name="${id}" placeholder=" " ${extra}><label for="${id}">${label}</label></div>`;
 	let html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${text.title}</title><style>${style}</style></head><body><main>
-<header><div><h1>${text.title}</h1><p class="sub">${text.lead}</p></div><div class="state" id="state">${_('Loading...')}</div></header>
+<header><h1>${text.title}</h1><div class="rule" id="rule"></div><div class="status"><span id="what">${text.lead}</span><span id="state">${_('Checking...')}</span></div></header>
 <div class="layout"><section>
 <div class="search">${search}<input id="q" type="search" placeholder="${text.search}" aria-label="${text.search}" autocomplete="off"></div>
 <div class="hint" id="hint"></div><div class="grid" id="services"></div></section>
@@ -307,7 +319,7 @@ ${field('link', text.link, 'maxlength="500"')}
 <div class="drop" id="drop" tabindex="0" role="button">${text.pictures}<input id="pick" type="file" accept="image/png,image/jpeg" multiple hidden><div class="shots" id="shots"></div></div>
 <div class="actions"><button class="send" type="submit">${text.send}</button><span class="msg" id="msg" role="status"></span></div></form></section>
 <section class="card"><h2>${text.requests}</h2><div class="reqs" id="requests"></div></section></aside></div>
-<footer id="updated"></footer></main>
+</main>
 <script nonce="${nonce}">const T=${sprintf('%J', text)};${script}</script></body></html>`;
 	send('200 OK', 'text/html; charset=utf-8', html,
 		`Content-Security-Policy: default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'nonce-${nonce}'\r\n`);
@@ -330,6 +342,12 @@ global.handle_request = function(env) {
 		refresh();
 		let services = readfile(services_file);
 		return services ? send('200 OK', 'application/json', services) : send_json('200 OK', { updated: time(), tunnel: false, services: [], own: [] });
+	}
+	// The page's typeface, as the router pages have it.
+	let font = length(path) <= 40 ? match(path, /^\/board\/font\/(onest-(latin|cyrillic)\.woff2)$/) : null;
+	if (env.REQUEST_METHOD == 'GET' && font) {
+		let data = readfile(fonts_dir + '/' + font[1]);
+		return data != null ? send('200 OK', 'font/woff2', data, 'Cache-Control: max-age=604800\r\n') : send_json('404 Not Found', { error: 'no_font' });
 	}
 	// A service's icon as the router fetched it from the service's own site.
 	let icon = length(path) <= 76 ? match(path, /^\/board\/icon\/([a-z0-9_.-]+)$/) : null;

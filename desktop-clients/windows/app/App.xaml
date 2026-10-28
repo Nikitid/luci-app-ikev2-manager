@@ -7,48 +7,64 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- One quiet cool accent instead of the system's, in light and in
-                 dark: the owner's own look. Controls draw it from these keys. -->
+            <!-- Patina and graphite: one patina accent in place of the system's,
+                 warm paper by day and graphite at night. The norm is said in ink,
+                 colour only when something is off. The values come from the
+                 design tokens. -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <Color x:Key="SystemAccentColor">#5D6D94</Color>
-                    <Color x:Key="SystemAccentColorLight1">#7482A6</Color>
-                    <Color x:Key="SystemAccentColorLight2">#8F9BB8</Color>
-                    <Color x:Key="SystemAccentColorLight3">#A9B4C9</Color>
-                    <Color x:Key="SystemAccentColorDark1">#4F5E83</Color>
-                    <Color x:Key="SystemAccentColorDark2">#434F6F</Color>
-                    <Color x:Key="SystemAccentColorDark3">#36405A</Color>
-                    <Color x:Key="ToneOpen">#5D7F56</Color>
-                    <Color x:Key="ToneWorking">#9A7330</Color>
-                    <Color x:Key="ToneAttention">#A8524B</Color>
-                    <Color x:Key="ToneOff">#7B8378</Color>
+                    <Color x:Key="SystemAccentColor">#207070</Color>
+                    <Color x:Key="SystemAccentColorLight1">#488D8D</Color>
+                    <Color x:Key="SystemAccentColorLight2">#67ACAC</Color>
+                    <Color x:Key="SystemAccentColorLight3">#7ABFBF</Color>
+                    <Color x:Key="SystemAccentColorDark1">#207070</Color>
+                    <Color x:Key="SystemAccentColorDark2">#115E5E</Color>
+                    <Color x:Key="SystemAccentColorDark3">#004D4D</Color>
+                    <Color x:Key="ToneOpen">#1D2227</Color>
+                    <Color x:Key="ToneWorking">#7B5518</Color>
+                    <Color x:Key="ToneAttention">#993A31</Color>
+                    <Color x:Key="ToneOff">#65696F</Color>
+                    <SolidColorBrush x:Key="CardSurface" Color="#FBFAF7" />
+                    <SolidColorBrush x:Key="CardEdge" Color="#DBD9D3" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <Color x:Key="SystemAccentColor">#8F9BB3</Color>
-                    <Color x:Key="SystemAccentColorLight1">#9BA6BD</Color>
-                    <Color x:Key="SystemAccentColorLight2">#A9B4C9</Color>
-                    <Color x:Key="SystemAccentColorLight3">#BCC5D6</Color>
-                    <Color x:Key="SystemAccentColorDark1">#7A869F</Color>
-                    <Color x:Key="SystemAccentColorDark2">#66728B</Color>
-                    <Color x:Key="SystemAccentColorDark3">#535E76</Color>
-                    <Color x:Key="ToneOpen">#A9BFA1</Color>
-                    <Color x:Key="ToneWorking">#D6BB86</Color>
-                    <Color x:Key="ToneAttention">#D9A19B</Color>
-                    <Color x:Key="ToneOff">#969B97</Color>
+                    <Color x:Key="SystemAccentColor">#7ABFBF</Color>
+                    <Color x:Key="SystemAccentColorLight1">#7ABFBF</Color>
+                    <Color x:Key="SystemAccentColorLight2">#7ABFBF</Color>
+                    <Color x:Key="SystemAccentColorLight3">#84C9C8</Color>
+                    <Color x:Key="SystemAccentColorDark1">#67ACAC</Color>
+                    <Color x:Key="SystemAccentColorDark2">#488D8D</Color>
+                    <Color x:Key="SystemAccentColorDark3">#287070</Color>
+                    <Color x:Key="ToneOpen">#E8EAEC</Color>
+                    <Color x:Key="ToneWorking">#E1BB74</Color>
+                    <Color x:Key="ToneAttention">#ED8C80</Color>
+                    <Color x:Key="ToneOff">#909499</Color>
+                    <SolidColorBrush x:Key="CardSurface" Color="#232528" />
+                    <SolidColorBrush x:Key="CardEdge" Color="#383B3F" />
                 </ResourceDictionary>
-                <ResourceDictionary x:Key="HighContrast" />
+                <ResourceDictionary x:Key="HighContrast">
+                    <StaticResource x:Key="CardSurface" ResourceKey="SystemColorWindowColorBrush" />
+                    <StaticResource x:Key="CardEdge" ResourceKey="SystemColorWindowTextColorBrush" />
+                </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
-            <!-- A card: the window's sections sit on these, with a quiet edge. -->
+            <!-- A card: held by a hairline edge, not a shadow. -->
             <Style x:Key="Card" TargetType="Border">
-                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource CardSurface}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardEdge}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="10" />
-                <Setter Property="Padding" Value="16,14,16,14" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="18,16,18,16" />
             </Style>
+            <!-- Controls and fields are a step less round than the cards. -->
+            <CornerRadius x:Key="ControlCornerRadius">5</CornerRadius>
             <!-- The name of a section: plain words, not capitals. -->
-            <Style x:Key="SectionLabel" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+            <Style x:Key="SectionLabel" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
+                <Setter Property="FontWeight" Value="Medium" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+            <!-- A name in a list: set apart by weight, never bold. -->
+            <Style x:Key="Emphasis" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
+                <Setter Property="FontWeight" Value="Medium" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

@@ -359,18 +359,23 @@ func appearanceColor(light: UInt32, dark: UInt32) -> Color {
     })
 }
 
-/// One quiet cool accent instead of the system's: the owner's own look.
-let waypointAccent = appearanceColor(light: 0x5d6d94, dark: 0xa9b4c9)
+/// Patina and graphite: one patina accent instead of the system's, warm
+/// paper by day and graphite at night. The values come from the design tokens.
+let waypointAccent = appearanceColor(light: 0x207070, dark: 0x7abfbf)
+let paper = appearanceColor(light: 0xf4f2ee, dark: 0x1a1c1e)
+let cardSurface = appearanceColor(light: 0xfbfaf7, dark: 0x232528)
+let cardEdge = appearanceColor(light: 0xdbd9d3, dark: 0x383b3f)
 
 /// How a state reads at a glance: one colour and one sign, the same on
-/// Windows. Muted, and lighter on the dark appearance.
+/// Windows. The norm is said in ink; brass and brick only when something is
+/// off, lighter on the dark appearance.
 enum Tone {
     case open, working, attention, off
     var color: Color {
         switch self {
-        case .open: return appearanceColor(light: 0x5d7f56, dark: 0xa9bfa1)
-        case .working: return appearanceColor(light: 0x9a7330, dark: 0xd6bb86)
-        case .attention: return appearanceColor(light: 0xa8524b, dark: 0xd9a19b)
+        case .open: return Color.primary
+        case .working: return appearanceColor(light: 0x7b5518, dark: 0xe1bb74)
+        case .attention: return appearanceColor(light: 0x993a31, dark: 0xed8c80)
         case .off: return Color.secondary
         }
     }
@@ -398,10 +403,12 @@ extension ClientModel {
     }
 }
 
-/// A framed group of rows, the unit both windows are built from.
+/// A framed group of rows, the unit both windows are built from: held by a
+/// hairline edge with a lit top, not by a shadow.
 struct Card<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
@@ -409,9 +416,12 @@ struct Card<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .controlBackgroundColor))
-            .shadow(color: .black.opacity(0.05), radius: 8, y: 2))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(cardSurface))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(cardEdge, lineWidth: 1))
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.white.opacity(colorScheme == .dark ? 0.055 : 0.75))
+                .frame(height: 1).padding(.horizontal, 8).padding(.top, 1)
+        }
     }
 }
 
@@ -694,12 +704,10 @@ struct ClientView: View {
         HStack(alignment: .top, spacing: 20) {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
-                ZStack {
-                    Circle().fill(model.tone.color.opacity(0.15)).frame(width: 44, height: 44)
-                    Image(systemName: model.tone.symbol).font(.system(size: 18, weight: .bold)).foregroundStyle(model.tone.color)
-                }
+                Image(systemName: model.tone.symbol).font(.system(size: 17, weight: .medium)).foregroundStyle(model.tone.color)
+                    .frame(width: 22).padding(.top, 10)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.heading).font(.title2.weight(.light))
+                    Text(model.heading).font(.system(size: 30, weight: .thin))
                     Text(model.detail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -750,7 +758,7 @@ struct ClientView: View {
                     Button("Обновить") { NSWorkspace.shared.open(update.url) }
                 }
                 .padding(10)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Tone.working.color.opacity(0.12)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Tone.working.color.opacity(0.12)))
             }
             if let warnings = status?.warnings, !warnings.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -758,7 +766,7 @@ struct ClientView: View {
                     if warnings.contains("proxy") { Text("Включён системный прокси: трафик через него идёт в обход туннеля.") }
                 }
                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(10)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Tone.working.color.opacity(0.12)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Tone.working.color.opacity(0.12)))
             }
             if model.unread > 0 {
                 HStack {
@@ -767,7 +775,7 @@ struct ClientView: View {
                     Button("Открыть") { reportTab = 1; reporting = true }
                 }
                 .padding(10)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Tone.open.color.opacity(0.12)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Tone.open.color.opacity(0.12)))
             }
             if !model.message.isEmpty { Text(model.message).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 0)
@@ -788,6 +796,7 @@ struct ClientView: View {
         }
         .padding(22)
         .frame(width: 840)
+        .background(paper)
         // The window is as tall as what it shows and no shorter than its
         // usual height: when a notice appears - a newer version, a warning -
         // the window grows by it instead of squeezing everything above.

@@ -51,3 +51,11 @@ It is used to refuse public suffixes in downloaded domain lists. The list is
 subject to the Mozilla Public License, v. 2.0
 (https://mozilla.org/MPL/2.0/), not to this project's MIT License.
 Regenerate it with `scripts/update-public-suffixes.py`.
+
+Onest typeface
+==============
+
+`luci-ikev2-manager/fonts/` carries the Latin and Cyrillic subsets of Onest,
+Copyright 2021 The Onest Project Authors (https://github.com/googlefonts/onest),
+licensed under the SIL Open Font License 1.1, which is copied beside them in
+`OFL.txt`. The router pages and the services board use them.

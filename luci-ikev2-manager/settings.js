@@ -1,7 +1,7 @@
 'use strict';
 'require baseclass';
 'require fs';
-'require ikev2-manager.shared-v21 as common';
+'require ikev2-manager.shared-v22 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';

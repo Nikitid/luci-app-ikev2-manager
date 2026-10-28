@@ -89,7 +89,10 @@ function daysUntil(value) {
 	return Math.ceil((date.getTime() - Date.now()) / 86400000);
 }
 
-var STYLE_ID = 'ikev2-manager-styles-v6';
+var STYLE_ID = 'ikev2-manager-styles-v7';
+
+// The fonts are installed beside this file.
+var FONTS = (typeof L !== 'undefined' && L.resource) ? L.resource('ikev2-manager/fonts') : '/luci-static/resources/ikev2-manager/fonts';
 
 var CSS = `
 			/* A bare custom property is not an animatable type, so the
@@ -102,31 +105,52 @@ var CSS = `
 				initial-value: 0;
 			}
 
+			/* Onest, the page's typeface, served by the router with the pages. */
+			@font-face {
+				font-family: Onest;
+				font-style: normal;
+				font-weight: 100 900;
+				font-display: swap;
+				src: url(${FONTS}/onest-cyrillic.woff2) format("woff2");
+				unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+			}
+			@font-face {
+				font-family: Onest;
+				font-style: normal;
+				font-weight: 100 900;
+				font-display: swap;
+				src: url(${FONTS}/onest-latin.woff2) format("woff2");
+				unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+			}
+
 			.ikev2-page {
-				/* One quiet cool accent on a neutral page, no gradients on any
-				   surface: the owner's own look, in light and in dark. The
-				   values are a working proposal, not a settled palette. */
-				--ikev2-accent: #5d6d94;
+				/* Patina and graphite: warm paper by day and graphite at night,
+				   one patina accent, state colours used only for meaning. The
+				   values come from the design tokens and are not edited here. */
+				--ikev2-bg: oklch(0.962 0.006 85);
+				--ikev2-surface: oklch(0.985 0.004 85);
+				--ikev2-surface-2: oklch(0.940 0.007 85);
+				--ikev2-border: oklch(0.885 0.008 85);
+				--ikev2-border-strong: oklch(0.800 0.010 85);
+				--ikev2-text: oklch(0.250 0.012 250);
+				--ikev2-muted: oklch(0.430 0.012 250);
+				--ikev2-faint: oklch(0.520 0.010 250);
+				--ikev2-accent: oklch(0.500 0.075 195);
+				--ikev2-accent-text: oklch(0.440 0.070 195);
+				--ikev2-accent-soft: oklch(0.930 0.020 195);
+				--ikev2-on-fill: oklch(0.985 0.004 85);
+				--ikev2-good: oklch(0.470 0.085 150);
+				--ikev2-warn: oklch(0.480 0.090 75);
+				--ikev2-bad: oklch(0.480 0.130 28);
+				--ikev2-lit: rgb(255 255 255 / .75);
 				--ikev2-accent-2: var(--ikev2-accent);
 				--ikev2-grad: var(--ikev2-accent);
-				--ikev2-grad-soft: color-mix(in srgb, var(--ikev2-accent) 11%, transparent);
-				--ikev2-border: rgba(128, 128, 128, .22);
-				--ikev2-border-strong: rgba(128, 128, 128, .34);
-				--ikev2-surface: rgba(128, 128, 128, .06);
-				--ikev2-surface-2: rgba(128, 128, 128, .11);
-				--ikev2-muted: rgba(128, 128, 128, .85);
-				--ikev2-good: #5d7f56;
-				--ikev2-warn: #9a7330;
-				--ikev2-bad: #a8524b;
-				--ikev2-info: #5d6d94;
-				/* Controls are painted in flat accent. The gradient stays as a
-				   decorative wash on the hero and the card rules, where it is
-				   scenery rather than a surface a label has to sit on: colour
-				   that shifts under text is what makes a control read as a
-				   sticker instead of a button. */
-				--ikev2-fill: #5d6d94;
-				--ikev2-fill-hover: #4f5e83;
-				--ikev2-on-fill: #fff;
+				--ikev2-grad-soft: var(--ikev2-accent-soft);
+				--ikev2-info: var(--ikev2-accent);
+				/* The main action is drawn in the accent rather than filled;
+				   a fill is kept for the knob of a switch and a ticked box. */
+				--ikev2-fill: var(--ikev2-accent);
+				--ikev2-fill-hover: var(--ikev2-accent-text);
 
 				/* One 4px step. Every gap, pad and margin below is drawn from
 				   this, so the page has a rhythm instead of thirty hand-picked
@@ -138,56 +162,71 @@ var CSS = `
 				--ikev2-s5: 1.25rem;
 				--ikev2-s6: 1.5rem;
 
-				/* Bigger surfaces read as thicker: chips and rows sit flat on
-				   the page, cards and sections lift a little, the hero sits one
-				   step above them. Two steps are all the page uses - a third
-				   was declared here and never applied to anything. */
-				--ikev2-e1: 0 1px 2px rgba(41, 52, 41, .05);
-				--ikev2-e2: 0 1px 2px rgba(41, 52, 41, .05), 0 10px 24px -16px rgba(41, 52, 41, .28);
+				/* A card is held by its hairline border and a lit top edge, not
+				   by a shadow; a shadow belongs to what floats above the page. */
+				--ikev2-e1: inset 0 1px 0 var(--ikev2-lit);
+				--ikev2-e2: inset 0 1px 0 var(--ikev2-lit);
+				--ikev2-float: 0 18px 40px -18px rgb(20 24 28 / .28), 0 0 0 1px var(--ikev2-border);
 
-				--ikev2-radius: 16px;
-				--ikev2-radius-sm: 11px;
-				/* Marks and inline controls sit a tier below the panels they
-				   are drawn inside. Three hand-written values between .7rem
-				   and .75rem all rounded to the same pixel as radius-sm;
-				   they were the same corner spelled three ways. */
-				--ikev2-radius-xs: 7px;
-				/* Critically damped: reaches the target and stops, no
-				   overshoot. Used for every state change a pointer causes. */
-				--ikev2-ease: cubic-bezier(.32, .72, 0, 1);
+				--ikev2-radius: 8px;
+				--ikev2-radius-sm: 5px;
+				--ikev2-radius-xs: 4px;
+				/* Eases out and stops, no overshoot. Used for every state
+				   change a pointer causes. */
+				--ikev2-ease: cubic-bezier(.22, 1, .36, 1);
 				/* A press must read before the finger lifts, so it is the one
 				   transition short enough to land inside the touch. */
 				--ikev2-press: 90ms;
 				--ikev2-shadow: var(--ikev2-e1);
 				--ikev2-shadow-lg: var(--ikev2-e2);
 				max-width: 1220px;
+				color: var(--ikev2-text);
+				font-family: Onest, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+				font-weight: 340;
 				font-feature-settings: "tnum" 0;
+				-webkit-font-smoothing: antialiased;
 			}
-			/* The dark look: soft graphite rather than black, grey text and
-			   lines, the accent a lighter cool grey-blue. LuCI marks its dark
-			   theme on the root; a theme that follows the system does not. */
+			.ikev2-page b, .ikev2-page strong { font-weight: 480; }
+			/* The dark look. LuCI marks its dark theme on the root; a theme
+			   that follows the system does not. */
 			:root[data-darkmode="true"] .ikev2-page {
-				--ikev2-accent: #a9b4c9;
-				--ikev2-good: #a9bfa1;
-				--ikev2-warn: #d6bb86;
-				--ikev2-bad: #d9a19b;
-				--ikev2-info: #a9b4c9;
-				--ikev2-fill: #8f9bb3;
-				--ikev2-fill-hover: #a9b4c9;
-				--ikev2-on-fill: #1f2224;
-				--ikev2-e1: 0 1px 2px rgba(0, 0, 0, .18);
-				--ikev2-e2: 0 1px 2px rgba(0, 0, 0, .18), 0 10px 24px -16px rgba(0, 0, 0, .55);
+				--ikev2-bg: oklch(0.225 0.005 255);
+				--ikev2-surface: oklch(0.265 0.006 255);
+				--ikev2-surface-2: oklch(0.195 0.005 255);
+				--ikev2-border: oklch(0.350 0.008 255);
+				--ikev2-border-strong: oklch(0.450 0.010 255);
+				--ikev2-text: oklch(0.935 0.004 255);
+				--ikev2-muted: oklch(0.760 0.008 255);
+				--ikev2-faint: oklch(0.665 0.008 255);
+				--ikev2-accent: oklch(0.760 0.070 195);
+				--ikev2-accent-text: oklch(0.790 0.070 195);
+				--ikev2-accent-soft: oklch(0.320 0.032 195);
+				--ikev2-on-fill: oklch(0.200 0.005 255);
+				--ikev2-good: oklch(0.770 0.090 150);
+				--ikev2-warn: oklch(0.810 0.100 82);
+				--ikev2-bad: oklch(0.740 0.120 28);
+				--ikev2-lit: rgb(255 255 255 / .055);
+				--ikev2-float: 0 18px 40px -18px rgb(0 0 0 / .6), 0 0 0 1px var(--ikev2-border);
 			}
 			@media (prefers-color-scheme: dark) {
 				:root:not([data-darkmode="false"]) .ikev2-page {
-					--ikev2-accent: #a9b4c9;
-					--ikev2-good: #a9bfa1;
-					--ikev2-warn: #d6bb86;
-					--ikev2-bad: #d9a19b;
-					--ikev2-info: #a9b4c9;
-					--ikev2-fill: #8f9bb3;
-					--ikev2-fill-hover: #a9b4c9;
-					--ikev2-on-fill: #1f2224;
+					--ikev2-bg: oklch(0.225 0.005 255);
+					--ikev2-surface: oklch(0.265 0.006 255);
+					--ikev2-surface-2: oklch(0.195 0.005 255);
+					--ikev2-border: oklch(0.350 0.008 255);
+					--ikev2-border-strong: oklch(0.450 0.010 255);
+					--ikev2-text: oklch(0.935 0.004 255);
+					--ikev2-muted: oklch(0.760 0.008 255);
+					--ikev2-faint: oklch(0.665 0.008 255);
+					--ikev2-accent: oklch(0.760 0.070 195);
+					--ikev2-accent-text: oklch(0.790 0.070 195);
+					--ikev2-accent-soft: oklch(0.320 0.032 195);
+					--ikev2-on-fill: oklch(0.200 0.005 255);
+					--ikev2-good: oklch(0.770 0.090 150);
+					--ikev2-warn: oklch(0.810 0.100 82);
+					--ikev2-bad: oklch(0.740 0.120 28);
+					--ikev2-lit: rgb(255 255 255 / .055);
+					--ikev2-float: 0 18px 40px -18px rgb(0 0 0 / .6), 0 0 0 1px var(--ikev2-border);
 				}
 			}
 			.ikev2-page * { box-sizing: border-box; }
@@ -204,10 +243,10 @@ var CSS = `
 			   Size, weight and leading are set together rather than size alone. */
 			.ikev2-header h2 {
 				margin: 0 0 var(--ikev2-s1);
-				font-size: clamp(1.5rem, 2.6vw, 1.95rem);
-				font-weight: 300;
-				line-height: 1.15;
-				letter-spacing: -.012em;
+				font-size: clamp(28px, 3.4vw, 40px);
+				font-weight: 200;
+				line-height: 1.1;
+				letter-spacing: -.02em;
 			}
 			.ikev2-subtitle {
 				margin: 0;
@@ -242,26 +281,15 @@ var CSS = `
 				transition: transform .16s var(--ikev2-ease), box-shadow .16s var(--ikev2-ease),
 					border-color .16s var(--ikev2-ease);
 			}
-			.ikev2-card::before {
-				content: "";
-				position: absolute;
-				inset: 0 0 auto 0;
-				height: 2px;
-				background: var(--ikev2-accent);
-				opacity: 0;
-				transition: opacity .16s var(--ikev2-ease);
-			}
 			.ikev2-card:hover {
-				box-shadow: var(--ikev2-shadow-lg);
 				border-color: var(--ikev2-border-strong);
 			}
-			.ikev2-card:hover::before { opacity: .45; }
 			.ikev2-card.wide { grid-column: span 6; }
 			.ikev2-card.full { grid-column: 1 / -1; }
 			.ikev2-card-label {
 				margin-bottom: .5rem;
 				font-size: .72rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
@@ -300,7 +328,7 @@ var CSS = `
 			.ikev2-hero h3 {
 				margin: 0 0 .4rem;
 				font-size: 1.3rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: -.01em;
 			}
 			.ikev2-hero p { margin: 0; color: var(--ikev2-muted); line-height: 1.55; }
@@ -338,7 +366,7 @@ var CSS = `
 			}
 			.ikev2-gauge__center b {
 				font-size: 1.55rem;
-				font-weight: 500;
+				font-weight: 480;
 				line-height: 1;
 				letter-spacing: -.02em;
 				font-variant-numeric: tabular-nums;
@@ -420,7 +448,7 @@ var CSS = `
 				border-radius: var(--ikev2-radius-sm);
 				background: color-mix(in srgb, currentColor 5%, transparent);
 				text-decoration: none;
-				font-weight: 500;
+				font-weight: 480;
 				transition: transform var(--ikev2-press) var(--ikev2-ease),
 					background .14s var(--ikev2-ease), border-color .14s var(--ikev2-ease);
 			}
@@ -430,36 +458,24 @@ var CSS = `
 			}
 
 			/* ── Pills ──────────────────────────────────────────────── */
+			/* A state is a word, not an object: no capsule and no dot. The
+			   norm is said in grey, and colour is kept for what is wrong. */
 			.ikev2-pill {
 				display: inline-flex;
-				align-items: center;
+				align-items: baseline;
 				gap: .4rem;
-				padding: .26rem .65rem;
-				border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-				border-radius: 999px;
-				background: color-mix(in srgb, currentColor 12%, transparent);
-				font-size: .78rem;
-				font-weight: 500;
-				line-height: 1.2;
+				font-size: .82rem;
+				font-weight: 400;
+				line-height: 1.3;
 				white-space: nowrap;
-			}
-			.ikev2-pill::before {
-				content: "";
-				width: .48rem;
-				height: .48rem;
-				border-radius: 50%;
-				background: currentColor;
-				box-shadow: 0 0 0 .18rem color-mix(in srgb, currentColor 22%, transparent);
-			}
-			.ikev2-pill.good { color: var(--ikev2-good); }
-			.ikev2-pill.warn { color: var(--ikev2-warn); }
-			.ikev2-pill.bad { color: var(--ikev2-bad); }
-			.ikev2-pill.info { color: var(--ikev2-info); }
-			.ikev2-pill.neutral {
 				color: var(--ikev2-muted);
-				background: var(--ikev2-surface-2);
-				border-color: var(--ikev2-border);
+				font-variant-numeric: tabular-nums;
 			}
+			.ikev2-pill.good, .ikev2-pill.info, .ikev2-pill.neutral { color: var(--ikev2-muted); }
+			.ikev2-pill.warn { color: var(--ikev2-warn); font-weight: 450; }
+			.ikev2-pill.bad { color: var(--ikev2-bad); font-weight: 450; }
+			/* Neighbouring states read as one line, parted by a dot. */
+			.ikev2-pill + .ikev2-pill::before { content: "\\00b7"; margin-right: .4rem; color: var(--ikev2-faint); font-weight: 400; }
 
 			/* ── Sections ───────────────────────────────────────────── */
 			.ikev2-section {
@@ -493,7 +509,7 @@ var CSS = `
 			.ikev2-section-head h4 {
 				margin: 0 0 var(--ikev2-s1);
 				font-size: 1.05rem;
-				font-weight: 500;
+				font-weight: 480;
 				line-height: 1.3;
 				letter-spacing: -.012em;
 			}
@@ -544,7 +560,7 @@ var CSS = `
 				min-height: 2.25rem;
 				padding: .42rem .72rem !important;
 				border-radius: var(--ikev2-radius-sm) !important;
-				font-weight: 500;
+				font-weight: 480;
 				white-space: nowrap;
 			}
 			.ikev2-icon {
@@ -600,7 +616,7 @@ var CSS = `
 				gap: .5rem;
 				padding: .75rem .9rem;
 				cursor: pointer;
-				font-weight: 500;
+				font-weight: 480;
 				list-style: none;
 			}
 			.ikev2-diagnostics > summary::-webkit-details-marker { display: none; }
@@ -667,7 +683,7 @@ var CSS = `
 				border-radius: var(--ikev2-radius-sm);
 				background: var(--ikev2-grad-soft);
 				color: var(--ikev2-accent);
-				font-weight: 500;
+				font-weight: 480;
 			}
 			.ikev2-user-name {
 				display: block;
@@ -687,7 +703,7 @@ var CSS = `
 			.ikev2-session-address {
 				display: block;
 				margin-bottom: .2rem;
-				font-weight: 500;
+				font-weight: 480;
 				overflow-wrap: anywhere;
 			}
 			.ikev2-session-meta {
@@ -758,7 +774,7 @@ var CSS = `
 				background: transparent;
 				color: var(--ikev2-muted);
 				font-size: .72rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .01em;
 			}
 			/* With more than one tunnel a full-route device names its own. */
@@ -813,9 +829,9 @@ var CSS = `
 			}
 			.ikev2-policy-check input:checked + span::after {
 				content: "\\2713";
-				color: #fff;
+				color: var(--ikev2-on-fill);
 				font-size: .78rem;
-				font-weight: 500;
+				font-weight: 480;
 			}
 			.ikev2-policy-check input:focus-visible + span {
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
@@ -848,7 +864,7 @@ var CSS = `
 			.ikev2-widget-summary-label {
 				color: var(--ikev2-muted);
 				font-size: .72rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .01em;
 			}
 			.ikev2-widget-overview {
@@ -869,7 +885,7 @@ var CSS = `
 				margin-bottom: .5rem;
 				color: var(--ikev2-muted);
 				font-size: .72rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .01em;
 			}
 			.ikev2-widget-component-head {
@@ -967,7 +983,7 @@ var CSS = `
 				gap: .9rem 1.4rem;
 				align-items: center;
 			}
-			.ikev2-field-label { font-weight: 500; }
+			.ikev2-field-label { font-weight: 480; }
 			.ikev2-field-help {
 				display: block;
 				margin-top: .22rem;
@@ -1184,9 +1200,10 @@ var CSS = `
 				min-height: 2.35rem;
 				border-radius: var(--ikev2-radius-sm);
 				padding: .5rem 1rem;
-				border: 1px solid var(--ikev2-border);
-				background: var(--ikev2-surface-2);
-				font-weight: 500;
+				border: 1px solid var(--ikev2-border-strong);
+				background: transparent;
+				color: var(--ikev2-text);
+				font-weight: 450;
 				line-height: 1.2;
 				white-space: nowrap;
 				cursor: pointer;
@@ -1197,8 +1214,8 @@ var CSS = `
 					filter .14s var(--ikev2-ease);
 			}
 			.ikev2-page .cbi-button:hover {
-				background: color-mix(in srgb, currentColor 12%, transparent);
-				border-color: var(--ikev2-border-strong);
+				background: var(--ikev2-accent-soft);
+				border-color: var(--ikev2-accent);
 			}
 			/* A press has to answer the pointer going down, not the click going
 			   up. The old rule only cancelled the hover lift, so a touch device
@@ -1213,21 +1230,22 @@ var CSS = `
 				   accent: the owner's buttons are drawn, not filled. */
 				background: transparent;
 				background-image: none;
-				border-color: var(--ikev2-accent);
-				color: var(--ikev2-accent);
+				border: 1.5px solid var(--ikev2-accent);
+				color: var(--ikev2-accent-text);
+				font-weight: 480;
 				box-shadow: none;
 			}
 			.ikev2-page .cbi-button-apply:hover,
 			.ikev2-page .cbi-button-positive:hover,
 			.ikev2-page .cbi-button-add:hover,
 			.ikev2-page .cbi-button-save:hover {
-				background: color-mix(in srgb, var(--ikev2-accent) 12%, transparent);
+				background: var(--ikev2-accent-soft);
 				background-image: none;
 			}
 			.ikev2-page .cbi-button-action,
 			.ikev2-page .cbi-button-edit {
-				border-color: color-mix(in srgb, var(--ikev2-accent) 45%, var(--ikev2-border));
-				color: var(--ikev2-accent);
+				border-color: var(--ikev2-border-strong);
+				color: var(--ikev2-accent-text);
 			}
 			.ikev2-page .cbi-button-remove,
 			.ikev2-page .cbi-button-negative {
@@ -1262,9 +1280,9 @@ var CSS = `
 				border-color: color-mix(in srgb, var(--ikev2-bad) 55%, var(--ikev2-border));
 			}
 			.ikev2-page .cbi-button.ikev2-flash-warn {
-				color: var(--ikev2-warn, #d97706);
-				background: color-mix(in srgb, var(--ikev2-warn, #d97706) 12%, transparent);
-				border-color: color-mix(in srgb, var(--ikev2-warn, #d97706) 55%, var(--ikev2-border));
+				color: var(--ikev2-warn);
+				background: color-mix(in srgb, var(--ikev2-warn) 12%, transparent);
+				border-color: color-mix(in srgb, var(--ikev2-warn) 55%, var(--ikev2-border));
 			}
 			/* A Save button greys out once the form is saved; its "Saved" must
 			   still read at full strength for the moment it is shown. */
@@ -1291,9 +1309,7 @@ var CSS = `
 			   actually hover and leave. The colour and shadow hovers above are
 			   harmless when they latch and stay unscoped. */
 			@media (hover: hover) and (pointer: fine) {
-				.ikev2-card:hover { transform: translateY(-3px); }
 				.ikev2-quick-link:hover { transform: translateY(-1px); }
-				.ikev2-page .cbi-button:hover:not([disabled]) { transform: translateY(-1px); }
 			}
 			/* After the hover block on purpose. A press is also a hover on a
 			   mouse, both selectors weigh the same, so the later rule is the
@@ -1315,14 +1331,12 @@ var CSS = `
 				outline: none;
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
 			}
-			/* The gradient buttons already carry a shadow; adding the ring to it
-			   keeps both rather than replacing the lift shadow with the ring. */
+			/* The main buttons have a thicker border; the ring sits outside it. */
 			.ikev2-page .cbi-button-apply:focus-visible,
 			.ikev2-page .cbi-button-positive:focus-visible,
 			.ikev2-page .cbi-button-add:focus-visible,
 			.ikev2-page .cbi-button-save:focus-visible {
-				box-shadow: 0 8px 20px -10px var(--ikev2-accent),
-					0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 32%, transparent);
+				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 32%, transparent);
 			}
 			/* ── Toggle switch ──────────────────────────────────────── */
 			.ikev2-switch {
@@ -1361,8 +1375,8 @@ var CSS = `
 				width: 1.25rem;
 				height: 1.25rem;
 				border-radius: 50%;
-				background: #fff;
-				box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+				background: var(--ikev2-surface);
+				box-shadow: 0 0 0 1px var(--ikev2-border-strong), 0 1px 2px rgb(20 24 28 / .18);
 				transition: transform .16s var(--ikev2-ease);
 			}
 			.ikev2-switch input:checked + .ikev2-switch-track {
@@ -1376,7 +1390,7 @@ var CSS = `
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
 			}
 			.ikev2-switch input:disabled + .ikev2-switch-track { opacity: .5; cursor: not-allowed; }
-			.ikev2-switch-text { font-weight: 500; }
+			.ikev2-switch-text { font-weight: 480; }
 
 			/* ── Toggle row (label + switch on one line) ─────────────── */
 			.ikev2-toggle-row {
@@ -1395,7 +1409,7 @@ var CSS = `
 			   bare switch beside a label. */
 			.ikev2-form-grid > .ikev2-toggle-row { grid-column: 1 / -1; margin-top: 0; }
 			.ikev2-toggle-row > :first-child { min-width: 0; }
-			.ikev2-toggle-row .ikev2-toggle-text { font-weight: 500; }
+			.ikev2-toggle-row .ikev2-toggle-text { font-weight: 480; }
 			.ikev2-toggle-row .ikev2-toggle-sub {
 				display: block;
 				font-weight: 400;
@@ -1417,7 +1431,7 @@ var CSS = `
 				min-width: 0;
 				max-width: 34rem;
 				font-size: .88rem;
-				font-weight: 500;
+				font-weight: 480;
 				line-height: 1.4;
 				text-align: left;
 				white-space: normal;
@@ -1465,9 +1479,9 @@ var CSS = `
 				.ikev2-result { transition: none; }
 			}
 			.ikev2-result.busy { color: var(--ikev2-muted); }
-			.ikev2-result.ok { color: var(--ikev2-good, #16a34a); }
-			.ikev2-result.warn { color: var(--ikev2-warn, #d97706); }
-			.ikev2-result.err { color: var(--ikev2-bad, #dc2626); }
+			.ikev2-result.ok { color: var(--ikev2-good); }
+			.ikev2-result.warn { color: var(--ikev2-warn); }
+			.ikev2-result.err { color: var(--ikev2-bad); }
 			.ikev2-save-bar {
 				margin-top: 1.4rem;
 				padding-top: 1.1rem;
@@ -1500,7 +1514,7 @@ var CSS = `
 			.ikev2-advanced summary,
 			.ikev2-section > details > summary {
 				cursor: pointer;
-				font-weight: 500;
+				font-weight: 480;
 				margin-bottom: .9rem;
 				list-style: none;
 			}
@@ -1547,7 +1561,7 @@ var CSS = `
 			.ikev2-advanced-group > h4 {
 				margin: 0 0 .7rem;
 				font-size: .86rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .02em;
 				color: var(--ikev2-muted);
 			}
@@ -1605,7 +1619,7 @@ var CSS = `
 				margin: 0 0 .6rem;
 				padding-bottom: .45rem;
 				border-bottom: 1px solid var(--ikev2-border);
-				font-weight: 500;
+				font-weight: 480;
 			}
 			.ikev2-service-option {
 				display: flex;
@@ -1626,7 +1640,7 @@ var CSS = `
 			.ikev2-chip-group h4 {
 				margin: 0 0 .55rem;
 				font-size: .72rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
@@ -1643,7 +1657,7 @@ var CSS = `
 				cursor: pointer;
 				user-select: none;
 				font-size: .85rem;
-				font-weight: 500;
+				font-weight: 480;
 				line-height: 1.3;
 				transition: transform var(--ikev2-press) var(--ikev2-ease),
 					background .12s var(--ikev2-ease), border-color .12s var(--ikev2-ease),
@@ -1777,11 +1791,13 @@ var CSS = `
 				position: sticky;
 				bottom: var(--ikev2-s3);
 				z-index: 5;
-				/* The surfaces are tints over a ground the page does not know;
-				   blurring what passes under the bar needs no ground. */
-				background: var(--ikev2-surface-2);
-				-webkit-backdrop-filter: blur(18px);
-				backdrop-filter: blur(18px);
+				/* It floats over the page, so it is the one panel with glass
+				   and a shadow. */
+				border: 0;
+				background: color-mix(in srgb, var(--ikev2-surface) 84%, transparent);
+				-webkit-backdrop-filter: blur(24px);
+				backdrop-filter: blur(24px);
+				box-shadow: var(--ikev2-float);
 			}
 			@media (max-width: 640px) {
 				.ikev2-page .ikev2-save-bar.ikev2-save-bar-sticky > .ikev2-field-help { display: none; }
@@ -1796,7 +1812,7 @@ var CSS = `
 			.ikev2-route-chip.fixed {
 				cursor: pointer;
 				border-style: dashed;
-				font-weight: 500;
+				font-weight: 480;
 				color: var(--ikev2-muted);
 			}
 
@@ -1904,8 +1920,7 @@ var CSS = `
 			.ikev2-netpick:hover { border-color: var(--ikev2-border-strong); }
 			.ikev2-netpick.selected {
 				border-color: var(--ikev2-accent);
-				background: var(--ikev2-grad-soft);
-				box-shadow: 0 0 0 1px var(--ikev2-accent) inset;
+				background: var(--ikev2-accent-soft);
 			}
 			.ikev2-netpick input { position: absolute; opacity: 0; width: 0; height: 0; }
 			.ikev2-netpick-check {
@@ -1916,7 +1931,7 @@ var CSS = `
 				border: 1.5px solid var(--ikev2-border-strong);
 				display: grid;
 				place-content: center;
-				color: #fff;
+				color: var(--ikev2-on-fill);
 				font-size: .82rem;
 				line-height: 1;
 				transition: background .14s var(--ikev2-ease), border-color .14s var(--ikev2-ease);
@@ -1927,7 +1942,7 @@ var CSS = `
 			}
 			.ikev2-netpick.selected .ikev2-netpick-check::after { content: "\\2713"; }
 			.ikev2-netpick-body { min-width: 0; }
-			.ikev2-netpick-name { font-weight: 500; }
+			.ikev2-netpick-name { font-weight: 480; }
 			.ikev2-netpick-meta {
 				display: block;
 				font-size: .8rem;
@@ -1956,7 +1971,7 @@ var CSS = `
 				border-radius: 999px;
 				background: color-mix(in srgb, currentColor 10%, transparent);
 				font-size: .7rem;
-				font-weight: 500;
+				font-weight: 480;
 				vertical-align: middle;
 			}
 			.ikev2-tags .ikev2-tag { margin-left: 0; }
@@ -2098,7 +2113,7 @@ var CSS = `
 				padding: .45rem 1.1rem;
 				border-radius: 999px;
 				text-decoration: none;
-				font-weight: 500;
+				font-weight: 480;
 				color: var(--ikev2-muted);
 				transition: background .14s var(--ikev2-ease), color .14s var(--ikev2-ease);
 			}
@@ -2162,7 +2177,7 @@ var CSS = `
 				color: var(--ikev2-muted);
 				font: inherit;
 				font-size: .82rem;
-				font-weight: 500;
+				font-weight: 480;
 				font-variant-numeric: tabular-nums;
 				cursor: pointer;
 				transition: background-color .16s var(--ikev2-ease), color .16s var(--ikev2-ease),
@@ -2178,7 +2193,7 @@ var CSS = `
 				box-shadow: var(--ikev2-e2);
 			}
 			.ikev2-page .ikev2-seg button.ikev2-tabs-add { min-width: 2.2rem; font-size: 1rem; line-height: 1; }
-			.ikev2-pill-row { display: inline-flex; flex-wrap: nowrap; gap: .4rem; white-space: nowrap; }
+			.ikev2-pill-row { display: inline-flex; flex-wrap: nowrap; gap: .9rem; white-space: nowrap; }
 			/* A segment on a tab of its own needs no card of its own. */
 			.ikev2-tabs-panel .ikev2-segment-block { padding: 0; border: 0; background: none; }
 			.ikev2-page .ikev2-seg .ikev2-tabs-split { align-self: stretch; width: 1px; margin: .3rem .45rem; background: var(--ikev2-border-strong, rgba(128, 128, 128, .45)); }
@@ -2217,7 +2232,7 @@ var CSS = `
 			}
 			.ikev2-page .ikev2-quality-verdict b {
 				font-size: 1.25rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: -.015em;
 			}
 			.ikev2-page .ikev2-quality-verdict b.good { color: var(--ikev2-good); }
@@ -2288,16 +2303,17 @@ var CSS = `
 				padding: .5rem .65rem;
 				border: 1px solid var(--ikev2-border);
 				border-radius: var(--ikev2-radius-sm);
-				background: color-mix(in srgb, var(--ikev2-bg, Canvas) 88%, transparent);
-				-webkit-backdrop-filter: blur(14px) saturate(160%);
-				backdrop-filter: blur(14px) saturate(160%);
-				box-shadow: var(--ikev2-e2);
+				border: 0;
+				background: color-mix(in srgb, var(--ikev2-surface) 84%, transparent);
+				-webkit-backdrop-filter: blur(24px);
+				backdrop-filter: blur(24px);
+				box-shadow: var(--ikev2-float);
 				font-size: .8rem;
 				line-height: 1.45;
 				font-variant-numeric: tabular-nums;
 				pointer-events: none;
 			}
-			.ikev2-page .ikev2-quality-tip b { display: block; margin-bottom: .15rem; font-weight: 500; }
+			.ikev2-page .ikev2-quality-tip b { display: block; margin-bottom: .15rem; font-weight: 480; }
 			.ikev2-page .ikev2-quality-tip span { color: var(--ikev2-muted); }
 			.ikev2-page .ikev2-quality-legend {
 				display: flex;
@@ -2335,7 +2351,7 @@ var CSS = `
 				gap: var(--ikev2-s5);
 				align-items: start;
 			}
-			.ikev2-record-state { margin: var(--ikev2-s3) 0; font-weight: 500; }
+			.ikev2-record-state { margin: var(--ikev2-s3) 0; font-weight: 480; }
 			.ikev2-record-state:empty { display: none; }
 			.ikev2-record-groups { display: grid; gap: .45rem; margin-bottom: var(--ikev2-s3); }
 			.ikev2-record-group { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .6rem; align-items: baseline; cursor: pointer; }
@@ -2346,7 +2362,7 @@ var CSS = `
 			.ikev2-page .ikev2-quality-lower h4 {
 				margin: 0 0 .55rem;
 				font-size: .72rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
@@ -2388,7 +2404,7 @@ var CSS = `
 				margin: 0 0 .7rem;
 			}
 			.ikev2-page .ikev2-speed-column { display: grid; gap: .55rem; align-content: start; min-width: 0; }
-			.ikev2-page .ikev2-speed-column-title { font-size: .86rem; font-weight: 500; }
+			.ikev2-page .ikev2-speed-column-title { font-size: .86rem; font-weight: 480; }
 			.ikev2-page .ikev2-speed-row { display: grid; gap: .3rem; }
 			.ikev2-page .ikev2-speed-row-head {
 				display: flex;
@@ -2404,7 +2420,7 @@ var CSS = `
 				white-space: nowrap;
 			}
 			.ikev2-page .ikev2-speed-row-head b.warn { color: var(--ikev2-warn); cursor: help; }
-			.ikev2-page .ikev2-speed-row-head b.muted { color: var(--ikev2-muted); font-weight: 500; cursor: help; }
+			.ikev2-page .ikev2-speed-row-head b.muted { color: var(--ikev2-muted); font-weight: 480; cursor: help; }
 			.ikev2-page .ikev2-speed-ratio { font-size: .78rem; color: var(--ikev2-muted); font-variant-numeric: tabular-nums; }
 			.ikev2-page .ikev2-speed-bar {
 				height: .5rem;
@@ -2461,7 +2477,7 @@ var CSS = `
 			.ikev2-page .ikev2-speed-option { display: grid; gap: .25rem; min-width: 0; }
 			.ikev2-page .ikev2-speed-option > span {
 				font-size: .72rem;
-				font-weight: 500;
+				font-weight: 480;
 				letter-spacing: .01em;
 				color: var(--ikev2-muted);
 			}
@@ -2510,7 +2526,6 @@ var CSS = `
 					--ikev2-grad-soft: rgba(128, 128, 128, .22);
 				}
 				.ikev2-hero { background: var(--ikev2-surface); }
-				.ikev2-card::before { opacity: 1; }
 				.ikev2-page .ikev2-quality-tip {
 					background: var(--ikev2-bg, Canvas);
 					-webkit-backdrop-filter: none;
@@ -2536,8 +2551,6 @@ var CSS = `
 				.ikev2-section,
 				.ikev2-chip,
 				.ikev2-netpick,
-				.ikev2-pill { border-width: 2px; }
-				.ikev2-card::before { opacity: 1; }
 			}
 
 			/* ── Responsive ─────────────────────────────────────────── */
@@ -3476,7 +3489,7 @@ function gate(title, subtitle) {
 	return E('div', { 'class': 'ikev2-page' }, [
 		header(title, subtitle),
 		E('div', { 'class': 'ikev2-empty', 'style': 'padding:2.4rem 1.6rem' }, [
-			E('div', { 'style': 'font-size:1.1rem;font-weight:680;margin-bottom:.4rem' }, [
+			E('div', { 'style': 'font-size:1.1rem;font-weight:480;margin-bottom:.4rem' }, [
 				_('Runtime dependencies are not installed') ]),
 			E('p', { 'style': 'margin:0 auto 1.2rem;max-width:34rem' }, [
 				_('Install the runtime dependencies on the Overview page, then this page becomes available.') ]),
