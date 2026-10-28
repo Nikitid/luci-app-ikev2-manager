@@ -30,7 +30,10 @@ function send(status, type, body, extra) {
 	uhttpd.send(sprintf('Status: %s\r\nContent-Type: %s\r\n%sX-Content-Type-Options: nosniff\r\n', status, type, cache));
 	uhttpd.send('X-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n');
 	if (extra) uhttpd.send(extra);
-	uhttpd.send(sprintf('Connection: close\r\nContent-Length: %d\r\n\r\n%s', length(body), body));
+	// The body goes on its own: a format's %s ends a picture or a font at
+	// its first zero byte.
+	uhttpd.send(sprintf('Connection: close\r\nContent-Length: %d\r\n\r\n', length(body)));
+	uhttpd.send(body);
 }
 
 function send_json(status, value) {
