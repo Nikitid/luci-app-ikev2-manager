@@ -53,6 +53,28 @@ setup() {
  "$bridge" client-admin-status "$job" | grep -qx 'state=ok'
 }
 shown() { "$bridge" client-admin-settings | jsonfilter -e "@.$1"; }
+said() { "$bridge" client-admin-status "$job" | sed -n 's/^message=//p'; }
+# A step after the state is published fails, as a firewall that refuses would.
+break_runtime() {
+ mv /usr/libexec/ikev2-device-routing "$work/device-routing"
+ printf '#!/bin/sh\nexit 1\n' >/usr/libexec/ikev2-device-routing
+ chmod 0755 /usr/libexec/ikev2-device-routing
+}
+mend_runtime() { mv "$work/device-routing" /usr/libexec/ikev2-device-routing; }
+
+step=parallel-reads
+# A page reads several things at once. With no VPN user yet, one read must not
+# turn another away because it found the user list empty.
+: >/etc/ikev2-manager/users.db
+for i in 1 2 3 4 5 6 7 8; do
+ ( /usr/libexec/ikev2-manager tunnels-get >/dev/null 2>&1; echo "$?" >"$work/read.$i" ) &
+done
+wait_reads=0
+while [ "$(cat "$work"/read.* 2>/dev/null | wc -l)" -lt 8 ]; do
+ wait_reads=$((wait_reads + 1)); [ "$wait_reads" -lt 30 ] || exit 1
+ sleep 1
+done
+[ "$(cat "$work"/read.* | sort -u)" = 0 ]
 
 step=unconfigured
 # Without an inbound server name or a tunnel there is nothing to attach to.
@@ -114,6 +136,23 @@ for request in \
  [ "$(uci -q get ikev2-manager.client_access.enabled)" = 0 ]
 done
 
+# The refusal names what to change.
+if setup b '{"version":1,"enabled":true,"port":8443,"virtual_subnet":"10.25.0.0/24","exit":"1"}'; then exit 1; fi
+said | grep -q 'virtual subnet is already used'
+
+step=failed-activation
+# A first activation that fails half way leaves nothing behind: the subnet is
+# fixed only once it worked, so another one can still be chosen.
+break_runtime
+if setup r '{"version":1,"enabled":true,"port":9443,"virtual_subnet":"172.31.253.0/24","exit":"1"}'; then mend_runtime; exit 1; fi
+mend_runtime
+[ ! -e "$state_dir/initialized" ] && [ ! -e "$state_dir/state.json" ]
+[ "$(shown initialized)" = false ]
+[ "$(uci -q get ikev2-manager.client_access.enabled)" = 0 ]
+[ "$(uci -q get ikev2-manager.client_access.port)" != 9443 ]
+[ "$(uci -q get firewall.ikev2pbr_client_api.enabled)" != 1 ]
+said | grep -q 'Nothing was changed'
+
 step=activation
 setup c '{"version":1,"enabled":true,"port":9443,"virtual_subnet":"172.31.254.0/24","exit":"1"}'
 [ -f "$state_dir/initialized" ]
@@ -153,7 +192,14 @@ setup e '{"version":1,"enabled":false,"port":9444,"virtual_subnet":"172.31.254.0
 [ "$(ucode /usr/libexec/ikev2-manager.d/client-access-control.uc status | sed -n 's/^generation=//p')" = "$((generation + 1))" ]
 [ "$(uci -q get firewall.ikev2pbr_client_api.enabled)" = 0 ] && [ "$(uci -q get firewall.ikev2pbr_client_api.dest_port)" = 9444 ]
 if nft list chain inet fw4 input_wan | grep -Eq 'tcp dport (9443|9444) '; then exit 1; fi
+# A change that fails half way puts the exit, the listener and its rule back.
+break_runtime
+if setup g '{"version":1,"enabled":true,"port":9445,"virtual_subnet":"172.31.254.0/24","exit":"1"}'; then mend_runtime; exit 1; fi
+mend_runtime
+[ "$(shown exit)" = 2s ] && [ "$(shown enabled)" = false ] && [ "$(shown port)" = 9444 ]
+[ "$(uci -q get firewall.ikev2pbr_client_api.dest_port)" = 9444 ] && [ "$(uci -q get firewall.ikev2pbr_client_api.enabled)" = 0 ]
+generation="$(ucode /usr/libexec/ikev2-manager.d/client-access-control.uc status | sed -n 's/^generation=//p')"
 # The same settings again publish nothing.
 setup f '{"version":1,"enabled":false,"port":9444,"virtual_subnet":"172.31.254.0/24","exit":"2s"}'
-[ "$(ucode /usr/libexec/ikev2-manager.d/client-access-control.uc status | sed -n 's/^generation=//p')" = "$((generation + 1))" ]
-printf '%s\n' 'client-setup: refusals, first activation, listener and WAN rule, fixed subnet, exit change and disable passed'
+[ "$(ucode /usr/libexec/ikev2-manager.d/client-access-control.uc status | sed -n 's/^generation=//p')" = "$generation" ]
+printf '%s\n' 'client-setup: refusals, failed activation and change, first activation, listener and WAN rule, fixed subnet, exit change and disable passed'

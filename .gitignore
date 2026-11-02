@@ -59,3 +59,5 @@ desktop-clients/macos/.build/
 # .NET SDK build output next to a project
 desktop-clients/windows/**/bin/
 desktop-clients/windows/**/obj/
+
+.ui-probe/

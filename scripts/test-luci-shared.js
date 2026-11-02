@@ -48,6 +48,9 @@ class Node {
 	removeAttribute(name) {
 		delete this.attributes[name];
 	}
+	getAttribute(name) {
+		return name in this.attributes ? this.attributes[name] : null;
+	}
 	get textContent() {
 		return this.childNodes.map(item =>
 			typeof item === 'string' ? item : item.textContent).join('');
@@ -253,7 +256,8 @@ assert.strictEqual(select.disabled, false, 'setBusy did not restore select state
 	const timers = [];
 	const realSetTimeout = windowStub.setTimeout;
 	windowStub.setTimeout = (fn, ms) => { timers.push([ fn, ms ]); return timers.length; };
-	windowStub.clearTimeout = () => {};
+	// A timer that was cleared is not one to fire; ids stay valid after a reset.
+	windowStub.clearTimeout = id => { if (timers[id - 1]) timers[id - 1][1] = null; };
 	function actionButton(label) {
 		const button = E('button', {}, [ label ]);
 		button.className = 'cbi-button';
@@ -432,6 +436,74 @@ assert.strictEqual(select.disabled, false, 'setBusy did not restore select state
 	toggle.checked = false;
 	tracker.reset();
 	assert.strictEqual(apply.disabled, true, 'reset did not take the saved state as the baseline');
+
+	// An action that goes on says so: the spinner alone for three seconds, then
+	// the line, which a short action never shows.
+	{
+		const pending = [];
+		const realSet = windowStub.setTimeout, realClear = windowStub.clearTimeout;
+		windowStub.setTimeout = (fn, ms) => { pending.push({ fn, ms }); return pending.length; };
+		windowStub.clearTimeout = id => { if (pending[id - 1]) pending[id - 1].fn = null; };
+		const button = new Node(1, 'button');
+		button.dataset = {};
+		const line = common.inlineResult();
+		let finish;
+		const running = common.runAction({ button, result: line, busy: 'Collecting...', run: () => new Promise(resolve => { finish = resolve; }) });
+		assert.ok(/quiet/.test(line.node.className), 'a new action wrote its line at once');
+		pending.filter(item => item.ms === 3000 && item.fn).forEach(item => item.fn());
+		assert.ok(!/quiet/.test(line.node.className), 'a long action stayed silent');
+		assert.strictEqual(line.node.textContent, 'Collecting...', 'a long action did not say what it does');
+		await Promise.resolve();
+		finish();
+		await running;
+		windowStub.setTimeout = realSet;
+		windowStub.clearTimeout = realClear;
+	}
+
+	// What a job sent is what the form is compared with afterwards, not what was
+	// typed while it ran.
+	{
+		const save = new Node(1, 'button');
+		const field = new Node(1, 'input');
+		field.tagName = 'input';
+		field.value = 'one';
+		field.addEventListener = () => {};
+		const tracker = common.trackChanges(save, [ field ]);
+		field.value = 'two';
+		tracker.update();
+		assert.strictEqual(save.disabled, false, 'a change did not wake Save');
+		tracker.mark();
+		field.value = 'three';
+		tracker.settle();
+		assert.strictEqual(save.disabled, false, 'typing during a save was taken as saved');
+		field.value = 'two';
+		tracker.update();
+		assert.strictEqual(save.disabled, true, 'what was sent was not taken as the baseline');
+	}
+
+	// The action is done even if the page cannot read the new state afterwards.
+	{
+		const button = new Node(1, 'button');
+		const line = common.inlineResult();
+		await common.runAction({ button, result: line, busy: 'x', run: () => 'ok',
+			onSuccess: () => Promise.reject(new Error('Could not refresh')) });
+		assert.ok(!/ikev2-flash-err/.test(button.className), 'a failed refresh reported the action as failed');
+		assert.ok(/Could not refresh/.test(line.node.textContent), 'the failed refresh was not said');
+	}
+
+	// A poll that gets no answer gives up instead of spinning to the deadline.
+	{
+		const realSet = windowStub.setTimeout;
+		windowStub.setTimeout = fn => { fn(); return 1; };
+		let asked = 0;
+		const lost = new Function('window', 'document', 'L', 'baseclass', 'fs', 'E', source)(windowStub, document,
+			{ resolveDefault: (promise, fallback) => promise.catch(() => fallback) }, baseclass,
+			{ exec: () => { asked++; return Promise.resolve({ code: 1, stdout: '' }); } }, E);
+		const reason = await lost.pollAction('/x', [], '1-1', { timeout: 3600000, interval: 1 }).then(() => null, error => error.message);
+		assert.ok(reason, 'a poll with no answers did not stop');
+		assert.ok(asked < 100, 'a poll with no answers ran too long');
+		windowStub.setTimeout = realSet;
+	}
 
 	console.log('luci shared module tests OK');
 })();

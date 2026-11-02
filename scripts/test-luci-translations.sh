@@ -118,6 +118,16 @@ for pattern in ('ikev2-manager-runtime/*.sh', 'ikev2-manager-runtime/lib/*.sh',
             text = match.group(1) or match.group(2)
             if text not in ids:
                 missing.add(path.split('/')[-1] + ': ' + text)
+# A helper's refusal reaches the page through its stderr; a value in it is %s.
+for pattern in ('ikev2-manager-runtime/*.sh', 'ikev2-manager-runtime/lib/*.sh',
+                'luci-ikev2-manager/*.sh', 'luci-ikev2-domains/*.sh'):
+    for path in glob.glob(root + '/' + pattern):
+        for match in re.finditer(r'''\bdie\s+(['"])(.*?)\1''', open(path, encoding='utf-8', errors='ignore').read()):
+            text = re.sub(r'\$\{?[A-Za-z_]+\}?', '%s', match.group(2))
+            if text.startswith(('Usage', 'Expected')) or 'Usage:' in text or text.startswith('%s'):
+                continue
+            if text not in ids:
+                missing.add(path.split('/')[-1] + ': ' + text)
 if missing:
     sys.exit('untranslated runtime status messages:\n  ' + '\n  '.join(sorted(missing)))
 PY

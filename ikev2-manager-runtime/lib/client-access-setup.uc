@@ -141,6 +141,6 @@ try {
 		exit(2);
 	}
 } catch (error) {
-	warn('client-access-setup: settings unavailable or refused\n');
+	warn(`client-access-setup: ${error?.message ?? 'settings unavailable or refused'}\n`);
 	exit(1);
 }

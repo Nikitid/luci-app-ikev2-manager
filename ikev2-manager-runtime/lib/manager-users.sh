@@ -18,10 +18,13 @@ lock_users() {
 }
 
 init_users() {
-	[ -s "$users_db" ] && return 0
-	lock_users || die 'VPN user operation is already running'
+	# An empty list is a router with no users, not one to initialize: every helper
+	# call comes here, and a page's reads run at once. Whoever misses the lock
+	# leaves the work to the one that holds it.
+	[ -e "$users_db" ] && return 0
+	lock_users || return 0
 	# A different initializer may have completed before acquiring the guard.
-	[ -s "$users_db" ] && return 0
+	[ -e "$users_db" ] && return 0
 
 	mkdir -p "${users_db%/*}"
 	chmod 700 "${users_db%/*}"
