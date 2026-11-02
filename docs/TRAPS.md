@@ -577,3 +577,15 @@ outbound client is blocked on it (CVE-2025-62291), so no tunnel is ever
 configured. `scripts/test-openwrt.sh` runs failover on 25.12 alone for that
 reason. Run a scenario through that script, or with the images and targets it
 names, before reading anything into a failure.
+
+## Operational recorder: logread and inherited locks
+
+OpenWrt `logread -e` uses basic regular expressions: alternation and groups
+require escaped operators. Its `-S` rotation argument is KiB, despite the
+usage text saying bytes. Verify capture and rotation against real OpenWrt
+`logd`/`logread`, not a substitute.
+
+A background sleep inherits the shell's flock descriptor unless explicitly
+closed. After the shell stops, that child can keep the lock across a service
+restart. Close the descriptor for idle sleeps and let a new writer wait for
+bounded in-flight probes instead of exiting successfully without recording.

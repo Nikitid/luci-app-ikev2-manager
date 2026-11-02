@@ -1275,6 +1275,9 @@ fi
 nft list table inet ikev2_client_access >/dev/null 2>&1 && fail 'missing publication created a guard with unknown range'
 rm -f /tmp/client-access-injected
 
+step 'the short-outage recorder bounds its RAM history and keeps it private'
+sh /src/scripts/openwrt/network-recorder.sh
+
 # --- teardown ---------------------------------------------------------------
 
 step 'stopping removes everything the routing installed'

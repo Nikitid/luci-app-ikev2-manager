@@ -55,3 +55,4 @@ signing/
 auth-state*.json
 cookies*.txt
 desktop-clients/macos/.build/
+.ui-probe/

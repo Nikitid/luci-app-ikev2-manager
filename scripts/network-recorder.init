@@ -1,0 +1,26 @@
+#!/bin/sh /etc/rc.common
+# Operational service, installed separately from the LuCI package.
+START=96
+STOP=10
+USE_PROCD=1
+start_service() {
+	umask 077
+	mkdir -p /tmp/ikev2-network
+	chmod 700 /tmp/ikev2-network
+	touch /tmp/ikev2-network/events.log
+	chmod 600 /tmp/ikev2-network/events.log
+	local mode
+	for mode in paths applications; do
+		procd_open_instance "$mode"
+		procd_set_param command /etc/ikev2-kuma/network-recorder.sh "$mode"
+		procd_set_param respawn 3600 5 5
+		procd_set_param term_timeout 5
+		procd_close_instance
+	done
+	procd_open_instance events
+	procd_set_param command /sbin/logread -f -l 1 \
+		-e 'ikev2\|sing-box\|dnsproxy.*\(ERROR\|WARN\)\|netifd\|udhcpc\|wpad.*\(DISCONNECTED\|CONNECTED\)\|\(ipsec\|charon\).*\(rekey\|CHILD_SA.*\(established\|closed\)\|failed\|giving up\|integrity\)\|kernel.*\(link.*down\|link.*up\|oom\|Out of memory\|nf_conntrack\)' \
+		-F /tmp/ikev2-network/events.log -S 512
+	procd_set_param respawn 3600 5 5
+	procd_close_instance
+}

@@ -57,7 +57,8 @@ printf '%s\n' "$root/Makefile" >>"$work/scripts"
 # Scripts outside the package that run on a router: the Uptime Kuma checker
 # from cron, the installer and the read-only sweep's probe.
 printf '%s\n' "$root/scripts/kuma-push.sh" "$root/scripts/install.sh" \
-	"$root/scripts/health-check.sh" >>"$work/scripts"
+	"$root/scripts/health-check.sh" "$root/scripts/kuma-probes.sh" \
+	"$root/scripts/network-recorder.sh" "$root/scripts/network-recorder.init" >>"$work/scripts"
 
 check_pattern() {
 	pattern="$1"

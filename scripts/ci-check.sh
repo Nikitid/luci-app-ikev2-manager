@@ -57,6 +57,7 @@ python3 ./scripts/test-audit-regressions.py
 ./scripts/test-domain-lock-serialization.sh
 ./scripts/test-data-plane-recovery.sh
 ./scripts/test-tunnel-quality.sh
+python3 ./scripts/test-kuma-probes.py
 ./scripts/test-fakeip-restart.sh
 ./scripts/test-dhcp-preservation.sh
 ./scripts/test-action-messages.sh
