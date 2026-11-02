@@ -1083,8 +1083,9 @@ return view.extend(common.shell(_('Users'),
     return personCard(person, labels, actions);
    })) : E('div', { 'class': 'ikev2-empty' }, [ _('Nobody yet. Add a person to get their link.') ]));
    var online = state.devices.filter(function(device) { return device.online; }).length;
-   summary.replaceChildren(common.pill(_('People: %d').format(everyone.length), 'neutral'), ' ',
-    common.pill(_('Waypoint devices: %d, online: %d').format(state.devices.length, online), online ? 'good' : 'neutral'), ' ',
+   // Plain words now, not badges: a separator keeps the three counts apart.
+   summary.replaceChildren(common.pill(_('People: %d').format(everyone.length), 'neutral'), ' \u00b7 ',
+    common.pill(_('Waypoint devices: %d, online: %d').format(state.devices.length, online), online ? 'good' : 'neutral'), ' \u00b7 ',
     common.pill(_('VPN profiles: %d').format(profileNames.length), 'neutral'));
    journal.replaceChildren((state.events || []).length ? E('table', { 'class': 'table cbi-section-table' }, (state.events || []).map(function(event) {
     return E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td', 'style': 'white-space:nowrap' }, [ new Date(event.at * 1000).toLocaleString() ]),
