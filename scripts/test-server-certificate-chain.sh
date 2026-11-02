@@ -38,12 +38,17 @@ subjectAltName = DNS:vpn.example.test
 basicConstraints = critical,CA:FALSE
 keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
 EOF
 cat >"$tmp/ca.ext" <<'EOF'
 basicConstraints=critical,CA:TRUE
 keyUsage=critical,keyCertSign,cRLSign
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
 EOF
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=Test Root' \
+	-addext 'subjectKeyIdentifier=hash' -addext 'authorityKeyIdentifier=keyid:always' \
 	-keyout "$tmp/root.key" -out "$tmp/root.crt" >/dev/null 2>&1
 # The intermediate deliberately has the same subject as its issuer but is
 # signed with the root key. It is self-issued, not self-signed, and must stay
