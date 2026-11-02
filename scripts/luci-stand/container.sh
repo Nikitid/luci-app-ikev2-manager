@@ -152,6 +152,9 @@ seed_quality() {
 		printf '%s reconnect 1\n' $((now - 11640))
 		printf '%s dns-switch -\n' $((now - 7200))
 	} >/var/run/ikev2-quality/events
+	# The second tunnel keeps a history of its own, so its tab draws a chart too.
+	cp /var/run/ikev2-quality/samples /var/run/ikev2-quality/samples-2
+	: >/var/run/ikev2-quality/events-2
 }
 
 seed_devices() {

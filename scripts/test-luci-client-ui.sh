@@ -1581,9 +1581,12 @@ discardTunnel.listeners.click();
 if (tunnelTabs() !== 'Main tunnel|NL|+||Inbound server' || shownPanels(tunnelsTree) !== '010')
 	fail('a discarded tunnel keeps its tab, or the one before it is not shown: ' + tunnelTabs() + ' ' + shownPanels(tunnelsTree));
 const tunnelsHeadings = headings(tunnelsTree);
-[ 'Connection', 'More tunnels', 'NL', 'Service' ].forEach(function(title) {
+[ 'Connection', 'More tunnels', 'Service' ].forEach(function(title) {
 	if (tunnelsHeadings.indexOf(title) < 0) fail('the Tunnels page lost its section: ' + title);
 });
+// Another tunnel is laid out as the main one: its name is on the tab, its block is its connection.
+if (tunnelsHeadings.filter(function(title) { return title === 'Connection'; }).length < 2 || tunnelsHeadings.indexOf('NL') >= 0)
+	fail('another tunnel\'s block is not headed as the main one\'s: ' + tunnelsHeadings.join('|'));
 [ 'Tunnel DNS', 'Router DNS upstream', 'Destination DNS segments' ].forEach(function(title) {
 	if (tunnelsHeadings.indexOf(title) >= 0) fail('DNS is still on the Tunnels page: ' + title);
 });

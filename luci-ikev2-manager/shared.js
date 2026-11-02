@@ -136,6 +136,7 @@ var CSS = `
 				--ikev2-muted: oklch(0.430 0.012 250);
 				--ikev2-faint: oklch(0.520 0.010 250);
 				--ikev2-accent: oklch(0.500 0.075 195);
+				--ikev2-accent-rgb: 32, 112, 112;
 				--ikev2-accent-text: oklch(0.440 0.070 195);
 				--ikev2-accent-soft: oklch(0.930 0.020 195);
 				--ikev2-on-fill: oklch(0.985 0.004 85);
@@ -199,6 +200,7 @@ var CSS = `
 				--ikev2-muted: oklch(0.760 0.008 255);
 				--ikev2-faint: oklch(0.665 0.008 255);
 				--ikev2-accent: oklch(0.760 0.070 195);
+				--ikev2-accent-rgb: 122, 191, 191;
 				--ikev2-accent-text: oklch(0.790 0.070 195);
 				--ikev2-accent-soft: oklch(0.320 0.032 195);
 				--ikev2-on-fill: oklch(0.200 0.005 255);
@@ -219,6 +221,7 @@ var CSS = `
 					--ikev2-muted: oklch(0.760 0.008 255);
 					--ikev2-faint: oklch(0.665 0.008 255);
 					--ikev2-accent: oklch(0.760 0.070 195);
+					--ikev2-accent-rgb: 122, 191, 191;
 					--ikev2-accent-text: oklch(0.790 0.070 195);
 					--ikev2-accent-soft: oklch(0.320 0.032 195);
 					--ikev2-on-fill: oklch(0.200 0.005 255);
@@ -739,11 +742,20 @@ var CSS = `
 				gap: .45rem;
 			}
 			.ikev2-profile-actions {
+				position: relative;
 				display: inline-flex;
 				align-items: center;
 				gap: .35rem;
 				padding-right: .55rem;
 				margin-right: .1rem;
+			}
+			/* The same short divider as between the other buttons of a row. */
+			.ikev2-profile-actions::after {
+				content: "";
+				position: absolute;
+				right: 0;
+				top: 15%;
+				height: 70%;
 				border-right: 1px solid var(--ikev2-border);
 			}
 			.ikev2-platform-action {
@@ -1239,6 +1251,24 @@ var CSS = `
 			.ikev2-page .cbi-button:hover {
 				background: var(--ikev2-accent-soft);
 				border-color: var(--ikev2-accent);
+				box-shadow: none;
+			}
+			/* Bootstrap paints hovered buttons and focused fields with its own
+			   blue, as an !important border off --focus-color-rgb. Pointed at the
+			   accent, that border is ours; an invalid field keeps its red. */
+			.ikev2-page .cbi-button:hover,
+			.ikev2-page .cbi-button:focus,
+			.ikev2-page button:hover,
+			.ikev2-page .btn:hover,
+			.ikev2-page .btn:focus,
+			.ikev2-page .cbi-dropdown:focus,
+			.ikev2-page .cbi-dropdown[open],
+			.ikev2-page .cbi-dynlist > .item:focus,
+			.ikev2-page input:not(.cbi-input-invalid):focus,
+			.ikev2-page textarea:not(.cbi-input-invalid):focus,
+			.ikev2-page select:not(.cbi-input-invalid):focus,
+			.ikev2-page .cbi-select:not(.cbi-input-invalid).focus {
+				--focus-color-rgb: var(--ikev2-accent-rgb);
 			}
 			/* A press has to answer the pointer going down, not the click going
 			   up. The old rule only cancelled the hover lift, so a touch device
@@ -2312,7 +2342,7 @@ var CSS = `
 				stroke-linejoin: round;
 				stroke-linecap: round;
 			}
-			.ikev2-page .ikev2-quality-chart .area { fill: url(#ikev2-quality-fill); stroke: none; }
+			.ikev2-page .ikev2-quality-chart .area { stroke: none; }
 			.ikev2-page .ikev2-quality-chart .direct {
 				fill: none;
 				stroke: var(--ikev2-muted);
@@ -2689,7 +2719,7 @@ function setPill(node, text, tone) {
 
 function icon(name) {
 	var paths = {
-		key: 'M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7.1-7.1 5 5 0 0 1 7.1 7.1ZM11 11l4 4m0 0 2-2m-2 2-2 2',
+		key: 'M11.2 12.8a4.5 4.5 0 1 1-6.4 6.4 4.5 4.5 0 0 1 6.4-6.4Zm0 0 9.3-9.3M17 7l2.5 2.5M14.5 9.5l2 2',
 		disconnect: 'M9 12h6m-3-3 3 3-3 3M5 5a9 9 0 1 0 14 0',
 		trash: 'M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6',
 		addUser: 'M15 19a6 6 0 0 0-12 0m6-8a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm9-2v6m-3-3h6',
@@ -2699,9 +2729,9 @@ function icon(name) {
 		down: 'M12 3v14m-5-5 5 5 5-5M5 21h14',
 		up: 'M12 21V7m-5 5 5-5 5 5M5 3h14',
 		download: 'M12 3v12m-4-4 4 4 4-4M5 21h14',
-		windows: 'M3 5h8v7H3V5Zm10 0h8v7h-8V5ZM3 14h8v7H3v-7Zm10 0h8v7h-8v-7Z',
-		phone: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 3h4m-3 12h2',
-		android: 'M7 9h10v8H7V9Zm2-3-2-2m8 2 2-2M9 12h.01M15 12h.01M5 10v6m14-6v6m-9 1v3m4-3v3',
+		windows: 'M4 4h16v16H4V4Zm8 0v16M4 12h16',
+		phone: 'M8.5 3h7A1.5 1.5 0 0 1 17 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 7 19.5v-15A1.5 1.5 0 0 1 8.5 3ZM11 18h2',
+		android: 'M4 17a8 8 0 0 1 16 0H4ZM8 10.1 6.5 7M16 10.1 17.5 7M9 14h.01M15 14h.01',
 		lock: 'M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6v-9Z'
 	};
 	return E('<svg class="ikev2-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +

@@ -2,8 +2,8 @@
 'require view';
 'require fs';
 'require ui';
-'require ikev2-manager.shared-v23 as common';
-'require ikev2-manager.users-panel-v8 as vpnUsers';
+'require ikev2-manager.shared-v24 as common';
+'require ikev2-manager.users-panel-v9 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
 var catalogHelper = '/usr/libexec/ikev2-domains-community';

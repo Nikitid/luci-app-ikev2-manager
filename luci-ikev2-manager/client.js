@@ -2,7 +2,7 @@
 'require baseclass';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v23 as common';
+'require ikev2-manager.shared-v24 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -748,7 +748,11 @@ var qualityVerdicts = {
 
 // The latency curve. Everything is drawn in CSS pixels of the current width,
 // so text and strokes keep their size; a resize redraws.
+// Each tunnel draws its own: a gradient id shared between them would resolve
+// to the one in a hidden tab and leave the others without a fill.
+var qualityCharts = 0;
 function qualityChart() {
+	var fillId = 'ikev2-quality-fill-' + (++qualityCharts);
 	var wrap = E('div', { 'class': 'ikev2-quality-chart' });
 	var tip = E('div', { 'class': 'ikev2-quality-tip', 'style': 'display:none' });
 	var root = svgNode('svg', { 'role': 'img' });
@@ -772,7 +776,7 @@ function qualityChart() {
 		root.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
 
 		var defs = svgNode('defs', {}, root);
-		var gradient = svgNode('linearGradient', { 'id': 'ikev2-quality-fill', 'x1': '0', 'y1': '0', 'x2': '0', 'y2': '1' }, defs);
+		var gradient = svgNode('linearGradient', { 'id': fillId, 'x1': '0', 'y1': '0', 'x2': '0', 'y2': '1' }, defs);
 		svgNode('stop', { 'offset': '0', 'style': 'stop-color:var(--ikev2-accent);stop-opacity:.22' }, gradient);
 		svgNode('stop', { 'offset': '1', 'style': 'stop-color:var(--ikev2-accent);stop-opacity:0' }, gradient);
 
@@ -823,7 +827,7 @@ function qualityChart() {
 			var pts = coords(run, 'rtt');
 			var line = monotonePath(pts);
 			if (pts.length > 1)
-				svgNode('path', { 'class': 'area', 'd': line + 'L' + pts[pts.length - 1].x.toFixed(1) + ',' +
+				svgNode('path', { 'class': 'area', 'fill': 'url(#' + fillId + ')', 'd': line + 'L' + pts[pts.length - 1].x.toFixed(1) + ',' +
 					plotBottom + 'L' + pts[0].x.toFixed(1) + ',' + plotBottom + 'Z' }, root);
 			svgNode('path', { 'class': 'tunnel', 'd': line }, root);
 		});
@@ -1244,7 +1248,8 @@ function qualitySection(initial, options) {
 
 		var windowInfo = qualityWindows.filter(function(item) { return item.id === windowId; })[0];
 		empty.style.display = samples ? 'none' : '';
-		chart.node.style.display = samples ? '' : 'none';
+		// Not a style attribute: the theme gives "div[style] > svg" a background.
+		chart.node.hidden = !samples;
 		legend.style.display = samples ? '' : 'none';
 		if (samples)
 			chart.update({
@@ -2273,6 +2278,8 @@ return baseclass.extend({
 				state.address ? _('Address %s').format(state.address) : '',
 				carries.length ? _('Carries: %s').format(carries.join(', ')) : ''
 			].filter(Boolean).join(' · ');
+			// Empty, it would still take a row of the block.
+			view.detail.hidden = !view.detail.textContent;
 		}
 
 		// The main tunnel's own switch for what every other tunnel has in its
@@ -2400,7 +2407,8 @@ return baseclass.extend({
 
 			var pill = common.pill('', 'neutral');
 			var detail = E('div', { 'class': 'cbi-value-description' });
-			// The name and state go on the tab and its heading, not in the block.
+			detail.hidden = true;
+			// The name goes on the tab and the state beside the heading, not in the block.
 			var node = E('div', { 'class': 'ikev2-segment-block ikev2-tunnel-block' }, [
 				detail,
 				E('div', { 'class': 'ikev2-form-grid' }, [
@@ -2456,11 +2464,15 @@ return baseclass.extend({
 		}
 
 		var tunnelSaved = null;
+		// Laid out as the main tunnel is: the name is on the tab, the block is
+		// its connection.
 		function tunnelPanel(block, id, index) {
 			return { id: id, title: block.tunnelTitle, block: block,
 				content: E('div', {}, [
 					index ? tunnelQuality(index).node : '',
-					common.section(block.tunnelTitle, null, block, block.tunnelPill)
+					common.section(_('Connection'), index ?
+						_('Changing these values reloads the tunnel profile and reconnects it. Policy routing stays in place.') : null,
+						block, block.tunnelPill)
 				]) };
 		}
 		function renderTunnels() {

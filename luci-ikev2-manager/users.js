@@ -4,7 +4,7 @@
 'require ui';
 'require poll';
 'require uqr';
-'require ikev2-manager.shared-v23 as common';
+'require ikev2-manager.shared-v24 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 
@@ -134,7 +134,7 @@ function downloadProfile(platform, user, button, result) {
 // in a file on the computer.
 function qrIcon() {
 	return E('<svg class="ikev2-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-		'<path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h2v2h-2v-2Zm4 0h2v2h-2v-2Zm-4 4h2v2h-2v-2Zm4 0h2v2h-2v-2Zm-2-2h2v2h-2v-2Z"></path></svg>');
+		'<path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10.5.5h.01m5 0h.01M17 17h.01m-2.5 2.5h.01m5 0h.01"></path></svg>');
 }
 
 function qrDialog(user) {
