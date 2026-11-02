@@ -271,8 +271,9 @@ intervals, one copy of each at a time, so none of them delays a reconnect.
 While a configuration change holds the action lock, only the quality sample
 runs.
 
-External alerting is optional. `scripts/kuma-push.sh` runs from the router's
-cron and reports Uptime Kuma push monitors: services and pause, the outbound
+External alerting is optional. `scripts/kuma-push.sh` and its adjacent
+`scripts/kuma-probes.sh` run from the router's cron and report Uptime Kuma push
+monitors: services and pause, the outbound
 tunnel, domain policy, DNS, the inbound server and the server certificate,
 plus doctor security findings when that token is configured. It changes
 nothing, and one run at a time is allowed. Tunnel and policy are judged by
@@ -477,6 +478,35 @@ The health watcher logs each repair by name - `repaired inbound-policy`,
 since. A name that keeps appearing is a fault coming back, not noise. An
 inbound policy watcher whose loop stopped is restarted instead
 (`The inbound policy watcher stopped; restarting it`).
+
+### Short-outage history
+
+The optional operational service `scripts/network-recorder.init` runs
+`scripts/network-recorder.sh` and `scripts/kuma-probes.sh` from
+`/etc/ikev2-kuma/`. Install the init file as `/etc/init.d/ikev2-network-recorder`
+and enable/start that service. It does not modify routing or restart network
+services. Add the init path to `/etc/sysupgrade.conf` as well as preserving
+`/etc/ikev2-kuma/`. Stop/disable it to remove the recorder; remove
+`/tmp/ikev2-network` to erase its history.
+
+The recorder writes root-only RAM rings under `/tmp/ikev2-network`: WAN and
+each tunnel's ICMP reachability every five seconds plus probe time; DNS,
+selected-service HTTPS, direct WAN HTTPS and SA snapshots every thirty seconds
+plus probe time; and filtered network/service events. ICMP silence is labelled
+`no-icmp`, not a confirmed outage. HTTPS failures are retried once and do not
+alone establish route leakage. Each request has a timeout.
+
+The sample rings retain at most 17,280 and 2,880 rows, respectively; event
+logging rotates at 512 KiB. History contains private network identifiers,
+starts empty after reboot, and must be copied to a private location before
+rebooting or investigating an older incident. It cannot prove an outage's
+absence between samples or reconstruct a client application's own failures.
+
+Kuma HTTPS traces require a complete valid response and retry once. If a
+selected-service request still fails, an independent DoH/HTTPS tunnel probe
+helps distinguish DNS failure from an unclassified HTTPS/data-plane failure.
+An observed unexpected exit is reported separately. Deploy both monitoring
+scripts together; their configuration and push tokens remain router-local.
 
 ### Own policy routing
 

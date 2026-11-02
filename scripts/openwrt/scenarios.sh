@@ -1365,6 +1365,9 @@ done
 	fail 'client access changed the mode of a file along with the directories'
 rm -rf /etc/ikev2-manager/upgrade-check
 
+step 'the short-outage recorder bounds its RAM history and keeps it private'
+sh /src/scripts/openwrt/network-recorder.sh
+
 # --- teardown ---------------------------------------------------------------
 
 step 'stopping removes everything the routing installed'

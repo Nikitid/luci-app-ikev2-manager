@@ -166,7 +166,9 @@ fail, restore. Wire it into `scripts/ci-check.sh`, or nothing runs it.
 - `scripts/deploy-luci.sh` - push page assets to one router without a release
 - `scripts/health-check.sh` - read-only sweep across routers
 - `scripts/kuma-push.sh` - runs on a router from cron and reports each
-  subsystem to Uptime Kuma push monitors; read-only
+  subsystem to Uptime Kuma push monitors; read-only. `kuma-probes.sh` is its
+  adjacent probe library; `network-recorder.sh` and `network-recorder.init`
+  provide optional bounded short-outage history in RAM
 
 ## Documentation
 

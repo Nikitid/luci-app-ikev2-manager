@@ -3,7 +3,7 @@
 #
 # Push IKEv2 manager health to Uptime Kuma push monitors. Runs on the router
 # from cron and changes nothing: every check below is a read-only status call
-# or a single HTTPS request.
+# or bounded HTTPS probes.
 #
 # Config, kept on the router only (tokens are secrets):
 #   /etc/ikev2-kuma/kuma.conf
@@ -54,32 +54,9 @@ push() {
 		--data-urlencode "msg=$3" --data-urlencode "ping=$4"
 }
 
-# field <name>=<value> from "key=value" lines on stdin
-field() { sed -n "s/^$1=//p" | head -n 1; }
-
-# the first IPv4 answer for <name> from <server>, past nslookup's own header
-resolve() {
-	nslookup "$1" "$2" 2>/dev/null |
-		awk '/^Name:/ { n = 1 } n && /^Address/ && $NF !~ /:/ { print $NF; exit }'
-}
-
-# run a command, killing it after <seconds>: BusyBox has no timeout applet
-bounded() {
-	secs=$1; shift
-	"$@" &
-	pid=$!
-	( sleep "$secs"; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
-	watchdog=$!
-	wait "$pid"; rc=$?
-	kill "$watchdog" 2>/dev/null
-	return "$rc"
-}
-
-# cloudflare trace: prints "ip loc" for the path a request to <host> takes
-trace() {
-	curl -s -m 10 ${2:+--interface $2} "https://$1/cdn-cgi/trace" 2>/dev/null |
-		awk -F= '$1=="ip"{i=$2} $1=="loc"{l=$2} END{if (i!="") print i" "l}'
-}
+# Keep the companion next to this operational script when deploying it.
+. "$(CDPATH= cd -- "$(dirname "$0")" && pwd)/kuma-probes.sh" || exit 1
+umask 077
 
 # Counters from the previous run, for rates. /proc/uptime does not jump with
 # the clock and counts in hundredths of a second.
@@ -217,10 +194,15 @@ if [ "$(echo "$dr" | field engine)" = fakeip ]; then
 			other=$(trace www.cloudflare.com "$link"); other=${other%% *}
 			[ -z "$other" ] || [ "$other" = "$wan_ip" ] || exits="$exits$other "
 		done
-		case "$exits" in
-			*" ${pbr_ip:-none} "*) ;;
-			*) fail "$PBR_DOMAIN выходит с ${pbr:-нет ответа}, а не через туннель" ;;
-		esac
+		if [ -z "$pbr_ip" ]; then
+			endpoint=$(sed -n 's/^selected=//p' /var/run/ikev2-tunnel-dns.state | tail -n 1)
+			fail "$PBR_DOMAIN: $(trace_failure "$PBR_DOMAIN" "$endpoint")"
+		else
+			case "$exits" in
+				*" $pbr_ip "*) ;;
+				*) fail "$PBR_DOMAIN: получен выход $pbr вне подтверждённых выходов VPN" ;;
+			esac
+		fi
 		how="через туннель ($pbr)"
 	else
 		# The router's own requests are not routed: only the answer is checked.
@@ -243,7 +225,7 @@ report "$T_domains" "$PBR_DOMAIN $how, $CONTROL_DOMAIN напрямую ($wan), 
 # A name nobody asked for before goes all the way to the upstream; it does
 # not exist, and the answer saying so is what is timed.
 started=$(uptime_cs)
-nslookup "kuma-$now_cs-$$.example.com" 127.0.0.1 >/dev/null 2>&1
+bounded 3 nslookup "kuma-$now_cs-$$.example.com" 127.0.0.1 >/dev/null 2>&1
 lookup_ms=$(( ($(uptime_cs) - started) * 10 ))
 # doctor reports these only where they apply; a notice is a check not run yet
 for k in dns_segments fakeip_data_plane; do
