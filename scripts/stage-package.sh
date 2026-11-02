@@ -155,7 +155,7 @@ mkdir -p "$stage/usr/lib/lua/luci/i18n"
 python3 "$root/scripts/po2lmo.py" "$root/po/ru/ikev2-manager.po" \
 	"$stage/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo"
 chmod 644 "$stage/usr/lib/lua/luci/i18n/ikev2-manager.ru.lmo"
-install_file 644 luci-ikev2-manager/shared.js /www/luci-static/resources/ikev2-manager/shared-v22.js
+install_file 644 luci-ikev2-manager/shared.js /www/luci-static/resources/ikev2-manager/shared-v23.js
 for font in onest-latin.woff2 onest-cyrillic.woff2 OFL.txt; do
 	install_file 644 "luci-ikev2-manager/fonts/$font" "/www/luci-static/resources/ikev2-manager/fonts/$font"
 done
@@ -166,20 +166,20 @@ install_file 644 luci-ikev2-manager/status-widget.js \
 # changes is therefore served from the browser cache across an upgrade, which is
 # what the -vN suffixes are for.
 install_file 644 luci-ikev2-manager/settings.js \
-	/www/luci-static/resources/ikev2-manager/inbound-panel-v4.js
+	/www/luci-static/resources/ikev2-manager/inbound-panel-v5.js
 install_file 644 luci-ikev2-manager/client.js \
-	/www/luci-static/resources/ikev2-manager/outbound-panel-v4.js
+	/www/luci-static/resources/ikev2-manager/outbound-panel-v5.js
 install_file 644 luci-ikev2-manager/tunnels.js \
-	/www/luci-static/resources/view/ikev2-manager/tunnels-v4.js
+	/www/luci-static/resources/view/ikev2-manager/tunnels-v5.js
 install_file 644 luci-ikev2-manager/dns.js \
-	/www/luci-static/resources/view/ikev2-manager/dns-v4.js
+	/www/luci-static/resources/view/ikev2-manager/dns-v5.js
 install_file 644 luci-ikev2-manager/setup.js \
-	/www/luci-static/resources/view/ikev2-manager/setup-v19.js
+	/www/luci-static/resources/view/ikev2-manager/setup-v20.js
 install_file 644 luci-ikev2-manager/users.js \
-	/www/luci-static/resources/ikev2-manager/users-panel-v7.js
+	/www/luci-static/resources/ikev2-manager/users-panel-v8.js
 install_file 644 luci-ikev2-manager/remote-clients.js \
-	/www/luci-static/resources/view/ikev2-manager/remote-clients-v31.js
-install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v18.js
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v32.js
+install_file 644 luci-ikev2-domains/editor.js /www/luci-static/resources/view/ikev2-domains/editor-v19.js
 
 # The pages show which build is installed. Stamping it here keeps status cheap:
 # no package-manager query on every poll.
@@ -377,7 +377,16 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/tunnels-v3.js \
 	/www/luci-static/resources/view/ikev2-manager/dns-v3.js \
 	/www/luci-static/resources/ikev2-manager/outbound-panel-v3.js \
-	/www/luci-static/resources/ikev2-manager/inbound-panel-v3.js
+	/www/luci-static/resources/ikev2-manager/inbound-panel-v3.js \
+	/www/luci-static/resources/ikev2-manager/shared-v22.js \
+	/www/luci-static/resources/view/ikev2-manager/setup-v19.js \
+	/www/luci-static/resources/ikev2-manager/users-panel-v7.js \
+	/www/luci-static/resources/view/ikev2-manager/remote-clients-v31.js \
+	/www/luci-static/resources/ikev2-manager/inbound-panel-v4.js \
+	/www/luci-static/resources/ikev2-manager/outbound-panel-v4.js \
+	/www/luci-static/resources/view/ikev2-manager/tunnels-v4.js \
+	/www/luci-static/resources/view/ikev2-manager/dns-v4.js \
+	/www/luci-static/resources/view/ikev2-domains/editor-v18.js
 # Releases before 1.13 shipped the charon settings under strongswan.d/charon/,
 # which strongswan.conf includes inside charon.plugins, so none of them applied.
 rm -f /etc/strongswan.d/charon/20-ikev2-manager.conf

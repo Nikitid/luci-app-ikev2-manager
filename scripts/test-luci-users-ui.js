@@ -107,7 +107,8 @@ function inlineResult() {
 		ok: message => set('ok', message),
 		warn: message => set('warn', message),
 		err: message => set('err', message),
-		clear: () => { node.style.display = 'none'; }
+		clear: () => { node.style.display = 'none'; },
+		reveal: () => {}
 	};
 }
 
@@ -181,6 +182,8 @@ const fileApi = {
 };
 
 const common = {
+	setBusy: () => {},
+	readFailed: reply => !reply || (reply.code != null && reply.code !== 0),
 	trackChanges: () => ({ update() {}, reset() {}, dirty: () => true }),
 	// As swanmon prints it: {"errors": [], "data": [ {<connection>: {...}} ]}.
 	parseSwanmon: response => JSON.parse(response.stdout || '{}').data || [],
@@ -224,10 +227,12 @@ const ui = {
 };
 const polls = [];
 const poll = { add: fn => { polls.push(fn); } };
+const pollTick = () => Promise.all(polls.map(fn => fn()));
 const L = { resolveDefault: (promise, fallback) => Promise.resolve(promise).catch(() => fallback) };
 const windowMock = { confirm: () => true, setTimeout, Event: function() {},
 	location: { origin: 'http://192.168.1.1' } };
-const documentMock = {};
+let inFocus = null;
+const documentMock = { get activeElement() { return inFocus; } };
 const view = { extend: object => object };
 const translate = value => value;
 
@@ -258,8 +263,17 @@ const page = factory(view, fileApi, ui, poll, common, L, E, translate, windowMoc
 
 	assert.strictEqual(modal, null, 'successful add closes the modal');
 	assert(root.textContent.includes('test-user'), 'new user appears without a page reload');
-	assert(root.textContent.includes('1 users'), 'user count updates without a page reload');
+	assert(root.textContent.includes('Users: 1'), 'user count updates without a page reload');
 	assert(root.textContent.includes('VPN user added.'), 'success is shown in the local action bar');
+
+	// A poll does not redraw a card in use: the button in focus would be gone.
+	const held = findByTitle(root, 'Download iOS profile');
+	inFocus = { closest: selector => selector === '.ikev2-user-card' ? {} : null };
+	await pollTick();
+	assert.strictEqual(findByTitle(root, 'Download iOS profile'), held, 'a poll redrew the card in focus');
+	inFocus = null;
+	await pollTick();
+	assert.notStrictEqual(findByTitle(root, 'Download iOS profile'), held, 'a poll with nothing in use redraws');
 
 	assert(findByTitle(root, 'Download iOS profile'),
 		'user card has a direct iOS profile action');
@@ -313,7 +327,7 @@ const page = factory(view, fileApi, ui, poll, common, L, E, translate, windowMoc
 	const remove = findByTitle(root, 'Delete');
 	await remove.attrs.click({ currentTarget: remove });
 	assert(root.textContent.includes('No VPN users configured.'), 'deleted user disappears without a page reload');
-	assert(root.textContent.includes('0 users'), 'user count updates after deletion');
+	assert(root.textContent.includes('Users: 0'), 'user count updates after deletion');
 	assert.strictEqual(find(root, 'button', 'Disconnect all').disabled, true,
 		'disconnect-all stays disabled when refreshed state has no sessions');
 

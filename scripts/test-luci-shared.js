@@ -505,5 +505,19 @@ assert.strictEqual(select.disabled, false, 'setBusy did not restore select state
 		windowStub.setTimeout = realSet;
 	}
 
+	// A browser drops every rule after an unclosed block without a word: half the
+	// page loses its layout and nothing else fails. The stylesheet must balance.
+	{
+		const text = source.slice(source.indexOf('var CSS = `') + 11);
+		const css = text.slice(0, text.indexOf('`;'));
+		let depth = 0;
+		for (const ch of css) {
+			if (ch === '{') depth++;
+			if (ch === '}') depth--;
+			assert.ok(depth >= 0, 'the stylesheet closes a block it never opened');
+		}
+		assert.strictEqual(depth, 0, 'the stylesheet leaves a block open');
+	}
+
 	console.log('luci shared module tests OK');
 })();

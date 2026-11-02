@@ -209,9 +209,18 @@ function load(dir, file, common) {
 
 const common = load('luci-ikev2-manager', 'shared.js');
 const view = load('luci-ikev2-domains', 'editor.js', common);
-const server = load('luci-ikev2-manager', 'settings.js', common);
+// The inbound server and the outbound tunnels are panels the Tunnels and DNS
+// pages are built from: what a page shows of them is their parts.
+const serverPage = panel => ({ loadData: () => panel.load(), renderData: data => E('div', {}, panel.parts(data).server) });
+const clientPage = panel => ({ loadData: () => panel.load(), renderData: data => {
+	const parts = panel.parts(data);
+	const tree = E('div', {}, [ parts.pill ].concat(parts.tunnel, [ parts.dnsNote ], parts.dns));
+	tree.parts = parts;
+	return tree;
+} });
+const server = serverPage(load('luci-ikev2-manager', 'settings.js', common));
 const setup = load('luci-ikev2-manager', 'setup.js', common);
-const client = load('luci-ikev2-manager', 'client.js', common);
+const client = clientPage(load('luci-ikev2-manager', 'client.js', common));
 
 // Two tunnels; one service sent through the second, one kept on it alone.
 function healthyRouter() {
@@ -363,10 +372,14 @@ async function pages() {
 	assert(swanmon('/usr/sbin/swanmon'));
 	tree = page = client.renderData(await client.loadData());
 	flushTimers();
-	assert(/Could not be read: tunnel settings, more tunnels, DNS settings, DNS segments/.test(tree.textContent), 'client: says what could not be read');
+	assert(/Could not be read: tunnel settings, more tunnels\./.test(tree.textContent), 'client: the tunnels say what could not be read');
+	assert(/Could not be read: DNS settings, DNS segments\./.test(tree.textContent), 'client: the DNS says what could not be read');
 	assert(!pills(tree).includes('Disconnected'), 'client: not called disconnected');
 	assert(!/Only the main tunnel is configured|No DNS segments configured/.test(tree.textContent), 'client: unread lists are not empty ones');
-	assert(button(tree, 'Add tunnel').disabled && button(tree, 'Add DNS segment').disabled, 'client: nothing is added to what is unknown');
+	const tabsBefore = tree.parts.tunnels.panels().length + tree.parts.segments.panels().length;
+	tree.parts.tunnels.add(); tree.parts.segments.add();
+	assert.strictEqual(tree.parts.tunnels.panels().length + tree.parts.segments.panels().length, tabsBefore,
+		'client: nothing is added to what is unknown');
 
 	// Saving one tunnel keeps what is being written in another.
 	for (const key of Object.keys(helpers)) delete helpers[key];
@@ -375,16 +388,16 @@ async function pages() {
 	helpers['ikev2-manager tunnel-input'] = { code: 0, stdout: '' };
 	tree = page = client.renderData(await client.loadData());
 	flushTimers();
-	const blocks = tree.querySelectorAll('.ikev2-tunnel-block');
-	assert.strictEqual(blocks.length, 2, 'client: both tunnels are drawn');
+	const blocks = tree.parts.tunnels.panels().map(panel => panel.block);
+	assert.strictEqual(blocks.length, 2, 'client: both tunnels have a tab');
 	const names = blocks.map(b => b.querySelectorAll('input').find(i => i.value === 'Second' || i.value === 'Third'));
 	names[0].value = 'Second edited'; names[0].dispatch('input');
 	names[1].value = 'Third edited'; names[1].dispatch('input');
 	flushTimers();
 	blocks[0].querySelectorAll('button').find(b => b.textContent.trim() === 'Save tunnel').click();
 	for (let i = 0; i < 40; i++) { await Promise.resolve(); flushTimers(); }
-	const after = tree.querySelectorAll('.ikev2-tunnel-block');
-	assert.strictEqual(after.length, 2, 'client: the blocks are drawn again');
+	const after = tree.parts.tunnels.panels().map(panel => panel.block);
+	assert.strictEqual(after.length, 2, 'client: the tabs are drawn again');
 	assert.notStrictEqual(after[0], blocks[0], 'client: the saved tunnel is drawn from the router');
 	assert.strictEqual(after[1], blocks[1], 'client: the block being edited is kept');
 	assert.strictEqual(names[1].value, 'Third edited', 'client: unsaved edits of another tunnel survive');

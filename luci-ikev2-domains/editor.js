@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v22 as common';
+'require ikev2-manager.shared-v23 as common';
 
 var domainFile    = '/etc/pbr-ikev2-domains.txt';
 var manualFile    = '/etc/pbr-ikev2-domains.manual.txt';
@@ -66,6 +66,14 @@ function parseExits(text) {
 			exits[fields[0]] = fields[1];
 	});
 	return exits;
+}
+
+// A list that does not exist yet is empty. One that exists and could not be
+// read is unknown (null), and the page must not save over it.
+function readList(file) {
+	return fs.read(file).catch(function(error) {
+		return error && error.name === 'NotFoundError' ? '' : null;
+	});
 }
 
 function recordOf(id) {
@@ -194,14 +202,6 @@ function normalizeAddresses(value) {
 	return addresses;
 }
 
-// A name for an id the router gave no name for, such as a list in the v2fly
-// picker. Prepared services come with their names from the router.
-function serviceLabel(name) {
-	return name.replace(/_/g, ' ').replace(/\b\w/g, function(letter) {
-		return letter.toUpperCase();
-	});
-}
-
 // Ordered service categories. Any catalog name not listed here falls into the
 // trailing "Other" group, so adding a new service still shows up.
 var SERVICE_CATEGORIES = [
@@ -220,7 +220,7 @@ var SERVICE_CATEGORIES = [
 
 var BROAD_SERVICES = /^(cloudflare|cloudfront|digitalocean|hetzner|ovh)$/;
 function serviceTitle(record) {
-	return record.label && record.label !== record.id ? record.label : serviceLabel(record.id);
+	return record.label && record.label !== record.id ? record.label : common.serviceLabel(record.id);
 }
 
 // The catalogue in its categories: [ { title, records } ], the user's own
@@ -312,11 +312,14 @@ function parseStatus(text) {
 // Poll the status file until its `updated` timestamp differs from `prev`
 // (meaning our apply run finished) or the deadline passes. Resolves with the
 // parsed status object, or null on timeout.
-function pollStatus(actionId, deadline, onProgress) {
+function pollStatus(actionId, deadline, onProgress, missed) {
 	return L.resolveDefault(fs.exec(communityHelper, [ 'status', actionId ]), {
-		stdout: ''
+		code: 1, stdout: ''
 	}).then(function(response) {
 		var st = parseStatus((response && response.stdout) || '');
+		missed = common.readFailed(response) ? (missed || 0) + 1 : 0;
+		if (missed >= 20)
+			throw new Error(_('Lost contact with the router while waiting for the result. The action may still be running; reload the page to see.'));
 		if (st.action_id === actionId && st.state === 'running' && onProgress)
 			onProgress(st);
 		if (st.action_id === actionId && (st.state === 'ok' || st.state === 'error'))
@@ -326,16 +329,19 @@ function pollStatus(actionId, deadline, onProgress) {
 		return new Promise(function(resolve) {
 			window.setTimeout(resolve, 1500);
 		}).then(function() {
-			return pollStatus(actionId, deadline, onProgress);
+			return pollStatus(actionId, deadline, onProgress, missed);
 		});
 	});
 }
 
-function pollDomainRouter(actionId, deadline) {
+function pollDomainRouter(actionId, deadline, missed) {
 	return L.resolveDefault(fs.exec(domainRouterHelper, [ 'status' ]), {
 		code: 1, stdout: ''
 	}).then(function(response) {
 		var st = parseStatus((response || {}).stdout || '');
+		missed = common.readFailed(response) ? (missed || 0) + 1 : 0;
+		if (missed >= 20)
+			throw new Error(_('Lost contact with the router while waiting for the result. The action may still be running; reload the page to see.'));
 		if (st.action_id === actionId &&
 		    (st.state === 'active' || st.state === 'disabled' || st.state === 'error'))
 			return st;
@@ -344,16 +350,19 @@ function pollDomainRouter(actionId, deadline) {
 		return new Promise(function(resolve) {
 			window.setTimeout(resolve, 1000);
 		}).then(function() {
-			return pollDomainRouter(actionId, deadline);
+			return pollDomainRouter(actionId, deadline, missed);
 		});
 	});
 }
 
-function pollResolverDiagnostic(actionId, deadline) {
+function pollResolverDiagnostic(actionId, deadline, missed) {
 	return L.resolveDefault(fs.exec(domainRouterHelper, [ 'status' ]), {
 		code: 1, stdout: ''
 	}).then(function(response) {
 		var st = parseStatus((response || {}).stdout || '');
+		missed = common.readFailed(response) ? (missed || 0) + 1 : 0;
+		if (missed >= 20)
+			throw new Error(_('Lost contact with the router while waiting for the result. The action may still be running; reload the page to see.'));
 		if (st.action_id === actionId && st.state === 'error')
 			return st;
 		if (st.action_id === actionId && st.state === 'active' &&
@@ -364,40 +373,41 @@ function pollResolverDiagnostic(actionId, deadline) {
 		return new Promise(function(resolve) {
 			window.setTimeout(resolve, 1000);
 		}).then(function() {
-			return pollResolverDiagnostic(actionId, deadline);
+			return pollResolverDiagnostic(actionId, deadline, missed);
 		});
 	});
 }
 
 // Refresh the on-page status block without a full reload.
-return view.extend({
-	load: function() {
+return view.extend(common.shell(_('Policy Routing'),
+	_('Build the IPv4 VPN policy from curated services, custom destinations and per-device modes.'), {
+	loadData: function() {
 		return Promise.all([
 			// Textarea is bound to the manual file only — never fall back to the
 			// combined list, or clearing/editing would silently reappear.
-			L.resolveDefault(fs.read(manualFile), ''),
-			L.resolveDefault(fs.read(selectedFile), ''),
+			readList(manualFile),
+			readList(selectedFile),
 			L.resolveDefault(fs.read(statusFile), ''),
 			L.resolveDefault(fs.exec(communityHelper, [ 'services' ]), {
 				code: 1, stdout: ''
 			}),
 			L.resolveDefault(fs.read(domainFile), ''),
 			L.resolveDefault(fs.exec(domainRouterHelper, [ 'status' ]), {
-				code: 0, stdout: ''
+				code: 1, stdout: ''
 			}),
-			L.resolveDefault(fs.read(manualAddressFile), ''),
+			readList(manualAddressFile),
 			L.resolveDefault(fs.exec(communityHelper, [ 'sources' ]), {
 				code: 1, stdout: ''
 			}),
-			L.resolveDefault(fs.read(excludeFile), ''),
-			L.resolveDefault(fs.read(excludeAddressFile), ''),
+			readList(excludeFile),
+			readList(excludeAddressFile),
 			L.resolveDefault(fs.exec(managerHelper, [ 'tunnels-get' ]), { code: 1, stdout: '' }),
-			L.resolveDefault(fs.read(exitsFile), ''),
+			readList(exitsFile),
 			L.resolveDefault(fs.exec(managerHelper, [ 'tunnels-status' ]), { code: 1, stdout: '' })
 		]);
 	},
 
-	doSave: function(result, onUpdated) {
+	doSave: function(result, onUpdated, onStored) {
 		var textarea   = document.querySelector('#ikev2-domain-list');
 		var addressTextarea = document.querySelector('#ikev2-address-list');
 		var excludeTextarea = document.querySelector('#ikev2-exclude-domain-list');
@@ -408,6 +418,8 @@ return view.extend({
 		var excludedAddresses;
 		var selected = Object.keys(serviceSelection).sort();
 
+		var typed = textarea && addressTextarea && excludeTextarea && excludeAddressTextarea ?
+			[ textarea.value, addressTextarea.value, excludeTextarea.value, excludeAddressTextarea.value ].join('\0') : '';
 		if (!textarea || !addressTextarea || !excludeTextarea || !excludeAddressTextarea) {
 			result.err(_('Editor is not ready.'));
 			return Promise.reject(new Error('textarea-missing'));
@@ -445,10 +457,15 @@ return view.extend({
 						result.busy(_('Rebuilding the routing list…'));
 						return common.execChecked(communityHelper, [ 'schedule', token ],
 							_('Unable to start the routing list rebuild')).then(function(response) {
-							textarea.value = manualValue;
-							addressTextarea.value = addressValue;
-							excludeTextarea.value = excludeValue;
-							excludeAddressTextarea.value = excludeAddressValue;
+							// Written back in their clean form, unless typed in meanwhile.
+							if ([ textarea.value, addressTextarea.value, excludeTextarea.value, excludeAddressTextarea.value ].join('\0') === typed) {
+								textarea.value = manualValue;
+								addressTextarea.value = addressValue;
+								excludeTextarea.value = excludeValue;
+								excludeAddressTextarea.value = excludeAddressValue;
+								if (onStored)
+									onStored();
+							}
 						var actionId = parseStatus(response.stdout || '').action_id;
 						if (!actionId)
 							throw new Error(_('Action did not start'));
@@ -471,7 +488,7 @@ return view.extend({
 						result.ok(_('%s domains active').format(st.domains != null ? st.domains : '?'));
 						return true;
 					}
-					result.err(_('Rebuild failed: %s').format(st.message ? _(st.message) : _('unknown error')));
+					result.err(_('Rebuild failed: %s').format(st.message ? common.helperText(st.message) : _('unknown error')));
 					return false;
 				})
 			.catch(function(error) {
@@ -482,7 +499,7 @@ return view.extend({
 	},
 
 
-	render: function(data) {
+	renderData: function(data) {
 		var self = this;
 
 		/* ── Domains tab ────────────────────────────────────────────────── */
@@ -503,7 +520,12 @@ return view.extend({
 			return line.trim() && line.trim().charAt(0) !== '#';
 		}).length;
 		var policyPill = common.pill('', 'neutral');
+		var policyUnknown = data[0] === null || data[1] === null || common.readFailed(data[3]);
 		function updatePolicyStatus(st) {
+			if (!st && policyUnknown) {
+				common.setPill(policyPill, _('Unavailable'), 'warn');
+				return;
+			}
 			if (st && st.state === 'error') {
 				common.setPill(policyPill, _('Policy error'), 'bad');
 				return;
@@ -516,6 +538,24 @@ return view.extend({
 		updatePolicyStatus(null);
 		var catalogResult = data[3] || {};
 		serviceRecords = parseServiceRecords(catalogResult.stdout || '');
+
+		// Save writes every list and where every service goes. What the page could
+		// not read it would write as empty or as the first tunnel, so a failed read
+		// turns Save off until the page is loaded again.
+		var unread = [];
+		[ [ data[0], _('custom domains') ], [ data[6], _('custom addresses') ],
+		  [ data[8], _('excluded domains') ], [ data[9], _('excluded addresses') ],
+		  [ data[1], _('selected services') ], [ data[11], _('where each service goes') ] ]
+			.forEach(function(item) {
+				if (item[0] === null)
+					unread.push(item[1]);
+			});
+		if (catalogResult.code !== 0)
+			unread.push(_('service catalog'));
+		if (((data[10] || {}).code) !== 0)
+			unread.push(_('tunnels'));
+		var unreadNote = E('div', {});
+		common.showUnread(unreadNote, unread);
 
 		/* ── Tunnels ────────────────────────────────────────────────────── */
 		var tunnelChoices = parseTunnelChoices(((data[10] || {}).stdout) || '');
@@ -607,12 +647,16 @@ return view.extend({
 							return;
 						}
 						if (st.state === 'error')
-							throw new Error(st.message ? _(st.message) : _('Diagnostic failed'));
-						resolverDiagnosticResult.ok(st.message ? _(st.message) : _('Diagnostic completed.'));
+							throw new Error(st.message ? common.helperText(st.message) : _('Diagnostic failed'));
+						resolverDiagnosticResult.ok(st.message ? common.helperText(st.message) : _('Diagnostic completed.'));
 					});
 				}
 			});
 		});
+		function engineRunning(status) {
+			return status.engine === 'fakeip' && status.service === 'running' &&
+				status.nft === 'active' && status.rule === 'active';
+		}
 		function engineLabel(active) {
 			return active ? _('Matching by name (FakeIP)') : _('Matching by address');
 		}
@@ -624,13 +668,19 @@ return view.extend({
 		function engineButtonText(active) {
 			return active ? _('Match by address instead') : _('Match by name (FakeIP)');
 		}
-		var enginePill = common.pill(engineLabel(fakeipActive), fakeipActive ? 'good' : 'warn');
+		// A failed status read is not "matching by address": nothing is offered
+		// on its strength until the page is loaded again.
+		var engineUnknown = common.readFailed(data[5]);
+		var enginePill = engineUnknown ? common.pill(_('Unavailable'), 'warn') :
+			common.pill(engineLabel(fakeipActive), fakeipActive ? 'good' : 'warn');
 		// The same state in the page header, seen from every tab.
-		var headerEnginePill = common.pill(engineLabel(fakeipActive), fakeipActive ? 'good' : 'warn');
+		var headerEnginePill = engineUnknown ? common.pill(_('Unavailable'), 'warn') :
+			common.pill(engineLabel(fakeipActive), fakeipActive ? 'good' : 'warn');
 		var engineSummary = E('p', { 'class': 'ikev2-engine-summary' }, [ engineText(fakeipActive) ]);
 		var engineButton = E('button', {
 			'class': 'cbi-button ' + (fakeipActive ? 'cbi-button-reset' : 'cbi-button-apply')
 		}, [ engineButtonText(fakeipActive) ]);
+		engineButton.disabled = engineUnknown;
 		function updateEngineState(active, message) {
 			fakeipActive = active;
 			common.setPill(enginePill, engineLabel(active), active ? 'good' : 'warn');
@@ -659,7 +709,7 @@ return view.extend({
 						return pollDomainRouter(actionId, Date.now() + 60000);
 					}).then(function(st) {
 						if (st && st.state === 'error')
-							throw new Error(st.message ? _(st.message) : _('Operation failed'));
+							throw new Error(st.message ? common.helperText(st.message) : _('Operation failed'));
 						return st;
 					});
 				},
@@ -668,9 +718,13 @@ return view.extend({
 				onSuccess: function(st) {
 					if (!st) {
 						engineResult.warn(_('The operation continues in the background.'));
-						return;
+						// It may have got there meanwhile: the button then offers the right thing.
+						return L.resolveDefault(fs.exec(domainRouterHelper, [ 'status' ]), { code: 1, stdout: '' }).then(function(reply) {
+							if (!common.readFailed(reply))
+								updateEngineState(engineRunning(parseStatus(reply.stdout || '')));
+						});
 					}
-					updateEngineState(targetActive, st.message ? _(st.message) : _('Saved.'));
+					updateEngineState(targetActive, st.message ? common.helperText(st.message) : _('Saved.'));
 				}
 			});
 		});
@@ -691,7 +745,7 @@ return view.extend({
 		// The chip the action bar is about, and the field a click in the
 		// catalogue adds a service to.
 		var chosen = null;
-		var activeZone = '1';
+		var activeZone = '1', dialogOpener = null;
 
 		/* ── The four lists of one's own ────────────────────────────────── */
 		// Created here: the board shows how many entries the two routed ones
@@ -704,6 +758,8 @@ return view.extend({
 		function listArea(key, id, value, placeholder) {
 			var area = E('textarea', {
 				'id': id,
+				'aria-label': { '@domains': _('Custom domains'), '@cidrs': _('Custom IP addresses and networks'),
+					'@xdomains': _('Domains never through the tunnel'), '@xcidrs': _('Addresses never through the tunnel') }[key],
 				'class': 'cbi-input-textarea ikev2-domain-editor',
 				'spellcheck': 'false',
 				'placeholder': placeholder || null
@@ -781,7 +837,7 @@ return view.extend({
 			if (target === '@cidrs')
 				return _('My addresses');
 			var record = recordOf(target);
-			return record ? serviceTitle(record) : serviceLabel(target);
+			return record ? serviceTitle(record) : common.serviceLabel(target);
 		}
 		function placedTargets(token) {
 			return [ '@domains', '@cidrs' ].concat(Object.keys(serviceSelection).sort(function(a, b) {
@@ -832,6 +888,7 @@ return view.extend({
 					(record && BROAD_SERVICES.test(target) ? ' broad' : ''),
 				'role': 'button',
 				'tabindex': '0',
+				'aria-pressed': chosen === target ? 'true' : 'false',
 				'draggable': 'true',
 				'data-target': target,
 				'title': placed ? _('Drag it to another field, or click for its actions') :
@@ -908,6 +965,12 @@ return view.extend({
 				'title': _('Edit this list at the bottom of the page')
 			}, [ E('span', {}, [ label + ' · ' + listCount(key) ]) ]);
 			node.addEventListener('click', function() { showList(key); });
+			node.addEventListener('keydown', function(ev) {
+				if (ev.key === 'Enter' || ev.key === ' ') {
+					ev.preventDefault();
+					showList(key);
+				}
+			});
 			return node;
 		}
 		// A place chips are dropped into. TOKEN is where they go, null for
@@ -951,8 +1014,18 @@ return view.extend({
 		function lane(token, title, pill, zones) {
 			var head = E('div', {
 				'class': 'ikev2-route-lane-head',
+				'role': 'button',
+				'tabindex': '0',
+				'aria-pressed': activeZone === token ? 'true' : 'false',
+				'data-act': 'lane-' + token,
 				'title': _('Click to make this the field new services go to')
 			}, [ E('strong', {}, [ title ]), pill || '' ]);
+			head.addEventListener('keydown', function(ev) {
+				if (ev.key === 'Enter' || ev.key === ' ') {
+					ev.preventDefault();
+					head.click();
+				}
+			});
 			head.addEventListener('click', function() {
 				activeZone = token;
 				drawBoard();
@@ -1112,6 +1185,18 @@ return view.extend({
 			catalogBody.replaceChildren(zone);
 		}
 		function drawBoard() {
+			// The board is drawn anew: the keyboard stays where it was.
+			var was = document.activeElement, held = null;
+			if (was && was.getAttribute && (was.getAttribute('data-act') || was.getAttribute('data-target')))
+				held = was.getAttribute('data-act') ? '[data-act="' + was.getAttribute('data-act') + '"]' :
+					'[data-target="' + was.getAttribute('data-target') + '"]';
+			if (held)
+				window.setTimeout(function() {
+					var again = domainsContent.querySelector(held) ||
+						(chosen && domainsContent.querySelector('[data-target="' + chosen + '"]'));
+					if (again)
+						again.focus();
+				}, 0);
 			if (chosen && chosen.charAt(0) !== '@' && !serviceSelection[chosen])
 				chosen = null;
 			var lanes = tunnelChoices.map(function(choice) {
@@ -1148,7 +1233,8 @@ return view.extend({
 				if (!control || control === activeButton)
 					return;
 				control.disabled = busy ||
-					(control === resolverDiagnosticButton && !fakeipActive);
+					(control === resolverDiagnosticButton && !fakeipActive) ||
+					(control === engineButton && engineUnknown);
 			});
 			// Releasing the page must not re-enable a Save that has nothing to save.
 			if (!busy) {
@@ -1215,6 +1301,10 @@ return view.extend({
 			dialogControls = [];
 			dialogTracker = null;
 			dialogHost.replaceChildren();
+			// Back to what opened it, or to the page if the board was drawn again.
+			if (dialogOpener && dialogOpener.isConnected)
+				dialogOpener.focus();
+			dialogOpener = null;
 		}
 
 		// One window for a new service and for an existing one: its name, what
@@ -1229,7 +1319,7 @@ return view.extend({
 				// A name, not a person's: no contact autofill.
 				'autocomplete': 'off',
 				'placeholder': _('My service'),
-				'value': details ? (details.label === record.id ? serviceLabel(record.id) : details.label) : ''
+				'value': details ? (details.label === record.id ? common.serviceLabel(record.id) : details.label) : ''
 			});
 			// Two lists, each the height of the page's own list editors: a
 			// prepared service runs to dozens of lines.
@@ -1283,7 +1373,7 @@ return view.extend({
 					return;
 				listAddress.value = V2FLY_DATA + picked;
 				if (!record && !String(name.value || '').trim())
-					name.value = serviceLabel(picked);
+					name.value = common.serviceLabel(picked);
 				listAddress.dispatchEvent && listAddress.dispatchEvent(new Event('input', { bubbles: true }));
 			}
 			fromCatalogue.addEventListener('change', pickCatalogue);
@@ -1407,6 +1497,20 @@ return view.extend({
 			backdrop.addEventListener('keydown', function(ev) {
 				if (ev && ev.key === 'Escape')
 					dismiss();
+				// Tab goes round the dialog: what is under it cannot be reached.
+				if (ev && ev.key === 'Tab') {
+					var stops = Array.prototype.filter.call(panel.querySelectorAll('input, select, textarea, button'),
+						function(item) { return !item.disabled && item.offsetParent !== null; });
+					var first = stops[0], last = stops[stops.length - 1];
+					if (ev.shiftKey && document.activeElement === first) {
+						ev.preventDefault();
+						last.focus();
+					}
+					else if (!ev.shiftKey && document.activeElement === last) {
+						ev.preventDefault();
+						first.focus();
+					}
+				}
 			});
 			// The theme's own ground: the nearest ancestor that paints one.
 			var ground = '';
@@ -1417,6 +1521,7 @@ return view.extend({
 			}
 			if (ground)
 				panel.style.backgroundColor = ground;
+			dialogOpener = document.activeElement;
 			dialogHost.replaceChildren(backdrop);
 			dialogTracker = common.trackChanges(save, fields);
 			name.focus();
@@ -1488,7 +1593,7 @@ return view.extend({
 				if (!st)
 					return 'timeout';
 				if (st.state !== 'ok')
-					throw new Error(st.message ? _(st.message) : _('Service update failed'));
+					throw new Error(st.message ? common.helperText(st.message) : _('Service update failed'));
 				return refreshServiceRecords().then(function() { return true; },
 					function() { return false; });
 			}).then(function(refreshed) {
@@ -1719,7 +1824,7 @@ return view.extend({
 			rows.push(E('strong', {}, [ _('Service') ]), E('strong', {}, [ _('Domains') ]),
 				E('strong', {}, [ _('Networks') ]));
 			parsed.services.forEach(function(record) {
-				rows.push(E('div', {}, [ record.label || serviceLabel(record.service) ]),
+				rows.push(E('div', {}, [ record.label || common.serviceLabel(record.service) ]),
 					describeSourceList(record, 'domains', now),
 					describeSourceList(record, 'networks', now));
 			});
@@ -1760,7 +1865,7 @@ return view.extend({
 				services.forEach(function(entry) {
 					var parts = entry.split('|');
 					// A prepared service carries its id as its name; show it as the catalogue does.
-					var label = parts[1] && parts[1] !== parts[0] ? parts[1] : serviceLabel(parts[0]);
+					var label = parts[1] && parts[1] !== parts[0] ? parts[1] : common.serviceLabel(parts[0]);
 					lines.push(_('Brought by the service %s (%s).').format(label, parts[2] || ''));
 				});
 				if (st.own)
@@ -2002,13 +2107,13 @@ return view.extend({
 				result: saveResult,
 				busy: _('Saving...'),
 				run: function() {
-					return self.doSave(saveResult, updatePolicyStatus);
+					return self.doSave(saveResult, updatePolicyStatus, function() { policyTracker.mark(); });
 				},
 				onSuccess: function(saved) {
 					if (saved) {
 						storedSelection = Object.assign({}, serviceSelection);
 						storedExits = Object.assign({}, serviceExits);
-						policyTracker.reset();
+						policyTracker.settle();
 					}
 				}
 			});
@@ -2017,6 +2122,7 @@ return view.extend({
 		// Save is grey until the custom lists or the selected services differ
 		// from what was loaded or last saved.
 		policyTracker = common.trackChanges(saveBtn, [ domainsContent ], {
+			blocked: function() { return unread.length > 0; },
 			read: function() {
 				var domains = listAreas['@domains'];
 				var addresses = listAreas['@cidrs'];
@@ -2037,11 +2143,13 @@ return view.extend({
 				common.header(_('Policy Routing'),
 					_('Build the IPv4 VPN policy from curated services, custom destinations and per-device modes.'),
 					[ headerEnginePill, policyPill ]),
+				unreadNote,
 				domainsContent,
 				// A card like the other pages' save bars; left bare it sat on the
 				// LuCI footer rule.
 				(saveBar.replaceChildren(
-					E('span', { 'class': 'ikev2-field-help' }, [
+					E('span', { 'class': 'ikev2-field-help' }, [ unread.length ?
+						_('Save is off: part of the policy could not be read.') :
 						_('Saves where each service and list goes, then rebuilds the routing list.') ]),
 					saveResult.node,
 					saveBtn
@@ -2053,4 +2161,4 @@ return view.extend({
 	handleSave: null,
 	handleSaveApply: null,
 	handleReset: null
-});
+}));

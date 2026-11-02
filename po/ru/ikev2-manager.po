@@ -7206,3 +7206,45 @@ msgstr "Эта учётная запись принадлежит устройс
 
 msgid "People could not be read."
 msgstr "Не удалось прочитать список людей."
+
+msgid "Another recording is being started or stopped"
+msgstr "Другая запись уже запускается или останавливается"
+
+msgid "Invalid picture number"
+msgstr "Неверный номер снимка"
+
+msgid "Invalid report input token"
+msgstr "Неверный токен данных отчёта"
+
+msgid "No such picture"
+msgstr "Такого снимка нет"
+
+msgid "No such request"
+msgstr "Такой заявки нет"
+
+msgid "Not a domain: %s"
+msgstr "Это не домен: %s"
+
+msgid "The board has no LAN address to listen on"
+msgstr "У доски нет адреса в локальной сети, на котором её можно открыть"
+
+msgid "The report text is missing"
+msgstr "Нет текста отчёта"
+
+msgid "Unable to change the request"
+msgstr "Не удалось изменить заявку"
+
+msgid "Unable to create the recording directory"
+msgstr "Не удалось создать каталог для записи"
+
+msgid "Unable to prepare the board"
+msgstr "Не удалось подготовить доску"
+
+msgid "dnsmasq did not start with query logging; it runs as before"
+msgstr "dnsmasq не запустился с журналом запросов и работает как раньше"
+
+msgid "dnsmasq has no configuration directory"
+msgstr "У dnsmasq нет каталога конфигурации"
+
+msgid "server-cert-sync: connection reload failed"
+msgstr "Сервер: не удалось перезагрузить подключение"

@@ -1,17 +1,18 @@
 'use strict';
 'require view';
-'require ikev2-manager.shared-v22 as common';
-'require ikev2-manager.outbound-panel-v4 as outbound';
+'require ikev2-manager.shared-v23 as common';
+'require ikev2-manager.outbound-panel-v5 as outbound';
 
 // DNS on a page of its own: the resolver behind the tunnel, the router's
 // public upstream and the resolver groups for chosen suffixes. The panel that
 // owns these settings builds them; this page shows that part alone.
-return view.extend({
-	load: function() {
+return view.extend(common.shell(_('DNS'),
+	_('How names are resolved: through the tunnel for what is routed there, the public upstream for everything else, and resolver groups of their own for chosen suffixes.'), {
+	loadData: function() {
 		return outbound.load();
 	},
 
-	render: function(data) {
+	renderData: function(data) {
 		var title = _('DNS');
 		var about = _('How names are resolved: through the tunnel for what is routed there, the public upstream for everything else, and resolver groups of their own for chosen suffixes.');
 		var parts = outbound.parts(data);
@@ -33,11 +34,11 @@ return view.extend({
 		});
 		return E([
 			common.styles(),
-			E('div', { 'class': 'ikev2-page' }, [ common.header(title, about), panels ])
+			E('div', { 'class': 'ikev2-page' }, [ common.header(title, about), parts.dnsNote || '', panels ])
 		]);
 	},
 
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null
-});
+}));

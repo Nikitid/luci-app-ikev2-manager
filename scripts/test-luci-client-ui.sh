@@ -74,7 +74,7 @@ function makeNode(tag, attrs) {
 				return handler.call(this, event);
 			} : handler;
 		},
-		removeAttribute() {}, setAttribute() {}, focus() {}, remove() {}, click() {},
+		removeAttribute() {}, setAttribute() {}, getAttribute() { return null; }, focus() {}, remove() {}, click() {},
 		// The overview shows an issue twice, in the summary and the details.
 		cloneNode(deep) {
 			const copy = Object.assign(makeNode(this.tagName, this.attrs), { textContent: this.textContent });
@@ -630,7 +630,7 @@ if (typeof setupView.render !== 'function')
 	fail('setup.js does not return a view with render()');
 let setupPage;
 try {
-	setupPage = setupView.render([
+	setupPage = setupView.renderData([
 		{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
 		{ stdout: '' }, { stdout: '' }, { stdout: '' }
 	]);
@@ -694,7 +694,7 @@ const problemStaged = (function() {
 
 // A strongSwan upgraded on disk but not restarted is explained, not shown as
 // a code.
-const pendingPage = setupView.render([
+const pendingPage = setupView.renderData([
 	{ stdout: setupValue },
 	{ stdout: doctorOut + '\nstrongswan_running=warn:6.0.3-restart-pending-6.0.7' +
 		'\nstrongswan_eap_server_security=warn:6.0.3-r2-cve-2026-47895-awaiting-feed' },
@@ -709,7 +709,7 @@ if (/restart-pending/.test(pendingText))
 	fail('the overview shows the raw restart code');
 
 // A tunnel problem is told by the tunnel's name, not as a code.
-const tunnelsDoctorText = textOf(setupView.render([
+const tunnelsDoctorText = textOf(setupView.renderData([
 	{ stdout: setupValue },
 	{ stdout: doctorOut + '\ntunnels=warn:2-down,1-no-link,exit-3-no-tunnel' },
 	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' },
@@ -721,7 +721,7 @@ if (tunnelsDoctorText.indexOf('NL: down; Main tunnel: no interface; ' +
 if (/exit-3|no-link|2-down/.test(tunnelsDoctorText))
 	fail('the overview shows a raw tunnel problem code');
 // Connected, yet the watcher found nothing passing: said in words as well.
-const silentDoctorText = textOf(setupView.render([
+const silentDoctorText = textOf(setupView.renderData([
 	{ stdout: setupValue },
 	{ stdout: doctorOut + '\ntunnels=warn:2-silent' },
 	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' },
@@ -733,7 +733,7 @@ if (silentDoctorText.indexOf('NL: connected, but nothing passes through it') < 0
 // A full-route device row offers to send what is never to go through the
 // tunnel to WAN; the box says what is stored and sends the device's address.
 const respectCalls = [];
-const fullRoutePage = setupView.render([
+const fullRoutePage = setupView.renderData([
 	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
 	{ stdout: 'addr=192.168.1.40 mode=fullroute respect=1\n' }, { stdout: '' }, { stdout: '' }
 ]);
@@ -776,7 +776,7 @@ if (deviceRows(fullRoutePage).some(function(row) {
 }))
 	fail('one tunnel still gives the device rows a tunnel column');
 const exitCalls = [];
-const exitPage = setupView.render([
+const exitPage = setupView.renderData([
 	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
 	{ stdout: 'addr=192.168.1.40 mode=fullroute exit=2\naddr=192.168.1.41 mode=exclude dns=1\n' },
 	{ stdout: '' }, { stdout: '' }, { stdout: '' },
@@ -845,7 +845,7 @@ const exitStored = respectStored.then(function() {
 });
 
 // The device rule form offers each connected device by name and address.
-const pickerPage = setupView.render([
+const pickerPage = setupView.renderData([
 	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' }, { stdout: '' },
 	{ stdout: '192.168.1.50\tPhone\taa:bb:cc:dd:ee:ff\n' }, { stdout: '' }
 ]);
@@ -857,7 +857,7 @@ if (!nodesOf(pickerPage).some(function(node) {
 
 // A dnsmasq that does not resolve as Reliable mode set it up is named as the
 // reason the mode is degraded.
-const degradedPage = setupView.render([
+const degradedPage = setupView.renderData([
 	{ stdout: [ 'configured=1', 'routing_paused=0', 'domain_engine=fakeip',
 		'domain_service=running', 'domain_healthy=no', 'domain_state=error',
 		'domain_dnsmasq_resolver=mismatch', 'domain_nft=active', 'domain_rule=active' ].join('\n') },
@@ -924,7 +924,7 @@ const editorSources = [
 ].join('\n');
 let editorPage;
 try {
-	editorPage = editor.render([
+	editorPage = editor.renderData([
 		'example.com\n', 'openai telegram', policyStatus,
 		{ code: 0, stdout: '' }, 'example.com\n',
 		{ code: 0, stdout: 'engine=fakeip\nservice=running\nnft=active\nrule=active' },
@@ -959,7 +959,7 @@ if (editorSource.indexOf("startArgs: [ 'refresh-schedule', 'force' ]") < 0)
 // the action bar, and the page saves where everything lies.
 const boardCatalog = 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' +
 	'telegram|telegram|builtin|0|1|route\nspotify|spotify|builtin|0|0|route\n';
-const boardPage = editor.render([
+const boardPage = editor.renderData([
 	'example.com\n', 'banks openai telegram', policyStatus,
 	{ code: 0, stdout: boardCatalog },
 	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
@@ -1042,7 +1042,7 @@ const v2flyBrowsed = new Promise(function(resolve) { setTimeout(resolve, 0); }).
 			return Promise.resolve({ code: 0, stdout: 'openai\ntiktok\ntiktok-ads\ngoogle\nbad name\n' });
 		return execBefore.apply(this, arguments);
 	};
-	const browsePage = editor.render([
+	const browsePage = editor.renderData([
 		'example.com\n', 'banks openai telegram', policyStatus,
 		{ code: 0, stdout: boardCatalog },
 		'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
@@ -1089,7 +1089,7 @@ const recorded = new Promise(function(resolve) { setTimeout(resolve, 0); }).then
 			return Promise.resolve({ code: 0, stdout: 'state=done\naddress=192.168.1.3\nuntil=1\nnow=2\napi.example.com 5\ncdn.example.com 2\nstatic.other.co.uk 1\n' });
 		return execBefore.apply(this, arguments);
 	};
-	const recordPage = editor.render([
+	const recordPage = editor.renderData([
 		'example.com\n', 'banks openai telegram', policyStatus,
 		{ code: 0, stdout: boardCatalog },
 		'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
@@ -1177,7 +1177,7 @@ if (boardState(boardPage) !== '1=@domains,banks 1s= 2= 2s=@cidrs,telegram wan=op
 // One tunnel: a field through the tunnel and one that stays out, nothing to
 // be bound against, and what was stored for a tunnel that is gone is the
 // first one's.
-const singlePage = editor.render([
+const singlePage = editor.renderData([
 	'example.com\n', 'openai telegram', policyStatus, { code: 0, stdout: boardCatalog },
 	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 	{ code: 0, stdout: '' }, 'openai 2s\ntelegram 1s\n'
@@ -1210,7 +1210,7 @@ if (dialogFields.length !== 6 || dialogFields[1].tagName !== 'TEXTAREA' || dialo
 dialogFields[3].value = 'youtube';
 dialogFields[3].listeners.change();
 if (dialogFields[4].value !== 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/youtube' ||
-    dialogFields[0].value !== 'Youtube')
+    dialogFields[0].value !== 'YouTube')
 	fail('a v2fly name did not fill in the list address and the service name: ' + dialogFields[4].value + ' / ' + dialogFields[0].value);
 dialogFields[0].value = ''; dialogFields[3].value = ''; dialogFields[4].value = '';
 // Each list as tall as the page's own list editors, not a few lines.
@@ -1245,7 +1245,7 @@ function saveServiceDialog() {
 function traceSection() {
 	// The lower part of the page is tabs; a click on one's own list on the
 	// board brings its tab forward.
-	const tabbed = editor.render([
+	const tabbed = editor.renderData([
 		'example.com\n', '', policyStatus, { code: 0, stdout: '' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 		{ code: 0, stdout: '' }, ''
@@ -1274,7 +1274,7 @@ function traceSection() {
 	editButton.listeners.click();
 	if (panelsOf() !== '0100000') fail('editing one\'s own domains did not bring their tab forward: ' + panelsOf());
 	if (!saveShown()) fail('Save is not shown with one\'s own lists');
-	const page = editor.render([
+	const page = editor.renderData([
 		'', 'openai', policyStatus, { code: 0, stdout: 'openai|OpenAI|builtin|0|0|route\n' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 		{ code: 0, stdout: '' }, ''
@@ -1307,7 +1307,7 @@ function traceSection() {
 // with a changed list it is saved; either way the router is told where it
 // goes, and the page's own Save has nothing left to save.
 function catalogServiceDialog() {
-	const page = editor.render([
+	const page = editor.renderData([
 		'', '', policyStatus, { code: 0, stdout: 'openai|openai|builtin|0|0|route\n' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 		{ code: 0, stdout: '' }, ''
@@ -1400,7 +1400,7 @@ function catalogServiceDialog() {
 // An existing service of one's own: Edit reads its definition, a changed form
 // is not thrown away without asking, and Delete removes the service.
 function editServiceDialog() {
-	const page = editor.render([
+	const page = editor.renderData([
 		'', 'banks', policyStatus, { code: 0, stdout: 'banks|Banks|custom|1|1|route\n' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 		{ code: 0, stdout: '' }, ''
@@ -1448,7 +1448,7 @@ function editServiceDialog() {
 
 // Never through the tunnel: two lists beside the two routed ones, saved with
 // them, and services of one's own that exclude are marked in the catalogue.
-const excludePage = editor.render([
+const excludePage = editor.renderData([
 	'example.com\n', 'banks openai', policyStatus,
 	{ code: 0, stdout: 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' },
 	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
@@ -1486,7 +1486,7 @@ const policySaved = dnsSent.then(function() {
 const dialogSaved = policySaved.then(saveServiceDialog);
 
 try {
-	editor.render([ '', '', '', { code: 0, stdout: '' }, '', { code: 0, stdout: '' }, '',
+	editor.renderData([ '', '', '', { code: 0, stdout: '' }, '', { code: 0, stdout: '' }, '',
 		{ code: 0, stdout: 'now=1789300000\nrefresh_due=1' } ]);
 } catch (error) {
 	fail('editor.js render() threw with no selected services: ' + (error && error.stack ? error.stack : error));
@@ -1550,7 +1550,7 @@ function shownPanels(tree) {
 }
 const locationBefore = windowStub.location;
 windowStub.location = { pathname: '/cgi-bin/luci/admin/services/ikev2-manager/client', hash: '' };
-const tunnelsTree = tunnelsPage.render([ data, settingsData ]);
+const tunnelsTree = tunnelsPage.renderData([ data, settingsData ]);
 // The main tunnel and each extra one are tabs, a "+" adds one, and the
 // inbound server stands apart after a divider.
 function tunnelTabs() { return tabButtons(tunnelsTree).map(function(node) { return textOf(node).trim(); }).join('|'); }
@@ -1591,15 +1591,15 @@ tabButtons(tunnelsTree)[4].listeners.click();
 if (shownPanels(tunnelsTree) !== '001')
 	fail('the inbound server tab does not show its panel alone: ' + shownPanels(tunnelsTree));
 windowStub.location = { pathname: '/cgi-bin/luci/admin/services/ikev2-manager/server', hash: '' };
-if (shownPanels(tunnelsPage.render([ data, settingsData ])) !== '001')
+if (shownPanels(tunnelsPage.renderData([ data, settingsData ])) !== '001')
 	fail('the address of the inbound server does not open its tab');
 windowStub.location = locationBefore;
-const dnsHeadings = headings(dnsPage.render(data));
+const dnsHeadings = headings(dnsPage.renderData(data));
 if (dnsHeadings.join('|') !== 'Tunnel DNS|Router DNS upstream|RU')
 	fail('the DNS page does not hold the two DNS sections and one per segment: ' + dnsHeadings.join('|'));
 // Each segment is a tab in the same row as the global settings, and the row
 // ends with a "+" that opens a new segment on a tab of its own.
-const dnsTree = dnsPage.render(data);
+const dnsTree = dnsPage.renderData(data);
 function dnsTabs() { return tabButtons(dnsTree).map(function(node) { return textOf(node).trim(); }).join('|'); }
 const splitAt = tabButtons(dnsTree).findIndex(function(node) { return hasClass(node, 'ikev2-tabs-split'); });
 if (splitAt !== 2)
@@ -1616,7 +1616,7 @@ if (!discard) fail('a new segment cannot be discarded');
 discard.listeners.click();
 if (dnsTabs() !== 'Tunnel DNS|Router DNS upstream||RU|+' || shownPanels(dnsTree) !== '001')
 	fail('a discarded segment keeps its tab, or the one before it is not shown: ' + dnsTabs() + ' ' + shownPanels(dnsTree));
-if (!nodesOf(tunnelsPage.render([ { ready: false }, { ready: false } ])).some(function(node) { return hasClass(node, 'ikev2-empty'); }))
+if (!nodesOf(tunnelsPage.renderData([ { ready: false }, { ready: false } ])).some(function(node) { return hasClass(node, 'ikev2-empty'); }))
 	fail('the Tunnels page has nothing to say while strongSwan is missing');
 if (!settingsPage || !settingsPage.children || !settingsPage.children.length)
 	fail('settings.js render() produced an empty page');
@@ -1735,7 +1735,7 @@ const backupSaved = exitStored.then(function() {
 // it a second time and Discard only took it off the page.
 const tunnelAdopted = backupSaved.then(function() {
 	// On the Tunnels page as it is drawn: "+" opens the draft on its own tab.
-	const adoptTree = tunnelsPage.render([ data, settingsData ]);
+	const adoptTree = tunnelsPage.renderData([ data, settingsData ]);
 	const plus = tabButtons(adoptTree).find(function(node) { return textOf(node).trim() === '+'; });
 	if (!plus) fail('the Tunnels page has no "+" to add a tunnel');
 	plus.listeners.click();

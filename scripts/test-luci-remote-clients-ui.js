@@ -23,7 +23,7 @@ function E(tag, attrs, children) {
  return node;
 }
 const document = { getElementById() { return true; }, createDocumentFragment() { return E('div'); } };
-const window = { setTimeout(fn, delay) { if (!delay) fn(); }, clearTimeout() {} };
+const window = { setTimeout(fn, delay) { if (!delay) fn(); }, clearTimeout() {} , confirm() { return true; } };
 const L = { resolveDefault(promise, fallback) { return promise.catch(() => fallback); } };
 let modal, hidden = 0, written = [], jobs = [], failWrite = false;
 let linkAsked = [], linkKept = true;
@@ -52,6 +52,8 @@ function load(file, common) {
 }
 const common = load('shared.js');
 // A person's device limit is stored before their link is made; that job is let through.
+// runJob is stubbed below, and with it the end of the busy state the page begins.
+common.setBusy = () => {};
 common.runJob = options => { jobs.push(options); const last = written[written.length-1];
  if (options.startArgs[0] === 'client-admin-update' && last && last.body.operation === 'set-person-limit') return Promise.resolve(options.onSuccess({state:'ok'})).then(() => ({state:'ok'}));
  return Promise.resolve({state:'ok'}); };
@@ -59,7 +61,7 @@ const page = load('remote-clients.js', common);
 function button(tree, label) { const result = nodes(tree).find(n => n.tagName === 'BUTTON' && text(n).trim() === label); assert(result, label); return result; }
 function click(node) { return node.attrs.click(); }
 async function main() {
- const tree = page.render(await page.load());
+ const tree = page.renderData(await page.loadData());
  assert(text(tree).includes('VPN profiles panel'), 'ordinary VPN profiles are managed on the same page');
  assert(text(tree).includes('Example service')); assert(text(tree).includes('ALICE-PC'), 'a device is shown under the name of its computer');
  // Who is behind each device, what it runs and where it is now.
@@ -207,7 +209,7 @@ async function main() {
  // A person who still has a link out: the new link replaces it, covers the
  // places left under her own limit, and takes an identifier nothing used.
  snapshot.person_limits = { 'Alice Example': 3 };
- const again = page.render(await page.load());
+ const again = page.renderData(await page.loadData());
  click(nodes(again).find(n => n.tagName === 'BUTTON' && n.attrs['aria-label'] === 'New Waypoint link in place of the one given'));
  assert(text(modal).includes('Registered: 1.') && text(modal).includes('The link will register 2 more.') && text(modal).includes('stops working'), 'the dialog says what the link covers and what happens to the old one');
  const before2 = written.length;
@@ -230,7 +232,7 @@ async function main() {
  // Everything into the tunnel is not offered until a lost tunnel can hold such a device back.
  assert(!text(tree).includes('Everything into the tunnel') && !nodes(tree).some(n => n.attrs && n.attrs['aria-label'] === 'Everything into the tunnel'), 'the full-tunnel mode is not offered');
  snapshot.devices[0].mode = 'full';
- const withFull = page.render(await page.load());
+ const withFull = page.renderData(await page.loadData());
  assert(nodes(withFull).some(n => n.tagName === 'BUTTON' && /Selected services|Everything into the tunnel/.test(n.attrs['aria-label'] || n.attrs.title || '')), 'a device that already sends everything can be brought back');
  delete snapshot.devices[0].mode;
  // Diagnostics: the device is asked by its identifier, and what it sent is shown as it came.
@@ -247,18 +249,18 @@ async function main() {
  window.setTimeout = realTimeout;
  assert.deepStrictEqual(reportAsked, ['alice']);
  assert(reportField.value.includes('device_no_services') && reportField.value.includes('access_closed') && !button(modal,'Copy').disabled);
- const unavailable = page.render([[{code:1,stdout:''},data()[1]], null]);
+ const unavailable = page.renderData([[{code:1,stdout:''},data()[1]], null]);
  assert(button(unavailable,'Update service lists').disabled); assert(!nodes(unavailable).some(n=>n.tagName==='INPUT' && n.attrs['class'] !== 'ikev2-search'), 'nothing to edit while the state is unavailable');
  // First activation: only the setup section is offered, and it stages one request.
  const fresh = { version: 1, initialized: false, enabled: false, port: 8443, server_enabled: true, server_identity: 'vpn.example.com', tunnels: ['1', '2'] };
- const first = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(fresh)}], null]);
+ const first = page.renderData([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(fresh)}], null]);
  assert(nodes(first).some(n => n.style.display === 'none' && text(n).includes('Services for Waypoint')), 'management hidden before setup');
  assert(!text(first).includes('Client configuration is unavailable'));
  const setupInputs = nodes(first).filter(n => n.tagName === 'INPUT');
  const portInput = setupInputs.find(n => n.attrs['aria-label'] === 'Registration port');
  assert.strictEqual(nodes(first).find(n => n.tagName === 'SELECT').children.length, 4, 'each tunnel offers a failover and a bound exit');
  // Tunnels are named as on the Tunnels page, not by their numbers.
- const named = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {tunnel_names:{'2':'NL'}}))}], null]);
+ const named = page.renderData([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {tunnel_names:{'2':'NL'}}))}], null]);
  assert.deepStrictEqual(nodes(named).find(n => n.tagName === 'SELECT').children.map(o => text(o).trim()),
   ['Main tunnel, another tunnel when it fails', 'Main tunnel only', 'NL, another tunnel when it fails', 'NL only'], 'the exit tunnels are not offered by name');
  portInput.value = '80'; const before = written.length;
@@ -269,18 +271,18 @@ async function main() {
  await click(button(first,'Set up remote clients'));
  assert.deepStrictEqual(written[written.length-1].body, {version:1,enabled:true,port:9443,virtual_subnet:'172.31.240.0/20',exit:'2s'});
  assert.deepStrictEqual(jobs[jobs.length-1].startArgs.slice(0,1), ['client-admin-setup']);
- const blocked = page.render([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {server_identity:null, tunnels:[]}))}], null]);
+ const blocked = page.renderData([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {server_identity:null, tunnels:[]}))}], null]);
  assert(button(blocked,'Set up remote clients').attrs.disabled != null, 'setup needs the inbound server and a tunnel');
- const custom = page.render([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, custom_server:true}))}], null]);
+ const custom = page.renderData([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, custom_server:true}))}], null]);
  assert(text(custom).includes('ikev2-in-managed'), 'an administrator with an own server configuration is told what to add');
- const running = page.render([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}], null]);
+ const running = page.renderData([[data()[0],data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))}], null]);
  assert(nodes(running).find(n => n.attrs['aria-label'] === 'Virtual subnet').attrs.disabled != null, 'the subnet of enrolled devices is fixed');
  assert(text(running).includes('ALICE-PC') && text(running).includes('https://vpn.example.com:8443'));
  // Mail: where the router's alerts go is saved with the settings, and an
  // address that is not one is refused before anything is written.
  const mailShown = { version: 1, available: true, configured: true, host: 'smtp.example.com', port: 587, security: 'starttls',
   user: 'sender@example.com', from: 'sender@example.com', has_password: true, alerts: '' };
- const withMail = page.render([[data()[0], data()[1], {code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))},
+ const withMail = page.renderData([[data()[0], data()[1], {code:0,stdout:JSON.stringify(Object.assign({}, fresh, {initialized:true, enabled:true, virtual_subnet:'10.99.0.0/24', exit:'1'}))},
   {code:0,stdout:JSON.stringify(mailShown)}], null]);
  const alertsField = nodes(withMail).find(n => n.attrs['aria-label'] === 'Send alerts to');
  assert(alertsField, 'the mail settings have no address for alerts');

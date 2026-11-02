@@ -1,7 +1,7 @@
 'use strict';
 'require baseclass';
 'require fs';
-'require ikev2-manager.shared-v22 as common';
+'require ikev2-manager.shared-v23 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var swanmon = '/usr/sbin/swanmon';
@@ -147,7 +147,7 @@ function outboundComponent(statusAvailable, status, sasAvailable, sas) {
 	var interfacePresent = status.interface_present === '1';
 	var down = Number(status.interface_bytes_in || 0);
 	var up = Number(status.interface_bytes_out || 0);
-	var counterAge = _('Since ipsec-out was created');
+	var counterAge = _('Since the tunnel interface was created');
 	return {
 		issue: false,
 		node: componentCard(_('Outbound tunnel'),
@@ -157,7 +157,7 @@ function outboundComponent(statusAvailable, status, sasAvailable, sas) {
 				traffic('received', down, _('Downloaded') + ' · ' + counterAge),
 				traffic('sent', up, _('Uploaded') + ' · ' + counterAge)
 			] : [
-				E('span', {}, [ _('ipsec-out is unavailable') ])
+				E('span', {}, [ _('The tunnel interface is unavailable') ])
 			])
 	};
 }
@@ -199,17 +199,17 @@ function policyComponent(statusAvailable, status) {
 		state = { label: _('Matching by address'), tone: 'info' };
 
 	var counts = _('%d domains').format(Number(status.pbr_domains || 0)) +
-		' · ' + _('%d service groups').format(Number(status.community_services || 0));
+		' · ' + _('Service groups: %d').format(Number(status.community_services || 0));
 	var addressCount = Number(status.manual_addresses || 0);
 	if (addressCount)
-		counts += ' · ' + _('%d address rules').format(addressCount);
+		counts += ' · ' + _('Address rules: %d').format(addressCount);
 	var excludedDevices = Number(status.device_excluded || 0);
 	if (excludedDevices)
-		counts += ' · ' + _('%d excluded devices').format(excludedDevices);
+		counts += ' · ' + _('Excluded devices: %d').format(excludedDevices);
 	var bypasses = Number(status.device_dns_passthrough || 0) +
 		Number(status.device_dpi_passthrough || 0);
 	if (bypasses)
-		counts += ' · ' + _('%d bypass settings').format(bypasses);
+		counts += ' · ' + _('Bypass settings: %d').format(bypasses);
 	var excludedTraffic = Number(status.device_excluded_bytes || 0);
 
 	return {
@@ -253,7 +253,7 @@ function inboundComponent(statusAvailable, status, sessionsAvailable, sessions) 
 		{ label: _('Server degraded'), tone: 'bad' } :
 		{ label: _('Server ready'), tone: 'good' };
 	var detail = sessionsAvailable ?
-		_('%d active sessions').format(sessions.length) :
+		_('Active sessions: %d').format(sessions.length) :
 		_('Inbound session data is unavailable.');
 
 	return {
@@ -320,7 +320,7 @@ return baseclass.extend({
 		}, [
 			E('div', { 'class': 'ikev2-widget-clients-head' }, [
 				E('strong', {}, [ _('Active inbound clients') ]),
-				common.pill(_('%d active sessions').format(sessions.length), 'good')
+				common.pill(_('Active sessions: %d').format(sessions.length), 'good')
 			]),
 			E('div', { 'class': 'ikev2-widget-client-list' },
 				sessions.map(sessionCard))

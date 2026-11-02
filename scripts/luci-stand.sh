@@ -24,7 +24,7 @@ inner=$((port - 1))
 release="${IKEV2_STAND_RELEASE:-25.12.6}"
 out="$root/build/luci-stand"
 pidfile="$out/proxy.pid"
-pages='setup server client routing remote-clients admin/status/overview'
+pages='setup client dns routing remote-clients admin/status/overview'
 
 case "$(uname -m)" in
 	x86_64 | amd64) target=x86-64; platform='' ;;

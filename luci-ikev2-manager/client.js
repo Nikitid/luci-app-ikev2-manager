@@ -2,7 +2,7 @@
 'require baseclass';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v22 as common';
+'require ikev2-manager.shared-v23 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -1362,13 +1362,13 @@ return baseclass.extend({
 				return { ready: false };
 			return Promise.all([
 				fs.exec(helper, [ 'client-get' ]),
-				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { code: 1, stdout: '' }),
 				fs.exec(helper, [ 'advanced-mode', 'outbound' ]),
 				fs.exec(helper, [ 'advanced-read', 'outbound' ]),
-				L.resolveDefault(fs.exec(systemHelper, [ 'dns-get' ]), { stdout: '' }),
-				L.resolveDefault(fs.exec(systemHelper, [ 'dns-segments-get' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec(systemHelper, [ 'dns-get' ]), { code: 1, stdout: '' }),
+				L.resolveDefault(fs.exec(systemHelper, [ 'dns-segments-get' ]), { code: 1, stdout: '' }),
 				L.resolveDefault(fs.exec(qualityHelper, [ 'summary', '1h' ]), { stdout: '' }),
-				L.resolveDefault(fs.exec(helper, [ 'tunnels-get' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec(helper, [ 'tunnels-get' ]), { code: 1, stdout: '' }),
 				L.resolveDefault(fs.exec(helper, [ 'tunnels-status' ]), { stdout: '' })
 			]).then(function(d) { d.ready = true; return d; });
 		});
@@ -1380,6 +1380,20 @@ return baseclass.extend({
 		var value = common.parseKeyValues(data[0].stdout);
 		var dnsValue = common.parseKeyValues((data[4] && data[4].stdout) || '');
 		var dnsSegments = parseDnsSegments((data[5] && data[5].stdout) || '');
+		// What could not be read is not "disconnected" or "none": the page says so
+		// and the forms that would save over it stay off.
+		var clientUnread = common.readFailed(data[0]), saUnread = common.readFailed(data[1]);
+		var dnsUnread = common.readFailed(data[4]), segmentsUnread = common.readFailed(data[5]);
+		var tunnelsUnread = common.readFailed(data[7]);
+		var unreadNote = E('div', {});
+		var dnsUnreadNote = E('div', {});
+		function showClientUnread() {
+			common.showUnread(unreadNote, (clientUnread ? [ _('tunnel settings') ] : [])
+				.concat(tunnelsUnread ? [ _('more tunnels') ] : []));
+			common.showUnread(dnsUnreadNote, (dnsUnread ? [ _('DNS settings') ] : [])
+				.concat(segmentsUnread ? [ _('DNS segments') ] : []));
+		}
+		showClientUnread();
 		var customMode = (data[2].stdout || '').trim() === '1';
 		var outbound = findOutbound(common.parseSwanmon(data[1]));
 		var child = outbound && Object.values(outbound['child-sas'] || {})
@@ -1408,8 +1422,8 @@ return baseclass.extend({
 
 		function updateConnectionView() {
 			common.setPill(statusPill,
-				customMode ? _('Custom config') : (child ? _('Connected') : _('Disconnected')),
-				customMode ? 'warn' : (child ? 'good' : 'bad'));
+				saUnread ? _('Unavailable') : customMode ? _('Custom config') : (child ? _('Connected') : _('Disconnected')),
+				saUnread || customMode ? 'warn' : (child ? 'good' : 'bad'));
 			common.setPill(rawModePill,
 				customMode ? _('Override active') : _('Generated'),
 				customMode ? 'warn' : 'good');
@@ -1433,19 +1447,24 @@ return baseclass.extend({
 				common.formatBytes(totalDown + totalUp) : '-';
 			accumulatedTrafficCard.detail.textContent = interfacePresent ?
 				_('Down %s, up %s').format(common.formatBytes(totalDown), common.formatBytes(totalUp)) +
-					' · ' + _('Since ipsec-out was created') :
-				_('ipsec-out is unavailable');
+					' · ' + _('Since the tunnel interface was created') :
+				_('The tunnel interface is unavailable');
 		}
 
 		function refreshClientState() {
 			return Promise.all([
-				L.resolveDefault(fs.exec(helper, [ 'client-get' ]), { stdout: '' }),
-				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { stdout: '' })
+				L.resolveDefault(fs.exec(helper, [ 'client-get' ]), { code: 1, stdout: '' }),
+				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { code: 1, stdout: '' })
 			]).then(function(results) {
-				value = common.parseKeyValues(results[0].stdout || '');
-				outbound = findOutbound(common.parseSwanmon(results[1]));
-				child = outbound && Object.values(outbound['child-sas'] || {})
-					.find(function(item) { return item.name === 'proxy4'; });
+				// A failed read keeps what was last known rather than emptying the view.
+				if (!common.readFailed(results[0]))
+					value = common.parseKeyValues(results[0].stdout || '');
+				saUnread = common.readFailed(results[1]);
+				if (!saUnread) {
+					outbound = findOutbound(common.parseSwanmon(results[1]));
+					child = outbound && Object.values(outbound['child-sas'] || {})
+						.find(function(item) { return item.name === 'proxy4'; });
+				}
 				updateConnectionView();
 			});
 		}
@@ -1536,6 +1555,7 @@ return baseclass.extend({
 		});
 
 		rawSave.addEventListener('click', function() {
+			common.setBusy(rawSave, true);
 			return writeProfileInput(rawText.value).then(function(token) {
 				return runManagerJob(rawSave, rawResult,
 					[ 'advanced-start', 'outbound', token ],
@@ -1548,11 +1568,14 @@ return baseclass.extend({
 						}
 					});
 			}).catch(function(error) {
+				common.setBusy(rawSave, false);
 				rawResult.err(error.message || error);
 				});
 		});
 
 		rawReset.addEventListener('click', function() {
+			if (!window.confirm(_('Discard your custom configuration and go back to the generated one?')))
+				return;
 			return runManagerJob(rawReset, rawResult,
 				[ 'advanced-reset-start', 'outbound' ],
 				_('Restoring and reconnecting...'), _('Restored'), _('Reset failed'), 120000,
@@ -1596,17 +1619,28 @@ return baseclass.extend({
 			}
 
 		function runClientInputJob(button, mode, busy, success, failure, timeout) {
+				common.setBusy(button, true);
+				// What goes to the router, with the password it keeps from then on
+				// and the page does not: what is typed from here on is a new change.
+				var sent = password.value;
+				password.value = '';
+				clientTracker.mark();
+				password.value = sent;
+				tunnelTracker.mark();
 				return writeClientInput(mode).then(function(token) {
 					return runManagerJob(button, connectResult, [ 'client-input', token ],
 					busy, success, failure, timeout, function(st) {
 						// The form, the tunnel DNS lists included, is on the router now.
 						if (st && st.state !== 'timeout') {
-							clientTracker.reset();
-							tunnelTracker.reset();
+							if (password.value === sent)
+								password.value = '';
+							clientTracker.settle();
+							tunnelTracker.settle();
 						}
 						return refreshClientState();
 					});
 			}).catch(function(error) {
+				common.setBusy(button, false);
 				connectResult.err(error.message || error);
 			});
 		}
@@ -1855,6 +1889,8 @@ return baseclass.extend({
 					wanFallback.checked ? '1' : '0',
 					via.checked ? '1' : '0' ].join('\n') + '\n';
 				var token = common.inputToken();
+				common.setBusy(button, true);
+				segmentSaved = node;
 				// The input file is written before the job starts; a failed write
 				// must still end in a visible result rather than a silent click.
 				return fs.write('/tmp/ikev2-manager-dns-segment-' + token + '.in', payload, 384)
@@ -1875,6 +1911,7 @@ return baseclass.extend({
 							}
 						});
 					}, function(error) {
+						common.setBusy(button, false);
 						result.err(_('Could not save the DNS segment: %s').format(error.message || error));
 					});
 			}
@@ -1939,8 +1976,9 @@ return baseclass.extend({
 			]);
 			// Grey until the segment differs from what was loaded; a new one
 			// until something is entered.
-			common.trackChanges(save, [ name, enabled, via, httpsCompat, wanFallback, domains, mode,
+			node.tracker = common.trackChanges(save, [ name, enabled, via, httpsCompat, wanFallback, domains, mode,
 				upstream.node, bootstrap.node, fallback.node ]);
+			node.segmentId = item ? item.id : null;
 			node.saveButton = save;
 			node.segmentTitle = item ? (item.name || item.id) : _('New segment');
 			// A new segment is not on the router until it is saved.
@@ -1949,21 +1987,32 @@ return baseclass.extend({
 			return node;
 		}
 
-		var flashSegment = null;
+		var flashSegment = null, segmentSaved = null;
 		function renderSegments() {
 			var saved = flashSegment;
 			segmentStatusPills = [];
+			// Another segment's unsaved edits and a new one being written stay.
+			var before = segmentPanels;
 			segmentPanels = dnsSegments.map(function(item) {
-				var block = segmentBlock(item);
+				var kept = before.filter(function(panel) {
+					return panel.block.segmentId === item.id && panel.block !== segmentSaved &&
+						panel.block.tracker && panel.block.tracker.dirty();
+				})[0];
+				var block = kept ? kept.block : segmentBlock(item);
 				if (item.id === saved)
 					common.flashButton(block.saveButton, 'ok', _('Saved'), _('DNS segment applied.'));
-				return segmentPanel(block, 'segment-' + item.id);
-			});
+				return kept || segmentPanel(block, 'segment-' + item.id);
+			}).concat(before.filter(function(panel) {
+				return panel.block.segmentId == null && panel.block !== segmentSaved;
+			}));
+			segmentSaved = null;
 			flashSegment = null;
 			syncSegmentBlocks();
 			publishSegments(saved ? 'segment-' + saved : null);
 		}
 		function addSegment() {
+			if (segmentsUnread)
+				return;
 			var block = segmentBlock(null);
 			var panel = segmentPanel(block, 'segment-new-' + segmentSeq);
 			segmentPanels.push(panel);
@@ -1975,6 +2024,8 @@ return baseclass.extend({
 			return common.execChecked(systemHelper, [ 'dns-segments-get' ],
 				_('Could not refresh DNS segments')).then(function(response) {
 				dnsSegments = parseDnsSegments(response.stdout || '');
+				segmentsUnread = false;
+				showClientUnread();
 				renderSegments();
 			});
 		}
@@ -2011,7 +2062,7 @@ return baseclass.extend({
 					dnsValue.running === '1' ? 'good' : 'bad');
 			}
 			else {
-				common.setPill(dnsStatus, _('Existing settings'), 'neutral');
+				common.setPill(dnsStatus, dnsUnread ? _('Unavailable') : _('Existing settings'), dnsUnread ? 'warn' : 'neutral');
 			}
 			syncDnsPath();
 		}
@@ -2124,7 +2175,7 @@ return baseclass.extend({
 								return;
 							}
 							if (st.state === 'error')
-								throw new Error(st.message ? _(st.message) : _('DNS apply failed'));
+								throw new Error(st.message ? common.helperText(st.message) : _('DNS apply failed'));
 							dnsResult.ok(_('DNS is working'));
 							return L.resolveDefault(fs.exec(systemHelper, [ 'dns-get' ]), { stdout: '' })
 								.then(function(next) { updateDnsState(next); dnsTracker.reset(); });
@@ -2281,6 +2332,8 @@ return baseclass.extend({
 						tunnelMtu.value(), backup.checked ? '1' : '0', secret.value ])
 					.join('\n') + '\n';
 				var token = common.inputToken();
+				common.setBusy(button, true);
+				tunnelSaved = node;
 				// Written before the job starts; a failed write still ends in a
 				// visible result rather than a silent click.
 				return fs.write('/var/run/ikev2-manager-tunnel-' + token + '.in', payload, 384)
@@ -2295,6 +2348,7 @@ return baseclass.extend({
 								return refreshTunnels();
 							});
 					}, function(error) {
+						common.setBusy(button, false);
 						result.err(_('Could not save the tunnel: %s').format(error.message || error));
 					})
 					.then(function(value) {
@@ -2384,9 +2438,11 @@ return baseclass.extend({
 			// What was stored without being applied can be sent again as it is:
 			// the form matches the router, yet the tunnel is not in effect.
 			var unapplied = false;
-			common.trackChanges(saveTunnel, tunnelFields, {
+			node.tracker = common.trackChanges(saveTunnel, tunnelFields, {
 				read: function() { return (unapplied ? 'unapplied ' : '') + common.formState(tunnelFields); }
 			});
+			node.tunnelIndex = item ? item.index : null;
+			node.tunnelState = item ? tunnelStates[item.index] : null;
 			if (item && failedTunnel && failedTunnel.index === item.index) {
 				unapplied = true;
 				saveTunnel.disabled = false;
@@ -2399,6 +2455,7 @@ return baseclass.extend({
 			return node;
 		}
 
+		var tunnelSaved = null;
 		function tunnelPanel(block, id, index) {
 			return { id: id, title: block.tunnelTitle, block: block,
 				content: E('div', {}, [
@@ -2411,19 +2468,28 @@ return baseclass.extend({
 			// the last there is.
 			var saved = flashTunnel === 'new' && tunnels.length ? tunnels[tunnels.length - 1].index : flashTunnel;
 			tunnelStates = {};
+			// Another tunnel's unsaved edits stay: its block is kept, not drawn anew.
+			var before = tunnelPanels;
 			tunnelPanels = tunnels.map(function(item) {
-				var block = tunnelBlock(item);
+				var kept = before.filter(function(panel) {
+					return panel.block.tunnelIndex === item.index && panel.block !== tunnelSaved &&
+						panel.block.tracker && panel.block.tracker.dirty();
+				})[0];
+				var block = kept ? kept.block : tunnelBlock(item);
 				if (item.index === saved)
 					common.flashButton(block.saveButton, 'ok', _('Saved'), _('Tunnel saved.'));
-				return tunnelPanel(block, 'tunnel-' + item.index, item.index);
-			});
+				return kept || tunnelPanel(block, 'tunnel-' + item.index, item.index);
+			}).concat(before.filter(function(panel) {
+				return panel.block.tunnelIndex == null && panel.block !== tunnelSaved;
+			}));
+			tunnelSaved = null;
 			flashTunnel = null;
 			failedTunnel = null;
 			publishTunnels(saved ? 'tunnel-' + saved : null);
 		}
 		// The router takes seven tunnels, the main one with them.
 		function addTunnel() {
-			if (tunnels.length >= 6)
+			if (tunnelsUnread || tunnels.length >= 6)
 				return;
 			var block = tunnelBlock(null);
 			var panel = tunnelPanel(block, 'tunnel-new-' + (++tunnelSeq), null);
@@ -2438,6 +2504,8 @@ return baseclass.extend({
 			]).then(function(results) {
 				tunnels = parseTunnels(results[0].stdout || '');
 				tunnelStatus = parseTunnelStatus(results[1].stdout || '');
+				tunnelsUnread = false;
+				showClientUnread();
 				renderTunnels();
 			});
 		}
@@ -2455,9 +2523,10 @@ return baseclass.extend({
 		var clientTracker = common.trackChanges([ save, saveOnly ], [
 			enabled, address, remoteId, username, password, dpd.node, mtu.node,
 			reconnectCooldown.node, tunnelDnsUpstream.node, tunnelDnsBootstrap.node
-		]);
+		], { blocked: function() { return clientUnread; } });
 		var tunnelTracker = common.trackChanges(tunnelDnsApply,
 			[ tunnelDnsUpstream.node, tunnelDnsBootstrap.node, tunnelResolve ], {
+				blocked: function() { return clientUnread || dnsUnread; },
 				read: function() {
 					return common.formState([ tunnelDnsUpstream.node, tunnelDnsBootstrap.node ]) +
 						(tunnelResolve.checked === (dnsValue.tunnel_resolve === '1') ? '' : '|path');
@@ -2465,12 +2534,13 @@ return baseclass.extend({
 			});
 		var dnsTracker = common.trackChanges(dnsSave, [ dnsManaged, dnsVia, dnsCompat,
 			dnsUpstreamMode, dnsUpstream.node, dnsBootstrap.node, dnsFallback.node,
-			dnsWanFallback ]);
+			dnsWanFallback ], { blocked: function() { return dnsUnread; } });
 		var rawTracker = common.trackChanges(rawSave, [ rawText ]);
 
 		return {
 			pill: statusPill,
 			tunnel: [
+				unreadNote,
 				E('div', { 'class': 'ikev2-grid' }, [
 					gatewayCard.node,
 					virtualCard.node,
@@ -2514,6 +2584,7 @@ return baseclass.extend({
 				add: addTunnel,
 				full: function() { return tunnels.length >= 6; }
 			},
+			dnsNote: dnsUnreadNote,
 			dns: [
 				common.section(_('Tunnel DNS'),
 					_('Resolves VPN-routed destinations through the outbound tunnel. Servers are tried in order; failover occurs only after two failed checks and a successful probe of the next server.'),

@@ -2,8 +2,8 @@
 'require view';
 'require fs';
 'require ui';
-'require ikev2-manager.shared-v22 as common';
-'require ikev2-manager.users-panel-v7 as vpnUsers';
+'require ikev2-manager.shared-v23 as common';
+'require ikev2-manager.users-panel-v8 as vpnUsers';
 
 var helper = '/usr/libexec/ikev2-client-admin';
 var catalogHelper = '/usr/libexec/ikev2-domains-community';
@@ -20,7 +20,7 @@ function readState() {
 function catalogRecords(stdout) {
  return (stdout || '').trim().split('\n').filter(Boolean).map(function(line) {
   var fields = line.split('|');
-  return { id: fields[0], label: fields[1] || fields[0], ip: fields[4] === '1' };
+  return { id: fields[0], label: fields[1] && fields[1] !== fields[0] ? fields[1] : common.serviceLabel(fields[0]), ip: fields[4] === '1' };
  }).filter(function(record) { return /^[a-z0-9][a-z0-9_-]{0,47}$/.test(record.id); });
 }
 
@@ -35,6 +35,7 @@ function ports(value) {
 
 function saveRequest(button, result, request, onSuccess) {
  var token = common.inputToken();
+ common.setBusy(button, true);
  return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
   return common.runJob({
    button: button, result: result, busy: _('Saving client configuration...'),
@@ -43,7 +44,7 @@ function saveRequest(button, result, request, onSuccess) {
    statusPath: helper, statusArgs: [ 'client-admin-status' ], timeout: 330000,
    onSuccess: onSuccess
   });
- }, function(error) { result.err(_('Could not stage client configuration: %s').format(error.message || error)); });
+ }, function(error) { common.setBusy(button, false); result.err(_('Could not stage client configuration: %s').format(error.message || error)); });
 }
 
 // Activation and the registration listener. Before the first save nothing else
@@ -61,6 +62,10 @@ function setupSection(settings, reload) {
   exits.push([ index, settings.tunnels.length > 1 ? _('%s, another tunnel when it fails').format(name) : name ]);
   if (settings.tunnels.length > 1) exits.push([ index + 's', _('%s only').format(name) ]);
  });
+ // A stored exit that is not offered any more stays what the list shows: a save
+ // for another reason must not move every device to the first tunnel.
+ if (settings.exit && !exits.some(function(item) { return item[0] === settings.exit; }))
+  exits.unshift([ settings.exit, _('Tunnel %s (not enabled)').format(settings.exit.charAt(0)) ]);
  var exit = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Exit tunnel') }, exits.map(function(item) {
   return E('option', { 'value': item[0], 'selected': item[0] === (settings.exit || '1') ? '' : null }, [ item[1] ]);
  }));
@@ -82,12 +87,13 @@ function setupSection(settings, reload) {
   var token = common.inputToken();
   var request = { version: 1, enabled: enabled.checked, port: number, virtual_subnet: subnet.value.trim(), exit: exit.value };
   if (settings.initialized) request.approve = approve.checked;
+  common.setBusy(save, true);
   return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
    return common.runJob({ button: save, result: result, busy: _('Applying remote client settings...'),
     success: _('Remote client settings applied.'), failure: _('Could not apply remote client settings.'),
     startPath: helper, startArgs: [ 'client-admin-setup', token ], statusPath: helper, statusArgs: [ 'client-admin-status' ],
     timeout: 330000, onSuccess: reload });
-  }, function() { result.err(_('Could not stage remote client settings.')); });
+  }, function() { common.setBusy(save, false); result.err(_('Could not stage remote client settings.')); });
  } }, [ settings.initialized ? _('Save') : _('Set up remote clients') ]);
  // Set up once, then saved only when something was changed, as on the other pages.
  if (settings.initialized)
@@ -114,10 +120,11 @@ var mailReady = false;
 
 function mailJob(button, result, kind, request, texts, onSuccess) {
  var token = common.inputToken();
+ common.setBusy(button, true);
  return fs.write('/var/run/ikev2-client-admin-' + token + '.in', JSON.stringify(request), 384).then(function() {
   return common.runJob({ button: button, result: result, busy: texts[0], success: texts[1], failure: texts[2],
    startPath: helper, startArgs: [ kind, token ], statusPath: helper, statusArgs: [ 'client-admin-status' ], timeout: 90000, onSuccess: onSuccess });
- }, function() { result.err(texts[2]); });
+ }, function() { common.setBusy(button, false); result.err(texts[2]); });
 }
 
 var mailPresets = [
@@ -520,7 +527,9 @@ function personCard(person, labels, actions) {
   free ? _('free places: %d').format(free) : '' ].filter(Boolean).join(' \u00b7 ');
  var card = E('div', { 'class': 'ikev2-person' + (actions.open(person) ? ' is-open' : ''), 'data-person': person.name }, [
   E('div', { 'class': 'ikev2-person-head' }, [
-   E('div', { 'class': 'ikev2-person-toggle', 'click': function() { actions.toggle(person, card); } }, [
+   E('div', { 'class': 'ikev2-person-toggle', 'role': 'button', 'tabindex': '0', 'aria-expanded': actions.open(person) ? 'true' : 'false',
+    'click': function(ev) { actions.toggle(person, card); ev.currentTarget.setAttribute('aria-expanded', /\bis-open\b/.test(card.getAttribute('class')) ? 'true' : 'false'); },
+    'keydown': function(ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.currentTarget.click(); } } }, [
     E('div', { 'style': 'min-width:0' }, [
      E('strong', { 'class': 'ikev2-user-name', 'style': 'margin-bottom:.15rem' }, [ person.name ]),
      E('div', { 'class': 'ikev2-session-meta' }, [ E('span', {}, [ counts ]) ].concat(
@@ -646,7 +655,10 @@ function pageStyles() {
   '.ikev2-page .ikev2-person-profiles .ikev2-user-name { margin-bottom: .2rem; font-weight: 480; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions .cbi-button { border-color: transparent; background: transparent; box-shadow: none; }' +
   '.ikev2-page .ikev2-person-profiles .ikev2-user-actions .cbi-button:hover { border-color: var(--ikev2-border); }' +
-  '.ikev2-page details.ikev2-fold > summary { cursor: pointer; font-weight: 480; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); margin: var(--ikev2-s4) 0; } .ikev2-page details.ikev2-fold[open] > summary { margin-bottom: 0; }' +
+  '.ikev2-page details.ikev2-fold > summary { display: flex; align-items: center; gap: .6rem; list-style: none; cursor: pointer; font-weight: 480; padding: .9rem 1.1rem; border: 1px solid var(--ikev2-border); border-radius: var(--ikev2-radius); background: var(--ikev2-surface); } .ikev2-page details.ikev2-fold { margin: var(--ikev2-s4) 0; }' +
+  '.ikev2-page details.ikev2-fold > summary::-webkit-details-marker { display: none; }' +
+  '.ikev2-page details.ikev2-fold > summary::before { content: ""; width: .45rem; height: .45rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .16s var(--ikev2-ease); }' +
+  '.ikev2-page details.ikev2-fold[open] > summary::before { transform: rotate(45deg); }' +
   '.ikev2-page .ikev2-people-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; margin-bottom: .9rem; }' +
   '.ikev2-page .ikev2-search-box { position: relative; flex: 0 1 20rem; min-width: 0; max-width: 100%; }' +
   '.ikev2-page .ikev2-people-bar > :first-child { min-width: 0; }' +
@@ -1152,7 +1164,7 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
      });
     }
    });
-  }, function() { result.err(_('Could not stage invitation.')); });
+  }, function() { common.setBusy(create, false); result.err(_('Could not stage invitation.')); });
  } }, [ _('Create invitation') ]);
  tracker = common.trackChanges(create, [ form ]);
  // For a known person the form is already filled in and can be sent as it is.
@@ -1163,10 +1175,11 @@ function invitationDialog(state, labels, reload, person, replace, addProfile) {
    E('button', { type: 'button', 'class': 'cbi-button', click: ui.hideModal }, [ _('Cancel') ]), create ]) ]) ]);
 }
 
-return view.extend({
+return view.extend(common.shell(_('Users'),
+ _('People, their Waypoint devices and ordinary VPN profiles.'), {
  // The page's own state, and what the VPN profiles panel needs.
- load: function() { return Promise.all([ readState(), L.resolveDefault(vpnUsers.load(), null) ]); },
- render: function(loaded) {
+ loadData: function() { return Promise.all([ readState(), L.resolveDefault(vpnUsers.load(), null) ]); },
+ renderData: function(loaded) {
   var data = loaded[0], profiles = loaded[1];
   var state, records = [], labels = {}, services = E('div', {}), devices = E('div', {});
   var result = common.inlineResult(), serviceResult = common.inlineResult(), availability = E('div', {}), setup = E('div', {}), fresh = E('div', {}), mailBox = E('div', {}), managed = E('div', {}), refresh, invite, more;
@@ -1196,7 +1209,7 @@ return view.extend({
     state = parsed;
    } catch (error) {
     availability.replaceChildren(E('div', { 'class': 'ikev2-note warn' }, [ _('Client configuration is unavailable.') ]));
-    services.replaceChildren(); devices.replaceChildren();
+    services.replaceChildren(); devices.replaceChildren(E('div', { 'class': 'ikev2-empty' }, [ _('People could not be read.') ]));
     if (refresh) refresh.disabled = true;
     if (invite) invite.disabled = true;
     return;
@@ -1209,7 +1222,7 @@ return view.extend({
    state.services.forEach(function(service) {
     // A device's own addresses are named as such and are not a service of the list.
     if (isOwnService(service.id)) { labels[service.id] = _('Own addresses'); return; }
-    if (!labels[service.id]) { labels[service.id] = service.id; records.push({ id: service.id, label: service.id }); }
+    if (!labels[service.id]) { labels[service.id] = common.serviceLabel(service.id); records.push({ id: service.id, label: labels[service.id] }); }
    });
    function portsText(service) {
     return service.transports.map(function(t) { return t.protocol.toUpperCase() + ' ' + t.ports.join(', '); }).join(' \u00b7 ');
@@ -1326,8 +1339,11 @@ return view.extend({
      if (!vpnUsers.accessPolicy || !vpnUsers.accessPolicy(device.id)) result.err(_('The rights of this device are not available.'));
     },
     mode: function(device, mode, select) {
-     select.disabled = true;
-     return saveRequest(select, result, { version: 1, expected_generation: state.generation, operation: 'set-device-mode', payload: { id: device.id, mode: mode } }, reload);
+     // Refused, the list goes back to what the router has.
+     return saveRequest(select, result, { version: 1, expected_generation: state.generation, operation: 'set-device-mode', payload: { id: device.id, mode: mode } }, reload).then(function(value) {
+      if (value == null) select.value = device.mode;
+      return value;
+     });
     },
     relink: function(person) { invitationDialog(state, labels, reload, person, person.devices.filter(function(device) { return device.waiting; })); },
     remove: function(device) { removeDialog(device, state, reload, result); },
@@ -1344,6 +1360,7 @@ return view.extend({
      });
     },
     withdraw: function(person, waiting, button, said) {
+     if (!window.confirm(_('Revoke this link? Its free places close and it stops working.'))) return null;
      return saveRequest(button, said, { version: 1, expected_generation: state.generation, operation: 'close-places',
       payload: { ids: waiting.map(function(item) { return item.id; }) } }, reload);
     }
@@ -1369,8 +1386,9 @@ return view.extend({
     return personCard(person, labels, actions);
    })) : E('div', { 'class': 'ikev2-empty' }, [ _('Nobody yet. Add a person to get their link.') ]));
    var online = state.devices.filter(function(device) { return device.online; }).length;
-   summary.replaceChildren(common.pill(_('People: %d').format(everyone.length), 'neutral'), ' ',
-    common.pill(_('Waypoint devices: %d, online: %d').format(state.devices.length, online), online ? 'good' : 'neutral'), ' ',
+   // Plain words now, not badges: a separator keeps the three counts apart.
+   summary.replaceChildren(common.pill(_('People: %d').format(everyone.length), 'neutral'), ' \u00b7 ',
+    common.pill(_('Waypoint devices: %d, online: %d').format(state.devices.length, online), online ? 'good' : 'neutral'), ' \u00b7 ',
     common.pill(_('VPN profiles: %d').format(profileNames.length), 'neutral'));
    journal.replaceChildren((state.events || []).length ? E('table', { 'class': 'table cbi-section-table' }, (state.events || []).map(function(event) {
     return E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td', 'style': 'white-space:nowrap' }, [ new Date(event.at * 1000).toLocaleString() ]),
@@ -1461,6 +1479,8 @@ return view.extend({
    if (!vpnUsers.addUser || !vpnUsers.addUser()) { result.err(_('The VPN profiles are not available.')); return; }
    awaited = person.name;
   }
+  var profilesUnread = E('div', {});
+  if (vpnUsers.onUnread) vpnUsers.onUnread(function(names) { common.showUnread(profilesUnread, names); });
   if (vpnUsers.onCreated) vpnUsers.onCreated(function(name) {
    if (!awaited || !state) return;
    var owner = awaited, owners = state.profile_owners || {};
@@ -1512,7 +1532,7 @@ return view.extend({
   setData(data);
   return E([ common.styles(), pageStyles(), E('div', { 'class': 'ikev2-page' }, [
    common.header(_('Users'), _('People, their Waypoint devices and ordinary VPN profiles.')),
-   availability, fresh,
+   availability, profilesUnread, fresh,
    (managed.replaceChildren(
     common.section(_('People'), _('Waypoint devices on Windows and macOS reach selected services; VPN profiles are for phones and other devices.'),
      E('div', {}, [ E('div', { 'class': 'ikev2-people-bar' }, [ summary, E('span', { 'style': 'display:inline-flex;align-items:center;gap:.4rem;min-width:0;flex:0 1 24rem' }, [ E('div', { 'class': 'ikev2-search-box', 'style': 'flex:1 1 auto' }, [ magnifier(), search ]),
@@ -1526,4 +1546,4 @@ return view.extend({
   ]) ]);
  },
  handleSaveApply: null, handleSave: null, handleReset: null
-});
+}));

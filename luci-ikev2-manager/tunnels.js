@@ -1,18 +1,19 @@
 'use strict';
 'require view';
-'require ikev2-manager.shared-v22 as common';
-'require ikev2-manager.outbound-panel-v4 as outbound';
-'require ikev2-manager.inbound-panel-v4 as inbound';
+'require ikev2-manager.shared-v23 as common';
+'require ikev2-manager.outbound-panel-v5 as outbound';
+'require ikev2-manager.inbound-panel-v5 as inbound';
 
 // The tunnels the router opens and the server it runs, on one page under two
 // tabs. Each is a panel of its own; this page only puts them side by side and
 // remembers which one was open.
-return view.extend({
-	load: function() {
+return view.extend(common.shell(_('Tunnels'),
+	_('The tunnels this router opens to VPN servers, and the server it runs for the devices that connect to it.'), {
+	loadData: function() {
 		return Promise.all([ outbound.load(), inbound.load() ]);
 	},
 
-	render: function(data) {
+	renderData: function(data) {
 		var title = _('Tunnels');
 		var about = _('The tunnels this router opens to VPN servers, and the server it runs for the devices that connect to it.');
 		var out = outbound.parts(data[0]), server = inbound.parts(data[1]);
@@ -57,4 +58,4 @@ return view.extend({
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null
-});
+}));

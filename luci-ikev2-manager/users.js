@@ -4,7 +4,7 @@
 'require ui';
 'require poll';
 'require uqr';
-'require ikev2-manager.shared-v22 as common';
+'require ikev2-manager.shared-v23 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 
@@ -41,7 +41,7 @@ function sessionsByUser(sas) {
 function loadUsers() {
 	return Promise.all([
 		fs.exec(helper, [ 'users-show' ]),
-		L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { stdout: '' }),
+		L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { code: 1, stdout: '' }),
 		L.resolveDefault(fs.exec(helper, [ 'server-get' ]), { stdout: '' }),
 		L.resolveDefault(fs.exec(helper, [ 'diagnostic-report' ]), { stdout: '' })
 	]);
@@ -50,7 +50,7 @@ function loadUsers() {
 function loadUserRuntime() {
 	return Promise.all([
 		fs.exec(helper, [ 'users-show' ]),
-		L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { stdout: '' })
+		L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { code: 1, stdout: '' })
 	]);
 }
 
@@ -164,6 +164,7 @@ function qrDialog(user) {
 							'<svg$1 viewBox="0 0 $2 $3"');
 						code.replaceChildren(E(svg));
 						var until = new Date(Number(link.expires) * 1000);
+						result.reveal();
 						result.ok(_('Scan it with the phone camera before %s. The link opens once, from the local network or the VPN.')
 							.format(until.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
 					});
@@ -210,11 +211,13 @@ function runUserInputAction(button, action, user, password, policy, result, succ
 	}
 	var payload = fields.join('\n') + '\n';
 	var token = common.inputToken();
+	common.setBusy(button, true);
 	return fs.write('/var/run/ikev2-manager-user-' + token + '.in', payload, 384 /* 0600 */).then(function() {
 		return runUserAction(button, [ 'user-secret-set', token ], result, success, {
 			onSuccess: onSuccess
 		});
 	}, function(error) {
+		common.setBusy(button, false);
 		result.err(_('Unable to save the VPN user: %s').format(error.message || error));
 	});
 }
@@ -408,7 +411,7 @@ function passwordDialog(title, username, action, includeUsername, pageResult, re
 
 // What the page around this panel may ask of it: to open its dialogs, to
 // name its accounts, and to be told when an account was made.
-var hooks = { created: null, add: null, policy: null, disconnectAll: null, disconnectAllButton: null, online: 0, names: null };
+var hooks = { created: null, add: null, policy: null, disconnectAll: null, disconnectAllButton: null, online: 0, names: null, unread: null };
 
 function userDialog(title, entry, includeIdentity, pageResult, refresh) {
 	entry = entry || {};
@@ -516,6 +519,7 @@ return baseclass.extend({
 				_('Manage inbound IKEv2 credentials and current sessions. Traffic counters reset when a session reconnects.')) ]);
 		var users = [];
 		var sessions = {};
+		var usersUnread = false, sessionsUnread = false;
 		var online = 0;
 		var list = E('div', {});
 		var userCount = common.pill('', 'info');
@@ -583,6 +587,15 @@ return baseclass.extend({
 			});
 		}
 
+		// A poll redraws every card. It waits while a card is in use: redrawn, the
+		// button in focus or showing its spinner or outcome would be gone.
+		function cardInUse() {
+			var active = document.activeElement;
+			return !!((active && active.closest && active.closest('.ikev2-user-card')) ||
+				(document.querySelector && document.querySelector(
+					'.ikev2-user-card [data-busy="1"], .ikev2-user-card .ikev2-flash-ok')));
+		}
+
 		function renderList() {
 			var userCards = [];
 			users.forEach(function(entry) {
@@ -637,7 +650,7 @@ return baseclass.extend({
 							E('strong', { 'class': 'ikev2-user-name' }, [ entry.name ]),
 							active.length ?
 								common.pill(active.length > 1 ?
-									_('%d active sessions').format(active.length) : _('Online'), 'good') :
+									_('Active sessions: %d').format(active.length) : _('Online'), 'good') :
 								common.pill(_('Offline'), 'neutral')
 						])
 					]),
@@ -682,14 +695,24 @@ return baseclass.extend({
 						})
 					])
 				]));
+				// Each row's buttons say whose they are: a list of "Delete" says nothing.
+				var card = userCards[userCards.length - 1];
+				if (card.querySelectorAll)
+					Array.prototype.forEach.call(card.querySelectorAll('button[aria-label]'), function(button) {
+						button.setAttribute('aria-label', button.getAttribute('aria-label') + ': ' + entry.name);
+					});
 			});
 			list.replaceChildren(users.length ?
 				E('div', { 'class': 'ikev2-user-list' }, userCards) :
-				E('div', { 'class': 'ikev2-empty' }, [ _('No VPN users configured.') ]));
+				E('div', { 'class': 'ikev2-empty' }, [ usersUnread ? _('VPN profiles could not be read.') : _('No VPN users configured.') ]));
 		}
 
 		function setData(next, runtimeOnly) {
-			users = ((next[0] && next[0].stdout) || '').replace(/\r/g, '').split('\n')
+			// A failed read keeps what was last known: a poll that fails once must not
+			// empty the list or call everybody offline.
+			usersUnread = common.readFailed(next[0]);
+			sessionsUnread = common.readFailed(next[1]);
+			if (!usersUnread) users = ((next[0] && next[0].stdout) || '').replace(/\r/g, '').split('\n')
 				.filter(Boolean).map(function(line) {
 					var fields = line.split('\t');
 					return {
@@ -702,7 +725,8 @@ return baseclass.extend({
 						publicPorts: fields[6] || ''
 					};
 				});
-			sessions = sessionsByUser(common.parseSwanmon(next[1] || { stdout: '' }));
+			if (!sessionsUnread) sessions = sessionsByUser(common.parseSwanmon(next[1] || { stdout: '' }));
+			if (hooks.unread) hooks.unread((usersUnread ? [ _('VPN profiles') ] : []).concat(sessionsUnread ? [ _('active sessions') ] : []));
 			if (!runtimeOnly) {
 				customMode = common.parseKeyValues((next[2] && next[2].stdout) || '').custom_config === '1';
 				diagnosticReport.replaceChildren(diagnosticReportNode(
@@ -711,7 +735,7 @@ return baseclass.extend({
 			online = Object.keys(sessions).reduce(function(total, user) {
 				return total + sessions[user].length;
 			}, 0);
-			common.setPill(userCount, _('%d users').format(users.length), 'info');
+			common.setPill(userCount, _('Users: %d').format(users.length), 'info');
 			common.setPill(onlineCount, _('%d online').format(online), online ? 'good' : 'neutral');
 			hooks.online = online;
 			// This panel's own button, and the one the Users page keeps beside
@@ -724,7 +748,8 @@ return baseclass.extend({
 				else
 					button.disabled = !online;
 			});
-			renderList();
+			if (!runtimeOnly || !cardInUse())
+				renderList();
 		}
 
 		var add = actionButton('addUser', _('Add user'), 'cbi-button-add', function() {
@@ -798,6 +823,7 @@ return baseclass.extend({
 	},
 
 	onCreated: function(handler) { hooks.created = handler; },
+	onUnread: function(handler) { hooks.unread = handler; },
 	addUser: function() { return hooks.add ? (hooks.add(), true) : false; },
 	accessPolicy: function(name) { return hooks.policy ? hooks.policy(name) : false; },
 	disconnectAll: function(button) { return hooks.disconnectAll ? hooks.disconnectAll(button) : null; },

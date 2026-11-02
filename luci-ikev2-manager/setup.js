@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v22 as common';
+'require ikev2-manager.shared-v23 as common';
 
 var helper = '/usr/libexec/ikev2-manager-system';
 var devicesHelper = '/usr/libexec/ikev2-devices';
@@ -59,7 +59,7 @@ function runDepsJob(button, cmd, result, doneMsg, refresh, done) {
 					result.warn(_('The operation continues in the background. You can use the button again.'));
 				}
 				else if (st.state === 'error') {
-					throw new Error(st.message ? _(st.message) : _('Operation failed'));
+					throw new Error(st.message ? common.helperText(st.message) : _('Operation failed'));
 				}
 				else {
 					result.ok(doneMsg);
@@ -405,10 +405,11 @@ function qualityRow(summary) {
 	]);
 }
 
-return view.extend({
-	load: function() {
+return view.extend(common.shell(_('IKEv2 Manager Overview'),
+	_('Install the app safely, prepare dependencies, then enable the managed routing configuration only when the checks are green.'), {
+	loadData: function() {
 		return Promise.all([
-			L.resolveDefault(fs.exec(helper, [ 'get' ]), { stdout: '' }),
+			L.resolveDefault(fs.exec(helper, [ 'get' ]), { code: 1, stdout: '' }),
 			// A failed RPC is not evidence that packages are missing. Preserve an
 			// explicit unknown state so the page cannot offer a destructive repair
 			// for a transient diagnostic failure.
@@ -416,7 +417,7 @@ return view.extend({
 				stdout: 'diagnostic_status=unavailable\ndependencies_ok=unknown\n'
 			}),
 			L.resolveDefault(fs.exec(devicesHelper, [ 'networks' ]), { stdout: '' }),
-			L.resolveDefault(fs.exec(devicesHelper, [ 'dump' ]), { stdout: '' }),
+			L.resolveDefault(fs.exec(devicesHelper, [ 'dump' ]), { code: 1, stdout: '' }),
 			L.resolveDefault(fs.exec(devicesHelper, [ 'clients' ]), { stdout: '' }),
 			L.resolveDefault(fs.exec('/usr/libexec/ikev2-device-routing', [ 'stats' ]), { stdout: '' }),
 			L.resolveDefault(fs.exec('/usr/libexec/ikev2-tunnel-quality', [ 'summary', '1h' ]), { stdout: '' }),
@@ -478,6 +479,7 @@ return view.extend({
 			});
 			var node = E('label', {
 				'class': 'ikev2-policy-check',
+				'data-name': { pbr: _('Routing'), dns: _('DNS'), dpi: _('Zapret') }[field],
 				'title': title
 			}, [ control, E('span', {}) ]);
 			checks[field] = control;
@@ -493,7 +495,7 @@ return view.extend({
 					checks.dpi.checked ? '1' : '0' ];
 				Object.keys(checks).forEach(function(key) { checks[key].disabled = true; });
 				self.deviceAction(values, null, result).then(function(status) {
-					if (!status)
+					if (!status || status.state === 'timeout')
 						refreshList(lastDump);
 				});
 			});
@@ -513,13 +515,13 @@ return view.extend({
 				control.disabled = true;
 				self.deviceAction([ 'set-included', entry.addr, control.checked ? '1' : '0' ], null, result)
 					.then(function(status) {
-						if (!status)
+						if (!status || status.state === 'timeout')
 							refreshList(lastDump);
 					});
 			});
 			// The Routing column means something else for an exclusion, so the box
 			// says what it does here, across the columns an inclusion does not use.
-			return E('label', { 'class': 'ikev2-policy-check ikev2-policy-check-wide', 'title': title }, [
+			return E('label', { 'class': 'ikev2-policy-check ikev2-policy-check-wide', 'data-name': _('Routing'), 'title': title }, [
 				control, E('span', {}), E('small', { 'class': 'ikev2-policy-caption' }, [ _('Exclusions go direct') ]) ]);
 		}
 
@@ -546,7 +548,7 @@ return view.extend({
 				select.disabled = true;
 				self.deviceAction([ 'set-exit', entry.addr, select.value ], null, result)
 					.then(function(status) {
-						if (!status)
+						if (!status || status.state === 'timeout')
 							refreshList(lastDump);
 					});
 			});
@@ -567,6 +569,10 @@ return view.extend({
 
 		function refreshList(stdout) {
 			lastDump = stdout;
+			if (self.devicesUnread) {
+				list.replaceChildren(E('div', { 'class': 'ikev2-empty' }, [ _('Device rules could not be read.') ]));
+				return;
+			}
 			var entries = parseDeviceDump(stdout).filter(function(entry) {
 				return entry.mode === 'fullroute' || entry.mode === 'exclude' ||
 					entry.dns === '1' || entry.dpi === '1';
@@ -643,13 +649,16 @@ return view.extend({
 		});
 		var addr = common.choiceWithCustom(choices.length ? choices[0].value : '',
 			choices, { placeholder: '192.168.2.55' });
-		var type = E('select', { 'class': 'cbi-input-select' }, [
+		var type = E('select', { 'class': 'cbi-input-select', 'aria-label': _('Rule type') }, [
 			E('option', { 'value': 'exclude' }, [ _('Exclusion') ]),
 			E('option', { 'value': 'include' }, [ _('Include — all traffic through VPN') ])
 		]);
 		var add = E('button', {
 			'class': 'cbi-button cbi-button-add', 'type': 'button'
 		}, [ _('Add') ]);
+		add.disabled = !!self.devicesUnread;
+		if (addr.node && addr.node.querySelector && addr.node.querySelector('select'))
+			addr.node.querySelector('select').setAttribute('aria-label', _('Device'));
 		add.addEventListener('click', function() {
 			var value = addr.value();
 			if (!validateAddr(value)) {
@@ -672,11 +681,22 @@ return view.extend({
 		]);
 	},
 
-	render: function(data) {
+	renderData: function(data) {
 		var self = this;
 		this.deviceRefreshers = [];
 		var value = common.parseKeyValues(data[0].stdout);
 		var doctor = common.parseKeyValues(data[1].stdout);
+		// A failed read is not an unconfigured router: the page says so and does
+		// not apply over what it could not see.
+		var settingsUnread = common.readFailed(data[0]);
+		var devicesUnread = common.readFailed(data[3]);
+		this.devicesUnread = devicesUnread;
+		var unreadNote = E('div', {});
+		function showSetupUnread() {
+			common.showUnread(unreadNote, (settingsUnread ? [ _('router settings') ] : [])
+				.concat(devicesUnread ? [ _('device rules') ] : []));
+		}
+		showSetupUnread();
 		var netList = parseNetworks(data[2].stdout);
 		var tunnelNames = {};
 		parseTunnelChoices((data[7] && data[7].stdout) || '').forEach(function(choice) {
@@ -731,6 +751,7 @@ return view.extend({
 						link.remove();
 						window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
 						exportPass.value = '';
+						exportResult.reveal();
 						exportResult.ok(_('Backup downloaded. It holds the VPN passwords and the server key; keep it and its passphrase apart.'));
 					});
 				}
@@ -746,6 +767,7 @@ return view.extend({
 			if (!window.confirm(_('Replace this router\'s IKEv2 settings, users, certificate and lists with the backup? Its networks, WAN and DNS snapshots stay as they are. The tunnels reconnect.')))
 				return;
 			var token = common.inputToken();
+			common.setBusy(importButton, true);
 			// The inputs are written before the job starts, as for a DNS segment;
 			// a failed write still ends in a result under the button.
 			return file.text().then(function(text) {
@@ -771,6 +793,7 @@ return view.extend({
 					}
 				});
 			}, function(error) {
+				common.setBusy(importButton, false);
 				importResult.err(_('Could not read the backup file: %s').format(error.message || error));
 			});
 		});
@@ -794,6 +817,7 @@ return view.extend({
 						link.click();
 						link.remove();
 						window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+						reportResult.reveal();
 						reportResult.ok(_('Report downloaded. Read it before attaching it anywhere.'));
 					});
 				}
@@ -952,8 +976,12 @@ return view.extend({
 				(routingPaused ? 'cbi-button-positive' : 'cbi-button-action');
 			pauseRouting.textContent = routingPaused ?
 				_('Resume tunnel routing') : _('Pause tunnel routing');
-			common.setPill(pausePill, routingPaused ? _('Paused') : _('Routing active'),
-				routingPaused ? 'warn' : 'good');
+			// Says only whether it is paused: whether routing runs is the widget's.
+			if (settingsUnread)
+				common.setPill(pausePill, _('Unavailable'), 'warn');
+			else
+				common.setPill(pausePill, routingPaused ? _('Paused') : _('Not paused'),
+					routingPaused ? 'warn' : 'neutral');
 			pauseDescription.textContent = routingPaused ?
 				_('Paused: selected destinations and full-tunnel devices have no connection, and none of them goes through WAN. All settings stay as configured.') :
 				_('Stops using the tunnel without leaking: selected destinations and full-tunnel devices lose their connection until you resume. Other traffic is not affected.');
@@ -1017,19 +1045,27 @@ return view.extend({
 				saveTracker.update();
 			managedDescription.textContent = ready ?
 				_('Master switch: lets the app create and own the router routing and firewall. Network and DNS changes are applied together by the button at the bottom.') :
-				(known ? _('Install the runtime dependencies below first — then this switch becomes available.') :
+				(known ? (value.configured === '1' ?
+					_('The app manages this router, but runtime dependencies are missing: install them below. Turning management off stays available.') :
+					_('Install the runtime dependencies below first — then this switch becomes available.')) :
 					_('Runtime dependencies could not be checked. Reload the page and try again.'));
 			var toggleSub = managedToggle.querySelector('.ikev2-toggle-sub');
 			if (toggleSub)
 				toggleSub.textContent = ready ?
 					_('Creates and owns routing and firewall rules on the router.') :
-				(known ? _('Available after runtime dependencies are installed.') :
+				(known ? (value.configured === '1' ? _('Turning it off stays available.') : _('Available after runtime dependencies are installed.')) :
 					_('Available after the runtime check succeeds.'));
-			common.setPill(headerPill,
-				value.configured === '1' ? _('Configured') : _('Not configured'),
-				value.configured === '1' ? 'good' : 'warn');
+			if (settingsUnread)
+				common.setPill(headerPill, _('Unavailable'), 'warn');
+			else
+				common.setPill(headerPill,
+					value.configured === '1' ? _('Configured') : _('Not configured'),
+					value.configured === '1' ? 'good' : 'warn');
 			domainDetail.textContent = domainRuntime.detail;
-			common.setPill(domainPill, domainRuntime.label, domainRuntime.tone);
+			if (settingsUnread)
+				common.setPill(domainPill, _('Unavailable'), 'warn');
+			else
+				common.setPill(domainPill, domainRuntime.label, domainRuntime.tone);
 			common.setPill(depsPill,
 				ready ? _('Ready') : (known ? _('Dependencies missing') : _('Check unavailable')),
 				ready ? 'good' : (known ? 'bad' : 'warn'));
@@ -1047,7 +1083,10 @@ return view.extend({
 			]).then(function(results) {
 				value = common.parseKeyValues(results[0].stdout || '');
 				doctor = common.parseKeyValues(results[1].stdout || '');
+				settingsUnread = false;
+				showSetupUnread();
 				updateSetupState();
+				updatePauseState();
 			});
 		}
 
@@ -1135,6 +1174,11 @@ return view.extend({
 		// action status, not the dependency installer's status file.
 		// `done` is the short word the button shows for a moment on success.
 		function runSystemAction(button, verb, result, busy, success, failure, done) {
+			// One routing action at a time: the router would refuse the second one.
+			var others = [ pauseRouting, reliableButton, pbrButton ].filter(function(other) {
+				return other !== button && !other.disabled;
+			});
+			others.forEach(function(other) { other.disabled = true; });
 			return common.runJob({
 				button: button,
 				result: result,
@@ -1152,6 +1196,8 @@ return view.extend({
 					if (st && st.state !== 'timeout')
 						return refreshRoutingState();
 				}
+			}).finally(function() {
+				others.forEach(function(other) { other.disabled = false; });
 			});
 		}
 
@@ -1188,7 +1234,7 @@ return view.extend({
 		// router has; an unmanaged router also needs its dependencies first.
 		saveTracker = common.trackChanges(save,
 			[ enabled, wanField.node, protectedNode, dnsEnforce, blockDot ], {
-				blocked: function() { return value.configured !== '1' && !ready; }
+				blocked: function() { return settingsUnread || (value.configured !== '1' && !ready); }
 			});
 		updateSetupState();
 
@@ -1198,6 +1244,7 @@ return view.extend({
 				common.header(_('IKEv2 Manager Overview'),
 					_('Install the app safely, prepare dependencies, then enable the managed routing configuration only when the checks are green.'),
 					[ versionPill, headerPill ]),
+				unreadNote,
 				E('section', { 'class': 'ikev2-section' }, [
 					E('div', { 'class': 'ikev2-section-head' }, [
 						E('div', {}, [
@@ -1329,4 +1376,4 @@ return view.extend({
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null
-});
+}));
