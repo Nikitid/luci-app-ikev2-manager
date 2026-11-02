@@ -197,13 +197,13 @@ const widget = factory(baseclass, fileApi, common, L, E, translate);
 	assert(text.includes('Policy routing'));
 	assert(text.includes('Reliable mode active'));
 	assert(text.includes('79 domains'));
-	assert(text.includes('11 service groups'));
-	assert(text.includes('2 address rules'));
+	assert(text.includes('Service groups: 11'));
+	assert(text.includes('Address rules: 2'));
 	assert(text.includes('Routing running'));
 	assert(text.includes('Fail-closed active'));
 	assert(text.includes('Inbound server'));
 	assert(text.includes('Server ready'));
-	assert(text.includes('1 active sessions'));
+	assert(text.includes('Active sessions: 1'));
 	assert(text.includes('alice'));
 	assert(text.includes('10.90.0.10'));
 	assert(text.includes('4096 B'));
@@ -219,7 +219,7 @@ const widget = factory(baseclass, fileApi, common, L, E, translate);
 	const disconnected = widget.render(await widget.load());
 	assert(disconnected.textContent.includes('Action required'));
 	assert(disconnected.textContent.includes('Disconnected'));
-	assert(disconnected.textContent.includes('0 active sessions'));
+	assert(disconnected.textContent.includes('Active sessions: 0'));
 	assert(!disconnected.textContent.includes('Active inbound clients'));
 
 	statusResponse = {

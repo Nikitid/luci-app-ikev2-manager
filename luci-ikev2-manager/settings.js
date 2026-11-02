@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require fs';
-'require ikev2-manager.shared-v14 as common';
+'require ikev2-manager.shared-v15 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -119,8 +119,9 @@ function addressPlanPicker(current, networks) {
 	};
 }
 
-return view.extend({
-	load: function() {
+return view.extend(common.shell(_('Inbound VPN Server'),
+	_('Remote devices connect to the router over IKEv2. Routes advertised by strongSwan and firewall permissions are controlled independently.'), {
+	loadData: function() {
 		return L.resolveDefault(fs.stat('/usr/sbin/swanmon'), null).then(function(ready) {
 			if (!ready)
 				return { ready: false };
@@ -129,7 +130,7 @@ return view.extend({
 				fs.exec(helper, [ 'server-access-get' ]),
 				fs.exec(helper, [ 'advanced-mode', 'inbound' ]),
 				fs.exec(helper, [ 'advanced-read', 'inbound' ]),
-				L.resolveDefault(fs.exec(helper, [ 'acme-get' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec(helper, [ 'acme-get' ]), { code: 1, stdout: '' }),
 				L.resolveDefault(fs.exec(devicesHelper, [ 'networks' ]), { stdout: '' }),
 				L.resolveDefault(fs.exec(devicesHelper, [ 'zones' ]), { stdout: '' }),
 				L.resolveDefault(fs.exec(systemHelper, [ 'get' ]), { stdout: '' })
@@ -137,7 +138,7 @@ return view.extend({
 		});
 	},
 
-	render: function(data) {
+	renderData: function(data) {
 		if (!data.ready)
 			return E([ common.styles(), common.gate(_('Inbound VPN Server'),
 				_('Remote devices connect to the router over IKEv2. Routes advertised by strongSwan and firewall permissions are controlled independently.')) ]);
@@ -148,6 +149,16 @@ return view.extend({
 		var zones = parseNamedValues((data[6] && data[6].stdout) || '');
 		var system = common.parseKeyValues((data[7] && data[7].stdout) || '');
 		var customMode = (data[2].stdout || '').trim() === '1';
+		// What could not be read is not an empty setting: the form says so and does
+		// not save over it.
+		var serverUnread = common.readFailed(data[0]) || common.readFailed(data[1]);
+		var acmeUnread = common.readFailed(data[4]);
+		var unreadNote = E('div', {});
+		function showServerUnread() {
+			common.showUnread(unreadNote, (serverUnread ? [ _('server settings') ] : [])
+				.concat(acmeUnread ? [ _('certificate settings') ] : []));
+		}
+		showServerUnread();
 		var enabled = input('checkbox', value.enabled);
 		var identities = (acme.identities || '').trim().split(/\s+/).filter(Boolean);
 		if (value.identity && identities.indexOf(value.identity) < 0) identities.unshift(value.identity);
@@ -209,14 +220,14 @@ return view.extend({
 			{ value: '120', label: '120 ' + _('seconds') }
 		], { type: 'number', attrs: { 'min': '10', 'max': '300' } });
 		var ikeRekey = common.choiceWithCustom(value.ike_rekey, [
-			{ value: '14400', label: '4 ' + _('hours') + ' — ' + _('recommended') },
-			{ value: '28800', label: '8 ' + _('hours') },
-			{ value: '86400', label: '24 ' + _('hours') }
+			{ value: '14400', label: _('%d h').format(4) + ' — ' + _('recommended') },
+			{ value: '28800', label: _('%d h').format(8) },
+			{ value: '86400', label: _('%d h').format(24) }
 		], { type: 'number', attrs: { 'min': '3600', 'max': '86400' } });
 		var childRekey = common.choiceWithCustom(value.child_rekey, [
 			{ value: '3600', label: '1 ' + _('hour') + ' — ' + _('recommended') },
-			{ value: '7200', label: '2 ' + _('hours') },
-			{ value: '14400', label: '4 ' + _('hours') }
+			{ value: '7200', label: _('%d h').format(2) },
+			{ value: '14400', label: _('%d h').format(4) }
 		], { type: 'number', attrs: { 'min': '900', 'max': '86400' } });
 		var mobike = input('checkbox', value.mobike);
 		var fragmentation = input('checkbox', value.fragmentation);
@@ -263,6 +274,7 @@ return view.extend({
 		});
 
 		rawSave.addEventListener('click', function() {
+			common.setBusy(rawSave, true);
 			return writeProfileInput(rawText.value).then(function(token) {
 				return common.runJob({
 					button: rawSave,
@@ -285,11 +297,14 @@ return view.extend({
 					}
 				});
 			}).catch(function(error) {
+				common.setBusy(rawSave, false);
 				rawResult.err(error.message || error);
 			});
 		});
 
 		rawReset.addEventListener('click', function() {
+			if (!window.confirm(_('Discard your custom configuration and go back to the generated one?')))
+				return;
 			return common.runJob({
 				button: rawReset,
 				result: rawResult,
@@ -374,7 +389,7 @@ return view.extend({
 									serverResult.warn(_('The operation continues in the background. You can use the button again.'));
 								}
 								else if (st.state === 'error') {
-									throw new Error(st.message ? _(st.message) : _('Apply failed'));
+									throw new Error(st.message ? common.helperText(st.message) : _('Apply failed'));
 								}
 								else {
 									serverResult.ok(_('Saved'));
@@ -382,12 +397,9 @@ return view.extend({
 							});
 						});
 				},
-				// Either way the form is reloaded from the router, which is what the
-				// Save button then compares against.
+				// The form is reloaded from the router, which is what the Save button
+				// then compares against. A refusal leaves it as typed, to be corrected.
 				onSuccess: function() {
-					return refreshServerState().then(function() { serverTracker.reset(); });
-				},
-				onError: function() {
 					return refreshServerState().then(function() { serverTracker.reset(); });
 				}
 			});
@@ -410,7 +422,7 @@ return view.extend({
 					'value': p,
 					'selected': p === acme.dns_provider ? '' :
 						(!acme.dns_provider && p === 'dns_timeweb' ? '' : null)
-				}, [ p ]);
+				}, [ p === 'dns_timeweb' ? 'Timeweb' : p.replace(/^dns_/, '') ]);
 			}));
 		var acmeCreds = E('textarea', {
 			'class': 'ikev2-domain-editor',
@@ -471,6 +483,8 @@ return view.extend({
 						});
 					},
 					onSuccess: function() {
+						// The token is stored now and is not left on the page.
+						acmeCreds.value = '';
 						return refreshServerState().then(function() { acmeTracker.reset(); });
 					}
 				});
@@ -506,10 +520,10 @@ return view.extend({
 								_('The certificate request continues in the background. You can use the button again.'));
 						}
 						else if (st.state === 'error') {
-							throw new Error(st.message ? _(st.message) : _('Certificate request failed.'));
+							throw new Error(st.message ? common.helperText(st.message) : _('Certificate request failed.'));
 						}
 						else {
-							acmeResult.ok(st.message ? _(st.message) : _('Certificate issued.'));
+							acmeResult.ok(st.message ? common.helperText(st.message) : _('Certificate issued.'));
 							// The request saved the ACME settings first.
 							acmeTracker.reset();
 							return refreshServerState();
@@ -519,7 +533,7 @@ return view.extend({
 			});
 		});
 
-		var acmeStatusPill = acme.cert_present === '1' ?
+		var acmeStatusPill = acmeUnread ? common.pill(_('Unavailable'), 'warn') : acme.cert_present === '1' ?
 			common.pill(_('Certificate present') +
 				(acme.cert_expiry ? ' · ' + common.formatDate(acme.cert_expiry) : ''), 'good') :
 			common.pill(_('No certificate'), 'bad');
@@ -550,7 +564,12 @@ return view.extend({
 				common.setPill(acmeStatusPill, _('No certificate'), 'bad');
 			}
 
-			if (customMode) {
+			if (acmeUnread)
+				common.setPill(acmeStatusPill, _('Unavailable'), 'warn');
+			if (serverUnread) {
+				common.setPill(serverStatusPill, _('Unavailable'), 'warn');
+			}
+			else if (customMode) {
 				common.setPill(serverStatusPill, _('Custom config'), 'warn');
 			}
 			else if (value.enabled !== '1') {
@@ -569,11 +588,22 @@ return view.extend({
 
 			function refreshServerState() {
 				return Promise.all([
-					L.resolveDefault(fs.exec(helper, [ 'server-get' ]), { stdout: '' }),
-					L.resolveDefault(fs.exec(helper, [ 'server-access-get' ]), { stdout: '' }),
-					L.resolveDefault(fs.exec(helper, [ 'acme-get' ]), { stdout: '' }),
+					L.resolveDefault(fs.exec(helper, [ 'server-get' ]), { code: 1, stdout: '' }),
+					L.resolveDefault(fs.exec(helper, [ 'server-access-get' ]), { code: 1, stdout: '' }),
+					L.resolveDefault(fs.exec(helper, [ 'acme-get' ]), { code: 1, stdout: '' }),
 					L.resolveDefault(fs.exec(helper, [ 'advanced-mode', 'inbound' ]), { stdout: '0' })
 				]).then(function(results) {
+					serverUnread = common.readFailed(results[0]) || common.readFailed(results[1]);
+					acmeUnread = common.readFailed(results[2]);
+					showServerUnread();
+					acmeRequest.disabled = acmeUnread || serverUnread;
+					// A failed read leaves the form as it is rather than empty.
+					if (serverUnread || acmeUnread) {
+						updateServerPills();
+						serverTracker.update();
+						acmeTracker.update();
+						return;
+					}
 					value = common.parseKeyValues(results[0].stdout || '');
 					access = common.parseKeyValues(results[1].stdout || '');
 					acme = common.parseKeyValues(results[2].stdout || '');
@@ -649,7 +679,7 @@ return view.extend({
 
 		var accessPanel = common.section(
 			_('Client routes and access'),
-			_('Global defaults for inbound clients. Individual overrides are configured on the VPN Users page.'),
+			_('Global defaults for inbound clients. Individual overrides are configured on the Users page.'),
 			E('div', {}, [
 				E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
 					common.fieldLabel(_('Advertised IPv4 destinations'),
@@ -739,16 +769,19 @@ return view.extend({
 			fragmentation, localTs.node, allowInternet, allowLan, allowRouter,
 			allowAllRouterPorts, routerPorts, lanZones.node, firewallZone.node,
 			outboundZone.node
-		]);
+		], { blocked: function() { return serverUnread; } });
 		var acmeTracker = common.trackChanges(acmeSave,
-			[ acmeEmail, acmeMethod, dnsRows, acmeStaging ]);
+			[ acmeEmail, acmeMethod, dnsRows, acmeStaging ],
+			{ blocked: function() { return acmeUnread; } });
 		var rawTracker = common.trackChanges(rawSave, [ rawText ]);
+		acmeRequest.disabled = acmeUnread || serverUnread;
 
 		return E([
 			common.styles(),
 			E('div', { 'class': 'ikev2-page' }, [
 				common.header(_('Inbound VPN Server'),
 					_('Remote devices connect to the router over IKEv2. Routes advertised by strongSwan and firewall permissions are controlled independently.')),
+				unreadNote,
 				common.section(_('Service'),
 					_('Server identity and the address pool handed to inbound clients.'),
 					E('div', { 'class': 'ikev2-form-grid ikev2-form-grid-compact' }, [
@@ -766,6 +799,8 @@ return view.extend({
 				acmePanel,
 				behaviorPanel,
 				E('div', { 'class': 'ikev2-actions end ikev2-save-bar' }, [
+					E('span', { 'class': 'ikev2-field-help' }, [
+						_('Applies the settings above to the inbound server.') ]),
 					serverResult.node,
 					save
 				])
@@ -776,4 +811,4 @@ return view.extend({
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null
-});
+}));

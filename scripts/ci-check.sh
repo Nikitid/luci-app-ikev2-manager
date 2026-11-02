@@ -31,6 +31,7 @@ find luci-ikev2-domains luci-ikev2-manager \
 ./scripts/check-luci-exec-acl.sh
 ./scripts/test-luci-client-ui.sh
 node ./scripts/test-luci-remote-clients-ui.js
+node ./scripts/test-luci-failed-reads.js
 ./scripts/test-luci-translations.sh
 node ./scripts/test-luci-users-ui.js
 node ./scripts/test-luci-shared.js

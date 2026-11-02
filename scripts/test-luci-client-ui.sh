@@ -74,7 +74,7 @@ function makeNode(tag, attrs) {
 				return handler.call(this, event);
 			} : handler;
 		},
-		removeAttribute() {}, setAttribute() {}, focus() {}, remove() {}, click() {},
+		removeAttribute() {}, setAttribute() {}, getAttribute() { return null; }, focus() {}, remove() {}, click() {},
 		// The overview shows an issue twice, in the summary and the details.
 		cloneNode(deep) {
 			const copy = Object.assign(makeNode(this.tagName, this.attrs), { textContent: this.textContent });
@@ -170,7 +170,7 @@ const common = loadModule('shared.js', null);
 });
 
 const view = loadModule('client.js', common);
-if (typeof view.render !== 'function')
+if (typeof view.renderData !== 'function')
 	fail('client.js does not return a view with render()');
 
 // Reliable mode, managed DNS, tunnel resolution on, one destination segment.
@@ -229,7 +229,7 @@ data.ready = true;
 
 let page;
 try {
-	page = view.render(data);
+	page = view.renderData(data);
 } catch (error) {
 	fail('render() threw: ' + (error && error.stack ? error.stack : error));
 }
@@ -416,7 +416,7 @@ function renderSegment(fields) {
 		'upstream=https://common.dot.dns.yandex.net/dns-query\tbootstrap=77.88.8.8:53',
 		fields, 'https_compat=1\tport=5550'
 	].join('\t') };
-	return textOf(view.render(copy));
+	return textOf(view.renderData(copy));
 }
 const ownList = renderSegment('fallback=https://dns.google/dns-query\t' +
 	'fallback_effective=https://dns.google/dns-query\tinherits_fallback=0\twan_fallback=0');
@@ -540,7 +540,7 @@ const standardData = data.slice();
 standardData[4] = { stdout: dnsGet.replace('engine=fakeip', 'engine=nftset')
 	.replace('tunnel_resolve=1', 'tunnel_resolve=0') };
 standardData.ready = true;
-const standardPage = view.render(standardData);
+const standardPage = view.renderData(standardData);
 const standardSwitches = switchesAfter(standardPage, 'Resolve through sing-box')
 	.concat(switchesAfter(standardPage, 'Browser compatibility'));
 if (standardSwitches.length !== 4 || standardSwitches.some(function(node) { return !node.disabled; }))
@@ -616,7 +616,7 @@ if (typeof setupView.render !== 'function')
 	fail('setup.js does not return a view with render()');
 let setupPage;
 try {
-	setupPage = setupView.render([
+	setupPage = setupView.renderData([
 		{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
 		{ stdout: '' }, { stdout: '' }, { stdout: '' }
 	]);
@@ -647,7 +647,7 @@ function dnsSentReady() { return Promise.all([ dnsSent, reportSaved, policySaved
 
 // A strongSwan upgraded on disk but not restarted is explained, not shown as
 // a code.
-const pendingPage = setupView.render([
+const pendingPage = setupView.renderData([
 	{ stdout: setupValue },
 	{ stdout: doctorOut + '\nstrongswan_running=warn:6.0.3-restart-pending-6.0.7' +
 		'\nstrongswan_eap_server_security=warn:6.0.3-r2-cve-2026-47895-awaiting-feed' },
@@ -662,7 +662,7 @@ if (/restart-pending/.test(pendingText))
 	fail('the overview shows the raw restart code');
 
 // A tunnel problem is told by the tunnel's name, not as a code.
-const tunnelsDoctorText = textOf(setupView.render([
+const tunnelsDoctorText = textOf(setupView.renderData([
 	{ stdout: setupValue },
 	{ stdout: doctorOut + '\ntunnels=warn:2-down,1-no-link,exit-3-no-tunnel' },
 	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' },
@@ -674,7 +674,7 @@ if (tunnelsDoctorText.indexOf('NL: down; Main tunnel: no interface; ' +
 if (/exit-3|no-link|2-down/.test(tunnelsDoctorText))
 	fail('the overview shows a raw tunnel problem code');
 // Connected, yet the watcher found nothing passing: said in words as well.
-const silentDoctorText = textOf(setupView.render([
+const silentDoctorText = textOf(setupView.renderData([
 	{ stdout: setupValue },
 	{ stdout: doctorOut + '\ntunnels=warn:2-silent' },
 	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' },
@@ -686,7 +686,7 @@ if (silentDoctorText.indexOf('NL: connected, but nothing passes through it') < 0
 // A full-route device row offers to send what is never to go through the
 // tunnel to WAN; the box says what is stored and sends the device's address.
 const respectCalls = [];
-const fullRoutePage = setupView.render([
+const fullRoutePage = setupView.renderData([
 	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
 	{ stdout: 'addr=192.168.1.40 mode=fullroute respect=1\n' }, { stdout: '' }, { stdout: '' }
 ]);
@@ -723,7 +723,7 @@ if (deviceRows(fullRoutePage).some(function(row) {
 }))
 	fail('one tunnel still gives the device rows a tunnel column');
 const exitCalls = [];
-const exitPage = setupView.render([
+const exitPage = setupView.renderData([
 	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' },
 	{ stdout: 'addr=192.168.1.40 mode=fullroute exit=2\naddr=192.168.1.41 mode=exclude dns=1\n' },
 	{ stdout: '' }, { stdout: '' }, { stdout: '' },
@@ -784,7 +784,7 @@ const exitStored = respectStored.then(function() {
 });
 
 // The device rule form offers each connected device by name and address.
-const pickerPage = setupView.render([
+const pickerPage = setupView.renderData([
 	{ stdout: setupValue }, { stdout: doctorOut }, { stdout: '' }, { stdout: '' },
 	{ stdout: '192.168.1.50\tPhone\taa:bb:cc:dd:ee:ff\n' }, { stdout: '' }
 ]);
@@ -796,7 +796,7 @@ if (!nodesOf(pickerPage).some(function(node) {
 
 // A dnsmasq that does not resolve as Reliable mode set it up is named as the
 // reason the mode is degraded.
-const degradedPage = setupView.render([
+const degradedPage = setupView.renderData([
 	{ stdout: [ 'configured=1', 'routing_paused=0', 'domain_engine=fakeip',
 		'domain_service=running', 'domain_healthy=no', 'domain_state=error',
 		'domain_dnsmasq_resolver=mismatch', 'domain_nft=active', 'domain_rule=active' ].join('\n') },
@@ -863,7 +863,7 @@ const editorSources = [
 ].join('\n');
 let editorPage;
 try {
-	editorPage = editor.render([
+	editorPage = editor.renderData([
 		'example.com\n', 'openai telegram', policyStatus,
 		{ code: 0, stdout: '' }, 'example.com\n',
 		{ code: 0, stdout: 'engine=fakeip\nservice=running\nnft=active\nrule=active' },
@@ -898,7 +898,7 @@ if (editorSource.indexOf("startArgs: [ 'refresh-schedule', 'force' ]") < 0)
 // the action bar, and the page saves where everything lies.
 const boardCatalog = 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' +
 	'telegram|telegram|builtin|0|1|route\nspotify|spotify|builtin|0|0|route\n';
-const boardPage = editor.render([
+const boardPage = editor.renderData([
 	'example.com\n', 'banks openai telegram', policyStatus,
 	{ code: 0, stdout: boardCatalog },
 	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
@@ -1003,7 +1003,7 @@ if (boardState(boardPage) !== '1=@domains,banks 1s= 2= 2s=@cidrs,telegram wan=op
 // One tunnel: a field through the tunnel and one that stays out, nothing to
 // be bound against, and what was stored for a tunnel that is gone is the
 // first one's.
-const singlePage = editor.render([
+const singlePage = editor.renderData([
 	'example.com\n', 'openai telegram', policyStatus, { code: 0, stdout: boardCatalog },
 	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 	{ code: 0, stdout: '' }, 'openai 2s\ntelegram 1s\n'
@@ -1058,7 +1058,7 @@ function saveServiceDialog() {
 // An existing service of one's own: Edit reads its definition, a changed form
 // is not thrown away without asking, and Delete removes the service.
 function editServiceDialog() {
-	const page = editor.render([
+	const page = editor.renderData([
 		'', 'banks', policyStatus, { code: 0, stdout: 'banks|Banks|custom|1|1|route\n' },
 		'', { code: 0, stdout: 'engine=fakeip' }, '', { code: 0, stdout: '' }, '', '',
 		{ code: 0, stdout: '' }, ''
@@ -1106,7 +1106,7 @@ function editServiceDialog() {
 
 // Never through the tunnel: two lists beside the two routed ones, saved with
 // them, and services of one's own that exclude are marked in the catalogue.
-const excludePage = editor.render([
+const excludePage = editor.renderData([
 	'example.com\n', 'banks openai', policyStatus,
 	{ code: 0, stdout: 'banks|Banks|custom|1|1|exclude\nopenai|openai|builtin|0|0|route\n' },
 	'example.com\n', { code: 0, stdout: 'engine=fakeip' }, '203.0.113.10\n',
@@ -1144,7 +1144,7 @@ const policySaved = dnsSent.then(function() {
 const dialogSaved = policySaved.then(saveServiceDialog);
 
 try {
-	editor.render([ '', '', '', { code: 0, stdout: '' }, '', { code: 0, stdout: '' }, '',
+	editor.renderData([ '', '', '', { code: 0, stdout: '' }, '', { code: 0, stdout: '' }, '',
 		{ code: 0, stdout: 'now=1789300000\nrefresh_due=1' } ]);
 } catch (error) {
 	fail('editor.js render() threw with no selected services: ' + (error && error.stack ? error.stack : error));
@@ -1173,7 +1173,7 @@ const settingsData = [
 settingsData.ready = true;
 let settingsPage;
 try {
-	settingsPage = settingsView.render(settingsData);
+	settingsPage = settingsView.renderData(settingsData);
 } catch (error) {
 	fail('settings.js render() threw: ' + (error && error.stack ? error.stack : error));
 }

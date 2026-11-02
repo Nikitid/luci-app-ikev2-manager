@@ -2,7 +2,7 @@
 'require view';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v14 as common';
+'require ikev2-manager.shared-v15 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';
@@ -1344,32 +1344,46 @@ function qualitySection(initial) {
 	};
 }
 
-return view.extend({
-	load: function() {
+return view.extend(common.shell(_('Outbound IKEv2 Tunnel'),
+	_('The router uses this IPv4 IKEv2 tunnel for domains and devices selected on the Policy Routing page.'), {
+	loadData: function() {
 		return L.resolveDefault(fs.stat('/usr/sbin/swanmon'), null).then(function(ready) {
 			if (!ready)
 				return { ready: false };
 			return Promise.all([
 				fs.exec(helper, [ 'client-get' ]),
-				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { code: 1, stdout: '' }),
 				fs.exec(helper, [ 'advanced-mode', 'outbound' ]),
 				fs.exec(helper, [ 'advanced-read', 'outbound' ]),
-				L.resolveDefault(fs.exec(systemHelper, [ 'dns-get' ]), { stdout: '' }),
-				L.resolveDefault(fs.exec(systemHelper, [ 'dns-segments-get' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec(systemHelper, [ 'dns-get' ]), { code: 1, stdout: '' }),
+				L.resolveDefault(fs.exec(systemHelper, [ 'dns-segments-get' ]), { code: 1, stdout: '' }),
 				L.resolveDefault(fs.exec(qualityHelper, [ 'summary', '1h' ]), { stdout: '' }),
-				L.resolveDefault(fs.exec(helper, [ 'tunnels-get' ]), { stdout: '' }),
+				L.resolveDefault(fs.exec(helper, [ 'tunnels-get' ]), { code: 1, stdout: '' }),
 				L.resolveDefault(fs.exec(helper, [ 'tunnels-status' ]), { stdout: '' })
 			]).then(function(d) { d.ready = true; return d; });
 		});
 	},
 
-	render: function(data) {
+	renderData: function(data) {
 		if (!data.ready)
 			return E([ common.styles(), common.gate(_('Outbound IKEv2 Tunnel'),
 				_('The router uses this IPv4 IKEv2 tunnel for domains and devices selected on the Policy Routing page.')) ]);
 		var value = common.parseKeyValues(data[0].stdout);
 		var dnsValue = common.parseKeyValues((data[4] && data[4].stdout) || '');
 		var dnsSegments = parseDnsSegments((data[5] && data[5].stdout) || '');
+		// What could not be read is not "disconnected" or "none": the page says so
+		// and the forms that would save over it stay off.
+		var clientUnread = common.readFailed(data[0]), saUnread = common.readFailed(data[1]);
+		var dnsUnread = common.readFailed(data[4]), segmentsUnread = common.readFailed(data[5]);
+		var tunnelsUnread = common.readFailed(data[7]);
+		var unreadNote = E('div', {});
+		function showClientUnread() {
+			common.showUnread(unreadNote, (clientUnread ? [ _('tunnel settings') ] : [])
+				.concat(tunnelsUnread ? [ _('more tunnels') ] : [])
+				.concat(dnsUnread ? [ _('DNS settings') ] : [])
+				.concat(segmentsUnread ? [ _('DNS segments') ] : []));
+		}
+		showClientUnread();
 		var customMode = (data[2].stdout || '').trim() === '1';
 		var outbound = findOutbound(common.parseSwanmon(data[1]));
 		var child = outbound && Object.values(outbound['child-sas'] || {})
@@ -1398,8 +1412,8 @@ return view.extend({
 
 		function updateConnectionView() {
 			common.setPill(statusPill,
-				customMode ? _('Custom config') : (child ? _('Connected') : _('Disconnected')),
-				customMode ? 'warn' : (child ? 'good' : 'bad'));
+				saUnread ? _('Unavailable') : customMode ? _('Custom config') : (child ? _('Connected') : _('Disconnected')),
+				saUnread || customMode ? 'warn' : (child ? 'good' : 'bad'));
 			common.setPill(rawModePill,
 				customMode ? _('Override active') : _('Generated'),
 				customMode ? 'warn' : 'good');
@@ -1423,19 +1437,24 @@ return view.extend({
 				common.formatBytes(totalDown + totalUp) : '-';
 			accumulatedTrafficCard.detail.textContent = interfacePresent ?
 				_('Down %s, up %s').format(common.formatBytes(totalDown), common.formatBytes(totalUp)) +
-					' · ' + _('Since ipsec-out was created') :
-				_('ipsec-out is unavailable');
+					' · ' + _('Since the tunnel interface was created') :
+				_('The tunnel interface is unavailable');
 		}
 
 		function refreshClientState() {
 			return Promise.all([
-				L.resolveDefault(fs.exec(helper, [ 'client-get' ]), { stdout: '' }),
-				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { stdout: '' })
+				L.resolveDefault(fs.exec(helper, [ 'client-get' ]), { code: 1, stdout: '' }),
+				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { code: 1, stdout: '' })
 			]).then(function(results) {
-				value = common.parseKeyValues(results[0].stdout || '');
-				outbound = findOutbound(common.parseSwanmon(results[1]));
-				child = outbound && Object.values(outbound['child-sas'] || {})
-					.find(function(item) { return item.name === 'proxy4'; });
+				// A failed read keeps what was last known rather than emptying the view.
+				if (!common.readFailed(results[0]))
+					value = common.parseKeyValues(results[0].stdout || '');
+				saUnread = common.readFailed(results[1]);
+				if (!saUnread) {
+					outbound = findOutbound(common.parseSwanmon(results[1]));
+					child = outbound && Object.values(outbound['child-sas'] || {})
+						.find(function(item) { return item.name === 'proxy4'; });
+				}
 				updateConnectionView();
 			});
 		}
@@ -1526,6 +1545,7 @@ return view.extend({
 		});
 
 		rawSave.addEventListener('click', function() {
+			common.setBusy(rawSave, true);
 			return writeProfileInput(rawText.value).then(function(token) {
 				return runManagerJob(rawSave, rawResult,
 					[ 'advanced-start', 'outbound', token ],
@@ -1538,11 +1558,14 @@ return view.extend({
 						}
 					});
 			}).catch(function(error) {
+				common.setBusy(rawSave, false);
 				rawResult.err(error.message || error);
 				});
 		});
 
 		rawReset.addEventListener('click', function() {
+			if (!window.confirm(_('Discard your custom configuration and go back to the generated one?')))
+				return;
 			return runManagerJob(rawReset, rawResult,
 				[ 'advanced-reset-start', 'outbound' ],
 				_('Restoring and reconnecting...'), _('Restored'), _('Reset failed'), 120000,
@@ -1586,17 +1609,28 @@ return view.extend({
 			}
 
 		function runClientInputJob(button, mode, busy, success, failure, timeout) {
+				common.setBusy(button, true);
+				// What goes to the router, with the password it keeps from then on
+				// and the page does not: what is typed from here on is a new change.
+				var sent = password.value;
+				password.value = '';
+				clientTracker.mark();
+				password.value = sent;
+				tunnelTracker.mark();
 				return writeClientInput(mode).then(function(token) {
 					return runManagerJob(button, connectResult, [ 'client-input', token ],
 					busy, success, failure, timeout, function(st) {
 						// The form, the tunnel DNS lists included, is on the router now.
 						if (st && st.state !== 'timeout') {
-							clientTracker.reset();
-							tunnelTracker.reset();
+							if (password.value === sent)
+								password.value = '';
+							clientTracker.settle();
+							tunnelTracker.settle();
 						}
 						return refreshClientState();
 					});
 			}).catch(function(error) {
+				common.setBusy(button, false);
 				connectResult.err(error.message || error);
 			});
 		}
@@ -1731,6 +1765,7 @@ return view.extend({
 			'class': 'cbi-button cbi-button-add ikev2-wide-button', 'type': 'button'
 		}, [ _('Add DNS segment') ]);
 		var segmentRows = E('div', {}, [ segmentList, segmentAdd ]);
+		segmentAdd.disabled = segmentsUnread;
 		var segmentSeq = 0;
 
 		// One block per segment. Everything a block needs - fields,
@@ -1828,6 +1863,8 @@ return view.extend({
 					wanFallback.checked ? '1' : '0',
 					via.checked ? '1' : '0' ].join('\n') + '\n';
 				var token = common.inputToken();
+				common.setBusy(button, true);
+				segmentSaved = node;
 				// The input file is written before the job starts; a failed write
 				// must still end in a visible result rather than a silent click.
 				return fs.write('/tmp/ikev2-manager-dns-segment-' + token + '.in', payload, 384)
@@ -1848,6 +1885,7 @@ return view.extend({
 							}
 						});
 					}, function(error) {
+						common.setBusy(button, false);
 						result.err(_('Could not save the DNS segment: %s').format(error.message || error));
 					});
 			}
@@ -1917,24 +1955,35 @@ return view.extend({
 			]);
 			// Grey until the segment differs from what was loaded; a new one
 			// until something is entered.
-			common.trackChanges(save, [ name, enabled, via, httpsCompat, wanFallback, domains, mode,
+			node.tracker = common.trackChanges(save, [ name, enabled, via, httpsCompat, wanFallback, domains, mode,
 				upstream.node, bootstrap.node, fallback.node ]);
+			node.segmentId = item ? item.id : null;
 			node.saveButton = save;
 			return node;
 		}
 
-		var flashSegment = null;
+		var flashSegment = null, segmentSaved = null;
 		function renderSegments() {
+			// Another block's unsaved edits and a new one still being written stay.
+			var kept = Array.prototype.slice.call(segmentList.children || []).filter(function(old) {
+				return old !== segmentSaved && old.tracker && (old.segmentId == null || old.tracker.dirty());
+			});
+			segmentSaved = null;
 			segmentList.replaceChildren();
 			if (!dnsSegments.length)
 				segmentList.appendChild(E('div', { 'class': 'ikev2-dns-empty' }, [
-					_('No DNS segments configured.')
+					segmentsUnread ? _('DNS segments could not be read.') : _('No DNS segments configured.')
 				]));
 			dnsSegments.forEach(function(item) {
-				var block = segmentBlock(item);
+				var old = kept.filter(function(block) { return block.segmentId === item.id; })[0];
+				var block = old || segmentBlock(item);
 				segmentList.appendChild(block);
 				if (item.id === flashSegment)
 					common.flashButton(block.saveButton, 'ok', _('Saved'), _('DNS segment applied.'));
+			});
+			kept.forEach(function(block) {
+				if (block.segmentId == null)
+					segmentList.appendChild(block);
 			});
 			flashSegment = null;
 		}
@@ -1948,6 +1997,8 @@ return view.extend({
 			return common.execChecked(systemHelper, [ 'dns-segments-get' ],
 				_('Could not refresh DNS segments')).then(function(response) {
 				dnsSegments = parseDnsSegments(response.stdout || '');
+				segmentsUnread = false;
+				showClientUnread();
 				renderSegments();
 			});
 		}
@@ -1975,7 +2026,7 @@ return view.extend({
 					dnsValue.running === '1' ? 'good' : 'bad');
 			}
 			else {
-				common.setPill(dnsStatus, _('Existing settings'), 'neutral');
+				common.setPill(dnsStatus, dnsUnread ? _('Unavailable') : _('Existing settings'), dnsUnread ? 'warn' : 'neutral');
 			}
 			syncDnsPath();
 		}
@@ -2088,7 +2139,7 @@ return view.extend({
 								return;
 							}
 							if (st.state === 'error')
-								throw new Error(st.message ? _(st.message) : _('DNS apply failed'));
+								throw new Error(st.message ? common.helperText(st.message) : _('DNS apply failed'));
 							dnsResult.ok(_('DNS is working'));
 							return L.resolveDefault(fs.exec(systemHelper, [ 'dns-get' ]), { stdout: '' })
 								.then(function(next) { updateDnsState(next); dnsTracker.reset(); });
@@ -2142,6 +2193,7 @@ return view.extend({
 			'class': 'cbi-button cbi-button-add ikev2-wide-button', 'type': 'button'
 		}, [ _('Add tunnel') ]);
 		var tunnelRows = E('div', {}, [ tunnelList, tunnelAdd ]);
+		tunnelAdd.disabled = tunnelsUnread;
 		var tunnelStates = {};
 		var flashTunnel = null;
 		// The tunnel a save stored without managing to apply it, and why.
@@ -2228,6 +2280,8 @@ return view.extend({
 						tunnelMtu.value(), backup.checked ? '1' : '0', secret.value ])
 					.join('\n') + '\n';
 				var token = common.inputToken();
+				common.setBusy(button, true);
+				tunnelSaved = node;
 				// Written before the job starts; a failed write still ends in a
 				// visible result rather than a silent click.
 				return fs.write('/var/run/ikev2-manager-tunnel-' + token + '.in', payload, 384)
@@ -2242,6 +2296,7 @@ return view.extend({
 								return refreshTunnels();
 							});
 					}, function(error) {
+						common.setBusy(button, false);
 						result.err(_('Could not save the tunnel: %s').format(error.message || error));
 					})
 					.then(function(value) {
@@ -2334,9 +2389,11 @@ return view.extend({
 			// What was stored without being applied can be sent again as it is:
 			// the form matches the router, yet the tunnel is not in effect.
 			var unapplied = false;
-			common.trackChanges(saveTunnel, tunnelFields, {
+			node.tracker = common.trackChanges(saveTunnel, tunnelFields, {
 				read: function() { return (unapplied ? 'unapplied ' : '') + common.formState(tunnelFields); }
 			});
+			node.tunnelIndex = item ? item.index : null;
+			node.tunnelState = item ? tunnelStates[item.index] : null;
 			if (item && failedTunnel && failedTunnel.index === item.index) {
 				unapplied = true;
 				saveTunnel.disabled = false;
@@ -2347,21 +2404,34 @@ return view.extend({
 			return node;
 		}
 
+		var tunnelSaved = null;
 		function renderTunnels() {
+			// Another block's unsaved edits and a new one still being written stay.
+			var kept = Array.prototype.slice.call(tunnelList.children || []).filter(function(old) {
+				return old !== tunnelSaved && old.tracker && (old.tunnelIndex == null || old.tracker.dirty());
+			});
+			tunnelSaved = null;
 			tunnelList.replaceChildren();
 			tunnelStates = {};
 			if (!tunnels.length)
 				tunnelList.appendChild(E('div', { 'class': 'ikev2-dns-empty' }, [
-					_('Only the main tunnel is configured.')
+					tunnelsUnread ? _('More tunnels could not be read.') : _('Only the main tunnel is configured.')
 				]));
 			tunnels.forEach(function(item) {
-				tunnelList.appendChild(tunnelBlock(item));
+				var old = kept.filter(function(block) { return block.tunnelIndex === item.index; })[0];
+				if (old)
+					tunnelStates[item.index] = old.tunnelState;
+				tunnelList.appendChild(old || tunnelBlock(item));
 			});
 			if (flashTunnel && tunnelList.lastChild && tunnelList.lastChild.saveButton)
 				common.flashButton(tunnelList.lastChild.saveButton, 'ok', _('Saved'), _('Tunnel saved.'));
 			flashTunnel = null;
+			kept.forEach(function(block) {
+				if (block.tunnelIndex == null)
+					tunnelList.appendChild(block);
+			});
 			failedTunnel = null;
-			tunnelAdd.disabled = tunnels.length >= 7;
+			tunnelAdd.disabled = tunnelsUnread || tunnels.length >= 7;
 		}
 		tunnelAdd.addEventListener('click', function() {
 			var empty = tunnelList.querySelector('.ikev2-dns-empty');
@@ -2377,6 +2447,8 @@ return view.extend({
 			]).then(function(results) {
 				tunnels = parseTunnels(results[0].stdout || '');
 				tunnelStatus = parseTunnelStatus(results[1].stdout || '');
+				tunnelsUnread = false;
+				showClientUnread();
 				renderTunnels();
 			});
 		}
@@ -2394,9 +2466,10 @@ return view.extend({
 		var clientTracker = common.trackChanges([ save, saveOnly ], [
 			enabled, address, remoteId, username, password, dpd.node, mtu.node,
 			reconnectCooldown.node, tunnelDnsUpstream.node, tunnelDnsBootstrap.node
-		]);
+		], { blocked: function() { return clientUnread; } });
 		var tunnelTracker = common.trackChanges(tunnelDnsApply,
 			[ tunnelDnsUpstream.node, tunnelDnsBootstrap.node, tunnelResolve ], {
+				blocked: function() { return clientUnread || dnsUnread; },
 				read: function() {
 					return common.formState([ tunnelDnsUpstream.node, tunnelDnsBootstrap.node ]) +
 						(tunnelResolve.checked === (dnsValue.tunnel_resolve === '1') ? '' : '|path');
@@ -2404,7 +2477,7 @@ return view.extend({
 			});
 		var dnsTracker = common.trackChanges(dnsSave, [ dnsManaged, dnsVia, dnsCompat,
 			dnsUpstreamMode, dnsUpstream.node, dnsBootstrap.node, dnsFallback.node,
-			dnsWanFallback ]);
+			dnsWanFallback ], { blocked: function() { return dnsUnread; } });
 		var rawTracker = common.trackChanges(rawSave, [ rawText ]);
 
 		return E([
@@ -2413,6 +2486,7 @@ return view.extend({
 				common.header(_('Outbound IKEv2 Tunnel'),
 					_('The router uses this IPv4 IKEv2 tunnel for domains and devices selected on the Policy Routing page.'),
 					statusPill),
+				unreadNote,
 				E('div', { 'class': 'ikev2-grid' }, [
 					gatewayCard.node,
 					virtualCard.node,
@@ -2495,4 +2569,4 @@ return view.extend({
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null
-});
+}));

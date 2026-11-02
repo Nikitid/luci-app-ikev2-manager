@@ -7,13 +7,13 @@ msgstr ""
 msgid "%d accounts configured"
 msgstr "учётных записей: %d"
 
-msgid "%d active sessions"
-msgstr "%d активных подключений"
+msgid "Active sessions: %d"
+msgstr "Активных сессий: %d"
 
-msgid "%d address rules"
-msgstr "правил адресов: %d"
+msgid "Address rules: %d"
+msgstr "Правил для адресов: %d"
 
-msgid "%d bypass settings"
+msgid "Bypass settings: %d"
 msgstr "Настроек обхода: %d"
 
 msgid "%d days left"
@@ -22,26 +22,26 @@ msgstr "осталось дней: %d"
 msgid "%d domains"
 msgstr "доменов: %d"
 
-msgid "%d excluded devices"
+msgid "Excluded devices: %d"
 msgstr "Исключённых устройств: %d"
 
 msgid "%d online"
 msgstr "подключено: %d"
 
 msgid "%d packets"
-msgstr "%d пакетов"
+msgstr "Пакетов: %d"
 
 msgid "%d routed domains are fail-closed through the VPS. Ordinary traffic continues over the home WAN."
 msgstr "%d доменов направляются через VPS и блокируются при обрыве VPN. Остальной трафик продолжает идти через домашний WAN."
 
-msgid "%d service groups"
-msgstr "наборов сервисов: %d"
+msgid "Service groups: %d"
+msgstr "Групп сервисов: %d"
 
 msgid "%d service groups + %d manual"
 msgstr "готовых наборов: %d · собственных доменов: %d"
 
-msgid "%d users"
-msgstr "%d пользователей"
+msgid "Users: %d"
+msgstr "Пользователей: %d"
 
 msgid "%s domains active"
 msgstr "%s доменов активно"
@@ -466,7 +466,7 @@ msgstr "Выберите обнаруженное имя ACME или укажи�
 msgid "Choose a service to inspect or edit, or start a new one."
 msgstr "Выберите сервис для просмотра или изменения либо создайте новый."
 
-msgid "Choose global defaults for inbound clients. Individual overrides are configured on the VPN Users page."
+msgid "Choose global defaults for inbound clients. Individual overrides are configured on the Users page."
 msgstr "Задайте глобальные правила для входящих клиентов. Индивидуальные исключения настраиваются на странице «VPN-пользователи»."
 
 msgid "Choose how the router resolves public DNS names. dnsmasq-full remains the local resolver and continues populating PBR nftsets."
@@ -854,7 +854,7 @@ msgid "Disabling..."
 msgstr "Отключаю..."
 
 msgid "Discard segment"
-msgstr "Отменить сегмент"
+msgstr "Убрать черновик"
 
 msgid "Discard this local override and restore the prepared service?"
 msgstr "Удалить локальное переопределение и вернуть готовый сервис?"
@@ -1156,7 +1156,7 @@ msgstr "Сгенерированный профиль восстановлен."
 msgid "Generating..."
 msgstr "Создаю..."
 
-msgid "Global defaults for inbound clients. Individual overrides are configured on the VPN Users page."
+msgid "Global defaults for inbound clients. Individual overrides are configured on the Users page."
 msgstr "Общие значения по умолчанию для входящих клиентов. Индивидуальные исключения настраиваются на странице «Пользователи VPN»."
 
 msgid "Global values remain defaults; choose an override only where this user differs."
@@ -2051,7 +2051,7 @@ msgid "Reset the app and prepare it for removal? All app functions stop; its set
 msgstr "Сбросить приложение и подготовить его к удалению? Все функции приложения будут остановлены; настройки, пользователи, секреты, созданные файлы и собственные зависимости будут удалены. Исходные DNS/DHCP будут восстановлены. Общие пакеты, нужные другим приложениям, останутся."
 
 msgid "Reset to generated"
-msgstr "Вернуть сгенерированный"
+msgstr "Вернуть созданную автоматически"
 
 msgid "Resetting application settings..."
 msgstr "Сбрасываю настройки приложения..."
@@ -2335,8 +2335,8 @@ msgstr "Общие пакеты роутера"
 msgid "Show %d more diagnostic checks"
 msgstr "Показать остальные проверки (%d)"
 
-msgid "Since ipsec-out was created"
-msgstr "С момента создания ipsec-out"
+msgid "Since the tunnel interface was created"
+msgstr "С момента создания интерфейса туннеля"
 
 msgid "Social & messaging"
 msgstr "Соцсети и мессенджеры"
@@ -2702,7 +2702,7 @@ msgid "Username"
 msgstr "Имя пользователя"
 
 msgid "Usually “wan”; receives UDP 500/4500 when the server is enabled."
-msgstr "Обычно “wan”; принимает UDP 500/4500 при включенном сервере."
+msgstr "Обычно «wan»; принимает UDP 500/4500 при включенном сервере."
 
 msgid "Usually “wan”; used for hotplug and direct-WAN exceptions."
 msgstr "Обычно «wan»; используется при изменении состояния подключения и для прямого выхода через WAN."
@@ -2893,8 +2893,8 @@ msgstr "часов"
 msgid "invalid"
 msgstr "недопустимо"
 
-msgid "ipsec-out is unavailable"
-msgstr "Интерфейс ipsec-out недоступен"
+msgid "The tunnel interface is unavailable"
+msgstr "Интерфейс туннеля недоступен"
 
 msgid "last change %s: +%s / −%s"
 msgstr "последнее изменение %s: +%s / −%s"
@@ -3475,7 +3475,7 @@ msgid "%s ms"
 msgstr "%s мс"
 
 msgid "%s%%"
-msgstr "%s %%"
+msgstr "%s%%"
 
 msgid "%s kbit/s"
 msgstr "%s кбит/с"
@@ -4318,7 +4318,7 @@ msgid "Delete tunnel"
 msgstr "Удалить туннель"
 
 msgid "Discard tunnel"
-msgstr "Отменить туннель"
+msgstr "Убрать черновик"
 
 msgid "Removing the tunnel..."
 msgstr "Удаление туннеля..."
@@ -4687,7 +4687,7 @@ msgid "Tunnel %s only"
 msgstr "Только туннель %s"
 
 msgid "Exit for remote clients"
-msgstr "Выход для удалённых клиентов"
+msgstr "Туннель для удалённых клиентов"
 
 msgid "Enable the inbound server with a DNS name first: remote clients register and connect through it."
 msgstr "Сначала включите входящий сервер с DNS-именем: удалённые клиенты регистрируются и подключаются через него."
@@ -4713,8 +4713,23 @@ msgstr "Не удалось применить настройки удалённ
 msgid "Could not stage remote client settings."
 msgstr "Не удалось передать настройки удалённых клиентов."
 
-msgid "Remote client settings could not be applied. Check the inbound server, the exit tunnel and the subnet."
-msgstr "Настройки удалённых клиентов не применены. Проверьте входящий сервер, туннель выхода и подсеть."
+msgid "Remote client settings could not be applied: the firewall or the service refused them. Nothing was changed."
+msgstr "Настройки удалённых клиентов не применились: их отклонил файрвол или служба. Ничего не изменилось."
+
+msgid "Remote client settings could not be applied, and the previous ones could not be fully restored. Check them before trying again."
+msgstr "Настройки удалённых клиентов не применились, а прежние вернуть полностью не удалось. Проверьте их, прежде чем пробовать снова."
+
+msgid "The virtual subnet is already used on this router. Choose another one. Nothing was changed."
+msgstr "Эта виртуальная подсеть уже используется на роутере. Выберите другую. Ничего не изменилось."
+
+msgid "The virtual subnet is fixed once set. Nothing was changed."
+msgstr "Виртуальная подсеть задаётся один раз. Ничего не изменилось."
+
+msgid "The chosen exit tunnel is not enabled. Nothing was changed."
+msgstr "Выбранный туннель выключен. Ничего не изменилось."
+
+msgid "Remote client settings were refused. Nothing was changed."
+msgstr "Настройки удалённых клиентов отклонены. Ничего не изменилось."
 
 msgid "Set up remote clients"
 msgstr "Настроить удалённых клиентов"
@@ -4837,7 +4852,7 @@ msgid "Devices register over HTTPS and reach the selected services through the i
 msgstr "Устройства регистрируются по HTTPS и ходят к выбранным сервисам через входящий сервер."
 
 msgid "Exit tunnel"
-msgstr "Выходной туннель"
+msgstr "Туннель"
 
 msgid "Fixed once set."
 msgstr "После сохранения не меняется."
@@ -4882,7 +4897,7 @@ msgid "Selected services for Windows and macOS devices running Waypoint."
 msgstr "Выбранные сервисы для устройств Windows и macOS с Waypoint."
 
 msgid "Selected services leave through it."
-msgstr "Через него выходят выбранные сервисы."
+msgstr "Через него идут выбранные сервисы."
 
 msgid "Settings"
 msgstr "Настройки"
@@ -5456,3 +5471,1138 @@ msgstr "Отозвать"
 
 msgid "Show"
 msgstr "Показать"
+
+msgid "custom domains"
+msgstr "свои домены"
+
+msgid "custom addresses"
+msgstr "свои адреса"
+
+msgid "excluded domains"
+msgstr "исключённые домены"
+
+msgid "excluded addresses"
+msgstr "исключённые адреса"
+
+msgid "selected services"
+msgstr "выбранные сервисы"
+
+msgid "where each service goes"
+msgstr "маршруты сервисов"
+
+msgid "service catalog"
+msgstr "каталог сервисов"
+
+msgid "tunnels"
+msgstr "туннели"
+
+
+msgid "Save is off: part of the policy could not be read."
+msgstr "Сохранение выключено: часть политики не удалось прочитать."
+
+msgid "Could not be read: %s. Saving it is off; reload the page to try again."
+msgstr "Не удалось прочитать: %s. Сохранение выключено; обновите страницу, чтобы попробовать снова."
+
+msgid "tunnel settings"
+msgstr "настройки туннеля"
+
+msgid "more tunnels"
+msgstr "дополнительные туннели"
+
+msgid "DNS settings"
+msgstr "настройки DNS"
+
+msgid "DNS segments"
+msgstr "DNS-сегменты"
+
+msgid "DNS segments could not be read."
+msgstr "Не удалось прочитать DNS-сегменты."
+
+msgid "More tunnels could not be read."
+msgstr "Не удалось прочитать дополнительные туннели."
+
+msgid "Device rules could not be read."
+msgstr "Не удалось прочитать правила устройств."
+
+msgid "router settings"
+msgstr "настройки роутера"
+
+msgid "device rules"
+msgstr "правила устройств"
+
+msgid "Not paused"
+msgstr "Не на паузе"
+
+msgid "The app manages this router, but runtime dependencies are missing: install them below. Turning management off stays available."
+msgstr "Приложение управляет этим роутером, но не хватает зависимостей: установите их ниже. Выключить управление можно и сейчас."
+
+msgid "Turning it off stays available."
+msgstr "Выключить можно и сейчас."
+
+msgid "server settings"
+msgstr "настройки сервера"
+
+msgid "certificate settings"
+msgstr "настройки сертификата"
+
+msgid "VPN profiles could not be read."
+msgstr "Не удалось прочитать VPN-профили."
+
+msgid "active sessions"
+msgstr "активные сессии"
+
+msgid "Tunnel %s (not enabled)"
+msgstr "Туннель %s (выключен)"
+
+msgid "Lost contact with the router while waiting for the result. The action may still be running; reload the page to see."
+msgstr "Связь с роутером потеряна, результат неизвестен. Действие может ещё выполняться; обновите страницу, чтобы проверить."
+
+msgid "Done, but: %s"
+msgstr "Готово, но: %s"
+
+msgid "nft table '%s' exists but is not owned by IKEv2 Manager"
+msgstr "Таблица nft «%s» существует, но не принадлежит IKEv2 Manager"
+
+msgid "Unable to derive the active tunnel routing mark"
+msgstr "Не удалось определить метку маршрутизации активного туннеля"
+
+msgid "Unable to derive protected sources for Discord voice routing"
+msgstr "Не удалось определить защищённые источники для голоса Discord"
+
+msgid "Discord voice nftables validation failed"
+msgstr "Правила nftables для голоса Discord не прошли проверку"
+
+msgid "Unable to install Discord voice nftables rules"
+msgstr "Не удалось установить правила nftables для голоса Discord"
+
+msgid "Invalid DNS segment port: %s"
+msgstr "Неверный порт DNS-сегмента: %s"
+
+msgid "DNS segment port is outside the reserved range: %s"
+msgstr "Порт DNS-сегмента вне зарезервированного диапазона: %s"
+
+msgid "DNS segment has no suffixes: %s"
+msgstr "У DNS-сегмента нет суффиксов: %s"
+
+msgid "Unable to determine the DNS upstream used before FakeIP"
+msgstr "Не удалось определить DNS-сервер, который использовался до FakeIP"
+
+msgid "Invalid tunnel DNS endpoint: %s"
+msgstr "Неверный DNS-сервер туннеля: %s"
+
+msgid "Too many tunnel DNS endpoints"
+msgstr "Слишком много DNS-серверов туннеля"
+
+msgid "No tunnel DNS endpoints configured"
+msgstr "DNS-серверы туннеля не заданы"
+
+msgid "Invalid tunnel DNS bootstrap address: %s"
+msgstr "Неверный адрес bootstrap DNS туннеля: %s"
+
+msgid "Tunnel DNS bootstrap currently supports port 53 only"
+msgstr "Bootstrap DNS туннеля пока работает только на порту 53"
+
+msgid "Too many tunnel DNS bootstrap servers"
+msgstr "Слишком много серверов bootstrap DNS туннеля"
+
+msgid "No tunnel DNS bootstrap servers configured"
+msgstr "Серверы bootstrap DNS туннеля не заданы"
+
+msgid "Active domain list is missing"
+msgstr "Нет активного списка доменов"
+
+msgid "Active domain list is invalid or exceeds resource limits"
+msgstr "Активный список доменов неверен или превышает лимиты"
+
+msgid "The list of domains never to route is invalid or exceeds resource limits"
+msgstr "Список исключённых доменов неверен или превышает лимиты"
+
+msgid "The domain list of tunnel %s is invalid or exceeds resource limits"
+msgstr "Список доменов туннеля %s неверен или превышает лимиты"
+
+msgid "Invalid DNS cache capacity"
+msgstr "Неверный размер кэша DNS"
+
+msgid "DNS cache capacity must be between 1024 and 65536 entries"
+msgstr "Размер кэша DNS: от 1024 до 65536 записей"
+
+msgid "Invalid FakeIP log level"
+msgstr "Неверный уровень журнала FakeIP"
+
+msgid "Unable to select tunnel DNS endpoint"
+msgstr "Не удалось выбрать DNS-сервер туннеля"
+
+msgid "Unable to select tunnel DNS bootstrap"
+msgstr "Не удалось выбрать bootstrap DNS туннеля"
+
+msgid "No source networks are enabled for domain routing"
+msgstr "Для маршрутизации по доменам не выбрана ни одна сеть"
+
+msgid "Unable to generate the FakeIP configuration"
+msgstr "Не удалось создать конфигурацию FakeIP"
+
+msgid "sing-box is not installed"
+msgstr "sing-box не установлен"
+
+msgid "No local interfaces found for FakeIP interception"
+msgstr "Не найдены локальные интерфейсы для перехвата FakeIP"
+
+msgid "TProxy routing table %s or priority %s is already in use"
+msgstr "Таблица маршрутизации TProxy %s или приоритет %s уже заняты"
+
+msgid "Enable the outbound tunnel before resolving ordinary names through it"
+msgstr "Сначала включите исходящий туннель, затем разрешайте через него обычные имена"
+
+msgid "Unable to save the tunnel resolution policy"
+msgstr "Не удалось сохранить разрешение имён через туннель"
+
+msgid "Tunnel resolution failed and automatic rollback was incomplete"
+msgstr "Разрешение имён через туннель не применилось, откат выполнен не полностью"
+
+msgid "Unable to apply tunnel resolution; previous setting restored"
+msgstr "Не удалось применить разрешение имён через туннель; прежняя настройка восстановлена"
+
+msgid "Unable to save router-originated traffic policy"
+msgstr "Не удалось сохранить политику для трафика самого роутера"
+
+msgid "Router-originated traffic policy failed and automatic rollback was incomplete"
+msgstr "Политика для трафика роутера не применилась, откат выполнен не полностью"
+
+msgid "Unable to apply router-originated traffic policy; previous setting restored"
+msgstr "Не удалось применить политику для трафика роутера; прежняя настройка восстановлена"
+
+msgid "Unable to save FakeIP log level"
+msgstr "Не удалось сохранить уровень журнала FakeIP"
+
+msgid "FakeIP log level failed and automatic rollback was incomplete"
+msgstr "Уровень журнала FakeIP не применился, откат выполнен не полностью"
+
+msgid "Unable to apply FakeIP log level; previous setting restored"
+msgstr "Не удалось применить уровень журнала FakeIP; прежняя настройка восстановлена"
+
+msgid "Invalid diagnostic duration"
+msgstr "Неверная длительность диагностики"
+
+msgid "Diagnostic duration must be 30-300 seconds"
+msgstr "Длительность диагностики: от 30 до 300 секунд"
+
+msgid "FakeIP diagnostics require Reliable mode"
+msgstr "Диагностике FakeIP нужен надёжный режим"
+
+msgid "Invalid input token"
+msgstr "Неверный токен запроса"
+
+msgid "Invalid inbound firewall zone name"
+msgstr "Неверное имя входящей зоны файрвола"
+
+msgid "Invalid outbound firewall zone name"
+msgstr "Неверное имя исходящей зоны файрвола"
+
+msgid "Inbound and outbound firewall zones must be different"
+msgstr "Входящая и исходящая зоны файрвола должны различаться"
+
+msgid "Inbound firewall zone name '%s' is already in use"
+msgstr "Имя входящей зоны файрвола «%s» уже занято"
+
+msgid "Outbound firewall zone name '%s' is already in use"
+msgstr "Имя исходящей зоны файрвола «%s» уже занято"
+
+msgid "At least one protected network is required"
+msgstr "Нужна хотя бы одна защищённая сеть"
+
+msgid "WAN network '%s' does not exist"
+msgstr "Сети WAN «%s» нет"
+
+msgid "WAN firewall zone '%s' does not exist"
+msgstr "Зоны файрвола WAN «%s» нет"
+
+msgid "WAN network '%s' cannot be a protected network"
+msgstr "Сеть WAN «%s» не может быть защищённой"
+
+msgid "Protected network '%s' does not exist"
+msgstr "Защищённой сети «%s» нет"
+
+msgid "Protected network '%s' has no device"
+msgstr "У защищённой сети «%s» нет устройства"
+
+msgid "Protected network '%s' belongs to the WAN firewall zone '%s'"
+msgstr "Защищённая сеть «%s» входит в зону файрвола WAN «%s»"
+
+msgid "Firewall zone '%s' does not exist"
+msgstr "Зоны файрвола «%s» нет"
+
+msgid "Inbound LAN firewall zone '%s' does not exist"
+msgstr "Зоны файрвола для локальной сети «%s» нет"
+
+msgid "Reliable mode requires sing-box 1.13.19 or later"
+msgstr "Надёжному режиму нужен sing-box 1.13.19 или новее"
+
+msgid "Invalid public router ports in VPN user policy '%s'"
+msgstr "Неверные публичные порты роутера в политике VPN-пользователя «%s»"
+
+msgid "Unable to release the PBR configuration"
+msgstr "Не удалось освободить конфигурацию PBR"
+
+msgid "Policy routing failed to load"
+msgstr "Маршрутизация по политике не загрузилась"
+
+msgid "previous router state was restored"
+msgstr "прежнее состояние роутера восстановлено"
+
+msgid "Managed mode is not configured"
+msgstr "Режим управления не настроен"
+
+msgid "Policy routing could not be stopped for the rebuild"
+msgstr "Не удалось остановить маршрутизацию по политике для пересборки"
+
+msgid "Policy routing did not come back after the rebuild"
+msgstr "Маршрутизация по политике не вернулась после пересборки"
+
+msgid "Device policy failed to load after the rebuild"
+msgstr "Политика устройств не загрузилась после пересборки"
+
+msgid "Inbound user policy failed to load after the rebuild"
+msgstr "Политика входящих пользователей не загрузилась после пересборки"
+
+msgid "Fail-closed route validation failed after the rebuild"
+msgstr "Защитный маршрут не прошёл проверку после пересборки"
+
+msgid "IPv6 fail-closed route validation failed after the rebuild"
+msgstr "Защитный маршрут IPv6 не прошёл проверку после пересборки"
+
+msgid "Base setup is not enabled"
+msgstr "Базовая настройка не включена"
+
+msgid "Dependency check failed; run ikev2-manager-system doctor"
+msgstr "Проверка зависимостей не прошла; запустите ikev2-manager-system doctor"
+
+msgid "Failed to enable ikev2-xfrm"
+msgstr "Не удалось включить ikev2-xfrm"
+
+msgid "Failed to enable ikev2-health"
+msgstr "Не удалось включить ikev2-health"
+
+msgid "Failed to start ikev2-xfrm"
+msgstr "Не удалось запустить ikev2-xfrm"
+
+msgid "firewall4 validation failed"
+msgstr "firewall4 не прошёл проверку"
+
+msgid "PBR did not come back after the application left it; check logread"
+msgstr "PBR не вернулся после выхода приложения; посмотрите logread"
+
+msgid "firewall4 reload failed"
+msgstr "Не удалось перезагрузить firewall4"
+
+msgid "Device policy failed to load"
+msgstr "Политика устройств не загрузилась"
+
+msgid "Inbound user policy failed to load"
+msgstr "Политика входящих пользователей не загрузилась"
+
+msgid "fw4 forward chain has no zone forwarding after apply (LAN->WAN would be dropped); rolled back"
+msgstr "После применения в цепочке forward fw4 нет переходов между зонами (LAN->WAN был бы отброшен); откат выполнен"
+
+msgid "Fail-closed route validation failed"
+msgstr "Защитный маршрут не прошёл проверку"
+
+msgid "IPv6 fail-closed route validation failed"
+msgstr "Защитный маршрут IPv6 не прошёл проверку"
+
+msgid "DNS segments failed to start"
+msgstr "DNS-сегменты не запустились"
+
+msgid "FakeIP domain router failed to start"
+msgstr "Маршрутизатор доменов FakeIP не запустился"
+
+msgid "FakeIP domain router refresh failed"
+msgstr "Не удалось обновить маршрутизатор доменов FakeIP"
+
+msgid "The tunnel pause could not be restored"
+msgstr "Не удалось вернуть паузу туннеля"
+
+msgid "Invalid server routing-change flag"
+msgstr "Неверный признак изменения маршрутизации сервера"
+
+msgid "Failed to update inbound XFRM interface"
+msgstr "Не удалось обновить входящий интерфейс XFRM"
+
+msgid "IPv6 fail-closed route validation failed after the server change"
+msgstr "Защитный маршрут IPv6 не прошёл проверку после изменения сервера"
+
+msgid "fw4 forward chain has no zone forwarding after server apply"
+msgstr "После применения сервера в цепочке forward fw4 нет переходов между зонами"
+
+msgid "Invalid enabled value"
+msgstr "Неверное значение включения"
+
+msgid "Invalid WAN network interface"
+msgstr "Неверный сетевой интерфейс WAN"
+
+msgid "Invalid protected networks"
+msgstr "Неверные защищённые сети"
+
+msgid "Invalid DNS enforcement value"
+msgstr "Неверное значение перенаправления DNS"
+
+msgid "Invalid DoT block value"
+msgstr "Неверное значение блокировки DoT"
+
+msgid "Invalid VPN-server inclusion value"
+msgstr "Неверное значение включения VPN-сервера"
+
+msgid "Unable to save managed settings"
+msgstr "Не удалось сохранить настройки управления"
+
+msgid "Invalid network name"
+msgstr "Неверное имя сети"
+
+msgid "Network '%s' does not exist"
+msgstr "Сети «%s» нет"
+
+msgid "Network '%s' has no device"
+msgstr "У сети «%s» нет устройства"
+
+msgid "Network '%s' belongs to the WAN firewall zone '%s'"
+msgstr "Сеть «%s» входит в зону файрвола WAN «%s»"
+
+msgid "Unable to save the protected networks"
+msgstr "Не удалось сохранить защищённые сети"
+
+msgid "At least one protected network must remain"
+msgstr "Должна остаться хотя бы одна защищённая сеть"
+
+msgid "Another router action is still running"
+msgstr "Другое действие на роутере ещё выполняется"
+
+msgid "Firewall validation failed"
+msgstr "Файрвол не прошёл проверку"
+
+msgid "Unable to reload the firewall"
+msgstr "Не удалось перезагрузить файрвол"
+
+msgid "Device DNS policy failed to load"
+msgstr "DNS-политика устройств не загрузилась"
+
+msgid "Inbound firewall zone '%s' does not exist"
+msgstr "Входящей зоны файрвола «%s» нет"
+
+msgid "Unable to disable managed mode; previous state was preserved or restored"
+msgstr "Не удалось выключить режим управления; прежнее состояние сохранено или восстановлено"
+
+msgid "Unsupported device action"
+msgstr "Неподдерживаемое действие с устройством"
+
+msgid "Device routing configuration is not valid"
+msgstr "Конфигурация маршрутизации устройств неверна"
+
+msgid "nft table '%s' is not owned by IKEv2 Manager"
+msgstr "Таблица nft «%s» не принадлежит IKEv2 Manager"
+
+msgid "Unable to install the policy routing tables"
+msgstr "Не удалось установить таблицы маршрутизации по политике"
+
+msgid "Unable to install the policy routing rules"
+msgstr "Не удалось установить правила маршрутизации по политике"
+
+msgid "Policy routing nftables validation failed"
+msgstr "Правила nftables маршрутизации по политике не прошли проверку"
+
+msgid "Unable to install the policy routing nftables rules"
+msgstr "Не удалось установить правила nftables маршрутизации по политике"
+
+msgid "Unable to read back the installed policy routing rules"
+msgstr "Не удалось прочитать установленные правила маршрутизации по политике"
+
+msgid "Unable to update the dnsmasq destination sets"
+msgstr "Не удалось обновить наборы адресов dnsmasq"
+
+msgid "Unable to create a temporary directory"
+msgstr "Не удалось создать временный каталог"
+
+msgid "Unable to start background action"
+msgstr "Не удалось запустить фоновое действие"
+
+msgid "No ACME settings received"
+msgstr "Настройки ACME не получены"
+
+msgid "ACME settings input must not be a symbolic link"
+msgstr "Файл настроек ACME не должен быть символической ссылкой"
+
+msgid "Invalid ACME input size"
+msgstr "Неверный размер настроек ACME"
+
+msgid "ACME settings input is too large"
+msgstr "Настройки ACME слишком велики"
+
+msgid "Unable to protect ACME settings input"
+msgstr "Не удалось защитить файл настроек ACME"
+
+msgid "Unable to prepare ACME settings"
+msgstr "Не удалось подготовить настройки ACME"
+
+msgid "Unable to read ACME credentials"
+msgstr "Не удалось прочитать учётные данные ACME"
+
+msgid "Set the server public identity first"
+msgstr "Сначала задайте публичное имя сервера"
+
+msgid "Invalid server identity"
+msgstr "Неверное имя сервера"
+
+msgid "A valid ACME account email is required"
+msgstr "Нужен действительный адрес почты для ACME"
+
+msgid "Invalid staging value"
+msgstr "Неверное значение тестового режима"
+
+msgid "DNS provider not installed: %s"
+msgstr "DNS-провайдер не установлен: %s"
+
+msgid "Invalid DNS provider credentials"
+msgstr "Неверные учётные данные DNS-провайдера"
+
+msgid "DNS provider credentials are required"
+msgstr "Нужны учётные данные DNS-провайдера"
+
+msgid "Invalid challenge method (expected dns or http)"
+msgstr "Неверный способ проверки (нужен dns или http)"
+
+msgid "Another configuration change is already in progress"
+msgstr "Уже выполняется другое изменение настроек"
+
+msgid "Unable to back up ACME settings"
+msgstr "Не удалось сделать резервную копию настроек ACME"
+
+msgid "Unable to save ACME settings; previous configuration restored"
+msgstr "Не удалось сохранить настройки ACME; прежняя конфигурация восстановлена"
+
+msgid "Unable to save ACME settings and automatic rollback was incomplete"
+msgstr "Не удалось сохранить настройки ACME, откат выполнен не полностью"
+
+msgid "Configure ACME settings first"
+msgstr "Сначала настройте ACME"
+
+msgid "VPN user password cannot be decoded"
+msgstr "Не удалось прочитать пароль VPN-пользователя"
+
+msgid "Invalid username"
+msgstr "Неверное имя пользователя"
+
+msgid "VPN user does not exist"
+msgstr "Такого VPN-пользователя нет"
+
+msgid "Inbound server is disabled"
+msgstr "Входящий сервер выключен"
+
+msgid "Unable to prepare the profile links"
+msgstr "Не удалось подготовить ссылки на профили"
+
+msgid "Unable to create a profile link"
+msgstr "Не удалось создать ссылку на профиль"
+
+msgid "Inbound custom configuration is missing"
+msgstr "Нет своей конфигурации входящего сервера"
+
+msgid "Server certificate not found: %s"
+msgstr "Сертификат сервера не найден: %s"
+
+msgid "Server private key not found: %s"
+msgstr "Закрытый ключ сервера не найден: %s"
+
+msgid "Server certificate is expired, does not match its identity, or does not match the private key"
+msgstr "Сертификат сервера просрочен либо не соответствует имени или закрытому ключу"
+
+msgid "Unable to stage server certificate"
+msgstr "Не удалось подготовить сертификат сервера"
+
+msgid "Unable to stage server key"
+msgstr "Не удалось подготовить ключ сервера"
+
+msgid "Server certificate contains no PEM certificate"
+msgstr "В файле сертификата сервера нет сертификата PEM"
+
+msgid "Unable to stage the server leaf certificate"
+msgstr "Не удалось подготовить сертификат сервера"
+
+msgid "Server certificate chain is not ordered or contains an unrelated certificate"
+msgstr "Цепочка сертификатов идёт не по порядку или содержит посторонний сертификат"
+
+msgid "Server certificate chain is incomplete"
+msgstr "Цепочка сертификатов сервера неполна"
+
+msgid "Server certificate chain contains an invalid certificate"
+msgstr "В цепочке сертификатов сервера есть неверный сертификат"
+
+msgid "Unable to install the server certificate; previous certificate restored"
+msgstr "Не удалось установить сертификат сервера; прежний сертификат восстановлен"
+
+msgid "Unable to install the server certificate chain; previous certificate restored"
+msgstr "Не удалось установить цепочку сертификатов; прежний сертификат восстановлен"
+
+msgid "Server identity is required"
+msgstr "Нужно имя сервера"
+
+msgid "Invalid IPv4 pool"
+msgstr "Неверный пул IPv4"
+
+msgid "Invalid IPv4 gateway/prefix"
+msgstr "Неверный шлюз или префикс IPv4"
+
+msgid "Client pool must be ordered, inside the gateway subnet, exclude the gateway, and contain at most 4096 addresses"
+msgstr "Пул клиентов должен идти по возрастанию, лежать в подсети шлюза, не включать шлюз и содержать не больше 4096 адресов"
+
+msgid "Client pool overlaps an existing connected IPv4 network"
+msgstr "Пул клиентов пересекается с подключённой сетью IPv4"
+
+msgid "Invalid IPv4 DNS"
+msgstr "Неверный DNS IPv4"
+
+msgid "Invalid certificate directory"
+msgstr "Неверный каталог сертификатов"
+
+msgid "Invalid certificate path"
+msgstr "Неверный путь к сертификату"
+
+msgid "Invalid private key path"
+msgstr "Неверный путь к закрытому ключу"
+
+msgid "DPD must be 10-300 seconds"
+msgstr "DPD: от 10 до 300 секунд"
+
+msgid "IKE rekey must be 3600-86400 seconds"
+msgstr "Обновление ключей IKE: от 3600 до 86400 секунд"
+
+msgid "CHILD rekey must be 900-86400 seconds"
+msgstr "Обновление ключей CHILD: от 900 до 86400 секунд"
+
+msgid "MTU must be 1280-1500"
+msgstr "MTU: от 1280 до 1500"
+
+msgid "Invalid MOBIKE value"
+msgstr "Неверное значение MOBIKE"
+
+msgid "Invalid fragmentation value"
+msgstr "Неверное значение фрагментации"
+
+msgid "Server certificate not found: %s (issue or install it before enabling the server)"
+msgstr "Сертификат сервера не найден: %s (выпустите или установите его перед включением сервера)"
+
+msgid "Invalid IPv4 traffic selector list"
+msgstr "Неверный список селекторов трафика IPv4"
+
+msgid "Invalid access toggle"
+msgstr "Неверное значение доступа"
+
+msgid "Router ports must contain ports or ranges separated by spaces"
+msgstr "Порты роутера: номера или диапазоны через пробел"
+
+msgid "Invalid LAN firewall zone list"
+msgstr "Неверный список зон файрвола локальной сети"
+
+msgid "Invalid inbound firewall zone"
+msgstr "Неверная входящая зона файрвола"
+
+msgid "Invalid outbound firewall zone"
+msgstr "Неверная исходящая зона файрвола"
+
+msgid "Server input is missing"
+msgstr "Нет данных сервера"
+
+msgid "Server input must not be a symbolic link"
+msgstr "Файл данных сервера не должен быть символической ссылкой"
+
+msgid "Invalid server input size"
+msgstr "Неверный размер данных сервера"
+
+msgid "Server input is too large"
+msgstr "Данные сервера слишком велики"
+
+msgid "Unable to protect server input"
+msgstr "Не удалось защитить файл данных сервера"
+
+msgid "Server input contains unexpected fields"
+msgstr "В данных сервера есть лишние поля"
+
+msgid "Unable to prepare server configuration rollback"
+msgstr "Не удалось подготовить откат конфигурации сервера"
+
+msgid "Unable to back up current server configuration"
+msgstr "Не удалось сделать резервную копию конфигурации сервера"
+
+msgid "Unable to save server settings; previous configuration restored"
+msgstr "Не удалось сохранить настройки сервера; прежняя конфигурация восстановлена"
+
+msgid "Unable to save server settings and automatic rollback was incomplete"
+msgstr "Не удалось сохранить настройки сервера, откат выполнен не полностью"
+
+msgid "Unable to preserve the server rollback checkpoint; previous configuration restored"
+msgstr "Не удалось сохранить точку отката сервера; прежняя конфигурация восстановлена"
+
+msgid "Unable to preserve the server rollback checkpoint and automatic rollback was incomplete"
+msgstr "Не удалось сохранить точку отката сервера, откат выполнен не полностью"
+
+msgid "Unable to start server apply; previous configuration restored"
+msgstr "Не удалось начать применение настроек сервера; прежняя конфигурация восстановлена"
+
+msgid "Unable to start server apply and automatic rollback was incomplete"
+msgstr "Не удалось начать применение настроек сервера, откат выполнен не полностью"
+
+msgid "Tunnel input is missing"
+msgstr "Нет данных туннеля"
+
+msgid "Tunnel input must not be a symbolic link"
+msgstr "Файл данных туннеля не должен быть символической ссылкой"
+
+msgid "Invalid tunnel input size"
+msgstr "Неверный размер данных туннеля"
+
+msgid "Tunnel input is too large"
+msgstr "Данные туннеля слишком велики"
+
+msgid "Unable to protect tunnel input"
+msgstr "Не удалось защитить файл данных туннеля"
+
+msgid "Tunnel input contains unexpected fields"
+msgstr "В данных туннеля есть лишние поля"
+
+msgid "Complete and enable Overview first"
+msgstr "Сначала завершите настройку на странице «Обзор» и включите её"
+
+msgid "Invalid tunnel action"
+msgstr "Неверное действие с туннелем"
+
+msgid "Invalid tunnel"
+msgstr "Неверный туннель"
+
+msgid "Unknown tunnel"
+msgstr "Неизвестный туннель"
+
+msgid "Invalid remote address list"
+msgstr "Неверный список удалённых адресов"
+
+msgid "Invalid remote identity"
+msgstr "Неверное удалённое имя"
+
+msgid "Password must be at most 256 characters without control characters"
+msgstr "Пароль: до 256 символов без управляющих"
+
+msgid "Invalid backup value"
+msgstr "Неверное значение резерва"
+
+msgid "Unable to prepare tunnel configuration rollback"
+msgstr "Не удалось подготовить откат конфигурации туннеля"
+
+msgid "Unable to back up current tunnel configuration"
+msgstr "Не удалось сделать резервную копию конфигурации туннеля"
+
+msgid "Unable to save tunnel settings; previous configuration restored"
+msgstr "Не удалось сохранить настройки туннеля; прежняя конфигурация восстановлена"
+
+msgid "Unable to save tunnel settings and automatic rollback was incomplete"
+msgstr "Не удалось сохранить настройки туннеля, откат выполнен не полностью"
+
+msgid "VPN user operation is already running"
+msgstr "Действие с VPN-пользователем уже выполняется"
+
+msgid "VPN user was deleted, but live access rules could not be refreshed"
+msgstr "VPN-пользователь удалён, но действующие правила доступа обновить не удалось"
+
+msgid "Unable to back up VPN credentials"
+msgstr "Не удалось сделать резервную копию учётных данных VPN"
+
+msgid "Unable to store VPN credentials"
+msgstr "Не удалось сохранить учётные данные VPN"
+
+msgid "Unable to reload VPN credentials; previous credentials restored"
+msgstr "Не удалось перезагрузить учётные данные VPN; прежние восстановлены"
+
+msgid "Unable to reload VPN credentials and automatic rollback was incomplete"
+msgstr "Не удалось перезагрузить учётные данные VPN, откат выполнен не полностью"
+
+msgid "Invalid backup input token"
+msgstr "Неверный токен резервной копии"
+
+msgid "Unable to read this router"
+msgstr "Не удалось прочитать настройки этого роутера"
+
+msgid "Unable to save the current settings"
+msgstr "Не удалось сохранить текущие настройки"
+
+msgid "Installed strongSwan is vulnerable to CVE-2025-62291; upgrade strongSwan before enabling the outbound EAP client"
+msgstr "Установленный strongSwan уязвим к CVE-2025-62291; обновите его перед включением исходящего EAP-клиента"
+
+msgid "Unable to create a temporary file"
+msgstr "Не удалось создать временный файл"
+
+msgid "Invalid DNS segment identifier"
+msgstr "Неверный идентификатор DNS-сегмента"
+
+msgid "DNS segment identifier is too long"
+msgstr "Идентификатор DNS-сегмента слишком длинный"
+
+msgid "Unable to snapshot DNS segments"
+msgstr "Не удалось сохранить снимок DNS-сегментов"
+
+msgid "Invalid DNS segment name"
+msgstr "Неверное имя DNS-сегмента"
+
+msgid "Invalid DNS segment state"
+msgstr "Неверное состояние DNS-сегмента"
+
+msgid "Invalid DNS segment browser compatibility mode"
+msgstr "Неверный режим совместимости с браузерами у DNS-сегмента"
+
+msgid "Invalid DNS suffix list"
+msgstr "Неверный список DNS-суффиксов"
+
+msgid "Invalid DNS segment query strategy"
+msgstr "Неверная стратегия запросов DNS-сегмента"
+
+msgid "Invalid DNS segment upstream"
+msgstr "Неверный сервер DNS-сегмента"
+
+msgid "Invalid DNS segment bootstrap"
+msgstr "Неверный bootstrap DNS-сегмента"
+
+msgid "Invalid DNS segment fallback"
+msgstr "Неверный резервный сервер DNS-сегмента"
+
+msgid "No DNS segment listener ports remain"
+msgstr "Свободных портов для DNS-сегментов не осталось"
+
+msgid "Invalid DNS segment; previous configuration restored"
+msgstr "Неверный DNS-сегмент; прежняя конфигурация восстановлена"
+
+msgid "DNS segment update failed and automatic rollback was incomplete"
+msgstr "DNS-сегмент не обновился, откат выполнен не полностью"
+
+msgid "DNS segment failed validation; previous configuration restored"
+msgstr "DNS-сегмент не прошёл проверку; прежняя конфигурация восстановлена"
+
+msgid "DNS segment failed and automatic rollback was incomplete"
+msgstr "DNS-сегмент не применился, откат выполнен не полностью"
+
+msgid "Invalid DNS segment input token"
+msgstr "Неверный токен данных DNS-сегмента"
+
+msgid "DNS segment input is missing"
+msgstr "Нет данных DNS-сегмента"
+
+msgid "Invalid DNS segment input size"
+msgstr "Неверный размер данных DNS-сегмента"
+
+msgid "DNS segment input is too large"
+msgstr "Данные DNS-сегмента слишком велики"
+
+msgid "Unable to protect DNS segment input"
+msgstr "Не удалось защитить файл данных DNS-сегмента"
+
+msgid "Saved original DNS state is incomplete; managed DNS remains configured"
+msgstr "Сохранённое исходное состояние DNS неполно; управляемый DNS остаётся настроенным"
+
+msgid "Unable to create a DNS rollback snapshot"
+msgstr "Не удалось создать снимок DNS для отката"
+
+msgid "Unable to snapshot the current DNS configuration"
+msgstr "Не удалось сохранить снимок текущей конфигурации DNS"
+
+msgid "Unable to snapshot application DNS settings"
+msgstr "Не удалось сохранить снимок настроек DNS приложения"
+
+msgid "Unable to snapshot the active FakeIP resolver runtime"
+msgstr "Не удалось сохранить снимок работающего резолвера FakeIP"
+
+msgid "Original DNS could not be restored safely; managed DNS remains configured"
+msgstr "Исходный DNS не удалось безопасно вернуть; управляемый DNS остаётся настроенным"
+
+msgid "Original DNS restore failed and automatic rollback was incomplete"
+msgstr "Исходный DNS не вернулся, откат выполнен не полностью"
+
+msgid "Restored DNS configuration is not resolving"
+msgstr "Восстановленная конфигурация DNS не разрешает имена"
+
+msgid "WAN DNS servers did not answer the validation query"
+msgstr "DNS-серверы WAN не ответили на проверочный запрос"
+
+msgid "A destination DNS segment is invalid or reuses a listener port"
+msgstr "DNS-сегмент неверен или занимает чужой порт"
+
+msgid "The fallback resolver group did not answer; it cannot recover a failed primary group"
+msgstr "Резервная группа серверов не ответила; при сбое основной группы она не поможет"
+
+msgid "Unable to save the original DNS configuration"
+msgstr "Не удалось сохранить исходную конфигурацию DNS"
+
+msgid "DNS validation failed and automatic resolver rollback was incomplete"
+msgstr "DNS не прошёл проверку, откат резолвера выполнен не полностью"
+
+msgid "DNS settings input is missing"
+msgstr "Нет данных настроек DNS"
+
+msgid "DNS settings input must not be a symbolic link"
+msgstr "Файл настроек DNS не должен быть символической ссылкой"
+
+msgid "Invalid DNS input size"
+msgstr "Неверный размер настроек DNS"
+
+msgid "DNS settings input is too large"
+msgstr "Настройки DNS слишком велики"
+
+msgid "Unable to protect DNS settings input"
+msgstr "Не удалось защитить файл настроек DNS"
+
+msgid "DNS settings input has unexpected extra fields"
+msgstr "В настройках DNS есть лишние поля"
+
+msgid "Invalid input kind"
+msgstr "Неверный вид данных"
+
+msgid "User input is missing"
+msgstr "Нет данных пользователя"
+
+msgid "User input must not be a symbolic link"
+msgstr "Файл данных пользователя не должен быть символической ссылкой"
+
+msgid "Invalid user input size"
+msgstr "Неверный размер данных пользователя"
+
+msgid "User input is too large"
+msgstr "Данные пользователя слишком велики"
+
+msgid "Unable to protect user input"
+msgstr "Не удалось защитить файл данных пользователя"
+
+msgid "User input contains unexpected fields"
+msgstr "В данных пользователя есть лишние поля"
+
+msgid "Invalid user action"
+msgstr "Неверное действие с пользователем"
+
+msgid "Password must be 1-256 characters without control characters"
+msgstr "Пароль: от 1 до 256 символов без управляющих"
+
+msgid "Policy input must not contain a password"
+msgstr "Данные политики не должны содержать пароль"
+
+msgid "VPN user already exists"
+msgstr "Такой VPN-пользователь уже есть"
+
+msgid "VPN user limit reached (512)"
+msgstr "Достигнут предел VPN-пользователей (512)"
+
+msgid "Password input contains unexpected policy fields"
+msgstr "В данных пароля есть лишние поля политики"
+
+msgid "Local targets must contain IPv4 addresses or CIDR networks"
+msgstr "Локальные цели: адреса IPv4 или сети CIDR"
+
+msgid "Public router ports must contain valid TCP/UDP ports or ranges"
+msgstr "Публичные порты роутера: порты или диапазоны TCP/UDP"
+
+msgid "Unable to apply VPN user policy; previous policy was restored"
+msgstr "Не удалось применить политику VPN-пользователя; прежняя восстановлена"
+
+msgid "Unable to apply VPN user policy; the new user was removed"
+msgstr "Не удалось применить политику VPN-пользователя; новый пользователь удалён"
+
+msgid "Owned user input is missing or unsafe"
+msgstr "Данные служебного пользователя отсутствуют или небезопасны"
+
+msgid "Owned user input is too large"
+msgstr "Данные служебного пользователя слишком велики"
+
+msgid "Owned user input contains unexpected fields"
+msgstr "В данных служебного пользователя есть лишние поля"
+
+msgid "Invalid owned user operation"
+msgstr "Неверное действие со служебным пользователем"
+
+msgid "Invalid owned username"
+msgstr "Неверное имя служебного пользователя"
+
+msgid "Invalid owned credential"
+msgstr "Неверные учётные данные служебного пользователя"
+
+msgid "Ambiguous owned user account"
+msgstr "Неоднозначная учётная запись служебного пользователя"
+
+msgid "Owned user credential conflict"
+msgstr "Конфликт учётных данных служебного пользователя"
+
+msgid "Unable to apply owned user policy"
+msgstr "Не удалось применить политику служебного пользователя"
+
+msgid "Unable to load owned user credential"
+msgstr "Не удалось загрузить учётные данные служебного пользователя"
+
+msgid "Unable to provision owned user"
+msgstr "Не удалось создать служебного пользователя"
+
+msgid "Client input is missing"
+msgstr "Нет данных клиента"
+
+msgid "Client input must not be a symbolic link"
+msgstr "Файл данных клиента не должен быть символической ссылкой"
+
+msgid "Invalid client input size"
+msgstr "Неверный размер данных клиента"
+
+msgid "Client input is too large"
+msgstr "Данные клиента слишком велики"
+
+msgid "Unable to protect client input"
+msgstr "Не удалось защитить файл данных клиента"
+
+msgid "Client input contains unexpected fields"
+msgstr "В данных клиента есть лишние поля"
+
+msgid "Invalid client action"
+msgstr "Неверное действие клиента"
+
+msgid "EAP password is required when enabling the client"
+msgstr "При включении клиента нужен пароль EAP"
+
+msgid "Reconnect cooldown must be 15-300 seconds"
+msgstr "Пауза перед переподключением: от 15 до 300 секунд"
+
+msgid "Invalid tunnel DNS provider"
+msgstr "Неверный DNS-провайдер туннеля"
+
+msgid "Tunnel DNS must contain one or more valid HTTPS endpoints"
+msgstr "DNS туннеля: один или несколько серверов HTTPS"
+
+msgid "Tunnel DNS bootstrap must contain IPv4:port entries"
+msgstr "Bootstrap DNS туннеля: записи вида IPv4:порт"
+
+msgid "Unable to prepare client configuration rollback"
+msgstr "Не удалось подготовить откат конфигурации клиента"
+
+msgid "Unable to back up current client configuration"
+msgstr "Не удалось сделать резервную копию конфигурации клиента"
+
+msgid "Unable to save client settings; previous configuration restored"
+msgstr "Не удалось сохранить настройки клиента; прежняя конфигурация восстановлена"
+
+msgid "Unable to save client settings and automatic rollback was incomplete"
+msgstr "Не удалось сохранить настройки клиента, откат выполнен не полностью"
+
+msgid "Invalid router access mode"
+msgstr "Неверный режим доступа к роутеру"
+
+msgid "Invalid Internet access mode"
+msgstr "Неверный режим доступа в интернет"
+
+msgid "Invalid local network access mode"
+msgstr "Неверный режим доступа к локальной сети"
+
+msgid "Invalid routing mode"
+msgstr "Неверный режим маршрутизации"
+
+msgid "Limited local access requires at least one IPv4 target"
+msgstr "Ограниченному локальному доступу нужна хотя бы одна цель IPv4"
+
+msgid "Local targets are valid only for limited local access"
+msgstr "Локальные цели задаются только для ограниченного доступа"
+
+msgid "Invalid public router port list"
+msgstr "Неверный список публичных портов роутера"
+
+msgid "Unknown profile"
+msgstr "Неизвестный профиль"
+
+msgid "Outbound custom configuration is blocked by the installed strongSwan version"
+msgstr "Своя исходящая конфигурация заблокирована установленной версией strongSwan"
+
+msgid "Custom configuration input is missing"
+msgstr "Нет своей конфигурации"
+
+msgid "Custom configuration input must not be a symbolic link"
+msgstr "Файл своей конфигурации не должен быть символической ссылкой"
+
+msgid "Invalid custom configuration size"
+msgstr "Неверный размер своей конфигурации"
+
+msgid "Custom configuration is larger than 64 KiB"
+msgstr "Своя конфигурация больше 64 КиБ"
+
+msgid "Unable to protect custom configuration"
+msgstr "Не удалось защитить свою конфигурацию"
+
+msgid "Unable to stage custom configuration"
+msgstr "Не удалось подготовить свою конфигурацию"
+
+msgid "Custom configuration cannot be empty"
+msgstr "Своя конфигурация не может быть пустой"
+
+msgid "Custom configuration must contain a connections block"
+msgstr "В своей конфигурации должен быть блок connections"
+
+msgid "Inbound custom configuration must define ikev2-in and router_pool4"
+msgstr "Своя входящая конфигурация должна задавать ikev2-in и router_pool4"
+
+msgid "Outbound custom configuration must define proxy-out"
+msgstr "Своя исходящая конфигурация должна задавать proxy-out"
+
+msgid "strongSwan rejected the custom configuration"
+msgstr "strongSwan отклонил свою конфигурацию"
+
+msgid "Unable to restore the generated profile; previous profile restored"
+msgstr "Не удалось вернуть созданный профиль; прежний профиль восстановлен"
+
+msgid "Invalid IKE SA identifier"
+msgstr "Неверный идентификатор IKE SA"
+
+msgid "Unable to save the setting"
+msgstr "Не удалось сохранить настройку"
+
+msgid "Outbound client is disabled"
+msgstr "Исходящий клиент выключен"
+
+msgid "server-ensure: certificate sync failed"
+msgstr "Сервер: не удалось синхронизировать сертификат"
+
+msgid "server-ensure: strongSwan reload failed"
+msgstr "Сервер: не удалось перезагрузить strongSwan"
+
+msgid "server-ensure: XFRM startup failed"
+msgstr "Сервер: не удалось запустить XFRM"
+
+msgid "server-cert-sync: credential reload failed"
+msgstr "Сервер: не удалось перезагрузить учётные данные"
+
+msgid "automatic rollback was incomplete"
+msgstr "откат выполнен не полностью"
+
+msgid "Unable to validate managed firewall zone names"
+msgstr "Не удалось проверить имена управляемых зон файрвола"
+
+msgid "Revoke this link? Its free places close and it stops working."
+msgstr "Отозвать ссылку? Её свободные места закроются, и она перестанет работать."
+
+msgid "Discard your custom configuration and go back to the generated one?"
+msgstr "Отбросить свою конфигурацию и вернуться к созданной автоматически?"
+
+msgid "AI"
+msgstr "ИИ"
+
+msgid "Rule type"
+msgstr "Тип правила"
+
+msgid "Device"
+msgstr "Устройство"
+
+msgid "The page could not be loaded: %s"
+msgstr "Страницу не удалось загрузить: %s"
+
+msgid "Loading..."
+msgstr "Загрузка..."
+
+msgid "DNS"
+msgstr "DNS"
+
+msgid "Zapret"
+msgstr "Zapret"
+
+msgid "Applies the settings above to the inbound server."
+msgstr "Применяет настройки выше к входящему серверу."

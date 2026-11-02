@@ -103,29 +103,29 @@ var CSS = `
 			}
 
 			.ikev2-page {
-				--ikev2-accent: #4f7dff;
-				--ikev2-accent-2: #8b5cf6;
-				--ikev2-grad: linear-gradient(135deg, #4f7dff, #8b5cf6);
-				--ikev2-grad-soft: linear-gradient(135deg,
-					color-mix(in srgb, #4f7dff 16%, transparent),
-					color-mix(in srgb, #8b5cf6 12%, transparent));
-				--ikev2-border: rgba(128, 128, 128, .22);
-				--ikev2-border-strong: rgba(128, 128, 128, .34);
-				--ikev2-surface: rgba(128, 128, 128, .06);
-				--ikev2-surface-2: rgba(128, 128, 128, .11);
-				--ikev2-muted: rgba(128, 128, 128, .85);
-				--ikev2-good: #16a34a;
-				--ikev2-warn: #d97706;
-				--ikev2-bad: #e11d48;
-				--ikev2-info: #2f6fbe;
-				/* Controls are painted in flat accent. The gradient stays as a
-				   decorative wash on the hero and the card rules, where it is
-				   scenery rather than a surface a label has to sit on: colour
-				   that shifts under text is what makes a control read as a
-				   sticker instead of a button. */
-				--ikev2-fill: #4f7dff;
-				--ikev2-fill-hover: #3f6bef;
-				--ikev2-on-fill: #fff;
+				/* The design code's palette (Patina and graphite). The frame around
+				   the page stays the LuCI theme's. */
+				--ikev2-accent: oklch(0.500 0.075 195);
+				--ikev2-accent-text: oklch(0.440 0.070 195);
+				--ikev2-accent-soft: oklch(0.905 0.032 195);
+				--ikev2-on-fill: oklch(0.985 0.004 85);
+				--ikev2-border: oklch(0.865 0.005 85);
+				--ikev2-border-strong: oklch(0.800 0.005 85);
+				--ikev2-surface: oklch(0.993 0.002 85);
+				--ikev2-surface-2: oklch(0.932 0.004 85);
+				--ikev2-text: oklch(0.250 0.012 250);
+				--ikev2-text-2: oklch(0.430 0.012 250);
+				--ikev2-muted: oklch(0.520 0.010 250);
+				--ikev2-good: oklch(0.470 0.085 150);
+				--ikev2-warn: oklch(0.480 0.090 75);
+				--ikev2-bad: oklch(0.480 0.130 28);
+				--ikev2-accent-2: var(--ikev2-accent);
+				--ikev2-grad: var(--ikev2-accent);
+				--ikev2-grad-soft: var(--ikev2-accent-soft);
+				--ikev2-info: var(--ikev2-accent-text);
+				--ikev2-fill: var(--ikev2-accent);
+				--ikev2-fill-hover: var(--ikev2-accent-text);
+				--ikev2-edge: rgba(255, 255, 255, .75);
 
 				/* One 4px step. Every gap, pad and margin below is drawn from
 				   this, so the page has a rhythm instead of thirty hand-picked
@@ -141,19 +141,19 @@ var CSS = `
 				   the page, cards and sections lift a little, the hero sits one
 				   step above them. Two steps are all the page uses - a third
 				   was declared here and never applied to anything. */
-				--ikev2-e1: 0 1px 2px rgba(0, 0, 0, .04);
-				--ikev2-e2: 0 1px 2px rgba(0, 0, 0, .05), 0 8px 20px -14px rgba(0, 0, 0, .4);
+				--ikev2-e1: inset 0 1px 0 var(--ikev2-edge);
+				--ikev2-e2: inset 0 1px 0 var(--ikev2-edge);
 
-				--ikev2-radius: 16px;
-				--ikev2-radius-sm: 11px;
+				--ikev2-radius: 20px;
+				--ikev2-radius-sm: 12px;
 				/* Marks and inline controls sit a tier below the panels they
 				   are drawn inside. Three hand-written values between .7rem
 				   and .75rem all rounded to the same pixel as radius-sm;
 				   they were the same corner spelled three ways. */
-				--ikev2-radius-xs: 7px;
+				--ikev2-radius-xs: 8px;
 				/* Critically damped: reaches the target and stops, no
 				   overshoot. Used for every state change a pointer causes. */
-				--ikev2-ease: cubic-bezier(.32, .72, 0, 1);
+				--ikev2-ease: cubic-bezier(.22, 1, .36, 1);
 				/* A press must read before the finger lifts, so it is the one
 				   transition short enough to land inside the touch. */
 				--ikev2-press: 90ms;
@@ -161,6 +161,43 @@ var CSS = `
 				--ikev2-shadow-lg: var(--ikev2-e2);
 				max-width: 1220px;
 				font-feature-settings: "tnum" 0;
+			}
+			/* LuCI marks a dark theme on the root; a theme that does not follows the system. */
+			:root[data-darkmode="true"] .ikev2-page {
+				--ikev2-accent: oklch(0.760 0.070 195);
+				--ikev2-accent-text: oklch(0.790 0.070 195);
+				--ikev2-accent-soft: oklch(0.320 0.032 195);
+				--ikev2-on-fill: oklch(0.200 0.005 255);
+				--ikev2-border: oklch(0.350 0.008 255);
+				--ikev2-border-strong: oklch(0.450 0.010 255);
+				--ikev2-surface: oklch(0.265 0.006 255);
+				--ikev2-surface-2: oklch(0.195 0.005 255);
+				--ikev2-text: oklch(0.935 0.004 255);
+				--ikev2-text-2: oklch(0.760 0.008 255);
+				--ikev2-muted: oklch(0.665 0.008 255);
+				--ikev2-good: oklch(0.770 0.090 150);
+				--ikev2-warn: oklch(0.810 0.100 82);
+				--ikev2-bad: oklch(0.740 0.120 28);
+				--ikev2-edge: rgba(255, 255, 255, .055);
+			}
+			@media (prefers-color-scheme: dark) {
+				:root:not([data-darkmode]) .ikev2-page {
+					--ikev2-accent: oklch(0.760 0.070 195);
+					--ikev2-accent-text: oklch(0.790 0.070 195);
+					--ikev2-accent-soft: oklch(0.320 0.032 195);
+					--ikev2-on-fill: oklch(0.200 0.005 255);
+					--ikev2-border: oklch(0.350 0.008 255);
+					--ikev2-border-strong: oklch(0.450 0.010 255);
+					--ikev2-surface: oklch(0.265 0.006 255);
+					--ikev2-surface-2: oklch(0.195 0.005 255);
+					--ikev2-text: oklch(0.935 0.004 255);
+					--ikev2-text-2: oklch(0.760 0.008 255);
+					--ikev2-muted: oklch(0.665 0.008 255);
+					--ikev2-good: oklch(0.770 0.090 150);
+					--ikev2-warn: oklch(0.810 0.100 82);
+					--ikev2-bad: oklch(0.740 0.120 28);
+					--ikev2-edge: rgba(255, 255, 255, .055);
+				}
 			}
 			.ikev2-page * { box-sizing: border-box; }
 
@@ -177,7 +214,7 @@ var CSS = `
 			.ikev2-header h2 {
 				margin: 0 0 var(--ikev2-s1);
 				font-size: clamp(1.5rem, 2.6vw, 1.95rem);
-				font-weight: 700;
+				font-weight: 300;
 				line-height: 1.12;
 				letter-spacing: -.022em;
 			}
@@ -214,28 +251,17 @@ var CSS = `
 				transition: transform .16s var(--ikev2-ease), box-shadow .16s var(--ikev2-ease),
 					border-color .16s var(--ikev2-ease);
 			}
-			.ikev2-card::before {
-				content: "";
-				position: absolute;
-				inset: 0 0 auto 0;
-				height: 3px;
-				background: var(--ikev2-grad);
-				opacity: .25;
-				transition: opacity .16s var(--ikev2-ease);
-			}
 			.ikev2-card:hover {
 				box-shadow: var(--ikev2-shadow-lg);
 				border-color: var(--ikev2-border-strong);
 			}
-			.ikev2-card:hover::before { opacity: 1; }
 			.ikev2-card.wide { grid-column: span 6; }
 			.ikev2-card.full { grid-column: 1 / -1; }
 			.ikev2-card-label {
 				margin-bottom: .5rem;
-				font-size: .72rem;
-				font-weight: 600;
+				font-size: .75rem;
+				font-weight: 500;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-card-value {
@@ -244,7 +270,7 @@ var CSS = `
 				gap: .5rem;
 				min-height: 1.8rem;
 				font-size: clamp(1.4rem, 2.4vw, 1.7rem);
-				font-weight: 700;
+				font-weight: 500;
 				line-height: 1.15;
 				letter-spacing: -.02em;
 				font-variant-numeric: tabular-nums;
@@ -267,16 +293,13 @@ var CSS = `
 				padding: var(--ikev2-s6);
 				border: 1px solid var(--ikev2-border);
 				border-radius: var(--ikev2-radius);
-				background:
-					radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--ikev2-accent) 18%, transparent), transparent 55%),
-					radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--ikev2-accent-2) 16%, transparent), transparent 55%),
-					var(--ikev2-surface);
+				background: var(--ikev2-surface);
 				box-shadow: var(--ikev2-e2);
 			}
 			.ikev2-hero h3 {
 				margin: 0 0 .4rem;
 				font-size: 1.3rem;
-				font-weight: 700;
+				font-weight: 500;
 				letter-spacing: -.01em;
 			}
 			.ikev2-hero p { margin: 0; color: var(--ikev2-muted); line-height: 1.55; }
@@ -314,7 +337,7 @@ var CSS = `
 			}
 			.ikev2-gauge__center b {
 				font-size: 1.55rem;
-				font-weight: 700;
+				font-weight: 500;
 				line-height: 1;
 				letter-spacing: -.02em;
 				font-variant-numeric: tabular-nums;
@@ -324,7 +347,6 @@ var CSS = `
 				margin-top: .2rem;
 				font-size: .68rem;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 				color: var(--ikev2-muted);
 			}
 
@@ -344,6 +366,9 @@ var CSS = `
 				border-bottom: 1px solid var(--ikev2-border);
 			}
 			.ikev2-health-row:last-child { border-bottom: 0; }
+			/* A long status wraps instead of pushing the page wider than the window. */
+			.ikev2-page .ikev2-health-row { min-width: 0; }
+			.ikev2-page .ikev2-health-row > .ikev2-pill { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 			/* A row with an action reports on the button itself (flashButton),
 			   so progress and success take no space next to it. Only a failure
 			   adds its reason under the button, where it stays until retried. */
@@ -397,7 +422,7 @@ var CSS = `
 				border-radius: var(--ikev2-radius-sm);
 				background: color-mix(in srgb, currentColor 5%, transparent);
 				text-decoration: none;
-				font-weight: 600;
+				font-weight: 500;
 				transition: transform var(--ikev2-press) var(--ikev2-ease),
 					background .14s var(--ikev2-ease), border-color .14s var(--ikev2-ease);
 			}
@@ -407,36 +432,25 @@ var CSS = `
 			}
 
 			/* ── Pills ──────────────────────────────────────────────── */
+			/* A status is words, not a badge: neutral while all is well, in its
+			   colour when it is not. */
 			.ikev2-pill {
 				display: inline-flex;
 				align-items: center;
-				gap: .4rem;
-				padding: .26rem .65rem;
-				border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-				border-radius: 999px;
-				background: color-mix(in srgb, currentColor 12%, transparent);
-				font-size: .78rem;
-				font-weight: 600;
-				line-height: 1.2;
+				padding: 0;
+				border: 0;
+				background: none;
+				color: var(--ikev2-text-2);
+				font-size: .8125rem;
+				font-weight: 450;
+				line-height: 1.3;
 				white-space: nowrap;
 			}
-			.ikev2-pill::before {
-				content: "";
-				width: .48rem;
-				height: .48rem;
-				border-radius: 50%;
-				background: currentColor;
-				box-shadow: 0 0 0 .18rem color-mix(in srgb, currentColor 22%, transparent);
-			}
-			.ikev2-pill.good { color: var(--ikev2-good); }
+			.ikev2-pill.good { color: var(--ikev2-text-2); }
 			.ikev2-pill.warn { color: var(--ikev2-warn); }
 			.ikev2-pill.bad { color: var(--ikev2-bad); }
 			.ikev2-pill.info { color: var(--ikev2-info); }
-			.ikev2-pill.neutral {
-				color: var(--ikev2-muted);
-				background: var(--ikev2-surface-2);
-				border-color: var(--ikev2-border);
-			}
+			.ikev2-pill.neutral { color: var(--ikev2-muted); }
 
 			/* ── Sections ───────────────────────────────────────────── */
 			.ikev2-section {
@@ -470,7 +484,7 @@ var CSS = `
 			.ikev2-section-head h4 {
 				margin: 0 0 var(--ikev2-s1);
 				font-size: 1.05rem;
-				font-weight: 700;
+				font-weight: 500;
 				line-height: 1.3;
 				letter-spacing: -.012em;
 			}
@@ -521,7 +535,7 @@ var CSS = `
 				min-height: 2.25rem;
 				padding: .42rem .72rem !important;
 				border-radius: var(--ikev2-radius-sm) !important;
-				font-weight: 600;
+				font-weight: 500;
 				white-space: nowrap;
 			}
 			.ikev2-icon {
@@ -577,7 +591,7 @@ var CSS = `
 				gap: .5rem;
 				padding: .75rem .9rem;
 				cursor: pointer;
-				font-weight: 600;
+				font-weight: 500;
 				list-style: none;
 			}
 			.ikev2-diagnostics > summary::-webkit-details-marker { display: none; }
@@ -609,8 +623,8 @@ var CSS = `
 			.ikev2-windows-app-mark {
 				display: grid;
 				place-content: center;
-				width: 2.35rem;
-				height: 2.35rem;
+				width: 2.25rem;
+				height: 2.25rem;
 				border-radius: var(--ikev2-radius-sm);
 				background: var(--ikev2-grad-soft);
 				color: var(--ikev2-accent);
@@ -644,8 +658,7 @@ var CSS = `
 				border-radius: var(--ikev2-radius-sm);
 				background: var(--ikev2-grad-soft);
 				color: var(--ikev2-accent);
-				font-weight: 700;
-				text-transform: uppercase;
+				font-weight: 500;
 			}
 			.ikev2-user-name {
 				display: block;
@@ -665,7 +678,7 @@ var CSS = `
 			.ikev2-session-address {
 				display: block;
 				margin-bottom: .2rem;
-				font-weight: 600;
+				font-weight: 500;
 				overflow-wrap: anywhere;
 			}
 			.ikev2-session-meta {
@@ -708,9 +721,9 @@ var CSS = `
 			.ikev2-platform-action {
 				display: inline-grid !important;
 				place-content: center;
-				width: 2.35rem;
-				height: 2.35rem;
-				min-width: 2.35rem !important;
+				width: 2.25rem;
+				height: 2.25rem;
+				min-width: 2.25rem !important;
 				padding: 0 !important;
 			}
 			.ikev2-device-policy-scroll { overflow-x: auto; }
@@ -735,19 +748,38 @@ var CSS = `
 				border: 0;
 				background: transparent;
 				color: var(--ikev2-muted);
-				font-size: .72rem;
-				font-weight: 600;
+				font-size: .75rem;
+				font-weight: 500;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 			}
 			/* With more than one tunnel a full-route device names its own. */
 			.ikev2-device-policy-table.ikev2-with-tunnel { min-width: 60rem; }
+			/* Absolutely placed check boxes stay inside the scroll instead of widening the page. */
+			.ikev2-page .ikev2-device-policy-scroll { position: relative; }
 			.ikev2-with-tunnel .ikev2-device-policy-row {
 				grid-template-columns: minmax(12rem, 1.5fr) minmax(7rem, .65fr)
 					repeat(3, 4rem) minmax(12rem, 1fr) minmax(9rem, .8fr) 2.6rem;
 			}
 			.ikev2-page .ikev2-with-tunnel select { width: 100%; min-width: 0; }
 			.ikev2-device-policy-name { display: grid; gap: .18rem; min-width: 0; }
+			/* A phone gets the rules as cards: every control in view, each check named. */
+			@media (max-width: 720px) {
+				.ikev2-page .ikev2-device-policy-table,
+				.ikev2-page .ikev2-device-policy-table.ikev2-with-tunnel { min-width: 0; }
+				.ikev2-page .ikev2-device-policy-row.head { display: none; }
+				.ikev2-page .ikev2-device-policy-row,
+				.ikev2-page .ikev2-with-tunnel .ikev2-device-policy-row {
+					grid-template-columns: repeat(2, minmax(0, 1fr));
+					align-items: center;
+				}
+				.ikev2-page .ikev2-policy-check::after {
+					content: attr(data-name);
+					margin-left: .5rem;
+					color: var(--ikev2-text-2);
+					font-size: .8125rem;
+				}
+				.ikev2-page .ikev2-with-tunnel select { min-height: 2.25rem; height: 2.25rem; }
+			}
 			/* The address is a caption under the name, not a field: the theme's
 			   grey code box made it read as an input. */
 			.ikev2-page .ikev2-device-policy-name code {
@@ -794,7 +826,7 @@ var CSS = `
 				content: "\\2713";
 				color: #fff;
 				font-size: .78rem;
-				font-weight: 700;
+				font-weight: 500;
 			}
 			.ikev2-policy-check input:focus-visible + span {
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
@@ -804,9 +836,9 @@ var CSS = `
 			.ikev2-square-action {
 				display: inline-grid !important;
 				place-content: center;
-				width: 2.35rem;
-				height: 2.35rem;
-				min-width: 2.35rem !important;
+				width: 2.25rem;
+				height: 2.25rem;
+				min-width: 2.25rem !important;
 				padding: 0 !important;
 			}
 			.ikev2-status-widget { display: grid; gap: .75rem; }
@@ -818,10 +850,9 @@ var CSS = `
 			}
 			.ikev2-widget-summary-label {
 				color: var(--ikev2-muted);
-				font-size: .72rem;
-				font-weight: 600;
+				font-size: .75rem;
+				font-weight: 500;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 			}
 			.ikev2-widget-overview {
 				display: grid;
@@ -840,10 +871,9 @@ var CSS = `
 			.ikev2-widget-component-label {
 				margin-bottom: .5rem;
 				color: var(--ikev2-muted);
-				font-size: .72rem;
-				font-weight: 600;
+				font-size: .75rem;
+				font-weight: 500;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 			}
 			.ikev2-widget-component-head {
 				display: flex;
@@ -940,7 +970,7 @@ var CSS = `
 				gap: .9rem 1.4rem;
 				align-items: center;
 			}
-			.ikev2-field-label { font-weight: 600; }
+			.ikev2-field-label { font-weight: 500; }
 			.ikev2-field-help {
 				display: block;
 				margin-top: .22rem;
@@ -1150,12 +1180,12 @@ var CSS = `
 				align-items: center;
 				justify-content: center;
 				box-sizing: border-box;
-				min-height: 2.35rem;
+				min-height: 2.25rem;
 				border-radius: var(--ikev2-radius-sm);
 				padding: .5rem 1rem;
 				border: 1px solid var(--ikev2-border);
-				background: var(--ikev2-surface-2);
-				font-weight: 600;
+				background: none;
+				font-weight: 500;
 				line-height: 1.2;
 				white-space: nowrap;
 				cursor: pointer;
@@ -1166,7 +1196,7 @@ var CSS = `
 					filter .14s var(--ikev2-ease);
 			}
 			.ikev2-page .cbi-button:hover {
-				background: color-mix(in srgb, currentColor 12%, transparent);
+				background: var(--ikev2-accent-soft);
 				border-color: var(--ikev2-border-strong);
 			}
 			/* A press has to answer the pointer going down, not the click going
@@ -1174,27 +1204,28 @@ var CSS = `
 			   - which never hovers - got no feedback at all until the action
 			   itself finished, and a slow action read as a dead button. */
 			.ikev2-page .cbi-button:active:not([disabled]) { transform: scale(.97); }
+			/* Buttons are outlined; the main one in the accent, a little heavier. */
 			.ikev2-page .cbi-button-apply,
 			.ikev2-page .cbi-button-positive,
 			.ikev2-page .cbi-button-add,
 			.ikev2-page .cbi-button-save {
-				background: var(--ikev2-fill);
+				background: none;
 				background-image: none;
-				border-color: transparent;
-				color: var(--ikev2-on-fill);
-				box-shadow: 0 6px 16px -10px var(--ikev2-fill);
+				border: 1.5px solid var(--ikev2-accent);
+				color: var(--ikev2-accent-text);
+				box-shadow: none;
 			}
 			.ikev2-page .cbi-button-apply:hover,
 			.ikev2-page .cbi-button-positive:hover,
 			.ikev2-page .cbi-button-add:hover,
 			.ikev2-page .cbi-button-save:hover {
-				background: var(--ikev2-fill-hover);
+				background: var(--ikev2-accent-soft);
 				background-image: none;
 			}
 			.ikev2-page .cbi-button-action,
 			.ikev2-page .cbi-button-edit {
-				border-color: color-mix(in srgb, var(--ikev2-accent) 45%, var(--ikev2-border));
-				color: var(--ikev2-accent);
+				border-color: var(--ikev2-border-strong);
+				color: var(--ikev2-accent-text);
 			}
 			.ikev2-page .cbi-button-remove,
 			.ikev2-page .cbi-button-negative {
@@ -1229,9 +1260,9 @@ var CSS = `
 				border-color: color-mix(in srgb, var(--ikev2-bad) 55%, var(--ikev2-border));
 			}
 			.ikev2-page .cbi-button.ikev2-flash-warn {
-				color: var(--ikev2-warn, #d97706);
-				background: color-mix(in srgb, var(--ikev2-warn, #d97706) 12%, transparent);
-				border-color: color-mix(in srgb, var(--ikev2-warn, #d97706) 55%, var(--ikev2-border));
+				color: var(--ikev2-warn);
+				background: color-mix(in srgb, var(--ikev2-warn) 12%, transparent);
+				border-color: color-mix(in srgb, var(--ikev2-warn) 55%, var(--ikev2-border));
 			}
 			/* A Save button greys out once the form is saved; its "Saved" must
 			   still read at full strength for the moment it is shown. */
@@ -1271,25 +1302,20 @@ var CSS = `
 			.ikev2-netpick:active,
 			.ikev2-service-option:active,
 			.ikev2-advanced-toggle:active { transform: scale(.97); }
-			.ikev2-page .cbi-button:focus-visible,
-			.ikev2-quick-link:focus-visible,
-			.ikev2-advanced-toggle:focus-visible,
-			.ikev2-page .cbi-tabmenu li a:focus-visible,
-			.ikev2-diagnostics > summary:focus-visible,
-			.ikev2-advanced summary:focus-visible,
+			/* One focus mark, in the accent, following each control's own corners.
+			   An outline stays in forced colours, where a box-shadow is dropped. */
+			.ikev2-page :focus-visible,
 			.ikev2-netpick:focus-within,
 			.ikev2-service-option:focus-within {
-				outline: none;
-				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
+				outline: 2px solid var(--ikev2-accent);
+				outline-offset: 2px;
+				box-shadow: none;
 			}
-			/* The gradient buttons already carry a shadow; adding the ring to it
-			   keeps both rather than replacing the lift shadow with the ring. */
-			.ikev2-page .cbi-button-apply:focus-visible,
-			.ikev2-page .cbi-button-positive:focus-visible,
-			.ikev2-page .cbi-button-add:focus-visible,
-			.ikev2-page .cbi-button-save:focus-visible {
-				box-shadow: 0 8px 20px -10px var(--ikev2-accent),
-					0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 32%, transparent);
+			/* The theme's tabs change nothing when focused; on these pages they say so. */
+			#tabmenu a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+			@media (forced-colors: active) {
+				.ikev2-page :focus-visible { outline-color: Highlight; }
+				.ikev2-page .ikev2-chip.selected { border: 2px solid Highlight; }
 			}
 			/* ── Toggle switch ──────────────────────────────────────── */
 			.ikev2-switch {
@@ -1343,7 +1369,7 @@ var CSS = `
 				box-shadow: 0 0 0 3px color-mix(in srgb, var(--ikev2-accent) 24%, transparent);
 			}
 			.ikev2-switch input:disabled + .ikev2-switch-track { opacity: .5; cursor: not-allowed; }
-			.ikev2-switch-text { font-weight: 600; }
+			.ikev2-switch-text { font-weight: 500; }
 
 			/* ── Toggle row (label + switch on one line) ─────────────── */
 			.ikev2-toggle-row {
@@ -1362,7 +1388,7 @@ var CSS = `
 			   bare switch beside a label. */
 			.ikev2-form-grid > .ikev2-toggle-row { grid-column: 1 / -1; margin-top: 0; }
 			.ikev2-toggle-row > :first-child { min-width: 0; }
-			.ikev2-toggle-row .ikev2-toggle-text { font-weight: 600; }
+			.ikev2-toggle-row .ikev2-toggle-text { font-weight: 500; }
 			.ikev2-toggle-row .ikev2-toggle-sub {
 				display: block;
 				font-weight: 400;
@@ -1432,9 +1458,9 @@ var CSS = `
 				.ikev2-result { transition: none; }
 			}
 			.ikev2-result.busy { color: var(--ikev2-muted); }
-			.ikev2-result.ok { color: var(--ikev2-good, #16a34a); }
-			.ikev2-result.warn { color: var(--ikev2-warn, #d97706); }
-			.ikev2-result.err { color: var(--ikev2-bad, #dc2626); }
+			.ikev2-result.ok { color: var(--ikev2-good); }
+			.ikev2-result.warn { color: var(--ikev2-warn); }
+			.ikev2-result.err { color: var(--ikev2-bad); }
 			.ikev2-save-bar {
 				margin-top: 1.4rem;
 				padding-top: 1.1rem;
@@ -1467,8 +1493,9 @@ var CSS = `
 			.ikev2-advanced summary,
 			.ikev2-section > details > summary {
 				cursor: pointer;
-				font-weight: 600;
-				margin-bottom: .9rem;
+				font-weight: 500;
+				padding: .35rem 0;
+				margin-bottom: .55rem;
 				list-style: none;
 			}
 			.ikev2-advanced summary::-webkit-details-marker { display: none; }
@@ -1514,7 +1541,7 @@ var CSS = `
 			.ikev2-advanced-group > h4 {
 				margin: 0 0 .7rem;
 				font-size: .86rem;
-				font-weight: 600;
+				font-weight: 500;
 				letter-spacing: .02em;
 				color: var(--ikev2-muted);
 			}
@@ -1542,6 +1569,19 @@ var CSS = `
 			}
 
 			/* ── Empty state ────────────────────────────────────────── */
+			.ikev2-skeleton { display: grid; gap: 1rem; }
+			.ikev2-skeleton > div {
+				height: 9rem;
+				border: 1px solid var(--ikev2-border);
+				border-radius: var(--ikev2-radius);
+				background: var(--ikev2-surface-2);
+				animation: ikev2-skeleton-pulse 1.4s ease-in-out infinite;
+			}
+			.ikev2-skeleton > div:nth-child(2) { height: 14rem; }
+			@keyframes ikev2-skeleton-pulse { 50% { opacity: .55; } }
+			@media (prefers-reduced-motion: reduce) {
+				.ikev2-skeleton > div { animation: none; }
+			}
 			.ikev2-empty {
 				padding: 1.6rem;
 				text-align: center;
@@ -1572,7 +1612,7 @@ var CSS = `
 				margin: 0 0 .6rem;
 				padding-bottom: .45rem;
 				border-bottom: 1px solid var(--ikev2-border);
-				font-weight: 700;
+				font-weight: 500;
 			}
 			.ikev2-service-option {
 				display: flex;
@@ -1592,10 +1632,9 @@ var CSS = `
 			.ikev2-chip-group:last-child { margin-bottom: 0; }
 			.ikev2-chip-group h4 {
 				margin: 0 0 .55rem;
-				font-size: .72rem;
-				font-weight: 600;
+				font-size: .75rem;
+				font-weight: 500;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-chips { display: flex; flex-wrap: wrap; gap: .45rem; }
@@ -1611,7 +1650,7 @@ var CSS = `
 				cursor: pointer;
 				user-select: none;
 				font-size: .85rem;
-				font-weight: 600;
+				font-weight: 500;
 				line-height: 1.3;
 				transition: transform var(--ikev2-press) var(--ikev2-ease),
 					background .12s var(--ikev2-ease), border-color .12s var(--ikev2-ease),
@@ -1803,7 +1842,7 @@ var CSS = `
 			}
 			.ikev2-netpick.selected .ikev2-netpick-check::after { content: "\\2713"; }
 			.ikev2-netpick-body { min-width: 0; }
-			.ikev2-netpick-name { font-weight: 600; }
+			.ikev2-netpick-name { font-weight: 500; }
 			.ikev2-netpick-meta {
 				display: block;
 				font-size: .8rem;
@@ -1832,7 +1871,7 @@ var CSS = `
 				border-radius: 999px;
 				background: color-mix(in srgb, currentColor 10%, transparent);
 				font-size: .7rem;
-				font-weight: 600;
+				font-weight: 500;
 				vertical-align: middle;
 			}
 			.ikev2-tags .ikev2-tag { margin-left: 0; }
@@ -1974,7 +2013,7 @@ var CSS = `
 				padding: .45rem 1.1rem;
 				border-radius: 999px;
 				text-decoration: none;
-				font-weight: 600;
+				font-weight: 500;
 				color: var(--ikev2-muted);
 				transition: background .14s var(--ikev2-ease), color .14s var(--ikev2-ease);
 			}
@@ -1994,9 +2033,8 @@ var CSS = `
 			.ikev2-page .table .th,
 			.ikev2-page .table .td { vertical-align: middle; padding: .55rem .6rem; }
 			.ikev2-page .table .tr.table-titles .th {
-				font-size: .72rem;
+				font-size: .75rem;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-page .cbi-section-descr { color: var(--ikev2-muted); line-height: 1.5; }
@@ -2039,7 +2077,7 @@ var CSS = `
 				color: var(--ikev2-muted);
 				font: inherit;
 				font-size: .82rem;
-				font-weight: 600;
+				font-weight: 500;
 				font-variant-numeric: tabular-nums;
 				cursor: pointer;
 				transition: background-color .16s var(--ikev2-ease), color .16s var(--ikev2-ease),
@@ -2067,7 +2105,7 @@ var CSS = `
 			}
 			.ikev2-page .ikev2-quality-verdict b {
 				font-size: 1.25rem;
-				font-weight: 700;
+				font-weight: 500;
 				letter-spacing: -.015em;
 			}
 			.ikev2-page .ikev2-quality-verdict b.good { color: var(--ikev2-good); }
@@ -2147,7 +2185,7 @@ var CSS = `
 				font-variant-numeric: tabular-nums;
 				pointer-events: none;
 			}
-			.ikev2-page .ikev2-quality-tip b { display: block; margin-bottom: .15rem; font-weight: 650; }
+			.ikev2-page .ikev2-quality-tip b { display: block; margin-bottom: .15rem; font-weight: 500; }
 			.ikev2-page .ikev2-quality-tip span { color: var(--ikev2-muted); }
 			.ikev2-page .ikev2-quality-legend {
 				display: flex;
@@ -2187,10 +2225,9 @@ var CSS = `
 			}
 			.ikev2-page .ikev2-quality-lower h4 {
 				margin: 0 0 .55rem;
-				font-size: .72rem;
-				font-weight: 600;
+				font-size: .75rem;
+				font-weight: 500;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-page .ikev2-quality-events {
@@ -2231,7 +2268,7 @@ var CSS = `
 				margin: 0 0 .7rem;
 			}
 			.ikev2-page .ikev2-speed-column { display: grid; gap: .55rem; align-content: start; min-width: 0; }
-			.ikev2-page .ikev2-speed-column-title { font-size: .86rem; font-weight: 650; }
+			.ikev2-page .ikev2-speed-column-title { font-size: .86rem; font-weight: 500; }
 			.ikev2-page .ikev2-speed-row { display: grid; gap: .3rem; }
 			.ikev2-page .ikev2-speed-row-head {
 				display: flex;
@@ -2303,10 +2340,9 @@ var CSS = `
 			}
 			.ikev2-page .ikev2-speed-option { display: grid; gap: .25rem; min-width: 0; }
 			.ikev2-page .ikev2-speed-option > span {
-				font-size: .72rem;
-				font-weight: 600;
+				font-size: .75rem;
+				font-weight: 500;
 				letter-spacing: .06em;
-				text-transform: uppercase;
 				color: var(--ikev2-muted);
 			}
 			.ikev2-page .ikev2-speed-option select,
@@ -2354,7 +2390,6 @@ var CSS = `
 					--ikev2-grad-soft: rgba(128, 128, 128, .22);
 				}
 				.ikev2-hero { background: var(--ikev2-surface); }
-				.ikev2-card::before { opacity: 1; }
 				.ikev2-page .ikev2-quality-tip {
 					background: var(--ikev2-bg, Canvas);
 					-webkit-backdrop-filter: none;
@@ -2381,7 +2416,6 @@ var CSS = `
 				.ikev2-chip,
 				.ikev2-netpick,
 				.ikev2-pill { border-width: 2px; }
-				.ikev2-card::before { opacity: 1; }
 			}
 
 			/* ── Responsive ─────────────────────────────────────────── */
@@ -2408,6 +2442,9 @@ var CSS = `
 			}
 			@media (max-width: 600px) {
 				.ikev2-page .cbi-button { white-space: normal; text-align: center; }
+				/* A row's status goes under its description, not into a column one word wide. */
+				.ikev2-page .ikev2-health-row { flex-wrap: wrap; gap: .35rem 1rem; }
+				.ikev2-page .ikev2-health-copy { flex: 1 1 100%; }
 				.ikev2-windows-app { grid-template-columns: auto 1fr; }
 				.ikev2-windows-app > .ikev2-result,
 				.ikev2-windows-app > button { grid-column: 1 / -1; }
@@ -2478,7 +2515,7 @@ function icon(name) {
 		disconnect: 'M9 12h6m-3-3 3 3-3 3M5 5a9 9 0 1 0 14 0',
 		trash: 'M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6',
 		addUser: 'M15 19a6 6 0 0 0-12 0m6-8a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm9-2v6m-3-3h6',
-		disconnectAll: 'M4 12h10m-3-3 3 3-3 3m7-8a8 8 0 1 1 0 10',
+		disconnectAll: 'M3 12h10m-3-3 3 3-3 3M14 6.3a7 7 0 1 1 0 11.4',
 		sliders: 'M4 7h6m4 0h6M12 5v4M4 12h10m4 0h2M16 10v4M4 17h3m4 0h9M9 15v4',
 		settings: 'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-3.5a7.8 7.8 0 0 0-.1-1l2-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L14.7 3h-4L10 6a8 8 0 0 0-1.7 1L5.8 6 3.8 9.4l2 1.6a7.8 7.8 0 0 0 0 2L3.8 14.6l2 3.4 2.5-1a8 8 0 0 0 1.7 1l.7 3h4l.7-3a8 8 0 0 0 1.7-1l2.5 1 2-3.4-2-1.6a7.8 7.8 0 0 0 .1-1Z',
 		down: 'M12 3v14m-5-5 5 5 5-5M5 21h14',
@@ -2571,11 +2608,32 @@ function keyValueTable(rows) {
 	}));
 }
 
+// The field stands beside its label in the grid, so the two are tied once both
+// are on their parent: the first control by for, each of them by its name.
+var fieldCount = 0;
 function fieldLabel(title, help) {
-	return E('label', { 'class': 'ikev2-field-label' }, [
+	var node = E('label', { 'class': 'ikev2-field-label' }, [
 		title,
 		help ? E('span', { 'class': 'ikev2-field-help' }, [ help ]) : ''
 	]);
+	Promise.resolve().then(function() {
+		var next = node.nextElementSibling;
+		if (!next)
+			return;
+		var controls = /^(input|select|textarea)$/i.test(next.tagName) ? [ next ] :
+			Array.prototype.slice.call(next.querySelectorAll('input, select, textarea'));
+		controls = controls.filter(function(control) { return control.type !== 'hidden'; });
+		controls.forEach(function(control) {
+			if (!control.getAttribute('aria-label') && !(control.labels && control.labels.length))
+				control.setAttribute('aria-label', String(title));
+		});
+		if (controls.length) {
+			if (!controls[0].id)
+				controls[0].id = 'ikev2-field-' + (++fieldCount);
+			node.setAttribute('for', controls[0].id);
+		}
+	});
+	return node;
 }
 
 // A button reports on itself: a spinner while its action runs, then the
@@ -2687,6 +2745,11 @@ function setBusy(button, busy, label) {
 		// accepted and is still running, which is the difference between "nothing
 		// happened" and "wait". The words come with the outcome (flashButton).
 		if (rewritesContent) {
+			// The name stays with the button while the spinner stands in for its text.
+			if (!button.getAttribute('aria-label')) {
+				button.dataset.busyNamed = '1';
+				button.setAttribute('aria-label', button.textContent);
+			}
 			button.replaceChildren(E('span', { 'class': 'ikev2-spin', 'aria-hidden': 'true' }));
 			button.dataset.busyText = button.textContent;
 			holdDisabled(button);
@@ -2703,6 +2766,10 @@ function setBusy(button, busy, label) {
 		button.style.minWidth = button.dataset.idleMinWidth || '';
 		delete button.dataset.idleMinWidth;
 		button.removeAttribute('aria-busy');
+		if (button.dataset.busyNamed) {
+			delete button.dataset.busyNamed;
+			button.removeAttribute('aria-label');
+		}
 		// A relabel made while the button was still busy is the newer state.
 		var relabelled = button.dataset.busyText != null &&
 			button.textContent !== button.dataset.busyText;
@@ -2719,6 +2786,96 @@ function setBusy(button, busy, label) {
 // rpcd refuses a call the session's ACL does not cover. On its own its wording
 // names neither the cause nor anything the reader can act on, and it is not a
 // failure of the operation the button describes - so say where it came from.
+// A helper's message in the page's language. Quoted values and a trailing value
+// are put in the entry as %s; messages joined by "; " or ending in "and automatic
+// rollback was incomplete" are translated in parts.
+function helperText(message) {
+	var line = String(message == null ? '' : message).trim(), direct = _(line);
+	if (direct !== line)
+		return direct;
+	var values = [];
+	var key = line.replace(/'[^']*'/g, function(quoted) {
+		values.push(quoted.slice(1, -1));
+		return "'%s'";
+	}).replace(/: (\S+)$/, function(whole, value) {
+		values.push(value);
+		return ': %s';
+	});
+	if (values.length && _(key) !== key)
+		return _(key).format.apply(_(key), values);
+	var incomplete = / and automatic rollback was incomplete$/;
+	if (incomplete.test(line))
+		return helperText(line.replace(incomplete, '')) + '; ' + _('automatic rollback was incomplete');
+	if (line.indexOf('; ') > 0)
+		return line.split('; ').map(helperText).join('; ');
+	return line;
+}
+
+// A page opens at once: its title and a placeholder where the data will stand.
+// LuCI shows a view only after load() has finished, and a page's data can take
+// many seconds on a busy router, so load() here waits for nothing and the data
+// comes in behind the page: loadData() and renderData() are what load() and
+// render() would be. PAGE is the object given to view.extend.
+function shell(title, subtitle, page) {
+	page.load = function() { return Promise.resolve(); };
+	page.render = function() {
+		var self = this, root = E('div', {});
+		root.replaceChildren(E('div', { 'class': 'ikev2-page', 'aria-busy': 'true' }, [
+			styles(),
+			header(title, subtitle),
+			E('div', { 'class': 'ikev2-skeleton', 'role': 'status', 'aria-label': _('Loading...') }, [
+				E('div', {}), E('div', {}), E('div', {})
+			])
+		]));
+		Promise.resolve().then(function() { return self.loadData(); }).then(function(data) {
+			root.replaceChildren(self.renderData(data));
+		}).catch(function(error) {
+			root.replaceChildren(E('div', { 'class': 'ikev2-page' }, [
+				styles(),
+				header(title, subtitle),
+				E('div', { 'class': 'ikev2-note bad' }, [
+					_('The page could not be loaded: %s').format(errorMessage(error)) ])
+			]));
+		});
+		return root;
+	};
+	return page;
+}
+
+// A service's name for people, from its catalogue id.
+function serviceLabel(name) {
+	var labels = {
+		openai: 'OpenAI',
+		anthropic_ai: 'Anthropic',
+		google_ai: 'Google AI',
+		x_ai: 'xAI',
+		stability_ai: 'Stability AI',
+		huggingface: 'Hugging Face',
+		hdrezka: 'HDRezka',
+		google_play: 'Google Play',
+		google_meet: 'Google Meet',
+		digitalocean: 'DigitalOcean',
+		cloudfront: 'CloudFront',
+		linkedin: 'LinkedIn',
+		youtube: 'YouTube',
+		tiktok: 'TikTok',
+		ovh: 'OVH'
+	};
+	if (labels[name])
+		return labels[name];
+	return String(name).replace(/_/g, ' ').replace(/\b\w/g, function(letter) {
+		return letter.toUpperCase();
+	});
+}
+
+// What a helper wrote to stderr: its own message, in the page's language, without
+// the lines of the tools it called, which say nothing to the reader.
+function helperError(stderr) {
+	return String(stderr || '').split('\n').map(function(line) { return line.trim(); }).filter(function(line) {
+		return line && !/^(\/[\w.\/-]+|uci|ucode|nft|fw4|apk|opkg|ip|sh): /.test(line);
+	}).map(helperText).join(' ');
+}
+
 function errorMessage(error, fallback) {
 	var message = (error && error.message) ||
 		(typeof error === 'string' ? error : '') ||
@@ -2731,7 +2888,7 @@ function errorMessage(error, fallback) {
 function execChecked(path, args, fallback) {
 	return fs.exec(path, args || []).then(function(response) {
 		if (response && response.code)
-			throw new Error(((response.stderr || response.stdout || '').trim()) ||
+			throw new Error(helperError(response.stderr || response.stdout) ||
 				fallback || _('Operation failed'));
 		return response || {};
 	});
@@ -2743,16 +2900,23 @@ function delay(ms) {
 
 // Poll a key=value status command for one exact backend action id. A unique id
 // prevents a stale status from an earlier click being mistaken for this run.
+var POLL_MISSES = 20;
 function pollAction(path, args, actionId, options) {
 	options = options || {};
 	var deadline = Date.now() + (options.timeout || 90000);
 	var interval = options.interval || 1500;
+	var missed = 0;
 
 	function once() {
-		return L.resolveDefault(fs.exec(path, args || []), { stdout: '' }).then(function(response) {
+		return L.resolveDefault(fs.exec(path, args || []), { code: 1, stdout: '' }).then(function(response) {
 			var status = parseKeyValues((response && response.stdout) || '');
 			if (options.onProgress)
 				options.onProgress(status);
+			// No answer, or no record of any action: a session that ended or a lost
+			// connection would otherwise spin until the full timeout.
+			missed = readFailed(response) || !status.state || status.state === 'idle' ? missed + 1 : 0;
+			if (missed >= POLL_MISSES)
+				throw new Error(_('Lost contact with the router while waiting for the result. The action may still be running; reload the page to see.'));
 			if (status.action_id === actionId &&
 			    (status.state === 'ok' || status.state === 'error'))
 				return status;
@@ -2786,6 +2950,9 @@ function runAction(options) {
 		result.busy(options.busy || _('Working...'));
 	else if (result && result.clear)
 		result.clear();
+	// A short action is the spinner alone; a line for it would only move the page.
+	var revealTimer = result && onButton && result.reveal && typeof window !== 'undefined' && window.setTimeout ?
+		window.setTimeout(function() { result.reveal(); }, 3000) : null;
 
 	// The button shows what the action last reported: a run that ended in a
 	// warning ("continues in the background") or a failure it wrote itself
@@ -2809,7 +2976,14 @@ function runAction(options) {
 		// instead of flashing its idle look in between.
 		if (!onButton)
 			setBusy(button, false);
-		return Promise.resolve(options.onSuccess ? options.onSuccess(value) : null).then(function() {
+		// The action is done whatever happens now: a page that could not read the
+		// new state must not report the action as failed.
+		return Promise.resolve().then(function() {
+			return options.onSuccess ? options.onSuccess(value) : null;
+		}).catch(function(error) {
+			if (result)
+				result.warn(_('Done, but: %s').format(errorMessage(error)));
+		}).then(function() {
 			setBusy(button, false);
 			if (onButton)
 				showOutcome();
@@ -2827,6 +3001,8 @@ function runAction(options) {
 			options.onError(message, error);
 		return null;
 	}).finally(function() {
+		if (revealTimer != null)
+			window.clearTimeout(revealTimer);
 		setBusy(button, false);
 		// Only this action's own report is left to its button; whatever the
 		// page writes to the same line later is written out again.
@@ -2841,7 +3017,7 @@ function runAction(options) {
 function showProgress(result, message, busyLabel) {
 	if (!result || !message || message === 'Queued...')
 		return;
-	var text = _(message);
+	var text = helperText(message);
 	if (text === busyLabel)
 		return;
 	result.busy(text);
@@ -2893,7 +3069,7 @@ function runJob(options) {
 							return { state: 'timeout', action_id: actionId };
 						}
 						if (status.state === 'error')
-							throw new Error(status.message ? _(status.message) :
+							throw new Error(status.message ? helperText(status.message) :
 								(options.failure || _('Operation failed')));
 						if (options.result)
 							options.result.ok(options.success || _('Done'));
@@ -2940,7 +3116,7 @@ function trackChanges(buttons, nodes, options) {
 	buttons = (Array.isArray(buttons) ? buttons : [ buttons ]).filter(Boolean);
 	var sources = (Array.isArray(nodes) ? nodes : [ nodes ]).filter(Boolean);
 	var read = options.read || function() { return formState(sources); };
-	var baseline = read();
+	var baseline = read(), marked = null;
 	var tracker = {
 		dirty: function() {
 			return read() !== baseline;
@@ -2955,6 +3131,17 @@ function trackChanges(buttons, nodes, options) {
 		},
 		reset: function() {
 			baseline = read();
+			tracker.update();
+		},
+		// What is being sent, taken when it is sent. settle() makes it the baseline,
+		// so what was typed while the job ran still counts as a change.
+		mark: function() {
+			marked = read();
+		},
+		settle: function() {
+			if (marked != null)
+				baseline = marked;
+			marked = null;
 			tracker.update();
 		}
 	};
@@ -3111,6 +3298,8 @@ function multiChoiceWithCustom(value, choices, options) {
 
 // A labelled toggle row: title/description on the left, switch on the right.
 function toggleRow(input, title, sub, status) {
+	if (input && input.getAttribute && !input.getAttribute('aria-label'))
+		input.setAttribute('aria-label', String(title));
 	return E('div', { 'class': 'ikev2-toggle-row' }, [
 		E('div', {}, [
 			E('span', { 'class': 'ikev2-toggle-text' }, [ title ]),
@@ -3146,7 +3335,7 @@ function netPick(value, name, meta, checked) {
 // Inline status chip shown next to an action button instead of a top-of-page
 // notification. err() truncates with a hover tooltip carrying the full text.
 function inlineResult() {
-	var node = E('span', { 'class': 'ikev2-result idle' }, []);
+	var node = E('span', { 'class': 'ikev2-result idle', 'role': 'status', 'aria-live': 'polite' }, []);
 	var fadeTimer = null, hideTimer = null;
 	// While an action runs, only a failure or a warning is written out here:
 	// those are read. A success is seen on the button, or in the checkbox or
@@ -3192,7 +3381,12 @@ function inlineResult() {
 			last = { kind: '', text: '' };
 		},
 		last: function() { return last; },
-		quiet: function(flag) { onButton = flag ? ' quiet' : ''; }
+		quiet: function(flag) { onButton = flag ? ' quiet' : ''; },
+		// An action that goes on says what it is doing, and from then on what became of it.
+		reveal: function() {
+			onButton = '';
+			node.className = node.className.replace(/ quiet/g, '');
+		}
 	};
 }
 
@@ -3216,7 +3410,27 @@ function gate(title, subtitle) {
 	]);
 }
 
+// Whether a read failed. A helper that fails resolves with its exit code; a
+// refused call falls back to the default each page gives, with code 1.
+function readFailed(reply) {
+	return !reply || (reply.code != null && reply.code !== 0);
+}
+
+// What could not be read, said above the form it would otherwise fill with
+// nothing. HOST keeps its place and is emptied when everything reads again.
+function showUnread(host, names) {
+	host.replaceChildren();
+	if (names.length)
+		host.appendChild(E('div', { 'class': 'ikev2-note warn' }, [
+			_('Could not be read: %s. Saving it is off; reload the page to try again.').format(names.join(', ')) ]));
+}
+
 return baseclass.extend({
+	shell: shell,
+	helperText: helperText,
+	serviceLabel: serviceLabel,
+	readFailed: readFailed,
+	showUnread: showUnread,
 	parseKeyValues: parseKeyValues,
 	parseSwanmon: parseSwanmon,
 	formatBytes: formatBytes,
