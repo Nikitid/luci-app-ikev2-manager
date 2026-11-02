@@ -163,7 +163,7 @@ EOF
 # Seen once it is only noted: the state file holds "id first-seen".
 stalled_attempt_seconds=30
 discard_stalled_attempt() {
-	local conn="$1" index="$2" state id seen now known=''
+	local conn="$1" index="$2" state id seen='' now known=''
 	state="$tunnel_attempt_dir/$index.connecting"
 	id="$("$sa_helper" connecting "$conn" 2>/dev/null | sed -n '1p')"
 	case "$id" in

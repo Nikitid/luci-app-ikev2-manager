@@ -53,6 +53,26 @@ for script in /usr/libexec/ikev2-* /usr/libexec/ikev2-manager.d/*.sh /etc/init.d
 	sh -n "$script" || fail "$script does not parse under BusyBox ash"
 done
 
+step 'the first extra-tunnel attempt is remembered without a prior state file'
+(
+	case_dir="$(mktemp -d)"
+	trap 'rm -rf "$case_dir"' EXIT INT TERM
+	sed -n '/^stalled_attempt_seconds=/p; /^discard_stalled_attempt() {/,/^}/p' \
+		/usr/libexec/ikev2-manager.d/manager-tunnels.sh >"$case_dir/stalled.sh"
+	sa_helper="$case_dir/sa"
+	cat >"$sa_helper" <<'EOF'
+#!/bin/sh
+[ "$1 $2" = 'connecting proxy-out-2' ] || exit 1
+printf '7\n'
+EOF
+	chmod 755 "$sa_helper"
+	tunnel_attempt_dir="$case_dir/attempts"
+	. "$case_dir/stalled.sh"
+	discard_stalled_attempt proxy-out-2 2 && fail 'a new attempt was treated as stalled'
+	[ "$(awk '{ print $1 }' "$tunnel_attempt_dir/2.connecting")" = 7 ] ||
+		fail 'the first connecting attempt was not remembered'
+)
+
 step 'doctor distinguishes the XFRM link module from nftables IPsec support'
 (
 	. /usr/libexec/ikev2-manager.d/system-doctor.sh
