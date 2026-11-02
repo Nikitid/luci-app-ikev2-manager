@@ -928,7 +928,7 @@ return view.extend(common.shell(_('Users'),
     state = parsed;
    } catch (error) {
     availability.replaceChildren(E('div', { 'class': 'ikev2-note warn' }, [ _('Client configuration is unavailable.') ]));
-    services.replaceChildren(); devices.replaceChildren();
+    services.replaceChildren(); devices.replaceChildren(E('div', { 'class': 'ikev2-empty' }, [ _('People could not be read.') ]));
     if (refresh) refresh.disabled = true;
     if (invite) invite.disabled = true;
     return;

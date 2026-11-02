@@ -2575,12 +2575,14 @@ function section(title, description, content, actions) {
 // pushed the section's own actions further away the more of them there were.
 function advancedPanel(content, label) {
 	var title = label || _('Advanced settings');
-	var panel = E('div', { 'class': 'ikev2-advanced-panel' }, [ content ]);
+	var panelId = 'ikev2-advanced-' + (++fieldCount);
+	var panel = E('div', { 'class': 'ikev2-advanced-panel', 'id': panelId }, [ content ]);
 	var toggle = E('button', {
 		'class': 'ikev2-advanced-toggle',
 		'type': 'button',
 		'title': title,
 		'aria-label': title,
+		'aria-controls': panelId,
 		'aria-expanded': 'false'
 	}, [ icon('sliders') ]);
 	panel.style.display = 'none';
@@ -2811,6 +2813,64 @@ function helperText(message) {
 	return line;
 }
 
+// LuCI's window (ui.showModal) is the theme's: it neither takes the keyboard
+// nor gives it back. On these pages it does: the first field when it opens,
+// Tab stays inside, Esc closes it, and focus returns to what opened it.
+var modalsWatched = false;
+function watchModals() {
+	if (modalsWatched || typeof MutationObserver === 'undefined' || !document.body)
+		return;
+	modalsWatched = true;
+	var opener = null, lastFocus = null;
+	function open() { return document.body.classList.contains('modal-overlay-active'); }
+	// What had the keyboard before the window: by the time it shows, LuCI has moved focus.
+	document.addEventListener('focusin', function(ev) {
+		if (!open())
+			lastFocus = ev.target;
+	});
+	function stops() {
+		var box = document.querySelector('#modal_overlay .modal');
+		return box ? Array.prototype.filter.call(box.querySelectorAll('input, select, textarea, button, [tabindex="0"]'),
+			function(item) { return !item.disabled && item.offsetParent !== null; }) : [];
+	}
+	new MutationObserver(function() {
+		if (open() && !opener) {
+			opener = lastFocus || document.body;
+			window.setTimeout(function() {
+				var first = stops()[0];
+				if (first && open())
+					first.focus();
+			}, 0);
+		}
+		else if (!open() && opener) {
+			if (opener.isConnected && opener.focus)
+				opener.focus();
+			opener = null;
+		}
+	}).observe(document.body, { attributes: true, attributeFilter: [ 'class' ] });
+	document.addEventListener('keydown', function(ev) {
+		if (!open())
+			return;
+		if (ev.key === 'Escape') {
+			document.body.classList.remove('modal-overlay-active');
+			return;
+		}
+		if (ev.key !== 'Tab')
+			return;
+		var list = stops(), first = list[0], last = list[list.length - 1];
+		if (!first)
+			return;
+		if (ev.shiftKey ? document.activeElement === first : document.activeElement === last) {
+			ev.preventDefault();
+			(ev.shiftKey ? last : first).focus();
+		}
+		else if (list.indexOf(document.activeElement) < 0) {
+			ev.preventDefault();
+			first.focus();
+		}
+	});
+}
+
 // A page opens at once: its title and a placeholder where the data will stand.
 // LuCI shows a view only after load() has finished, and a page's data can take
 // many seconds on a busy router, so load() here waits for nothing and the data
@@ -2820,6 +2880,7 @@ function shell(title, subtitle, page) {
 	page.load = function() { return Promise.resolve(); };
 	page.render = function() {
 		var self = this, root = E('div', {});
+		watchModals();
 		root.replaceChildren(E('div', { 'class': 'ikev2-page', 'aria-busy': 'true' }, [
 			styles(),
 			header(title, subtitle),

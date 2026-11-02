@@ -6623,3 +6623,6 @@ msgstr "Эта учётная запись принадлежит устройс
 
 msgid "This account belongs to a Waypoint device; remove the device on the Remote clients page"
 msgstr "Эта учётная запись принадлежит устройству Waypoint; удалите устройство на странице «Пользователи»"
+
+msgid "People could not be read."
+msgstr "Не удалось прочитать список людей."

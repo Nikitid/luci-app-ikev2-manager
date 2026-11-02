@@ -324,11 +324,14 @@ function pollStatus(actionId, deadline, onProgress, missed) {
 	});
 }
 
-function pollDomainRouter(actionId, deadline) {
+function pollDomainRouter(actionId, deadline, missed) {
 	return L.resolveDefault(fs.exec(domainRouterHelper, [ 'status' ]), {
 		code: 1, stdout: ''
 	}).then(function(response) {
 		var st = parseStatus((response || {}).stdout || '');
+		missed = common.readFailed(response) ? (missed || 0) + 1 : 0;
+		if (missed >= 20)
+			throw new Error(_('Lost contact with the router while waiting for the result. The action may still be running; reload the page to see.'));
 		if (st.action_id === actionId &&
 		    (st.state === 'active' || st.state === 'disabled' || st.state === 'error'))
 			return st;
@@ -337,16 +340,19 @@ function pollDomainRouter(actionId, deadline) {
 		return new Promise(function(resolve) {
 			window.setTimeout(resolve, 1000);
 		}).then(function() {
-			return pollDomainRouter(actionId, deadline);
+			return pollDomainRouter(actionId, deadline, missed);
 		});
 	});
 }
 
-function pollResolverDiagnostic(actionId, deadline) {
+function pollResolverDiagnostic(actionId, deadline, missed) {
 	return L.resolveDefault(fs.exec(domainRouterHelper, [ 'status' ]), {
 		code: 1, stdout: ''
 	}).then(function(response) {
 		var st = parseStatus((response || {}).stdout || '');
+		missed = common.readFailed(response) ? (missed || 0) + 1 : 0;
+		if (missed >= 20)
+			throw new Error(_('Lost contact with the router while waiting for the result. The action may still be running; reload the page to see.'));
 		if (st.action_id === actionId && st.state === 'error')
 			return st;
 		if (st.action_id === actionId && st.state === 'active' &&
@@ -357,7 +363,7 @@ function pollResolverDiagnostic(actionId, deadline) {
 		return new Promise(function(resolve) {
 			window.setTimeout(resolve, 1000);
 		}).then(function() {
-			return pollResolverDiagnostic(actionId, deadline);
+			return pollResolverDiagnostic(actionId, deadline, missed);
 		});
 	});
 }
