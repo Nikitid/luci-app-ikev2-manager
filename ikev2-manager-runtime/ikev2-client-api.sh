@@ -22,19 +22,32 @@ cleanup() {
 # The port is open to the internet. A token cannot be guessed, but every
 # request costs this router a process, so one address may open ten new
 # connections a second after a burst of a hundred; the rest are dropped. An
-# office behind one address stays far below that. The table lives exactly as
-# long as the server does.
+# office behind one address stays far below that. The server holds a few
+# dozen connections at once, so one address may also hold no more than eight
+# of them: before, a single address that kept eight idle connections open
+# took every place and no device could ask whether it was admitted. Counting
+# needs nft_connlimit; without it the rate limit alone stays. The table lives
+# exactly as long as the server does.
 limit_requests() {
  local forget='timeout 1m' # nft's word for how long an address is remembered
+ local held4="tcp dport $1 ct state new add @held4 { ip saddr ct count over 8 } reject with tcp reset"
+ local held6="tcp dport $1 ct state new add @held6 { ip6 saddr ct count over 8 } reject with tcp reset"
  nft delete table inet ikev2_client_api 2>/dev/null || :
+ limit_table "$1" "$held4" "$held6" 2>/dev/null || limit_table "$1" '' ''
+}
+limit_table() {
  nft -f - <<LIMIT
 table inet ikev2_client_api {
  set recent4 { type ipv4_addr; flags dynamic; $forget; size 8192; }
  set recent6 { type ipv6_addr; flags dynamic; $forget; size 8192; }
+ set held4 { type ipv4_addr; flags dynamic; size 8192; }
+ set held6 { type ipv6_addr; flags dynamic; size 8192; }
  chain input {
   type filter hook input priority -5; policy accept;
   tcp dport $1 ct state new add @recent4 { ip saddr limit rate over 10/second burst 100 packets } drop
   tcp dport $1 ct state new add @recent6 { ip6 saddr limit rate over 10/second burst 100 packets } drop
+  $2
+  $3
  }
 }
 LIMIT
@@ -66,7 +79,7 @@ mkdir "$work/www" || refuse
 case "$port" in *[!0-9]* | '') refuse ;; esac
 limit_requests "$port" || refuse
 /usr/sbin/uhttpd -f -h "$work/www" -D -S -s "0.0.0.0:$port" -s "[::]:$port" \
- -C "$work/certificate.pem" -K "$work/key.pem" -n 4 -N 8 -t 5 -T 5 -k 0 \
+ -C "$work/certificate.pem" -K "$work/key.pem" -n 4 -N 48 -t 5 -T 5 -k 0 \
  -o /client/v1 -O /usr/libexec/ikev2-manager.d/client-access-http.uc >/dev/null 2>&1 &
 server_pid=$!
 fi

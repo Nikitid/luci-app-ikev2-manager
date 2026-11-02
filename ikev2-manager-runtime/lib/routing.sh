@@ -148,9 +148,14 @@ failclosed_check() (
 		')"
 	[ -n "$rule" ] || return 1
 	mark="${rule%%/*}"
-	if printf '%s\n' "$routes" | grep -Eq '^default dev ipsec-out( |$)'; then
+	# The tunnel carrying the first exit may be its spare (ipsec-out2 ...)
+	# while the first one comes up. Only "ipsec-out" was accepted, so an Apply
+	# made while the spare carried the traffic failed here and rolled back -
+	# reliably right after managed mode was turned on again.
+	link="$(printf '%s\n' "$routes" | sed -n 's/^default dev \(ipsec-out[0-9]*\)\( .*\)\{0,1\}$/\1/p' | head -n 1)"
+	if [ -n "$link" ]; then
 		output="$(ip -4 route get "$test_ip" mark "$mark" 2>&1)" || return 1
-		printf '%s\n' "$output" | grep -Eq '(^|[[:space:]])dev ipsec-out([[:space:]]|$)'
+		printf '%s\n' "$output" | grep -Eq "(^|[[:space:]])dev $link([[:space:]]|\$)"
 	else
 		output="$(ip -4 route get "$test_ip" mark "$mark" 2>&1)" && return 1
 		printf '%s\n' "$output" | grep -qi 'unreachable'

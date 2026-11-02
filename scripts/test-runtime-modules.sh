@@ -139,6 +139,7 @@ case "$*" in
 		if [ "${MOCK_FAILCLOSED_MISSING:-0}" != 1 ]; then
 			echo 'unreachable default metric 32767'
 			[ "${MOCK_TUNNEL_ROUTE:-0}" != 1 ] || echo 'default dev ipsec-out metric 10'
+			[ "${MOCK_SPARE_ROUTE:-0}" != 1 ] || echo 'default dev ipsec-out2 scope link metric 10'
 		fi
 		;;
 	"-4 rule show")
@@ -159,6 +160,10 @@ case "$*" in
 	"-4 route get "*)
 		if [ "${MOCK_TUNNEL_ROUTE:-0}" = 1 ]; then
 			echo '203.0.113.77 dev ipsec-out src 10.20.20.14 mark 0x1000000'
+			exit 0
+		fi
+		if [ "${MOCK_SPARE_ROUTE:-0}" = 1 ]; then
+			echo "203.0.113.77 dev ${MOCK_SPARE_GET:-ipsec-out2} table 1601 src 10.20.20.14 mark 0x1000000"
 			exit 0
 		fi
 		echo 'RTNETLINK answers: Network is unreachable' >&2
@@ -246,26 +251,35 @@ if wait_for_router_dns 127.0.0.1 1 openwrt.org; then
 	exit 1
 fi
 
+# Older POSIX shells retain prefix assignments after a shell function call.
+# Isolate each override so another scenario cannot inherit its routing input.
 failclosed_check
-MOCK_TUNNEL_ROUTE=1 failclosed_check
+( MOCK_TUNNEL_ROUTE=1 failclosed_check )
 if grep -Eq '(^| )(add|del|delete|flush|replace)( |$)' "$TEST_IP_LOG"; then
 	echo 'failclosed_check modified routing state' >&2
 	exit 1
 fi
-if MOCK_FAILCLOSED_MISSING=1 failclosed_check; then
+# The first exit carried by its spare tunnel is in order; the same default
+# with the packet leaving another way is not.
+( MOCK_SPARE_ROUTE=1 failclosed_check ) || { echo 'failclosed_check refused the spare tunnel of the first exit' >&2; exit 1; }
+if ( MOCK_SPARE_ROUTE=1 MOCK_SPARE_GET=eth1 failclosed_check ); then
+	echo 'failclosed_check accepted a packet that left outside the tunnel in the table' >&2
+	exit 1
+fi
+if ( MOCK_FAILCLOSED_MISSING=1 failclosed_check ); then
 	echo 'failclosed_check accepted a table without unreachable default' >&2
 	exit 1
 fi
-if MOCK_FAILCLOSED_RULE_MISSING=1 failclosed_check; then
+if ( MOCK_FAILCLOSED_RULE_MISSING=1 failclosed_check ); then
 	echo 'failclosed_check accepted a table without a matching policy rule' >&2
 	exit 1
 fi
 failclosed_ipv6_check
-if MOCK_FAILCLOSED6_MISSING=1 failclosed_ipv6_check; then
+if ( MOCK_FAILCLOSED6_MISSING=1 failclosed_ipv6_check ); then
 	echo 'failclosed_ipv6_check accepted a table without unreachable default' >&2
 	exit 1
 fi
-if MOCK_FAILCLOSED6_RULE_MISSING=1 failclosed_ipv6_check; then
+if ( MOCK_FAILCLOSED6_RULE_MISSING=1 failclosed_ipv6_check ); then
 	echo 'failclosed_ipv6_check accepted a table without a matching policy rule' >&2
 	exit 1
 fi
@@ -645,10 +659,35 @@ if sed -n '/run_remove_deps()/,/^}/p' \
 	echo 'dependency removal still stops restored user PBR state' >&2
 	exit 1
 fi
-grep -Fq 'fail "cleanup helper is missing; package removal stopped before changing files"' \
+# The SDK prerm is the canonical script itself (check-version-sync.sh).
+grep -Fq "fail 'cleanup helper is missing; package removal stopped before changing files'" \
 	"$root/Makefile"
-grep -Fq 'fail "unable to restore managed router state; package removal stopped before changing files"' \
+grep -Fq "fail 'unable to restore managed router state; package removal stopped before changing files'" \
 	"$root/Makefile"
+# Every domain-router command the system helper calls must exist: Apply called
+# "resume", which never did, and turning managed mode on again always failed.
+dr_commands="$(sed -n '/^case "\${1:-}" in/,/^esac/p' "$root/ikev2-manager-runtime/ikev2-domain-router.sh" | sed -n 's/^\t\([a-z][a-z-]*\)).*/\1/p')"
+for called in $(grep -o '/usr/libexec/ikev2-domain-router [a-z][a-z-]*' "$root/ikev2-manager-runtime/ikev2-manager-system.sh" "$root/ikev2-manager-runtime/lib/"*.sh "$root/luci-ikev2-manager/ikev2-manager.sh" | sed 's/.* //' | sort -u); do
+	printf '%s\n' "$dr_commands" | grep -qx "$called" || { echo "ikev2-domain-router has no command $called" >&2; exit 1; }
+done
+# Remote clients leave with managed mode and with the package: stopped, then
+# their proxy, tables and local route removed; started again by an apply.
+printf '%s\n' "$remove_managed_body" | grep -Fq '/etc/init.d/ikev2-client-access stop'
+printf '%s\n' "$remove_managed_body" | grep -Fq '/usr/libexec/ikev2-client-access teardown'
+sed -n '/^apply_system_inner() {/,/^}/p' "$system_source" | grep -Fq '/etc/init.d/ikev2-client-access start'
+sed -n '/^disabled_runtime_absent() {/,/^}/p' "$system_source" | grep -Fq 'ikev2_client_path'
+for needle in '/etc/init.d/ikev2-client-access stop' '/usr/libexec/ikev2-client-access teardown' \
+	'--unload-conn ikev2-in-managed' 'ikev2-user-policy'; do
+	grep -Fq -- "$needle" "$root/scripts/package-prerm.sh" || { echo "prerm lacks: $needle" >&2; exit 1; }
+done
+client_init="$root/ikev2-manager-runtime/ikev2-client-access.init"
+if grep -Fq 'ikev2-client-access close' "$client_init"; then
+	echo 'client access stop still runs a close that the watcher lock refuses' >&2
+	exit 1
+fi
+grep -Fq 'term_timeout 15' "$client_init"
+grep -Fq 'ikev2-manager.globals.configured' "$client_init"
+grep -Eq '^[[:space:]]+sync \| close \| watch \| teardown\)' "$root/ikev2-manager-runtime/ikev2-client-access.sh"
 if grep -Fq 'route flush table' "$root/ikev2-manager-runtime/ikev2-domain-router.sh"; then
 	echo 'FakeIP cleanup still flushes an entire routing table' >&2
 	exit 1

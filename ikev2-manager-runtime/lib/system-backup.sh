@@ -259,6 +259,19 @@ backup_install() {
 		done
 		chmod 600 "$backup_root_dir"/etc/ikev2-manager/clients/*.json "$backup_root_dir"/etc/ikev2-manager/clients/initialized \
 			"$backup_root_dir"/etc/ikev2-manager/clients/enrollment-initialized "$backup_root_dir"/etc/ikev2-manager/clients/credentials/*.json 2>/dev/null || :
+		# A restored credential was issued: its marker is what lets the
+		# device fetch it and what lets its removal delete the account. On a
+		# router that never issued it the marker was missing, and removing
+		# such a device left its account in place. The locks the writers
+		# expect are made the same way.
+		for path in "$backup_root_dir"/etc/ikev2-manager/clients/credentials/*.json; do
+			[ -f "$path" ] || continue
+			[ -e "${path%.json}.issued" ] || { printf '1\n' >"${path%.json}.issued" && chmod 600 "${path%.json}.issued"; } || return 1
+		done
+		for path in enrollment.lock publication.lock; do
+			[ -e "$backup_root_dir/etc/ikev2-manager/clients/$path" ] ||
+				{ : >"$backup_root_dir/etc/ikev2-manager/clients/$path" && chmod 600 "$backup_root_dir/etc/ikev2-manager/clients/$path"; } || return 1
+		done
 	fi
 	if [ -s "$dir/certificate" ] && [ -s "$dir/key" ]; then
 		{
@@ -313,6 +326,11 @@ backup_apply() {
 	( apply_saved_dns ) || return 1
 	[ "$(defaultv globals configured 0)" != 1 ] ||
 		/usr/libexec/ikev2-manager reload >/dev/null || return 1
+	# Remote clients follow the restored state and settings: their port, the
+	# devices they answer for. The controller notices the state by itself.
+	if [ -f "$backup_root_dir/etc/ikev2-manager/clients/initialized" ] && [ -x /etc/init.d/ikev2-client-access ]; then
+		/etc/init.d/ikev2-client-access reload >/dev/null 2>&1 || :
+	fi
 }
 
 backup_import() {

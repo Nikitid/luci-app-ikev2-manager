@@ -23,13 +23,36 @@ fail() {
 /usr/libexec/ikev2-manager-system disable >/dev/null 2>&1 ||
 	fail 'unable to restore managed router state; package removal stopped before changing files'
 
+# Remote clients: the controller, the API and its resolver, the proxy, their
+# tables and the local route go; the published state stays with the rest of
+# the configuration.
+if [ -x /etc/init.d/ikev2-client-access ]; then
+	/etc/init.d/ikev2-client-access stop >/dev/null 2>&1 || true
+	/etc/init.d/ikev2-client-access disable >/dev/null 2>&1 || true
+	tries=0
+	while [ "$tries" -lt 20 ] &&
+		for cmdline in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$cmdline"; echo; done |
+		grep -Eq '^/bin/sh /usr/libexec/ikev2-client-(access watch|api serve|api names|catalog watch|enrollment watch) $'; do
+		tries=$((tries + 1))
+		sleep 1
+	done
+	[ ! -x /usr/libexec/ikev2-client-access ] ||
+		/usr/libexec/ikev2-client-access teardown >/dev/null 2>&1 || true
+fi
+rm -rf /var/run/ikev2-client-access /var/run/ikev2-client-catalog /var/run/ikev2-client-enrollment \
+	/var/run/ikev2-client-admin /var/run/ikev2-client-seen /var/run/ikev2-client-reports /var/run/ikev2-client-links
+rm -rf /var/run/ikev2-client-api.* /var/run/ikev2-client-names.*
+rm -f /var/run/ikev2-client-admin-*.in
+
 swanctl --terminate --ike proxy-out --timeout 3 >/dev/null 2>&1 || true
 for index in 2 3 4 5 6 7; do
 	swanctl --terminate --ike "proxy-out-$index" --timeout 3 >/dev/null 2>&1 || true
 done
 swanctl --terminate --ike ikev2-in --timeout 3 >/dev/null 2>&1 || true
+swanctl --terminate --ike ikev2-in-managed --timeout 3 >/dev/null 2>&1 || true
 swanctl --unload-conn proxy-out >/dev/null 2>&1 || true
 swanctl --unload-conn ikev2-in >/dev/null 2>&1 || true
+swanctl --unload-conn ikev2-in-managed >/dev/null 2>&1 || true
 rm -f /etc/swanctl/conf.d/20-proxy-out.conf
 rm -f /etc/swanctl/conf.d/21-proxy-out-extra.conf
 rm -f /etc/swanctl/conf.d/30-inbound.conf

@@ -132,6 +132,21 @@ strongSwan, and exercise outbound and inbound SAs. Promote the same
 artifacts to other routers only after a soak period. Kernel packages are never
 mixed across firmware builds.
 
+### Updating web-server modules
+
+Keep `uhttpd` and every installed `uhttpd-mod-*` plugin on the same build.
+They share private request structures, despite package dependencies accepting
+different versions. A mixed ubus plugin can abort the server on a JSON-RPC
+request while the login page still renders. Doctor reports this as
+`uhttpd_cohort=invalid:mixed-or-missing-version`.
+
+On apk firmware, inspect `apk policy uhttpd uhttpd-mod-ubus uhttpd-mod-ucode`,
+then simulate the explicitly named update with `apk add --simulate --upgrade
+uhttpd uhttpd-mod-ubus uhttpd-mod-ucode`. Include `uhttpd-mod-lua` when installed.
+Install only a matched plan from trusted feeds. Verify both the login page and
+a read-only `/ubus` JSON-RPC response, process continuity and preserved network
+configuration. This web-service update does not require a WAN or router restart.
+
 ### Fast repeat APK builds
 
 For a persistent build machine, prepare the SDK once with its normal
@@ -901,6 +916,21 @@ What a user sees and what it means:
 Saving a change publishes a new state for every computer. With fifty
 computers and three hundred domains that takes a few seconds on a router; the
 page shows the running job and its result in place.
+
+Remote clients run only in managed mode: turning it off stops them and
+removes their proxy, tables and local route; turning it on starts them again.
+The devices, their accounts and the published state stay.
+
+Going back to 2.2.3 or earlier after 2.2.4 has published a state once does
+not work for remote clients: 2.2.4 keeps only the names of removed devices,
+and the earlier version refuses such a state and keeps every computer closed
+until 2.2.4 or later is installed again. Everything else of the package goes
+back as before.
+
+On macOS the device's password is kept in the daemon's own directory
+(`/Library/Application Support/IKEv2ManagerClient`, root only), not in the
+keychain; FileVault is what protects it at rest. On Windows it is encrypted
+with DPAPI for the machine.
 
 ## Page access
 

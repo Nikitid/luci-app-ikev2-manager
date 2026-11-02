@@ -335,7 +335,9 @@ SDK `Makefile`. Anything that must reach a router has to be installed by
 **both**. The version stamp was added to the packer only, so every release from
 1.7.0 to 1.8.0 shipped without it and the page reported an unknown version.
 
-Guarded by `scripts/check-version-sync.sh`.
+Guarded by `scripts/check-version-sync.sh`, which also requires the Makefile prerm to be
+`scripts/package-prerm.sh` itself: the SDK copy had drifted and left the inbound
+policy watcher and every remote-client process running after removal.
 
 ## A released tag does not reach the routers
 
@@ -577,6 +579,42 @@ outbound client is blocked on it (CVE-2025-62291), so no tunnel is ever
 configured. `scripts/test-openwrt.sh` runs failover on 25.12 alone for that
 reason. Run a scenario through that script, or with the images and targets it
 names, before reading anything into a failure.
+
+## Turning managed mode on again
+
+Apply called `ikev2-domain-router resume`, a command the domain router never
+had, so after managed mode was turned off it could not be turned on again
+with the FakeIP engine: Apply failed and rolled back. The same Apply also
+failed whenever the first exit was carried by its spare tunnel, which is
+usual right after the tunnels come up, because the fail-closed check accepted
+only `ipsec-out`. Found only by turning managed mode off and on on a live
+router. `scripts/test-runtime-modules.sh` now checks that every domain-router
+command the helpers call exists and that the spare tunnel passes the check.
+
+## A shared invitation outlives its first registered device
+
+An administrator may keep the page open while a device registers. Looking up
+the link through that used place must not delete the shared secret while other
+places remain open. Withdrawing the stale list must skip consumed places and
+close only unused ones, preserving devices and their owner labels.
+
+Guarded by `scripts/openwrt/client-enrollment-http.sh`.
+
+
+## A uhttpd plugin must match the server build
+
+The package manager accepted a newer server and ucode plugin with an older
+ubus plugin. Login HTML rendered, but a read-only JSON-RPC request hung and
+aborted the server with exit134. Both routers exhausted procd respawn attempts
+after boot. The HTTP request structure had changed between those builds;
+upgrading only the ubus plugin to the server's build restored the same request.
+Doctor checks the installed cohort, and packaging explicitly includes both
+plugins. Test `/ubus` as well as HTML after web-server updates.
+
+An XFRM interface module also does not imply nftables IPsec expression support.
+Doctor checks `nft_xfrm` separately; the runtime dependency list already includes
+`kmod-nft-xfrm`. Guarded by the OpenWrt module-presence scenario and version
+policy behavior tests.
 
 ## Operational recorder: logread and inherited locks
 

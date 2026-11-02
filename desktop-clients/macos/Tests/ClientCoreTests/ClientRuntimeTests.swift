@@ -18,6 +18,8 @@ private final class Machine: SystemActions, @unchecked Sendable {
     func setNameResolution(domains: [String], resolver: String) throws { sync { resolving = domains; self.resolver = resolver; log.append("names") } }
     func loadPacketFilter(_ text: String) throws { sync { rules = text; log.append("filter") } }
     func packetFilterRules() throws -> String { sync { rules } }
+    var effective = true
+    func packetFilterEffective() throws -> Bool { sync { effective } }
     func vpnInstalled() -> Bool { sync { installed } }
     func vpnConnected() -> Bool { sync { connected } }
     func startVPN() throws { sync { started += 1 } }
@@ -50,7 +52,9 @@ private final class Router: DeviceRequests, @unchecked Sendable {
         try sync { try ready.get() }
     }
     func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {
-        DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
+        var services = DeviceServices(selected: ["api"], available: ["wiki"], domains: 1)
+        services.tunnelSubnet = "10.40.50.0/24"
+        return services
     }
     var released = "2.3.0"
     func release(endpoint: URL, deviceToken: String) async throws -> String { sync { released } }
@@ -87,6 +91,7 @@ private let invitation = "https://vpn.example.com:8443/client/v1/enroll#" + Stri
     await runtime.tick(now: now)
     let status = await runtime.status()
     #expect(status.state == "blocked" && status.guardInstalled && !status.protected && status.services == ["api"] && status.available == ["wiki"])
+    #expect(status.addresses?.server == "vpn.example.com" && status.addresses?.services == "172.31.254.0/24" && status.addresses?.tunnel == "10.40.50.0/24")
     #expect(status.release == "2.3.0" && ClientStatusReport.newer("2.3.0", than: "2.2.9") && ClientStatusReport.newer("2.10.0", than: "2.9.9"))
     #expect(!ClientStatusReport.newer("2.3.0", than: "2.3.0") && !ClientStatusReport.newer("2.2.0", than: "2.3.0") && !ClientStatusReport.newer("", than: "1.0.0"))
     #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeRelease(Data(#"{"version":1,"release":"2.3.0","url":"https://example.com"}"#.utf8)) }
@@ -364,4 +369,25 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     chmod(directory.appendingPathComponent("connection.json").path, 0o600)
     chmod(directory.path, 0o755)
     #expect(throws: (any Error).self) { try store.loadIntent() }
+}
+
+@Test func filterThatDeniesNothingIsNoGuard() async throws {
+    var (runtime, machine, router, store, now) = try await registered()
+    try await runtime.setWanted(true)
+    machine.sync { machine.connected = true; machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
+    router.sync { router.ready = .success(DeviceReadiness(id: "office-mac", address: "10.20.0.7", revision: 1)) }
+    await runtime.tick(now: now); now += 2
+    #expect(await runtime.status().protected)
+    // Another program switched the filter off or replaced the main ruleset:
+    // the anchor's rules are still there and deny nothing.
+    machine.sync { machine.effective = false }
+    await runtime.tick(now: now); now += 2
+    var status = await runtime.status()
+    #expect(status.state == "error" && !status.protected && !status.guardInstalled)
+    #expect(!machine.rules.contains("pass"), "permission is withdrawn")
+    machine.sync { machine.effective = true }
+    await runtime.tick(now: now); now += 2
+    status = await runtime.status()
+    #expect(status.guardInstalled && status.state == "protected")
+    try? FileManager.default.removeItem(at: store.directory)
 }

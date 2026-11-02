@@ -23,7 +23,7 @@ public struct DeviceReadiness: Sendable, Equatable {
     public init(id: String, address: String, revision: Int) { self.id = id; self.address = address; self.revision = revision }
 }
 
-/// The names a device shows its user. It grants nothing and carries no addresses.
+/// Informational service names and tunnel network. It grants no access.
 public struct DeviceServices: Sendable, Equatable {
     public let selected: [String]
     public let available: [String]
@@ -33,6 +33,7 @@ public struct DeviceServices: Sendable, Equatable {
     public var block = true
     /// Whether everything goes into the tunnel, or the services alone.
     public var full = false
+    public var tunnelSubnet = ""
     public init(selected: [String], available: [String], domains: Int) { self.selected = selected; self.available = available; self.domains = domains }
 }
 
@@ -258,6 +259,10 @@ public struct DeviceTransport: DeviceRequests {
         if let mode = root["mode"] {
             guard let name = mode as? String, name == "services" || name == "full" else { throw DeviceError.invalidResponse }
             services.full = name == "full"
+        }
+        if let value = root["tunnel_subnet"] {
+            guard let subnet = value as? String, ConnectionAddresses.validNetwork(subnet) else { throw DeviceError.invalidResponse }
+            services.tunnelSubnet = subnet
         }
         return services
     }

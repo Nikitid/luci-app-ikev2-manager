@@ -150,4 +150,39 @@ strongswan_report 6.0.7-r0 '' hang 1 >"$tmp/report"
 expect_report 'a hanging charon' 'strongswan_running=notice:not-answering'
 [ $(( $(date +%s) - started )) -lt 10 ] || fail 'a hanging charon stalled the report'
 
+# uhttpd modules share private C structures with the server. A package
+# manager accepting the dependency does not make different builds compatible.
+uhttpd_report() {
+	sh -c '
+		. "$1/ikev2-manager-runtime/lib/system-doctor.sh"
+		test_http_base="$2" test_http_ubus="$3" test_http_ucode="$4" test_http_lua="$5"
+		pkg_version() {
+			case "$1" in
+				uhttpd) echo "$test_http_base" ;;
+				uhttpd-mod-ubus) echo "$test_http_ubus" ;;
+				uhttpd-mod-ucode) echo "$test_http_ucode" ;;
+				uhttpd-mod-lua) echo "$test_http_lua" ;;
+			esac
+		}
+		ok=1 dependencies_ok=1
+		doctor_uhttpd
+		printf "ok=%s dependencies_ok=%s\n" "$ok" "$dependencies_ok"
+	' sh "$root" "$@"
+}
+uhttpd_report new new new '' >"$tmp/report"
+expect_report 'matching uhttpd modules' 'uhttpd_cohort=ok:new'
+expect_report 'matching uhttpd modules' 'ok=1 dependencies_ok=1'
+for versions in 'new old new new' 'new new old new' 'new new new old' 'missing old old old'; do
+	# shellcheck disable=SC2086
+	uhttpd_report $versions >"$tmp/report"
+	expect_report 'mixed uhttpd modules' 'uhttpd_cohort=invalid:mixed-or-missing-version'
+	expect_report 'mixed uhttpd modules' 'ok=0 dependencies_ok=0'
+done
+uhttpd_report new '' new '' >"$tmp/report"
+expect_report 'missing ubus module' 'ok=0 dependencies_ok=0'
+uhttpd_report new new '' '' >"$tmp/report"
+expect_report 'missing ucode module' 'ok=0 dependencies_ok=0'
+uhttpd_report '' '' '' '' >"$tmp/report"
+expect_report 'missing uhttpd' 'ok=0 dependencies_ok=0'
+
 printf '%s\n' 'version policy tests OK'

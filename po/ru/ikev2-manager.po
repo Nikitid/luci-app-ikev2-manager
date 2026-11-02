@@ -5112,6 +5112,9 @@ msgstr "Устройство зарегистрировано"
 msgid "Device registered, waits for approval"
 msgstr "Устройство зарегистрировано, ждёт подтверждения"
 
+msgid "Registration given up: its account could not be made"
+msgstr "Регистрация прервана: не удалось создать учётную запись"
+
 msgid "Device removed"
 msgstr "Устройство удалено"
 
@@ -6606,3 +6609,17 @@ msgstr "Zapret"
 
 msgid "Applies the settings above to the inbound server."
 msgstr "Применяет настройки выше к входящему серверу."
+msgid "Remote clients were set up for the server name %s, and the inbound server now has another. Devices can neither register nor connect, and the registration port stays closed, until the server has that name again."
+msgstr "Удалённые клиенты настроены для имени сервера %s, а у входящего сервера сейчас другое имя. Пока серверу не вернут это имя, устройства не могут ни зарегистрироваться, ни подключиться, а порт регистрации закрыт."
+
+msgid "Link opened."
+msgstr "Ссылка открыта."
+
+msgid "Remote client access failed to start"
+msgstr "Доступ удалённых клиентов не запустился"
+
+msgid "This account belongs to a Waypoint device; manage it on the Remote clients page"
+msgstr "Эта учётная запись принадлежит устройству Waypoint; управляйте ей на странице «Пользователи»"
+
+msgid "This account belongs to a Waypoint device; remove the device on the Remote clients page"
+msgstr "Эта учётная запись принадлежит устройству Waypoint; удалите устройство на странице «Пользователи»"

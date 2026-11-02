@@ -53,6 +53,16 @@ class EnrollmentTests(unittest.TestCase):
     def prepare_invitation(self, request):
         return state.run({'state': self.snapshot, 'request': request, 'digest': DIGEST}, 'invitation')
 
+    def test_finished_places_leave_the_ledger(self):
+        self.issue()
+        self.transition('issue', {'id': 'tablet', 'token_sha256': 'e' * 64, 'selected_services': ['api'], 'lifetime_seconds': 600})
+        self.transition('cancel', {'id': 'tablet'})
+        # A day after their links ended, a place never used and a withdrawn
+        # one no longer count; the ledger used to take no link after 512.
+        later = 1000 + 600 + 86400 + 1
+        self.transition('issue', {'id': 'phone', 'token_sha256': '9' * 64, 'selected_services': ['api'], 'lifetime_seconds': 600}, now=later)
+        self.assertEqual([item['id'] for item in self.ledger['invitations']], ['phone'])
+
     def test_admin_invitation_is_bound_to_server_and_selected_services(self):
         request = self.invitation_request()
         result = self.prepare_invitation(request)

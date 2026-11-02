@@ -99,6 +99,24 @@ class AdminTests(unittest.TestCase):
         self.assertTrue([d for d in self.snapshot['publication']['devices'] if d['id'] == ids[1]][0]['enabled'])
         again = self.run_admin(self.request('remove-device', {'id': ids[0]}), [])
         self.assertNotEqual(again.returncode, 0)
+        # The removed device kept its record for one publication only; its
+        # name stays spent, and a state without the record still validates.
+        self.assertNotIn(ids[0], [d['id'] for d in self.snapshot['publication']['devices']])
+        self.assertIn(ids[0], self.snapshot['retired_ids'])
+        self.assertEqual(len(self.snapshot['api']['devices']), len(self.snapshot['publication']['devices']))
+        checked = state.run(self.snapshot, 'validate-state')
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        invitation = state.run({'state': self.snapshot, 'digest': 'e' * 64, 'request': {'version': 1, 'expected_generation': 0,
+            'endpoint': 'https://' + self.snapshot['publication']['server']['address'] + '/client/v1/enroll',
+            'id': ids[0], 'selected_services': other['selected_services'], 'lifetime_seconds': 600}}, 'invitation')
+        self.assertNotEqual(invitation.returncode, 0)
+        desired = copy.deepcopy(self.snapshot['publication'])
+        del desired['allocations']
+        for device in desired['devices']:
+            del device['previous_policy']
+        desired['devices'].append({'id': ids[0], 'token_sha256': 'f' * 64, 'enabled': False, 'selected_services': other['selected_services']})
+        revived = state.run({'version': 1, 'expected_generation': self.snapshot['generation'], 'previous': self.snapshot, 'desired': desired})
+        self.assertNotEqual(revived.returncode, 0)
 
     def test_assignments_cannot_create_devices_or_change_credentials(self):
         device = self.snapshot['publication']['devices'][0]

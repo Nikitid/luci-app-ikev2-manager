@@ -3,7 +3,7 @@
 'use strict';
 import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
-import { readfile, lstat } from 'fs';
+import { readfile, lstat, popen } from 'fs';
 import { record_client_seen, read_client_labels } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence, read_client_device_evidence_for } from './client-access-device-evidence.uc';
@@ -24,6 +24,36 @@ function same_hash(a, b) {
 function valid_fields(value, expected) {
 	return type(value) == 'object' && length(keys(value)) == length(expected) &&
 		length(filter(expected, key => value[key] == null)) == 0;
+}
+
+// Smallest network containing the configured inbound pool; informational only.
+export function client_tunnel_subnet(pool) {
+	if (type(pool) != 'string') return '';
+	let ends = split(pool, '-'), values = [];
+	if (length(ends) != 2) return '';
+	for (let end in ends) {
+		let octets = split(end, '.'), value = 0;
+		if (length(octets) != 4) return '';
+		for (let octet in octets) {
+			if (!match(octet, /^(0|[1-9][0-9]{0,2})$/) || int(octet) > 255) return '';
+			value = value * 256 + int(octet);
+		}
+		push(values, value);
+	}
+	if (values[0] > values[1]) return '';
+	let prefix = 32;
+	while (prefix > 0 && (values[0] >> (32 - prefix)) != (values[1] >> (32 - prefix))) prefix--;
+	if (prefix < 8) return '';
+	let base = (values[0] >> (32 - prefix)) << (32 - prefix);
+	return sprintf('%d.%d.%d.%d/%d', (base >> 24) & 255, (base >> 16) & 255, (base >> 8) & 255, base & 255, prefix);
+};
+
+function tunnel_subnet() {
+	let pipe = popen('/sbin/uci -q get ikev2-manager.server.pool4', 'r');
+	if (!pipe) return '';
+	let pool = pipe.read('all');
+	pipe.close();
+	return client_tunnel_subnet(replace(pool ?? '', /\s+$/, ''));
 }
 
 // Whether this router answers names over HTTPS at the resolver address: the
@@ -59,7 +89,7 @@ function device_services(publication, device, directory) {
 	} catch (error) { }
 	return { version: 1, id: device.id, revision: device.policy.revision,
 		selected: sort(selected, by_id), available: sort(available, by_id), block_without_tunnel: block, mode: mode,
-		names_https: names_over_https() };
+		names_https: names_over_https(), tunnel_subnet: tunnel_subnet() };
 }
 
 // The one request that carries a body: the report the administrator asked
@@ -138,7 +168,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 				} catch (error) { }
 				return { status: 200, body: { version: 1, id: device.id, revision: device.revision,
 					selected: device.selected, available: device.available, block_without_tunnel: block, mode: mode,
-					names_https: names_over_https() } };
+					names_https: names_over_https(), tunnel_subnet: tunnel_subnet() } };
 			}
 			if (release) return release_answer();
 			let compiled = compile_client_policy(device.policy);

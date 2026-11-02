@@ -34,6 +34,10 @@ namespace IkeV2Manager.Client
         }
         public string[] Available { get; private set; }
         public string Release { get; internal set; }
+        public string ServerName { get; internal set; }
+        public string ServerIP { get; internal set; }
+        public string ServicesSubnet { get; internal set; }
+        public string TunnelSubnet { get; internal set; }
         public string[] Warnings { get; internal set; }
         // The service's own journal of what went wrong; empty when unreadable.
         public string[] Faults { get; internal set; }
@@ -97,6 +101,16 @@ namespace IkeV2Manager.Client
             }
         }
 
+        internal static bool ValidNetwork(string text) {
+            if (text == "") return true;
+            if (text == null) return false;
+            var parts = text.Split('/'); int prefix; System.Net.IPAddress ip;
+            if (parts.Length != 2 || !Int32.TryParse(parts[1], out prefix) || prefix < 1 || prefix > 32 || prefix.ToString(CultureInfo.InvariantCulture) != parts[1] ||
+                !System.Net.IPAddress.TryParse(parts[0], out ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || ip.ToString() != parts[0]) return false;
+            var bytes = ip.GetAddressBytes(); uint address = ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+            return (address & (UInt32.MaxValue << (32 - prefix))) == address;
+        }
+
         internal static ClientView Evaluate(string json, uint servicePid, DateTime now)
         {
             try
@@ -105,7 +119,7 @@ namespace IkeV2Manager.Client
                 var data = serializer.DeserializeObject(json) as Dictionary<string, object>;
                 if (data == null || !data.ContainsKey("Version") || !(data["Version"] is int)) return new ClientView("status_invalid");
                 int version = (int)data["Version"];
-                if (version < 1 || version > 3 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : 14) || !data.ContainsKey("State") ||
+                if (version < 1 || version > 4 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : version == 3 ? 14 : 18) || !data.ContainsKey("State") ||
                     !data.ContainsKey("GuardInstalled") || !data.ContainsKey("Protected") ||
                     !data.ContainsKey("UpdatedAtUtc") || !data.ContainsKey("ProcessId") ||
                     !(data["ProcessId"] is int) ||
@@ -151,8 +165,19 @@ namespace IkeV2Manager.Client
                     listed.Any(item => !(item is string) || !Regex.IsMatch((string)item, @"\A[a-z0-9][a-z0-9_-]{0,47}\z")) ||
                     ((state == "protected" || state == "tunnel_connected") && !(bool)data["Wanted"]))
                     return new ClientView("status_invalid");
+                string server = "", ipText = "", servicesSubnet = "", tunnelSubnet = "";
+                if (version == 4) {
+                    foreach (string key in new[] { "ServerName", "ServerIP", "ServicesSubnet", "TunnelSubnet" })
+                        if (!data.ContainsKey(key) || !(data[key] is string)) return new ClientView("status_invalid");
+                    server = (string)data["ServerName"]; ipText = (string)data["ServerIP"];
+                    servicesSubnet = (string)data["ServicesSubnet"]; tunnelSubnet = (string)data["TunnelSubnet"];
+                    System.Net.IPAddress ip;
+                    if ((server != "" && (server.Length > 253 || !Regex.IsMatch(server, @"\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z"))) ||
+                        (ipText != "" && (!System.Net.IPAddress.TryParse(ipText, out ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || ip.ToString() != ipText)) ||
+                        !ValidNetwork(servicesSubnet) || !ValidNetwork(tunnelSubnet)) return new ClientView("status_invalid");
+                }
                 return new ClientView(state, guard, connectionError, listed.Cast<string>().ToArray(), (int)data["Domains"], (int)data["Revision"], (bool)data["Wanted"], offered.Cast<string>().ToArray())
-                    { Release = (string)data["Release"], Warnings = warned.Cast<string>().ToArray() };
+                    { Release = (string)data["Release"], Warnings = warned.Cast<string>().ToArray(), ServerName = server, ServerIP = ipText, ServicesSubnet = servicesSubnet, TunnelSubnet = tunnelSubnet };
             }
             catch (ArgumentException) { return new ClientView("status_invalid"); }
             catch (InvalidOperationException) { return new ClientView("status_invalid"); }

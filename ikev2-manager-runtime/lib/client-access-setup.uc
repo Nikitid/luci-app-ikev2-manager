@@ -79,7 +79,9 @@ try {
 			enabled: option('client_access.enabled') == '1', port: match(port, /^[0-9]{4,5}$/) ? +port : 8443,
 			server_enabled: option('server.enabled') == '1', server_identity: identity(),
 			custom_server: option('server.custom_config') == '1', approve: option('client_access.approve') == '1',
-			virtual_subnet: state?.publication?.virtual_subnet, exit: state?.publication?.exit, tunnels: tunnels() }));
+			virtual_subnet: state?.publication?.virtual_subnet, exit: state?.publication?.exit, tunnels: tunnels(),
+			// Devices were enrolled for this name; the API answers under no other.
+			enrolled_identity: state?.publication?.server?.address }));
 	} else if (ARGV[0] == 'apply' && length(ARGV) == 1) {
 		let raw = stdin.read(4097);
 		if (type(raw) != 'string' || length(raw) > 4096) die('oversized request');

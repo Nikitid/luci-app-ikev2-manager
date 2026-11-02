@@ -46,6 +46,19 @@ internal static class ClientStatusTests
             if (open.Services.Length != 2 || open.Available.Length != 1 || open.Domains != 5 || open.Revision != 4 || !open.Wanted || !open.Routed) throw new Exception("Assigned services were lost");
             if (open.Release != "2.3.0" || !ClientView.Newer("2.3.0", new Version(2, 2, 9, 0)) || ClientView.Newer("2.3.0", new Version(2, 3, 0, 0)) ||
                 ClientView.Newer("", new Version(1, 0, 0, 0)) || ClientView.Newer("2.2.9", new Version(2, 3, 0, 0))) throw new Exception("Release comparison is wrong");
+            data["Version"] = 4;
+            data["ServerName"] = "vpn.example.com"; data["ServerIP"] = "203.0.113.7";
+            data["ServicesSubnet"] = "172.30.16.0/20"; data["TunnelSubnet"] = "10.40.50.0/24";
+            var addressed = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
+            if (addressed.State != "protected" || addressed.ServerName != "vpn.example.com" || addressed.ServerIP != "203.0.113.7" ||
+                addressed.ServicesSubnet != "172.30.16.0/20" || addressed.TunnelSubnet != "10.40.50.0/24") throw new Exception("Connection addresses were lost");
+            foreach (string invalid in new[] { "0.0.0.0/0", "10.40.50.1/24", "10.40.50.0/33", "10.40.50.0/024", "https://example.com/" }) {
+                data["TunnelSubnet"] = invalid;
+                if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).State != "status_invalid") throw new Exception("Invalid network accepted");
+            }
+            data["TunnelSubnet"] = "";
+            if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).State != "protected") throw new Exception("Unknown address changed protection");
+            data["Version"] = 3; foreach (string key in new[] { "ServerName", "ServerIP", "ServicesSubnet", "TunnelSubnet" }) data.Remove(key);
             if (open.Warnings.Length != 1 || open.Warnings[0] != "proxy") throw new Exception("A warning was lost");
             data["Warnings"] = new[] { "<b>" }; Check(data, 123, now, "status_invalid");
             data["Warnings"] = new string[0];

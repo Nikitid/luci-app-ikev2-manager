@@ -5,13 +5,19 @@ STOP=90
 USE_PROCD=1
 
 start_service() {
- local api_settings api_certificate api_key
+ local api_settings api_certificate api_key api_digest
 	[ -f /etc/ikev2-manager/clients/initialized ] || return 0
 	[ -x /usr/libexec/ikev2-client-access ] || return 0
+	# The exit a device's services leave through is chosen by the health
+	# watcher, which runs only in managed mode; without it the controller
+	# could only fail every two seconds. Managed mode starts this again.
+	[ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || return 0
 	procd_open_instance access
 	procd_set_param command /usr/libexec/ikev2-client-access watch
 	procd_set_param respawn 3600 5 5
-	procd_set_param term_timeout 5
+	# Its stop closes grants and then waits up to five seconds for the proxy
+	# to exit; a shorter limit killed it in the middle of that.
+	procd_set_param term_timeout 15
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_close_instance
@@ -29,41 +35,45 @@ start_service() {
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_close_instance
- if [ "$(uci -q get ikev2-manager.client_access.enabled)" = 1 ]; then
-  procd_open_instance api
-  procd_set_param command /usr/libexec/ikev2-client-api serve
-  api_settings="$(/usr/bin/ucode /usr/libexec/ikev2-manager.d/client-api-settings.uc 2>/dev/null)" || api_settings=''
-  api_certificate="$(printf '%s' "$api_settings" | jsonfilter -e '@.certificate' 2>/dev/null)" || api_certificate=''
-  api_key="$(printf '%s' "$api_settings" | jsonfilter -e '@.private_key' 2>/dev/null)" || api_key=''
-  if [ -n "$api_certificate" ] && [ -n "$api_key" ]; then
-   procd_set_param file /etc/config/ikev2-manager "$api_certificate" "$api_key"
-  else procd_set_param file /etc/config/ikev2-manager; fi
+ # The device API and its resolver run while the inbound server and client
+ # access are both on and their settings hold; a refused setting used to
+ # restart the API until procd gave up on it.
+ [ "$(uci -q get ikev2-manager.client_access.enabled)" = 1 ] &&
+  [ "$(uci -q get ikev2-manager.server.enabled)" = 1 ] || return 0
+ api_settings="$(/usr/bin/ucode /usr/libexec/ikev2-manager.d/client-api-settings.uc 2>/dev/null)" || return 0
+ api_certificate="$(printf '%s' "$api_settings" | jsonfilter -e '@.certificate' 2>/dev/null)" || return 0
+ api_key="$(printf '%s' "$api_settings" | jsonfilter -e '@.private_key' 2>/dev/null)" || return 0
+ # Restarted when what they serve with changed - name, port, certificate
+ # path or the certificate itself - and not on every save of the router's
+ # settings, which used to drop every device's registration and names.
+ api_digest="$(printf '%s' "$api_settings" | sha256sum | cut -d' ' -f1)"
+ procd_open_instance api
+ procd_set_param command /usr/libexec/ikev2-client-api serve
+ procd_set_param file "$api_certificate" "$api_key"
+ procd_set_param env IKEV2_CLIENT_API_SETTINGS="$api_digest"
+ procd_set_param respawn 3600 5 5
+ procd_set_param term_timeout 10
+ procd_set_param stdout 0
+ procd_set_param stderr 1
+ procd_close_instance
+ # Names over HTTPS for devices whose other VPN blocks plain DNS. It needs
+ # dnsproxy; without it devices ask on port 53 as they always did.
+ if [ -x /usr/bin/dnsproxy ]; then
+  procd_open_instance names
+  procd_set_param command /usr/libexec/ikev2-client-api names
+  procd_set_param file "$api_certificate" "$api_key"
+  procd_set_param env IKEV2_CLIENT_API_SETTINGS="$api_digest"
   procd_set_param respawn 3600 5 5
   procd_set_param term_timeout 10
   procd_set_param stdout 0
   procd_set_param stderr 1
   procd_close_instance
-  # Names over HTTPS for devices whose other VPN blocks plain DNS. It needs
-  # dnsproxy; without it devices ask on port 53 as they always did.
-  if [ -x /usr/bin/dnsproxy ]; then
-   procd_open_instance names
-   procd_set_param command /usr/libexec/ikev2-client-api names
-   if [ -n "$api_certificate" ] && [ -n "$api_key" ]; then
-    procd_set_param file /etc/config/ikev2-manager "$api_certificate" "$api_key"
-   else procd_set_param file /etc/config/ikev2-manager; fi
-   procd_set_param respawn 3600 5 5
-   procd_set_param term_timeout 10
-   procd_set_param stdout 0
-   procd_set_param stderr 1
-   procd_close_instance
-  fi
  fi
 }
 
-stop_service() {
-	[ -f /etc/ikev2-manager/clients/initialized ] || return 0
-	/usr/libexec/ikev2-client-access close
-}
+# Nothing to do here: the watcher holds the controller lock, so a one-shot
+# close could not run; its own TERM handler closes the grants and stops the
+# proxy, and the denial table stays.
 
 service_triggers() {
  procd_add_reload_trigger ikev2-manager

@@ -53,6 +53,24 @@ for script in /usr/libexec/ikev2-* /usr/libexec/ikev2-manager.d/*.sh /etc/init.d
 	sh -n "$script" || fail "$script does not parse under BusyBox ash"
 done
 
+step 'doctor distinguishes the XFRM link module from nftables IPsec support'
+(
+	. /usr/libexec/ikev2-manager.d/system-doctor.sh
+	module_dir="$(mktemp -d)"
+	trap 'rm -rf "$module_dir"' EXIT INT TERM
+	: >"$module_dir/xfrm_interface.ko"
+	ok=1 dependencies_ok=1
+	doctor_xfrm_modules "$module_dir" >"$module_dir/report"
+	grep -qx 'xfrm_module=ok' "$module_dir/report" || fail 'XFRM link module not detected'
+	grep -qx 'nft_xfrm_module=missing' "$module_dir/report" || fail 'missing nft_xfrm not reported'
+	[ "$ok:$dependencies_ok" = 0:0 ] || fail 'missing nft_xfrm accepted as ready'
+	: >"$module_dir/nft_xfrm.ko.gz"
+	ok=1 dependencies_ok=1
+	doctor_xfrm_modules "$module_dir" >"$module_dir/report"
+	grep -qx 'nft_xfrm_module=ok' "$module_dir/report" || fail 'compressed nft_xfrm not detected'
+	[ "$ok:$dependencies_ok" = 1:1 ] || fail 'complete module set rejected'
+)
+
 step 'installed helpers ignore test overrides a page session could send'
 # rpcd passes a caller's environment through; the overrides are for the tests.
 mkdir -p /tmp/evil-lib /tmp/evil-bin

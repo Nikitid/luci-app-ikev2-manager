@@ -22,6 +22,13 @@ cleanup() { pid_lock_release "$runtime_dir/worker.lock"; }
 trap 'cleanup; exit 1' HUP INT TERM
 enrollment_sync() {
 	local rc=0
+	# Nothing is registering: the journal ends with an empty pending entry. The
+	# full check of the journal ran every five seconds for nothing.
+	if [ ! -e /etc/ikev2-manager/clients/invitations.json ] ||
+		tail -c 64 /etc/ikev2-manager/clients/invitations.json 2>/dev/null | grep -q '"pending": null }$'; then
+		[ "$(cat "$runtime_dir/status" 2>/dev/null)" = 'state=idle' ] || printf 'state=idle\n' >"$runtime_dir/status"
+		return 0
+	fi
 	pkg_run_bounded 120 /usr/bin/ucode "$runtime_lib_dir/client-access-enrollment-worker.uc" >"$runtime_dir/status.new" 2>/dev/null || rc=1
 	[ "$rc" = 0 ] || printf 'state=retry\n' >"$runtime_dir/status.new"
 	mv "$runtime_dir/status.new" "$runtime_dir/status" || rc=1

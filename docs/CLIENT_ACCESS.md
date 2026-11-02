@@ -125,8 +125,9 @@ addresses even for services not assigned to the particular client.
 The sing-box generator accepts optional `client_access_policy` and
 `client_access_port` inputs. It creates a dedicated TProxy listener and explicit
 destination rules before ordinary sniffing and routing. Missing exits and
-unmatched destinations are rejected. The runtime does not yet supply these
-inputs or install the interception rules. This is not an active router feature.
+unmatched destinations are rejected. The runtime does not supply these inputs:
+the active path is the dedicated instance of the `path` mode below, and these
+inputs remain only for the generator's own tests.
 
 The separate `path` compiler mode reads a validated committed state plus a
 server-selected XFRM exit interface, resolver and listener port. It compiles a
@@ -237,9 +238,11 @@ establish or verify that listener.
 
 While a link waits for devices the router also keeps it in a root-only
 directory in memory (`/var/run/ikev2-client-links`), so the page can show it
-again from the list of active links. Only a place the ledger still holds open
-is answered; the kept link goes with a restart, with the link's own end, and
-the moment it is withdrawn or replaced. The state on flash still holds digests
+again from the list of active links. The link remains available while any of
+its places is still open, including when an older page asks through a place
+that has already registered. Revocation from that page closes only unused
+places and preserves registered devices. The kept link goes with a restart,
+with the link's own end, and the moment it is withdrawn or replaced. The state on flash still holds digests
 only.
 
 The root-only credential worker now stages a separate random EAP password per
@@ -271,8 +274,11 @@ protected source paths, stages a private pair and checks TLS server purpose,
 hostname, validity and matching public keys. It binds IPv4 and IPv6 with an empty
 root and only the client API handler; it attaches no LuCI or ubus handler.
 Configuration reload updates the API instance without restarting unchanged client
-controllers. Disabling removes the listener. Certificate renewal currently
-requires a service reload; automatic renewal integration remains incomplete.
+controllers. Disabling removes the listener. The listener and its resolver stage
+their own copy of the pair when they start, so the ACME hotplug hook reloads
+`ikev2-client-access` after `server-cert-sync`; procd restarts both instances
+because their certificate files changed. Without that reload they kept the old
+certificate until the next restart, and devices refused it once it expired.
 
 Installed OpenWrt tests exercise the launcher and actual procd startup, port
 reload and disable. No live router endpoint or WAN firewall rule has been
@@ -408,10 +414,17 @@ its unknown-publisher warning.
 for this device at the tunnel's address (`GET /client/v1/readiness`, device
 token, `X-Client-Address`). Only an answer for the same device, address and
 policy revision permits the tunnel interface in the dynamic WFP session and
-publishes `protected`. An unanswered request keeps permission for at most ten
-seconds since the last confirmation, less than the router's own fifteen-second
-admission lease; revocation, a different policy or an invalid answer closes it
-at once. Without confirmation the state stays `tunnel_connected` with a reason
+publishes `protected`. The router is asked again every six seconds while access
+stands confirmed. An unanswered request, or the router saying its path is not
+in effect right now (`path_unavailable`), keeps permission for at most twenty
+seconds since the last confirmation; both clients do the same. That outlives
+the router's fifteen-second admission lease by design: the router decides
+admission by itself, closes its grants the moment its path fails, and a
+permission on this side only lets the tunnel carry what the router admits.
+What the window may show is "protected" for those few seconds longer.
+Revocation, a different policy or an invalid answer closes it at once. The
+policy, service and release requests are made outside the service lock, so a
+router that is slow to answer them cannot hold up this check. Without confirmation the state stays `tunnel_connected` with a reason
 the window explains. Selected addresses are virtual and denied outside the
 tunnel at all times, so this gate decides what the user is told and when the
 tunnel may carry traffic, not whether traffic can leave another way.
@@ -436,6 +449,32 @@ session. Closing that session or terminating its process removes the permissions
 disposing the controller retains the persistent denials. Explicit removal owns
 only the recorded filters and sublayer. Recovery verifies recorded filter
 destinations, actions, layers and ownership before permitting traffic.
+
+The guard requests the maximum sublayer weight (`0xFFFF`), accepting `0xFFFE`
+when Windows normalizes that request. Its denials
+are hard (`FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT`). WFP asks the heaviest
+sublayer first and a denial is final, so a permission another program adds in
+a lighter sublayer cannot undo it, hard or not. Guards installed before 2.2.6
+sat at `0x7000`, where a hard permission from a heavier sublayer went first;
+the service moves such a guard up when it starts, deleting and re-adding its
+filters and sublayer in one WFP transaction, so no moment denies nothing. A
+filter of another program inside the guard's sublayer fails that move, and the
+old guard stays as it was.
+A client older than 2.2.6 does not accept the moved sublayer: installed over
+2.2.6 its service stays in `error` with the guard denying, and its uninstaller
+cannot remove the guard. Go back by installing 2.2.6 or later again.
+
+What the weight cannot settle - a hard permission in another sublayer of the
+same weight, whose order against this one WFP leaves open, or a filter of
+another program inside the guard's own sublayer - is not detected. The WFP
+test suite installs permissions of its own: in a lighter sublayer the address
+stays denied, and the equal-weight cases are recorded in its output.
+
+What leaves when the guard is overridden: only the virtual subnet is guarded -
+the addresses the router hands out for the services, the resolver and the
+names network. A connection to one of them outside the tunnel goes to a
+private address on another network: the service is not reached, but a name
+asked in plain text or a TLS server name can be seen there.
 
 `GuardStore.cs` stores a protection plan before installing its filters. The
 directory, journal and controller lock grant access only to Administrators and
@@ -486,8 +525,8 @@ traffic permission. Native profile creation, stable ownership, route replacement
 and unrelated-profile preservation have been exercised on Windows. A real
 SCM/OpenWrt HTTPS enrollment run also created and persisted the profile and
 updated it from central publication. An opt-in native connection scenario now
-also verifies EAP IKEv2 establishment and effective selected routes. Full traffic
-protection remains incomplete.
+also verifies EAP IKEv2 establishment and effective selected routes. Traffic
+protection is the guard runtime described under "Permission, status and recovery".
 
 `SystemHosts.cs` reconciles assigned and retained domain mappings only after
 persistent WFP coverage is verified. Replacement preserves unrelated entries,
@@ -569,8 +608,8 @@ checking that they have no specific route or active TCP connection. It tests
 planned versus installed protection, restart, invalid updates, restricted-user
 access, and corruption at startup and during a heartbeat. It does not send
 traffic to those destinations and removes its owned filters and journal.
-This is not an IKEv2 end-to-end test. The Windows CI job runs this scenario;
-the workflow itself has not yet been exercised remotely.
+This is not an IKEv2 end-to-end test. The `desktop-core` CI job runs this
+scenario on a hosted Windows runner.
 
 `scripts/openwrt/client-access.sh` uses the production authorization compiler
 and two disposable network namespaces with actual kernel ESP, TCP and UDP.
@@ -604,9 +643,9 @@ the root-owned snapshot contains only key hashes. Unknown and disabled keys
 receive the same refusal. Requests cannot select another device, post a body,
 access administrative endpoints or receive malformed policy fields. The
 snapshot directory and file require owner-only permissions. The listener is
-not yet installed as a permanent router service or opened on WAN.
+the `ikev2-client-api serve` instance of `ikev2-client-access.init`.
 
-Windows `PolicyTransportClient` and its macOS counterpart use platform
+Windows `PolicyTransportClient` and macOS `DeviceTransport` use platform
 certificate and hostname validation, refuse redirects, bypass configured HTTP
 proxies and bound the response to 1 MiB. They validate schema and enrolled history
 before returning a proposal. Neither fetch commits intent nor grants access.
@@ -623,7 +662,6 @@ for unchanged policy content, advances them for changed access and refuses
 identity, pool or allocation changes. Removing all assignments disables policy
 retrieval while retaining the last intent. The caller must also revoke live
 router grants; client polling alone cannot terminate existing access. Persistent publication and the read-only API share a validated snapshot.
-Enrollment and catalog UI integration are still required.
 
 
 ### Views
@@ -756,14 +794,14 @@ The `reconcile` compiler mode joins the protected API publication to a local
 VICI snapshot. Device IDs are the provisioned EAP IDs; enabled devices receive
 only their server-owned policy. Disabled, unknown or incomplete sessions get
 no grant. Invalid local publication or failed VICI reads are errors. The live
-controller reads this persistent publication. Enrollment, actual managed-device
-IKEv2 provisioning and client activation are not connected yet.
+controller reads this persistent publication.
 
 The encrypted packet scenario requires `kmod-nft-xfrm` and XFRM interfaces;
 its isolated veth links also require `kmod-veth` on a router. Containers without
 XFRM skip the scenario unless `IKEV2_REQUIRE_XFRM=1`, as in CI. The scenario passed
-on home hardware; the updated remote workflow has not yet been exercised.
-The runtime dependency installer does not yet install nft_xfrm.
+on home hardware and runs in the `openwrt` CI job. The admission table matches
+`ipsec in` and `ipsec out`, so the router needs `kmod-nft-xfrm` too; the runtime
+dependency installer installs and repairs it with the other kernel modules.
 
 
 ## Router admission controller
@@ -840,14 +878,20 @@ cover the whole subnet, so the resolver and the names range are closed outside
 the tunnel like the fixed addresses.
 
 Because no AAAA record is ever returned for a managed name, a machine with
-working IPv6 has no IPv6 destination for it. The clients set nothing in any
-browser: a setting of another program is outside what they were let do, and
-what earlier builds wrote there is taken back on update. Chrome and Edge on
-Windows ask the system by themselves once name rules exist, also with a public
-system resolver they could encrypt to; that was measured. Firefox, and every
-browser on macOS, was not: a browser that resolves over its own encrypted
-channel never asks the tunnel. A system proxy takes browser traffic before any
-route does; both clients report it as a warning.
+working IPv6 has no IPv6 destination for it. Chrome and Edge on Windows ask
+the system by themselves once name rules exist, also with a public system
+resolver they could encrypt to; that was measured. Firefox, and every browser
+on macOS, was not: a browser that resolves over its own encrypted channel never
+asks the tunnel. Both windows therefore read the browsers' own settings of the
+person at the window - read, never written - and name each browser set to its
+own provider ("secure" in Chrome and its kin, `network.trr.mode` 2 or 3 in
+Firefox). Nothing is set by installing: a setting of another program reaches
+beyond this program's services. Only when the person asks, the window sets the
+managed policy "resolve through the system" for Chrome, Edge, Brave, Yandex
+Browser and Firefox - on Windows through Setup in the machine's policy keys,
+recording and later removing only the values it wrote; on macOS as a separate
+configuration profile the person installs and removes. A system proxy takes
+browser traffic before any route does; both clients report it as a warning.
 
 On the router the DNS enforcement redirect leaves questions arriving from the
 inbound tunnel for the virtual subnet alone, and the firewall admits marked
@@ -932,7 +976,11 @@ reasoning except where a test is named:
   back when it is gone (tested with WireGuard on Windows).
 - A system proxy: traffic sent to the proxy bypasses the tunnel; both windows warn.
 - A program with its own encrypted resolver reaches a service directly and
-  not through the tunnel. No program is configured against it.
+  not through the tunnel. Browsers are named in the window and can be given a
+  policy to ask the system (see "Names under a service"); other programs are
+  not. Denying the services' real addresses instead is not done: they belong
+  to shared CDN ranges and change, so such a denial would close unrelated
+  sites and still miss new addresses.
 - Captive portals, IPv6-only access networks and small path MTU are
   unverified.
 
@@ -967,6 +1015,70 @@ own height.
 
 A disabled or revoked device stays known to the router and its client reports
 `access_closed`.
+
+## Lifecycle with the rest of the router
+
+Remote clients run only in managed mode: their exit is chosen by the health
+watcher, which runs only there. Turning managed mode off stops
+`ikev2-client-access` and then runs `ikev2-client-access teardown`, which
+removes the proxy, both owned tables, the local route and its rule; the
+published state, the devices and their accounts stay. Turning it on starts
+the service again. Removing the package does the same and also unloads the
+`ikev2-in-managed` connection. The SDK `Makefile` carries the prerm script
+itself (`scripts/check-version-sync.sh`).
+
+A stop leaves the denial table in place. The controller's own TERM handler
+closes the grants and stops the proxy; procd allows it fifteen seconds.
+
+Removing a device first withdraws the rights of its account, so a device
+that sent everything into the tunnel is never left a VPN user should the
+account outlive the cleanup. A restored backup marks each restored
+credential as issued, so a device restored on a fresh router can still be
+removed with its account.
+
+A device identifier is never one an account already has or one a credential
+was ever issued for: the page counts such names as used and issuance
+refuses them. A registration whose account still cannot be made is retried
+for ten minutes, or until its link ends, and then abandoned
+(`registration-abandoned` in the journal); before, it waited for good and no
+other link could be issued, withdrawn or used meanwhile.
+
+## Limits and load
+
+The ledger lets go of places that no longer decide anything: one withdrawn,
+abandoned or never used, a day after its link ended, and the place of a
+removed device a month after its link ended. A removed device keeps its
+record in the state for one publication and then only its name in
+`retired_ids`. Both used to be kept for good, and a router that had seen 512
+places or 512 devices took no more. A name stays spent: removed devices by
+`retired_ids`, issued credentials by their markers.
+
+The controller replaces its admission table only when it holds grants, which
+need their lease renewed, or when the table differs from what it installed:
+it used to replace the whole table every two seconds, about 13% of one core
+of a GL-MT6000 with nobody connected. It checks the path once a round, writes
+the source lists only when who is connected changed, and the enrollment
+worker looks at the journal only when something is registering.
+
+The registration port takes at most eight connections at a time from one
+address, with `kmod-nft-connlimit` (a runtime dependency); without the module
+the per-address rate limit alone stays. The server holds 48 connections. One
+address that kept eight idle connections open used to take every place.
+
+The API and its resolver are restarted when their name, port or certificate
+changed, not on every save of the router's settings, and they run only while
+the inbound server is on. The Remote clients page warns when the server's
+name is no longer the one devices were enrolled for.
+
+The Users page neither changes the password of a registered Waypoint
+device's account nor deletes it; that is done by removing the device. Mail
+for links takes the password from a file of its own (`passwordeval`).
+
+On macOS the daemon also checks that the packet filter is on and that the
+main ruleset still reaches Apple's anchors: another program that switches the
+filter off (`pfctl -d`) gets it switched on again; one that loads a main
+ruleset without `com.apple` leaves the client in `error` with its permission
+withdrawn, since the anchor's rules would deny nothing.
 
 ## Marks and other software on the router
 
@@ -1046,7 +1158,11 @@ disconnects it, so the window and the system's menu always agree.
 status with one sign and colour, three checks (denial outside the tunnel,
 tunnel and routes, path through the office), the assigned services, a notice
 for an update or a proxy, and one prominent button for the next step; the
-macOS one adds "a VPN profile is needed".
+macOS one adds "a VPN profile is needed". A permanent right-hand panel shows
+the server name, its known IPv4 address, the services network and the tunnel
+network, each with its own copy button. Unknown values remain visible with
+copying disabled. The optional `tunnel_subnet` field in `/client/v1/services`
+supplies the inbound network; older routers leave that row unavailable.
 
 `desktop-clients/macos/build.sh X.Y.Z` builds an installer package for Apple
 silicon: the application, the daemon under `/Library/PrivilegedHelperTools`,
@@ -1058,9 +1174,10 @@ Verified: the unit tests; the daemon running unprivileged with `--dry-system`
 against the disposable router - registration over verified TLS, private
 storage, planned denial and names, service names, the generated profile, the
 router refusing readiness for a tunnel it did not authenticate, revocation and
-removal; the package's contents. Not yet run on a Mac with privileges: the
-installed daemon, the packet-filter anchor, the profile approval and a real
-IKEv2 session. The packet filter does not keep rules across a boot. The
+removal; the package's contents. The installed package was then run on
+macOS 27 on Apple silicon (see "Waypoint: names and supported systems"): the
+daemon, the packet-filter anchor, the profile approval and a real IKEv2
+session. The packet filter does not keep rules across a boot. The
 daemon is a launchd job started at boot, before any user session, and loads
 the denial before it touches names; until then managed names point at virtual
 addresses that lead nowhere, so nothing reaches the real service.

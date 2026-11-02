@@ -43,7 +43,7 @@ namespace IkeV2Manager.Client
     }
 
     // The names a device shows its user. Informational: permission never
-    // depends on it, so it carries no addresses and grants nothing.
+    // depends on it. Its informational tunnel network grants no access.
     public sealed class DeviceServices
     {
         public readonly string[] Selected, Available;
@@ -55,6 +55,7 @@ namespace IkeV2Manager.Client
         public readonly bool Full;
         // Whether the router answers names over HTTPS at the resolver address.
         public readonly bool NamesHttps;
+        public string TunnelSubnet { get; private set; }
 
         private DeviceServices(string[] selected, string[] available, int domains, bool block, bool full, bool namesHttps) { Selected = selected; Available = available; Domains = domains; Block = block; Full = full; NamesHttps = namesHttps; }
 
@@ -106,7 +107,15 @@ namespace IkeV2Manager.Client
                     }
                     lists.Add(names.ToArray());
                 }
-                return new DeviceServices(lists[0], lists[1], domains, block, full, namesHttps);
+                string tunnel = data.ContainsKey("tunnel_subnet") ? data["tunnel_subnet"] as string : "";
+                if (tunnel == null) throw new ArgumentException();
+                if (tunnel != "") {
+                    var pieces = tunnel.Split('/'); int prefix;
+                    if (pieces.Length != 2 || !Int32.TryParse(pieces[1], out prefix) || prefix < 1 || prefix > 32 || prefix.ToString() != pieces[1]) throw new ArgumentException();
+                    uint address = ClientPolicy.Address(pieces[0]);
+                    if ((address & (UInt32.MaxValue << (32-prefix))) != address) throw new ArgumentException();
+                }
+                return new DeviceServices(lists[0], lists[1], domains, block, full, namesHttps) { TunnelSubnet = tunnel };
             }
             catch (ArgumentException) { throw new PolicyFetchException("services_response_invalid"); }
             catch (InvalidOperationException) { throw new PolicyFetchException("services_response_invalid"); }

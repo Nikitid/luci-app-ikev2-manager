@@ -4,6 +4,10 @@ case "$ACTION" in
 	issued | renewed)
 		[ "$(uci -q get ikev2-manager.globals.configured)" = 1 ] || exit 0
 		[ "$(uci -q get ikev2-manager.server.enabled)" = 1 ] || exit 0
-		/usr/libexec/ikev2-manager server-cert-sync
+		/usr/libexec/ikev2-manager server-cert-sync || exit 1
+		# The client API and its resolver stage their own copy of the pair at
+		# start; procd restarts them on reload when the source files changed.
+		[ "$(uci -q get ikev2-manager.client_access.enabled)" = 1 ] || exit 0
+		/etc/init.d/ikev2-client-access reload
 		;;
 esac

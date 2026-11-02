@@ -92,8 +92,9 @@ function route_slots(directory, plan, rules, routes) {
   let other = route_range(route.dst ?? '');
   if (range.first <= other.last && other.first <= range.last) die('overlapping route');
  }
- // Record intent before either mutation, so interrupted partial setup is recoverable.
- atomic_write(directory + '/route-owner.json', { version: 1, subnet: subnet });
+ // Record intent before either mutation, so interrupted partial setup is
+ // recoverable. An existing record already says this, checked above.
+ if (!lease) atomic_write(directory + '/route-owner.json', { version: 1, subnet: subnet });
  print(sprintf('%J\n', { rule_present: rule_present, route_present: route_present }));
 }
 
