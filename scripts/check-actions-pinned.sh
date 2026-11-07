@@ -17,7 +17,7 @@ for workflow in "$root"/.github/workflows/*.yml; do
 				;;
 		esac
 	done <<EOF
-$(sed -n 's/^[[:space:]]*-[[:space:]]*uses:[[:space:]]*\([^ #]*\).*/\1/p' "$workflow")
+$(sed -n 's/^[[:space:]]*\(-[[:space:]]*\)\{0,1\}uses:[[:space:]]*\([^ #]*\).*/\2/p' "$workflow")
 EOF
 done
 
