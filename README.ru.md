@@ -157,6 +157,7 @@ LinkedIn, Spotify, TikTok и Hugging Face используют v2fly; Revolut и
 ```
 
 Подписанный фид и проверка релиза: [docs/OPENWRT25.md](docs/OPENWRT25.md).
+Подпись релизов настольных клиентов: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Документация
 

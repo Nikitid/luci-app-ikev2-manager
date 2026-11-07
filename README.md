@@ -147,6 +147,7 @@ joined with the domains typed into the service.
 ```
 
 The signed feed and release validation: [docs/OPENWRT25.md](docs/OPENWRT25.md).
+Signing of the desktop client releases: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Documentation
 

@@ -82,6 +82,7 @@ python3 ./scripts/test-client-path.py
 python3 ./scripts/test-client-admin.py
 python3 ./scripts/test-client-enrollment.py
 ./scripts/test-desktop-client-core.sh
+./scripts/test-client-release-sign.sh
 ./scripts/test-nft-state.sh
 ./scripts/test-policy-routing.sh
 ./scripts/test-domain-validation.sh

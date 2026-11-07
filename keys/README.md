@@ -16,3 +16,10 @@ it from the `OPENWRT_APK_SIGNING_KEY` GitHub Actions secret. Losing that key
 requires an explicit key-rotation bootstrap on every installed router; exposing
 it allows an attacker to publish trusted packages for every application in the
 shared feed.
+
+# Client release key
+
+`waypoint-client-release.pem` (added by the maintainer, see
+`docs/DEVELOPMENT.md`) is the public P-256 key that signs the desktop client
+release list. It is unrelated to the APK key above. The private key lives only
+in the `CLIENT_RELEASE_SIGNING_KEY` GitHub Actions secret.

@@ -27,6 +27,26 @@ jobs:
           python-version: "3.12"
       - name: Verify tag
         run: ./scripts/check-release-tag.sh "${GITHUB_REF_NAME}"
+      # The desktop clients install only what the signed list vouches for, so
+      # a release that could not sign it must not start publishing.
+      - name: Check the client signing key
+        env:
+          CLIENT_SIGNING_KEY: ${{ secrets.CLIENT_RELEASE_SIGNING_KEY }}
+        run: |
+          test -n "$CLIENT_SIGNING_KEY" || {
+            echo 'CLIENT_RELEASE_SIGNING_KEY is not configured; refusing to release without a signed client list' >&2
+            exit 1
+          }
+          test -f keys/waypoint-client-release.pem || {
+            echo 'keys/waypoint-client-release.pem is missing; see docs/DEVELOPMENT.md' >&2
+            exit 1
+          }
+          probe="$(mktemp -d)"
+          trap 'rm -rf "$probe"' EXIT
+          (umask 077 && printf '%s\n' "$CLIENT_SIGNING_KEY" > "$probe/key.pem")
+          printf 'probe\n' > "$probe/list"
+          ./scripts/client-release-sign.sh sign "$probe/list" "$probe/key.pem" "$probe/list.sig"
+          ./scripts/client-release-sign.sh verify "$probe/list" "$probe/list.sig" keys/waypoint-client-release.pem
       - name: Install ucode build dependencies
         run: sudo apt-get install -y --no-install-recommends cmake libjson-c-dev
       - name: Validate and build
@@ -154,3 +174,41 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP"/client/Waypoint-*.pkg --clobber
+
+  # The signed list covers every client installer of this release. It runs
+  # only when both client jobs succeeded, so a list never vouches for a
+  # partial set, and it fails rather than publish an unsigned one.
+  sign-clients:
+    needs: [windows-client, macos-client]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Sign the client release list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLIENT_SIGNING_KEY: ${{ secrets.CLIENT_RELEASE_SIGNING_KEY }}
+        run: |
+          test -n "$CLIENT_SIGNING_KEY" || {
+            echo 'CLIENT_RELEASE_SIGNING_KEY is not configured; refusing to publish an unsigned client list' >&2
+            exit 1
+          }
+          work="$RUNNER_TEMP/client-release"
+          mkdir -p "$work/files" "$work/out"
+          gh release download "$GITHUB_REF_NAME" --dir "$work/files" \
+            --pattern 'Waypoint-*.pkg' --pattern '*.msi' --pattern '*.exe'
+          ls "$work"/files/*.pkg >/dev/null
+          ls "$work"/files/*.msi >/dev/null
+          (umask 077 && printf '%s\n' "$CLIENT_SIGNING_KEY" > "$work/key.pem")
+          ./scripts/client-release-sign.sh list "$work"/files/* > "$work/out/Waypoint-SHA256SUMS"
+          ./scripts/client-release-sign.sh sign "$work/out/Waypoint-SHA256SUMS" "$work/key.pem" "$work/out/Waypoint-SHA256SUMS.sig"
+          rm -f "$work/key.pem"
+          # Verify what is about to be published, with the public key the
+          # clients carry, against the files as the release holds them.
+          ./scripts/client-release-sign.sh verify "$work/out/Waypoint-SHA256SUMS" "$work/out/Waypoint-SHA256SUMS.sig" keys/waypoint-client-release.pem "$work/files"
+          cat "$work/out/Waypoint-SHA256SUMS"
+          gh release upload "$GITHUB_REF_NAME" "$work/out/Waypoint-SHA256SUMS" "$work/out/Waypoint-SHA256SUMS.sig" --clobber
+      - name: Remove the client signing key
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP/client-release/key.pem"
