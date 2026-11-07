@@ -103,6 +103,7 @@ IKEV2_HEALTH_PASS_INTERVAL="${1:-1}" \
 IKEV2_HEALTH_CHECK_INTERVAL=3 \
 IKEV2_HEALTH_QUALITY_INTERVAL=2 \
 IKEV2_HEALTH_TUNNEL_PROBE_INTERVAL=1 \
+IKEV2_HEALTH_RECHECK_FLOOR=5 \
 IKEV2_UCI_BIN="$tmp/bin/uci" \
 IKEV2_NFT="$tmp/bin/nft" \
 IKEV2_NET_DIR="$tmp/net" \
@@ -353,6 +354,18 @@ passes="$(count '^sa tunnels')"
 : >"$tmp/run/ikev2-health.recheck"
 wait_for '^sa tunnels' $((passes + 1)) 'a request to check now did not run a pass'
 [ ! -e "$tmp/run/ikev2-health.recheck" ] || fail 'a request to check now was not taken'
+# Another request soon after waits for the router-wide floor, then runs.
+sleep 2
+: >"$tmp/run/ikev2-health.recheck"
+sleep 1.5
+[ -e "$tmp/run/ikev2-health.recheck" ] || fail 'requests to check now ran more often than the floor allows'
+passes="$(count '^sa tunnels')"
+wait_for '^sa tunnels' $((passes + 1)) 'a request held back by the floor never ran'
+i=0
+while [ -e "$tmp/run/ikev2-health.recheck" ]; do
+	i=$((i + 1)); [ "$i" -lt 30 ] || fail 'a request held back by the floor was never taken'
+	sleep 0.2
+done
 sleep 2
 passes="$(count '^sa tunnels')"
 mkdir "$S/action.lock"

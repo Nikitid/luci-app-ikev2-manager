@@ -49,6 +49,9 @@ task_dir="$run_dir/ikev2-health.tasks"
 # A device that asked the router to check its services now leaves this file;
 # the next tick takes it and runs the checks without waiting for their time.
 recheck_file="$run_dir/ikev2-health.recheck"
+# Each device may ask once in 30 s, so many devices could keep the probes
+# running; requests are run at most this often and the rest wait for the next.
+recheck_floor="${IKEV2_HEALTH_RECHECK_FLOOR:-10}"
 
 sa_helper="${IKEV2_SA_HELPER:-/usr/libexec/ikev2-sa}"
 routing_helper="${IKEV2_ROUTING_HELPER:-/usr/libexec/ikev2-routing}"
@@ -495,6 +498,7 @@ last_checks=0
 probe_last=0
 probe_failures=0
 recheck_follow=0
+recheck_last=0
 routing_policy_state=ok
 paused=0
 
@@ -532,9 +536,12 @@ while true; do
 	# Asked to check now: the tunnels are probed and the pass runs at once, and
 	# again when the probes have answered. The request is taken only here, after
 	# the action lock, so one made during a transaction is not lost.
-	if [ -e "$recheck_file" ]; then
+	# Requests that come within the floor of the last one wait and are run
+	# together.
+	if [ -e "$recheck_file" ] &&
+	   { [ $((now - recheck_last)) -ge "$recheck_floor" ] || [ "$now" -lt "$recheck_last" ]; }; then
 		rm -f "$recheck_file"
-		last_pass=0 probe_last=0 recheck_follow=1
+		last_pass=0 probe_last=0 recheck_follow=1 recheck_last="$now"
 		mark_periodic 0 "$tunnel_probe_dispatch"
 	elif [ "$recheck_follow" = 1 ] && probe_round_fresh; then
 		last_pass=0 recheck_follow=0

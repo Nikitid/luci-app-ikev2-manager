@@ -1034,7 +1034,9 @@ The call returns `202` with `{"version": 1, "accepted": true, "next_after": 30}`
 and nothing about the result: the device reads `health` in its next services
 answer, a few seconds later. A tunnel is still called `silent` only after the
 usual number of failed rounds, so one check does not change that verdict by
-itself. Each device may ask once in 30 seconds. A call inside the window is
+itself: a single lost round must not move exits or reconnect a tunnel. The
+watcher runs requests at most once in 10 seconds for the whole router;
+requests that come sooner wait and are run together. Each device may ask once in 30 seconds. A call inside the window is
 refused with `429`, `{"error": "check_too_often", "retry_after": N}` and a
 `Retry-After: N` header, N being the seconds left; it asks the watcher for
 nothing. The time of the last accepted call is a file per device
