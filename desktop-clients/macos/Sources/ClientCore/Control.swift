@@ -28,8 +28,10 @@ public enum Control {
         public var status: ClientStatusReport?
         /// The VPN profile, base64, for an administrator only.
         public var profile: String?
-        public init(result: String, status: ClientStatusReport? = nil, profile: String? = nil) {
-            self.result = result; self.status = status; self.profile = profile
+        /// "reset": what each step did.
+        public var reset: ResetReport?
+        public init(result: String, status: ClientStatusReport? = nil, profile: String? = nil, reset: ResetReport? = nil) {
+            self.result = result; self.status = status; self.profile = profile; self.reset = reset
         }
     }
 

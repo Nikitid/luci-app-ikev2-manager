@@ -1355,6 +1355,31 @@ network, each with its own copy button. Unknown values remain visible with
 copying disabled. The optional `tunnel_subnet` field in `/client/v1/services`
 supplies the inbound network; older routers leave that row unavailable.
 
+The macOS daemon mends what it can and never forgets the device by itself.
+Another program that switches the packet filter off finds it switched on again
+with the daemon's own `pfctl -E` reference and the anchor reloaded; until that
+holds, permission is withdrawn and the state is `error` with
+`guard_restoring`, and after five failed tries `guard_unconfirmed`. A main
+ruleset another program loaded is left alone. Before the Mac sleeps the
+permission goes and the denial stays; after wake the daemon connects and asks
+the router at once. A step that has not finished in 60 seconds is written down
+as `tick_stalled` and the daemon exits for launchd to start it again. A VPN
+profile seen installed and gone later is `profile_required` with
+`profile_removed`. A registration or policy the daemon cannot read is
+`needs_reset`: the denial stays, nothing is erased (an invitation link is
+single-use), and the owner decides with "Reset...".
+
+A reset takes seven steps in a fixed order - disconnect, the VPN profile, the
+browsers profile, the hosts block, the resolver files, the anchor, the stored
+device - each whatever became of the one before, then reads the system back.
+It answers with each step as `removed`, `absent` or `failed` and a reason
+(`refused`, `still_present`). Steps that failed stay in `reset.json` in the
+daemon's directory; the daemon takes them again at every step and at start,
+reports `reset_incomplete` meanwhile, and refuses a new registration until
+they are done. The uninstaller runs the same steps. The daemon's own failures
+are kept as codes and times in `faults.json` there (forty, one week) for the
+program to report.
+
 `desktop-clients/macos/build.sh X.Y.Z` builds an installer package for Apple
 silicon: the application, the daemon under `/Library/PrivilegedHelperTools`,
 its launchd job and `io.github.nikitid.ikev2-manager-client.uninstall`, which

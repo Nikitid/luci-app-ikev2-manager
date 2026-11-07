@@ -2,36 +2,52 @@ import Foundation
 import Testing
 @testable import ClientCore
 
-private let policyText = #"{"version":1,"id":"alice-mac","revision":1,"server":{"address":"vpn.example.com","remote_id":"vpn.example.com"},"virtual_subnet":"172.31.254.0/24","exit":"1","resources":[{"id":"host-1","domain":"api.example.com","address":"172.31.254.1","transports":[{"protocol":"tcp","ports":[443]}]}]}"#
-private let secret = String(repeating: "b", count: 64)
+let policyText = #"{"version":1,"id":"alice-mac","revision":1,"server":{"address":"vpn.example.com","remote_id":"vpn.example.com"},"virtual_subnet":"172.31.254.0/24","exit":"1","resources":[{"id":"host-1","domain":"api.example.com","address":"172.31.254.1","transports":[{"protocol":"tcp","ports":[443]}]}]}"#
+let secret = String(repeating: "b", count: 64)
 
 /// Records what the runtime did to the machine and plays the machine's part.
-private final class Machine: SystemActions, @unchecked Sendable {
+final class Machine: SystemActions, @unchecked Sendable {
     let lock = NSLock()
     var hosts = "127.0.0.1 localhost\n", rules = "", installed = true, connected = false
     var started = 0, stopped = 0, tunnel: TunnelObservation?, fault: TunnelFault?
     var log: [String] = []
     func sync<T>(_ body: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try body() }
     func readHosts() throws -> String { sync { hosts } }
-    func writeHosts(_ text: String) throws { sync { hosts = text; log.append("hosts") } }
+    var hostsBroken = false
+    func writeHosts(_ text: String) throws {
+        try sync { if hostsBroken { throw StoreError.unsafe }; hosts = text; log.append("hosts") }
+    }
     var resolving: [String] = [], resolver = ""
+    func heldNames() -> [String] { sync { resolving } }
     func setNameResolution(domains: [String], resolver: String) throws { sync { resolving = domains; self.resolver = resolver; log.append("names") } }
     func loadPacketFilter(_ text: String) throws { sync { rules = text; log.append("filter") } }
     func packetFilterRules() throws -> String { sync { rules } }
     var effective = true
     func packetFilterEffective() throws -> Bool { sync { effective } }
+    /// Whether switching the filter on again makes the anchor act.
+    var restorable = false, restored = 0
+    func restorePacketFilter(_ text: String) throws {
+        sync { restored += 1; rules = text; log.append("restore"); if restorable { effective = true } }
+    }
     func vpnInstalled() -> Bool { sync { installed } }
     func vpnConnected() -> Bool { sync { connected } }
     func startVPN() throws { sync { started += 1 } }
     func stopVPN() throws { sync { stopped += 1; connected = false } }
-    func removeVPNProfile(identifier: String) { sync { installed = false; log.append(identifier) } }
+    var browserProfile = false
+    func removeVPNProfile(identifier: String) {
+        sync {
+            if identifier == SystemPlan.browserProfileIdentifier { browserProfile = false } else { installed = false }
+            log.append(identifier)
+        }
+    }
+    func installedProfiles() -> Set<String>? { sync { browserProfile ? [SystemPlan.browserProfileIdentifier] : [] } }
     var observed: [String] = []
     func observeTunnel(addresses: [String]) throws -> TunnelObservation? {
         try sync { observed = addresses; if let fault { throw fault }; return tunnel }
     }
 }
 
-private final class Router: DeviceRequests, @unchecked Sendable {
+final class Router: DeviceRequests, @unchecked Sendable {
     let lock = NSLock()
     var claimed = false, enrolled = false, policy = Data(policyText.utf8)
     var ready: Result<DeviceReadiness, DeviceError> = .failure(.pathUnavailable)
@@ -70,13 +86,13 @@ private final class Router: DeviceRequests, @unchecked Sendable {
     func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool { sync { reports.append(report); reportWanted = false }; return true }
 }
 
-private func fixture() throws -> (ClientRuntime, Machine, Router, ClientStore) {
+func fixture() throws -> (ClientRuntime, Machine, Router, ClientStore) {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ikev2-client-" + UUID().uuidString)
     let store = try ClientStore(directory: directory), machine = Machine(), router = Router()
     return (ClientRuntime(store: store, system: machine, transport: router), machine, router, store)
 }
 
-private let invitation = "https://vpn.example.com:8443/client/v1/enroll#" + String(repeating: "a", count: 64)
+let invitation = "https://vpn.example.com:8443/client/v1/enroll#" + String(repeating: "a", count: 64)
 
 @Test func registrationInstallsDenialBeforeNames() async throws {
     let (runtime, machine, router, store) = try fixture()
@@ -113,7 +129,7 @@ private let invitation = "https://vpn.example.com:8443/client/v1/enroll#" + Stri
     try? FileManager.default.removeItem(at: store.directory)
 }
 
-private func registered() async throws -> (ClientRuntime, Machine, Router, ClientStore, Date) {
+func registered() async throws -> (ClientRuntime, Machine, Router, ClientStore, Date) {
     let (runtime, machine, router, store) = try fixture()
     var now = Date(timeIntervalSince1970: 2_000)
     try await runtime.begin(invitation: invitation)
