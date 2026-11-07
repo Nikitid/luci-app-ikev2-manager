@@ -35,10 +35,26 @@ mkdir -p \
 cp "$root"/ikev2-manager-runtime/lib/*.sh "$tmp/root/usr/libexec/ikev2-manager.d/"
 cp "$root/scripts/uci-stub.sh" "$tmp/bin/uci"
 printf '#!/bin/sh\n[ "${1:-}" = strongswan-security ]\n' >"$tmp/bin/system-helper"
-# Queued actions start the helper again through setsid, which macOS lacks;
-# the helper is not executable in the tree, only where it is installed.
+# Queued actions start the helper again through start-stop-daemon where there
+# is one (Linux) and setsid otherwise; the helper is not executable in the
+# tree, only where it is installed, so both stand-ins run it through sh.
 printf '#!/bin/sh\ncase "$1" in *.sh) exec sh "$@" ;; esac\nexec "$@"\n' >"$tmp/bin/setsid"
-chmod 755 "$tmp/bin/uci" "$tmp/bin/system-helper" "$tmp/bin/setsid"
+cat >"$tmp/bin/start-stop-daemon" <<'EOF'
+#!/bin/sh
+exe=''
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-x) exe="$2"; shift 2 ;;
+		--) shift; break ;;
+		*) shift ;;
+	esac
+done
+case "$exe" in
+	*.sh) sh "$exe" "$@" </dev/null >/dev/null 2>&1 & ;;
+	*) "$exe" "$@" </dev/null >/dev/null 2>&1 & ;;
+esac
+EOF
+chmod 755 "$tmp/bin/uci" "$tmp/bin/system-helper" "$tmp/bin/setsid" "$tmp/bin/start-stop-daemon"
 
 cat >"$tmp/root/etc/config/ikev2-manager" <<'EOF'
 globals=globals

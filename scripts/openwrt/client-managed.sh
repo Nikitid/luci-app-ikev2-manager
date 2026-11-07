@@ -136,7 +136,14 @@ printf '%s\n' 'client-managed: the rendered server offers managed peers the virt
 ucode /src/scripts/openwrt/client-runtime-state.uc /etc/ikev2-manager/clients networks
 /usr/libexec/ikev2-manager device-selectors-sync || fail 'the device connections could not be brought in line'
 swanctl --list-conns | grep -q '^ikev2-in-device-alice:' || fail 'the device with networks has no connection of its own'
-far swanctl --initiate --child net --ike managed >"$work/device.log" 2>&1 || fail 'the device with networks could not log in'
+far swanctl --initiate --child net --ike managed >"$work/device.log" 2>&1 || {
+	# Only CI has XFRM interfaces; what the peer and the server said is all
+	# there is to go on there.
+	tail -n 30 "$work/device.log" >&2
+	swanctl --list-conns 2>&1 | sed -n '/^ikev2-in-device-alice:/,/^[a-z]/p' | head -n 30 >&2
+	tail -n 30 "$work/peer.log" >&2
+	fail 'the device with networks could not log in'
+}
 swanctl --list-sas | grep -q '^ikev2-in-device-alice:' || fail 'the device was not answered by its own connection'
 [ "$(offered ikev2-in-device-alice)" = '172.31.254.0/24 203.0.113.0/24' ] || fail "the device was offered $(offered ikev2-in-device-alice)"
 swanmon list-sas >"$work/sas.json"
