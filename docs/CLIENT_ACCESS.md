@@ -1049,6 +1049,15 @@ documentation and multicast ranges, local names and the server's own names
 are refused (`client-access-own.uc`, `test-client-admin.py`,
 `scripts/openwrt/client-api.sh`).
 
+A refusal names the entry as written and why: `{"error": "invalid_own",
+"reason": ..., "entry": ...}` with `reason` one of `invalid_site`,
+`local_name`, `server_name`, `invalid_network`, `network_size`, `private`,
+`shared`, `local`, `documentation`, `fake_ip`, `multicast` or `over_limit`
+(which names no entry). The accepted and refused examples live in
+`desktop-clients/fixtures/own-addresses.json`. The router checks itself
+against it (`scripts/test-own-addresses.sh`); the clients are to check the
+same file, so a device refuses what the router would before sending it.
+
 ## Ways of working and saved sets
 
 The Users page starts a person's services from a way of working - only

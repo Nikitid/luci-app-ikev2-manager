@@ -5,7 +5,7 @@ import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
 import { readfile, lstat, popen, mkdir, chmod, open, rename, unlink } from 'fs';
 import { check_client_choices, client_service_entries } from './client-access-offer.uc';
-import { OWN_PREFIX, is_own_service, check_own_entries } from './client-access-own.uc';
+import { OWN_PREFIX, is_own_service, check_own_entries, own_refusal } from './client-access-own.uc';
 import { record_client_seen, read_client_labels } from './client-access-directory.uc';
 import { compile_client_policy } from './client-access.uc';
 import { read_client_device_evidence, read_client_device_evidence_for } from './client-access-device-evidence.uc';
@@ -156,7 +156,15 @@ function accept_own(id, server, headers, receive, directory) {
 		text += part;
 	}
 	let list = null;
-	try { list = check_own_entries(json(text), label.own, server); } catch (error) { return reply(400, 'invalid_own'); }
+	try { list = check_own_entries(json(text), label.own, server); } catch (error) {
+		// Which entry and why, so the device names it instead of a bare refusal.
+		let refusal = own_refusal(error), answer = reply(400, 'invalid_own');
+		if (refusal != null) {
+			answer.body.reason = refusal.reason;
+			if (length(refusal.entry)) answer.body.entry = substr(refusal.entry, 0, 256);
+		}
+		return answer;
+	}
 	let info = lstat(OWN_PENDING);
 	if (info == null && (!mkdir(OWN_PENDING, 0700) || !chmod(OWN_PENDING, 0700))) return reply(503, 'own_unavailable');
 	info = lstat(OWN_PENDING);

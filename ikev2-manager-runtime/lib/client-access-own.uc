@@ -13,6 +13,18 @@ function fail(message) {
 	die(`client-access-own: ${message}`);
 }
 
+// A refusal of one entry a person wrote: why, and the entry as written, so
+// the device can say which one and what is wrong with it.
+function refuse(reason, entry) {
+	die(`client-access-own: [${reason}] ${type(entry) == 'string' ? entry : ''}`);
+}
+
+// The reason and entry of a refusal, or null for any other error.
+export function own_refusal(error) {
+	let found = match(type(error) == 'object' ? `${error.message}` : `${error}`, /client-access-own: \[([a-z_]+)\] ?(.*)$/);
+	return found ? { reason: found[1], entry: found[2] } : null;
+};
+
 export const OWN_PREFIX = 'own-';
 export const OWN_LIMIT = 32;
 
@@ -42,11 +54,11 @@ export function check_own_rule(rule) {
 	return { limit: rule.limit, ports: sort(slice(rule.ports), (a, b) => a - b) };
 };
 
-function number(text) {
+function number(text, entry) {
 	let parts = split(text, '.'), value = 0;
-	if (length(parts) != 4) fail('invalid address');
+	if (length(parts) != 4) refuse('invalid_network', entry);
 	for (let part in parts) {
-		if (!(length(part) <= 3 ? match(part, /^(0|[1-9][0-9]*)$/) : null) || +part > 255) fail('invalid address');
+		if (!(length(part) <= 3 ? match(part, /^(0|[1-9][0-9]*)$/) : null) || +part > 255) refuse('invalid_network', entry);
 		value = value * 256 + +part;
 	}
 	return value;
@@ -61,12 +73,14 @@ function text_of(value) {
 	return join('.', octets);
 }
 
-// Ranges no person's list may touch: unroutable, private, shared, the
-// benchmarking range FakeIP uses, documentation and multicast.
+// Ranges no person's list may touch, each with the reason a device shows:
+// unroutable and this host, private, shared, the benchmarking range FakeIP
+// uses, documentation and multicast.
 const RESERVED = [
-	[ '0.0.0.0', 8 ], [ '10.0.0.0', 8 ], [ '100.64.0.0', 10 ], [ '127.0.0.0', 8 ], [ '169.254.0.0', 16 ],
-	[ '172.16.0.0', 12 ], [ '192.0.0.0', 24 ], [ '192.0.2.0', 24 ], [ '192.168.0.0', 16 ], [ '198.18.0.0', 15 ],
-	[ '198.51.100.0', 24 ], [ '203.0.113.0', 24 ], [ '224.0.0.0', 3 ]
+	[ '0.0.0.0', 8, 'local' ], [ '10.0.0.0', 8, 'private' ], [ '100.64.0.0', 10, 'shared' ], [ '127.0.0.0', 8, 'local' ],
+	[ '169.254.0.0', 16, 'local' ], [ '172.16.0.0', 12, 'private' ], [ '192.0.0.0', 24, 'local' ],
+	[ '192.0.2.0', 24, 'documentation' ], [ '192.168.0.0', 16, 'private' ], [ '198.18.0.0', 15, 'fake_ip' ],
+	[ '198.51.100.0', 24, 'documentation' ], [ '203.0.113.0', 24, 'documentation' ], [ '224.0.0.0', 3, 'multicast' ]
 ];
 
 function span(prefix) {
@@ -78,33 +92,33 @@ function span(prefix) {
 // One network as a person wrote it: an address alone is the host, a range is
 // set at its base. Nothing wider than /16.
 export function own_network(value) {
-	if (type(value) != 'string' || length(value) > 18) fail('invalid network');
+	if (type(value) != 'string' || length(value) > 18) refuse('invalid_network', value);
 	let parts = split(trim(value), '/');
-	if (length(parts) > 2) fail('invalid network');
+	if (length(parts) > 2) refuse('invalid_network', value);
 	let prefix = length(parts) == 2 ? (match(parts[1], /^[0-9]{1,2}$/) ? +parts[1] : -1) : 32;
-	if (prefix < 16 || prefix > 32) fail('a network may be /16 to /32');
-	let size = span(prefix), first = number(parts[0]);
+	if (prefix < 16 || prefix > 32) refuse('network_size', value);
+	let size = span(prefix), first = number(parts[0], value);
 	first -= first % size;
 	let last = first + size - 1;
 	for (let item in RESERVED) {
 		let base = number(item[0]), end = base + span(item[1]) - 1;
-		if (first <= end && last >= base) fail('a private or reserved network');
+		if (first <= end && last >= base) refuse(item[2], value);
 	}
 	return `${text_of(first)}/${prefix}`;
 };
 
 export function own_domain(value) {
-	if (type(value) != 'string') fail('invalid site');
+	if (type(value) != 'string') refuse('invalid_site', value);
 	let name = lc(trim(value));
 	// A link is taken for its host.
 	name = replace(replace(name, /^[a-z][a-z0-9+.-]*:\/\//, ''), /[\/?#:].*$/, '');
 	name = replace(name, /\.$/, '');
-	if (length(name) > 253 || length(split(name, '.')) < 2 || match(name, /^[0-9.]+$/)) fail('invalid site');
+	if (length(name) > 253 || length(split(name, '.')) < 2 || match(name, /^[0-9.]+$/)) refuse('invalid_site', value);
 	for (let label in split(name, '.'))
-		if (!(length(label) <= 63 ? match(label, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/) : null)) fail('invalid site');
+		if (!(length(label) <= 63 ? match(label, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/) : null)) refuse('invalid_site', value);
 	let labels = split(name, '.'), top = labels[length(labels) - 1];
 	if (index([ 'local', 'lan', 'home', 'internal', 'localhost', 'arpa', 'test', 'invalid', 'example' ], top) >= 0)
-		fail('a local name');
+		refuse('local_name', value);
 	return name;
 };
 
@@ -114,11 +128,11 @@ export function own_domain(value) {
 export function check_own_entries(input, rule, server) {
 	if (type(input) != 'object' || length(keys(input)) != 2 || type(input.domains) != 'array' || type(input.networks) != 'array')
 		fail('invalid list');
-	if (length(input.domains) + length(input.networks) > rule.limit) fail('over the limit');
+	if (length(input.domains) + length(input.networks) > rule.limit) refuse('over_limit', '');
 	let domains = {}, networks = {};
 	for (let item in input.domains) {
 		let name = own_domain(item);
-		if (name == server?.address || name == server?.remote_id) fail('the server itself');
+		if (name == server?.address || name == server?.remote_id) refuse('server_name', item);
 		domains[name] = true;
 	}
 	for (let item in input.networks) networks[own_network(item)] = true;

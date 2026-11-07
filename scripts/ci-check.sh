@@ -102,6 +102,7 @@ python3 ./scripts/test-client-enrollment.py
 ./scripts/test-windows-profile-installer.sh
 ./scripts/test-user-policy.sh
 ./scripts/test-client-transaction.sh
+./scripts/test-own-addresses.sh
 ./scripts/test-connect-diagnosis.sh
 ./scripts/test-acme-settings.sh
 ./scripts/test-server-transaction.sh

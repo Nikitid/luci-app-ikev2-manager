@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "note": "What a person may add as their own site or network, and why the rest is refused. The router (client-access-own.uc) and both clients check the same examples.",
+  "server": "vpn.example.org",
+  "domains": [
+    { "input": "docs.example.org", "ok": "docs.example.org" },
+    { "input": "Docs.Example.ORG.", "ok": "docs.example.org" },
+    { "input": "https://chat.example.net/c/123?x=1", "ok": "chat.example.net" },
+    { "input": "router.lan", "reason": "local_name" },
+    { "input": "nas.home", "reason": "local_name" },
+    { "input": "printer.local", "reason": "local_name" },
+    { "input": "localhost", "reason": "invalid_site" },
+    { "input": "1.2.3.4", "reason": "invalid_site" },
+    { "input": "bad..example.org", "reason": "invalid_site" },
+    { "input": "-bad.example.org", "reason": "invalid_site" },
+    { "input": "vpn.example.org", "reason": "server_name" }
+  ],
+  "networks": [
+    { "input": "8.8.8.8", "ok": "8.8.8.8/32" },
+    { "input": "1.1.1.0/24", "ok": "1.1.1.0/24" },
+    { "input": "93.184.215.34/20", "ok": "93.184.208.0/20" },
+    { "input": "10.0.0.5", "reason": "private" },
+    { "input": "172.20.1.1", "reason": "private" },
+    { "input": "192.168.1.1", "reason": "private" },
+    { "input": "100.64.0.1", "reason": "shared" },
+    { "input": "127.0.0.1", "reason": "local" },
+    { "input": "169.254.10.1", "reason": "local" },
+    { "input": "192.0.2.1", "reason": "documentation" },
+    { "input": "198.51.100.7", "reason": "documentation" },
+    { "input": "203.0.113.7", "reason": "documentation" },
+    { "input": "198.18.0.10", "reason": "fake_ip" },
+    { "input": "224.0.0.1", "reason": "multicast" },
+    { "input": "8.8.0.0/8", "reason": "network_size" },
+    { "input": "300.1.1.1", "reason": "invalid_network" },
+    { "input": "8.8.8.8/33", "reason": "network_size" },
+    { "input": "not-an-address", "reason": "invalid_network" }
+  ]
+}

@@ -195,8 +195,14 @@ request 403 -X POST -H "Authorization: Bearer $first" -d '{"domains":["home.exam
 ucode -e 'import {readfile} from "fs"; let s=json(readfile(ARGV[0])); print(sprintf("%J", {version:1, expected_generation:s.generation, operation:"set-own-rule", payload:{ids:["team"], own:{limit:3, ports:[443]}}}));' "$state" | ucode "$control" update >/dev/null
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 [ "$(jsonfilter -i "$work/body" -e '@.own.limit')" = 3 ] || { echo "client-api: the rule is not in the services answer: $(cat "$work/body")" >&2; exit 1; }
-request 400 -X POST -H "Authorization: Bearer $first" -d '{"domains":[],"networks":["192.168.1.0/24"]}' https://127.0.0.1:18443/client/v1/own
+request 400 -X POST -H "Authorization: Bearer $first" -d '{"domains":[],"networks":["8.8.8.8","192.168.1.0/24"]}' https://127.0.0.1:18443/client/v1/own
+# A refusal names the entry and why, for the window to show beside it.
+[ "$(jsonfilter -i "$work/body" -e '@.reason')" = private ] &&
+	[ "$(jsonfilter -i "$work/body" -e '@.entry')" = 192.168.1.0/24 ] ||
+	{ echo "client-api: a refused address is not named with its reason: $(cat "$work/body")" >&2; exit 1; }
 request 400 -X POST -H "Authorization: Bearer $first" -d '{"domains":["a.example.org","b.example.org","c.example.org","d.example.org"],"networks":[]}' https://127.0.0.1:18443/client/v1/own
+[ "$(jsonfilter -i "$work/body" -e '@.reason')" = over_limit ] ||
+	{ echo "client-api: a list over the limit is not said to be: $(cat "$work/body")" >&2; exit 1; }
 request 405 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/own
 request 202 -X POST -H "Authorization: Bearer $first" -d '{"domains":["home.example.org"],"networks":["8.8.8.8"]}' https://127.0.0.1:18443/client/v1/own
 ucode "$control" apply-own
