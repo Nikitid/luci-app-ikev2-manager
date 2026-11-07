@@ -143,6 +143,35 @@ namespace IkeV2Manager.Client
         }
     }
 
+    // Every state and cause code the service publishes or this reader makes up
+    // for it. fixtures/status-codes.json holds the phrase for each; a code
+    // added here is added there, and the tests fail until it is.
+    public static class ClientStatusCodes
+    {
+        // Written by the service into status.json.
+        public static readonly string[] Published = {
+            "blocked", "enrollment_required", "error", "access_closed", "registration_pending", "registration_error",
+            "connecting", "tunnel_connected", "connection_error", "protected" };
+
+        // Made up by the reader when there is no status to read.
+        public static readonly string[] Unreadable = {
+            "service_unavailable", "service_missing", "service_stopped", "status_missing", "status_untrusted",
+            "status_unavailable", "status_invalid", "status_process_mismatch", "status_stale" };
+
+        // The named causes; the numbered ones are the prefixes below plus a number.
+        public static readonly string[] Causes = {
+            "route_or_identity", "interface_missing", "route_mismatch", "route_loopback", "route_interface", "route_source",
+            "route_prefix", "projection_missing", "path_unavailable", "path_connection_failed", "path_stalled",
+            "path_response_invalid", "path_different_policy", "device_access_revoked", "device_no_services", "service_fault",
+            "policy_connection_failed", "policy_http_rejected", "policy_update_rejected", "policy_response_invalid",
+            "policy_response_too_large", "services_unavailable", "services_response_invalid", "release_unavailable",
+            "release_response_invalid", "enrollment_connection_failed", "enrollment_server_busy", "enrollment_access_rejected",
+            "enrollment_http_rejected", "enrollment_response_invalid", "enrollment_response_too_large", "enrollment_internal",
+            "enrollment_missing" };
+
+        public static readonly string[] NumberedCauses = { "route_fields_", "native_" };
+    }
+
     public static class ClientStatusReader
     {
         public static ClientView Read(string name = "IKEv2ManagerClient")

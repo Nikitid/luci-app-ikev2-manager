@@ -167,49 +167,13 @@ final class ClientModel: ObservableObject {
         if let settings = URL(string: "x-apple.systempreferences:com.apple.Profiles-Settings.extension") { NSWorkspace.shared.open(settings) }
     }
 
-    var heading: String {
-        guard let status else { return "Служба не отвечает" }
-        switch status.state {
-        case "protected": return "Доступ открыт"
-        case "blocked": return "Доступ выключен"
-        case "enrollment_required": return "Устройство не зарегистрировано"
-        case "registration_pending": return "Регистрация"
-        case "registration_error": return "Ошибка регистрации"
-        case "profile_required": return "Нужен профиль VPN"
-        case "connecting": return "Подключение"
-        case "tunnel_connected": return "Проверка доступа"
-        case "connection_error": return "Нет подключения"
-        case "starting": return "Запуск"
-        case "access_closed": return status.error == "no_services" ? "Сервисы не назначены" : "Доступ не разрешён"
-        default: return "Ошибка службы"
-        }
-    }
+    var heading: String { phrase.heading }
 
-    var detail: String {
-        guard let status else { return "Переустановите программу." }
-        switch status.state {
-        case "protected": return status.fullTunnel ? "Весь трафик идёт через туннель." : "Сервисы идут через туннель."
-        case "blocked": return status.blockWithoutTunnel ? "Сервисы заблокированы." : "Сервисы идут напрямую, без туннеля."
-        case "enrollment_required": return "Нужна ссылка приглашения от администратора."
-        case "registration_pending": return "Ожидается ответ сервера."
-        case "registration_error": return "Настройки не получены. Повторите регистрацию."
-        case "profile_required": return "Установите профиль в «Системных настройках»."
-        case "connecting": return "Устанавливается туннель."
-        case "tunnel_connected":
-            switch status.error {
-            case "path_connectionFailed": return "Нет связи с сервером."
-            case "path_differentPolicy": return "Настройки обновляются."
-            case "path_accessRejected": return "Доступ отозван администратором."
-            default: return "Сервер ещё не подтвердил доступ."
-            }
-        case "connection_error":
-            return status.error == "tunnel_takes_everything"
-                ? "Сервер предложил направить в туннель весь трафик. Подключение отклонено."
-                : status.error == "profile_mode" ? "Режим изменён администратором. Установите профиль заново."
-                : "Туннель не установлен. Попытка повторится."
-        case "access_closed": return status.error == "no_services" ? "Администратор не назначил этому устройству сервисов. Сайты открываются как обычно." : "Доступ для этого устройства выключен администратором."
-        default: return "Состояние защиты не подтверждено. Подробности в отчёте."
-        }
+    var detail: String { phrase.detail }
+
+    private var phrase: StatusPhrases.Phrase {
+        guard let status else { return StatusPhrases.unavailable }
+        return StatusPhrases.phrase(state: status.state, error: status.error, full: status.fullTunnel, direct: !status.blockWithoutTunnel)
     }
 
     /// The one place downloads come from; the router supplies only a number.

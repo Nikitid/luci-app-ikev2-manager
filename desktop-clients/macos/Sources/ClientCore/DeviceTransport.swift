@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-public enum DeviceError: String, Error, Sendable {
+public enum DeviceError: String, Error, Sendable, CaseIterable {
     case invalidEndpoint, connectionFailed, accessRejected, noServices, httpRejected, invalidResponse
     case pathUnavailable, differentPolicy
     /// The router did not take the person's own addresses: not valid, not allowed, too often.

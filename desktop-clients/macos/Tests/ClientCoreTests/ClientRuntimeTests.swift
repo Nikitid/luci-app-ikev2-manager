@@ -140,7 +140,7 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     machine.sync { machine.tunnel = tunnel }
     await runtime.tick(now: now); now += 2
     var status = await runtime.status()
-    #expect(status.state == "tunnel_connected" && status.error == "path_pathUnavailable" && !status.protected && status.routed)
+    #expect(status.state == "tunnel_connected" && status.error == "path_unavailable" && !status.protected && status.routed)
     #expect(!machine.rules.contains("pass"))
     router.sync { router.ready = .success(DeviceReadiness(id: "alice-mac", address: "10.20.0.7", revision: 1)) }
     await runtime.tick(now: now); now += 2
@@ -163,7 +163,7 @@ private func registered() async throws -> (ClientRuntime, Machine, Router, Clien
     #expect(await runtime.status().protected)
     router.sync { router.ready = .success(DeviceReadiness(id: "alice-mac", address: "10.20.0.8", revision: 1)) }
     await runtime.tick(now: now); now += 2
-    #expect(await runtime.status().error == "path_differentPolicy" && !machine.rules.contains("pass"))
+    #expect(await runtime.status().error == "path_different_policy" && !machine.rules.contains("pass"))
     // Switching access off is remembered, closes the filter and disconnects.
     router.sync { router.ready = .success(DeviceReadiness(id: "alice-mac", address: "10.20.0.7", revision: 1)) }
     await runtime.tick(now: now); now += 2

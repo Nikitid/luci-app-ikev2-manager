@@ -50,6 +50,7 @@ Test PolicyTransportTests 'Policy transport tests failed' $policies
 Test EnrollmentTransportTests 'Enrollment transport tests failed' $policies
 Test ClientCommandsTests 'Control protocol tests failed'
 Test ClientPresentationTests 'Window presentation tests failed'
+Test StatusCodesTests 'Status code tests failed' (Join-Path $PSScriptRoot '..\fixtures\status-codes.json')
 Test BrowserNamesTests 'Browser names test failed'
 if ($EnrollmentStorage -or $Wfp) { Test EnrollmentStoreTests 'Enrollment storage tests failed' $policies }
 

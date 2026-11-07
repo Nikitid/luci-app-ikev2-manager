@@ -243,10 +243,10 @@ public actor ClientRuntime {
             connectionError = "none"
             publish("registration_pending", now: now)
         } catch let error as DeviceError {
-            connectionError = "registration_" + error.rawValue
+            connectionError = StatusCodes.enrollment(error)
             publish("registration_error", now: now)
         } catch {
-            connectionError = "registration_storage"
+            connectionError = "enrollment_internal"
             publish("registration_error", now: now)
         }
     }
@@ -481,7 +481,7 @@ public actor ClientRuntime {
             let transient = refusal == .pathUnavailable || refusal == .connectionFailed
             if transient, permitted == seen, now < readyUntil { publish("protected", now: now); return }
             closePermission(history)
-            connectionError = "path_" + refusal.rawValue; publish("tunnel_connected", now: now); return
+            connectionError = StatusCodes.path(refusal); publish("tunnel_connected", now: now); return
         }
         // The answer was awaited; access may have been switched off meanwhile.
         guard try store.loadIntent() else { closePermission(history); connectionError = "none"; publish("blocked", now: now); return }
