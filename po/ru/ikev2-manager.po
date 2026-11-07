@@ -5906,6 +5906,9 @@ msgstr "Не удалось установить таблицы маршрути
 msgid "Unable to install the policy routing rules"
 msgstr "Не удалось установить правила маршрутизации по политике"
 
+msgid "Unable to close the FakeIP range"
+msgstr "Не удалось закрыть диапазон FakeIP"
+
 msgid "Policy routing nftables validation failed"
 msgstr "Правила nftables маршрутизации по политике не прошли проверку"
 

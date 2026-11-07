@@ -91,8 +91,10 @@ case "$1 $2" in
 	'route replace')
 		shift 2
 		args="$*"
-		table="${args##* table }"
-		route="${args% table *}"
+		case "$args" in
+			*' table '*) table="${args##* table }"; route="${args% table *}" ;;
+			*) table=main; route="$args" ;;
+		esac
 		file="$S/route$family-$table"
 		touch "$file"
 		key="$(printf '%s' "$route" | awk '{ print $1 }')"
@@ -105,13 +107,18 @@ case "$1 $2" in
 		case "$3" in
 			table) cat "$S/route$family-$4" 2>/dev/null || : ;;
 			dev) [ "$4" = br-lan ] && printf '192.168.2.0/24 proto kernel scope link src 192.168.2.1\n' ;;
+			*/*) grep " $3 " "$S/route$family-main" 2>/dev/null || : ;;
 		esac
 		;;
 	'route del')
 		shift 2
 		args="$*"
-		table="${args##* table }"
+		case "$args" in
+			*' table '*) table="${args##* table }" ;;
+			*) table=main; args="$args table main" ;;
+		esac
 		file="$S/route$family-$table"
+		touch "$file"
 		grep -v "^${args% table *}\$" "$file" >"$file.new" || :
 		mv "$file.new" "$file"
 		;;

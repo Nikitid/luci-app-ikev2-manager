@@ -65,6 +65,13 @@ start() {
 	if ! ip -6 route show default 2>/dev/null | grep -q .; then
 		ip -6 route replace unreachable default metric 2147483647 2>/dev/null || true
 	fi
+
+	# The tunnel tables, the marks and the FakeIP range closed now, before any
+	# hotplug or watcher pass: until the first sync a marked device has no
+	# rule and its traffic takes the WAN.
+	if [ -x /usr/libexec/ikev2-routing ]; then
+		/usr/libexec/ikev2-routing sync-all >/dev/null 2>&1 || true
+	fi
 }
 
 stop() {

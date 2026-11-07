@@ -176,6 +176,34 @@ rules4() { ip -4 rule show | grep -E '^2800[0-2]:' || :; }
 
 # --- the application's own policy routing ----------------------------------
 
+step 'the boot init closes the tunnel tables, the marks and the FakeIP range'
+# Before any WAN event or watcher pass the router has only what the xfrm init
+# (START=19) installed. Without the rules a device sent whole through the
+# tunnel was not marked and its traffic took the WAN; FakeIP addresses
+# followed the main table's default there too.
+uci set ikev2-manager.client.enabled='1'
+uci set ikev2-manager.domains.engine='fakeip'
+"$routing" stop 2>/dev/null || :
+/etc/init.d/ikev2-xfrm start >/dev/null 2>&1 || :
+rules4 | grep -q '^28001:.*lookup 1601' || fail 'boot: the tunnel rule is missing before any sync'
+rules4 | grep -q '^28002:.*lookup 1602' || fail 'boot: the WAN rule is missing before any sync'
+ip -4 route show table 1601 | grep -q '^unreachable default' || fail 'boot: the tunnel table is open'
+ip -6 route show table 1601 | grep -q '^unreachable default' || fail 'boot: the IPv6 tunnel table is open'
+nft list table inet ikev2_routing >/dev/null 2>&1 || fail 'boot: the marking table is missing'
+ip -4 route show 198.18.0.0/15 | grep -q '^unreachable .*metric 4096' ||
+	fail 'boot: the FakeIP range is not closed in the main table'
+ip -4 route get 198.18.0.5 2>&1 | grep -qi 'unreachable' || fail 'boot: a FakeIP address still routes'
+"$routing" check || fail 'boot: the installed state failed its check'
+uci set ikev2-manager.domains.engine='nftset'
+"$routing" sync
+ip -4 route show 198.18.0.0/15 | grep -q '^unreachable' && fail 'leaving FakeIP kept the range closed'
+uci set ikev2-manager.domains.engine='fakeip'
+"$routing" sync
+"$routing" stop
+ip -4 route show 198.18.0.0/15 | grep -q '^unreachable' && fail 'stopping kept the FakeIP range closed'
+uci delete ikev2-manager.client.enabled
+uci set ikev2-manager.domains.engine='nftset'
+
 step 'policy routing installs with real ip and nft'
 "$routing" sync || fail 'policy routing did not install'
 rules4 | grep -q '^28000:.*lookup main suppress_prefixlength 1' || fail 'the local-routes rule is missing'

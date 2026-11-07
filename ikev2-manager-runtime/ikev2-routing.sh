@@ -68,6 +68,7 @@ tunnel_table=1601
 wan_table=1602
 # Ahead of PBR (29997-30000), after FakeIP delivery (11000) and every rule the
 # system and other VPNs install below 11000.
+fakeip_range='198.18.0.0/15'
 rule_main=28000
 rule_tunnel=28001
 rule_wan=28002
@@ -333,6 +334,21 @@ sync_routes() {
 	fi
 	# A WAN without a default keeps the last one: exclusions then resume the
 	# moment it returns instead of taking whatever else routes by default.
+}
+
+# The FakeIP range is nobody's address: whatever of it reaches the main table
+# before the TProxy rules exist (early boot, a rebuild) is refused instead of
+# going out the WAN, where the provider would see the name in a QUIC SNI.
+# The TProxy rules sit before main and still take what they cover.
+sync_fakeip_guard() {
+	local listed
+	listed="$("$ip_bin" -4 route show "$fakeip_range" 2>/dev/null | grep '^unreachable ' || true)"
+	if fakeip_engine; then
+		printf '%s\n' "$listed" | grep -Eq "^unreachable $fakeip_range .*metric 4096( |\$)" ||
+			"$ip_bin" -4 route replace unreachable "$fakeip_range" metric 4096 || return 1
+	elif [ -n "$listed" ]; then
+		"$ip_bin" -4 route del unreachable "$fakeip_range" metric 4096 2>/dev/null || :
+	fi
 }
 
 # Every rule this installs, exactly. Other software deletes rules by pattern:
@@ -736,6 +752,7 @@ sync_runtime() {
 	desired_state || return 1
 	sync_routes || die 'Unable to install the policy routing tables'
 	sync_rules || die 'Unable to install the policy routing rules'
+	sync_fakeip_guard || die 'Unable to close the FakeIP range'
 	if ! runtime_owned || [ "$(sed -n '1p' "$state_file" 2>/dev/null)" != "$signature" ] ||
 	   ! runtime_unchanged "$state_file"; then
 		write_ruleset >"$work/rules.nft"
@@ -780,6 +797,10 @@ check_runtime() {
 		fi
 	done
 	rules_present || return 1
+	if fakeip_engine; then
+		"$ip_bin" -4 route show "$fakeip_range" 2>/dev/null |
+			grep -Eq 'metric 4096( |$)' || return 1
+	fi
 	# Each tunnel default follows its exit. The watcher syncs when an SA comes
 	# or goes; this catches a change it did not see.
 	for exit in $exits; do
@@ -796,6 +817,7 @@ stop_runtime() {
 	local priority
 	remove_dnsmasq
 	delete_rules
+	"$ip_bin" -4 route del unreachable "$fakeip_range" metric 4096 2>/dev/null || :
 	if runtime_exists; then
 		runtime_owned || die "nft table '$table' is not owned by IKEv2 Manager"
 		"$nft_bin" delete table inet "$table" >/dev/null 2>&1 || return 1
