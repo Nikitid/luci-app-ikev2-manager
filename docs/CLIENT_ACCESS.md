@@ -1427,3 +1427,27 @@ the list is opened; a report the service no longer knows leaves the journal.
 Unread replies show a notice in the main window. `ProblemReports.swift` and
 `ProblemReports.cs` hold this, tested against a recorder of the service
 contract.
+
+On macOS the program also reports failures of Waypoint itself, never of the
+network or of an administrator's decision: the codes `auto_report` in
+`desktop-clients/fixtures/status-codes.json` lists for macOS. Nothing is sent
+before the person has answered the question once; until then failures wait in
+a queue (twenty at most, a week at most) in
+`~/Library/Application Support/Waypoint/auto-reports.json`, and answering no
+or switching reports off empties it. A report is of kind `crash`, its text is
+fixed ("Сбой Waypoint: <code>, фаза <phase>"), its context is the versions,
+the processor, the language, the code, the phase, a fingerprint (code, phase,
+version), the number of occurrences and the mode. It carries
+`waypoint-fault.json`, built from a list of allowed fields (state, cause,
+flags, counts, revisions, the daemon's failure codes with seconds ago) so
+that no name, address, service, domain or network gets in, and for a crash a
+`.ips` file with the home folder replaced by `~` and the machine and boot
+identifiers removed. One report per fingerprint a day, repeats as one message
+to it a day later, five reports a day per device, not within a minute of the
+failure or ten seconds of launch, and the service's `Retry-After` is kept. The
+daemon hands its own failures (`faults.json`) over the socket (`faults`).
+
+"Check now" on macOS asks the router through the daemon (`check` over the
+socket, `POST /client/v1/check`); the next services answer, five seconds
+later, brings each service's `health`. Too soon, the router's `retry_after`
+is shown as the time left.
