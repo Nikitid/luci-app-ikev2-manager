@@ -130,6 +130,18 @@
       "when": { "macos": { "error": ["profile_mode"] } },
       "heading": { "en": "No connection", "ru": "Нет подключения" },
       "detail": { "en": "The administrator changed the mode. Install the profile again.", "ru": "Режим изменён администратором. Установите профиль заново." } },
+    { "key": "connection_error_offline", "states": ["connection_error"],
+      "when": { "macos": { "error": ["offline"] } },
+      "heading": { "en": "No connection", "ru": "Нет подключения" },
+      "detail": { "en": "The Mac is not online.", "ru": "Mac не в сети." } },
+    { "key": "connection_error_server_not_found", "states": ["connection_error"],
+      "when": { "macos": { "error": ["server_not_found"] } },
+      "heading": { "en": "No connection", "ru": "Нет подключения" },
+      "detail": { "en": "The server name does not resolve. Check the Internet connection.", "ru": "Имя сервера не находится. Проверьте интернет." } },
+    { "key": "connection_error_ike", "states": ["connection_error"],
+      "when": { "macos": { "error": ["ike_no_answer"] } },
+      "heading": { "en": "No connection", "ru": "Нет подключения" },
+      "detail": { "en": "This network does not let IKEv2 through: UDP 500 and 4500 to the server are closed.", "ru": "Эта сеть не пропускает IKEv2: UDP 500 и 4500 к серверу закрыты." } },
     { "key": "access_closed", "states": ["access_closed"],
       "when": { "macos": { "error": ["synchronization"] }, "windows": { "error": ["none", "device_access_revoked"] } },
       "heading": { "en": "Access is not allowed", "ru": "Доступ не разрешён" },
@@ -203,7 +215,7 @@
     "never_reported": {
       "note": "Caused by the environment or by an administrator's decision: the person sees them as a phrase, the developer learns nothing from them.",
       "states": ["connection_error", "access_closed", "registration_pending", "registration_error", "enrollment_required", "blocked"],
-      "codes": ["tunnel_unavailable", "tunnel_takes_everything", "path_connection_failed", "path_unavailable", "path_stalled", "device_access_revoked", "device_no_services", "no_services", "enrollment_connection_failed", "enrollment_server_busy", "enrollment_access_rejected", "policy_connection_failed", "services_unavailable", "release_unavailable"]
+      "codes": ["offline", "server_not_found", "ike_no_answer", "tunnel_unavailable", "tunnel_takes_everything", "path_connection_failed", "path_unavailable", "path_stalled", "device_access_revoked", "device_no_services", "no_services", "enrollment_connection_failed", "enrollment_server_busy", "enrollment_access_rejected", "policy_connection_failed", "services_unavailable", "release_unavailable"]
     },
     "limits": {
       "per_fingerprint_per_day": 1,
