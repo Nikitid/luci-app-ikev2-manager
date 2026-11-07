@@ -472,6 +472,19 @@ expect speed_wan_up_bps 50000000
 
 # Each path has its own service. A service that takes no upload leaves that
 # path's upload unavailable, not failed.
+# A selected tunnel uses its own link and does not replace the first result.
+printf 'tunnel_2=tunnel\ntunnel_2.enabled=1\n' >>"$tmp/uci/ikev2-manager"
+mkdir -p "$tmp/net/ipsec-out2"
+sed 's/proxy-out/proxy-out-2/g; s/"proxy4"/"proxy4-2"/g' "$stub/sas" >"$stub/second-sa"
+cp "$stub/second-sa" "$stub/sas"
+cp "$stub/speed-ipsec-out-down" "$stub/speed-ipsec-out2-down"
+cp "$stub/speed-ipsec-out-down.rc" "$stub/speed-ipsec-out2-down.rc"
+cp "$tmp/quality/speed.last" "$tmp/first-speed"
+"$helper" _action-run 1-9 speed-test cloudflare cloudflare down 1 - - 2 ||
+	fail 'speed test could not run on a second tunnel'
+[ -s "$tmp/quality/speed-2.last" ] && cmp -s "$tmp/quality/speed.last" "$tmp/first-speed" ||
+	fail 'speed test results are shared between tunnels'
+
 speed_setup
 "$helper" _action-run 1-7 speed-test ovh cloudflare both 1 - - || fail 'a mixed choice failed'
 speed_value tunnel_service ovh
@@ -554,7 +567,7 @@ setup
 [ ! -e "$stub/started" ] || fail 'a refused choice started a test'
 "$helper" speed-test-async custom selectel down 8 'https://files.example/1GB.bin' 'https://ignored.example/x' |
 	grep -q '^action_id=' || fail 'a valid choice did not start'
-grep -q '_action-run .* speed-test custom selectel down 8 https://files.example/1GB.bin -$' "$stub/started" ||
+grep -q '_action-run .* speed-test custom selectel down 8 https://files.example/1GB.bin - 1$' "$stub/started" ||
 	fail "the choice was not passed on: $(cat "$stub/started")"
 "$helper" summary 1h >"$tmp/summary"
 expect speed_setting_tunnel_service custom

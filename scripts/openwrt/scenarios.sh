@@ -327,6 +327,20 @@ sas ''
 "$routing" sync
 exit_dev 0x1000000 | grep -q 'unreachable' || fail "the first exit opened with no tunnel up: $(exit_dev 0x1000000)"
 exit_dev 0x3000000 | grep -q 'unreachable' || fail "the second exit opened with no tunnel up: $(exit_dev 0x3000000)"
+# Disconnect switches a tunnel off and keeps it. What is bound to it without
+# backup - a device sent whole through it - stays refused, not out the WAN,
+# while the other tunnel is up.
+sas "$sa1"
+uci set ikev2-manager.tunnel_2.enabled='0'
+uci commit ikev2-manager
+"$routing" sync
+exit_dev 0xa000000 | grep -q 'unreachable' ||
+	fail "a disconnected tunnel let out what is bound to it without backup: $(exit_dev 0xa000000)"
+ip -6 route get 2001:db8::5 from fd00::50 iif br-lan mark 0xa000000 2>&1 | grep -q 'unreachable' ||
+	fail 'IPv6 bound to a disconnected tunnel was not refused'
+exit_dev 0x1000000 | grep -q 'dev ipsec-out ' || fail 'disconnecting the second tunnel closed the first exit'
+uci set ikev2-manager.tunnel_2.enabled='1'
+uci commit ikev2-manager
 # Removed: its rule and table go, the first exit stays.
 sas "$sa1"
 rm -f /var/run/ikev2-tunnels.state

@@ -7248,3 +7248,27 @@ msgstr "У dnsmasq нет каталога конфигурации"
 
 msgid "server-cert-sync: connection reload failed"
 msgstr "Сервер: не удалось перезагрузить подключение"
+
+msgid "Connect"
+msgstr "Подключить"
+
+msgid "Connecting..."
+msgstr "Подключение…"
+
+msgid "Connect uses the saved settings. Save stores changes separately."
+msgstr "Подключение использует сохранённые настройки. Изменения сохраняются отдельно."
+
+msgid "Delete this tunnel? Its routing assignments return to Tunnel 1."
+msgstr "Удалить туннель? Его правила маршрутизации будут переназначены на туннель 1."
+
+msgid "Connecting the outbound tunnel..."
+msgstr "Подключение исходящего туннеля…"
+
+msgid "Tunnel connected."
+msgstr "Туннель подключён."
+
+msgid "Tunnel disconnected."
+msgstr "Туннель отключён."
+
+msgid "The tunnel could not be stopped cleanly; see /tmp/ikev2-manager-action.log and logread."
+msgstr "Туннель не удалось остановить чисто; подробности в /tmp/ikev2-manager-action.log и logread."

@@ -189,6 +189,11 @@ if run_device set-exit 192.168.1.93 2 >/dev/null 2>&1; then
 	exit 1
 fi
 printf '%s\n' 'tunnel_2=tunnel' 'tunnel_2.enabled=1' >>"$tmp/uci/ikev2-manager"
+# Creating a full-route rule must store the selected exit in the same action.
+run_device set-included 192.168.1.94 0 2s
+run_device dump | grep -Fxq 'addr=192.168.1.94 mode=fullroute exit=2s' ||
+	{ printf '%s\n' 'a new full-route device lost its selected tunnel' >&2; exit 1; }
+run_device clear-policy 192.168.1.94
 run_device set-exit 192.168.1.93 2
 run_device dump | grep -Fxq 'addr=192.168.1.93 mode=fullroute exit=2' ||
 	{ printf '%s\n' 'a device sent through the second tunnel does not show it' >&2; exit 1; }

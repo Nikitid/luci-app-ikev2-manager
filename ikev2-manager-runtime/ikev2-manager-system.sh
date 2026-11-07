@@ -2083,8 +2083,8 @@ case "${1:-}" in
 				[ "$#" -eq 2 ] || die 'Expected device action and address'
 				;;
 			set-included)
-				{ [ "$#" -eq 2 ] || [ "$#" -eq 3 ]; } ||
-					die 'Expected set-included address [respect]'
+				{ [ "$#" -ge 2 ] && [ "$#" -le 4 ]; } ||
+					die 'Expected set-included address [respect [tunnel]]'
 				;;
 			add-override)
 				[ "$#" -eq 3 ] || die 'Expected add-override address mode'

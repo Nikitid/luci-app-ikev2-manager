@@ -1,5 +1,11 @@
 # Operations
 
+On the **Tunnels** page, **Save** stores the profile without reconnecting it.
+**Connect** opens or reconnects the selected tunnel using the saved profile.
+**Disconnect** disables automatic reconnection for that tunnel. A newly saved
+tunnel stays disabled until connected. Each tunnel has separate connection
+statistics, quality history and speed test results.
+
 ## CLI installation and upgrade
 
 The preferred installation path is LuCI package upload. For CLI installation

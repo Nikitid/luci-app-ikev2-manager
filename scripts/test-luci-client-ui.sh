@@ -288,8 +288,7 @@ if (verdictNodes.length !== 2)
 	fail('each tunnel does not have a connection quality card of its own: ' + verdictNodes.length);
 if (verdictNodes[0].children[0].textContent !== 'Good')
 	fail('the quality verdict does not show the summary verdict');
-// The second tunnel's card reads that tunnel's history, and only the main
-// tunnel's card has the speed test, which measures the main tunnel.
+// Each tunnel reads its own history and offers a speed test.
 const qualityAsked = [];
 const execBefore = fsStub.exec;
 fsStub.exec = function(file, args) { qualityAsked.push([ file ].concat(args || []).join(' ')); return execBefore.apply(this, arguments); };
@@ -298,8 +297,8 @@ fsStub.exec = execBefore;
 if (qualityAsked.indexOf('/usr/libexec/ikev2-tunnel-quality summary 1h 2') < 0)
 	fail('the second tunnel\'s card does not read its history: ' + JSON.stringify(qualityAsked));
 const speedHeads = collect(secondPage, function(node) { return node.tagName === 'H4' && textOf(node).trim() === 'Speed'; }, []);
-if (speedHeads.length !== 1)
-	fail('the speed test is not on the main tunnel\'s card alone: ' + speedHeads.length);
+if (speedHeads.length !== 2)
+	fail('the speed test is missing from a tunnel: ' + speedHeads.length);
 const qualityGrid = collect(page, function(node) { return hasClass(node, 'ikev2-quality-grid'); }, [])[0];
 if (!qualityGrid || qualityGrid.children.length !== 4)
 	fail('the quality section does not show four tiles');
@@ -715,7 +714,7 @@ const tunnelsDoctorText = textOf(setupView.renderData([
 	{ stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' }, { stdout: '' },
 	{ stdout: 'tunnel=2\nname=NL\nenabled=1\n' }
 ]));
-if (tunnelsDoctorText.indexOf('NL: down; Main tunnel: no interface; ' +
+if (tunnelsDoctorText.indexOf('NL: down; Tunnel 1: no interface; ' +
 	'Tunnel 3: its traffic has no tunnel left and is refused') < 0)
 	fail('the overview does not explain the tunnel problems');
 if (/exit-3|no-link|2-down/.test(tunnelsDoctorText))
@@ -806,7 +805,7 @@ function exitCell(addr) {
 const exitSelect = exitCell('192.168.1.40');
 if (!exitSelect || exitSelect.tagName !== 'SELECT' || exitSelect.value !== '2')
 	fail('a device sent to the second tunnel does not show it');
-if (textOf(exitSelect).indexOf('NL') < 0 || textOf(exitSelect).indexOf('Main tunnel') < 0)
+if (textOf(exitSelect).indexOf('NL') < 0 || textOf(exitSelect).indexOf('Tunnel 1') < 0)
 	fail('the device tunnel choice does not name the tunnels');
 // Each tunnel is offered with backup and bound to it without.
 if (exitSelect.children.map(function(option) { return option.attrs.value; }).join(',') !== '1,1s,2,2s' ||
@@ -815,6 +814,23 @@ if (exitSelect.children.map(function(option) { return option.attrs.value; }).joi
 const excludedCell = exitCell('192.168.1.41');
 if (!excludedCell || excludedCell.tagName === 'SELECT' || textOf(excludedCell).trim() !== '—')
 	fail('an excluded device was offered a tunnel');
+// The add form offers the same exits only for full routing.
+const addForm = nodesOf(exitPage).find(function(node) {
+	return (node.attrs || {})['class'] === 'ikev2-inline-form' &&
+		node.children.some(function(child) { return child.attrs && child.attrs['aria-label'] === 'Rule type'; });
+});
+const addType = addForm.children.find(function(node) { return node.attrs['aria-label'] === 'Rule type'; });
+const addExit = addForm.children.find(function(node) { return node.attrs['aria-label'] === 'Tunnel'; });
+if (!addExit || !addExit.hidden)
+	fail('the add form does not hide the tunnel for an exclusion');
+addType.value = 'include';
+addType.listeners.change();
+if (addExit.hidden)
+	fail('the add form does not offer a tunnel for full routing');
+addType.value = 'exclude';
+addType.listeners.change();
+if (!addExit.hidden)
+	fail('the add form still offers a tunnel after switching back to exclusion');
 const exitStored = respectStored.then(function() {
 	const execBefore = fsStub.exec;
 	fsStub.exec = function(file, args) { exitCalls.push((args || []).join(' ')); return Promise.resolve({ code: 0, stdout: '' }); };
@@ -1296,7 +1312,7 @@ function traceSection() {
 			fail('the name was not asked of the router as a bare name: ' + JSON.stringify(asked));
 		const said = nodesOf(page).filter(function(node) { return hasClass(node, 'ikev2-trace'); }).map(textOf).join(' ');
 		[ 'Goes: Through the tunnel, because the list holds openai.com.', 'Brought by the service OpenAI (openai.com).',
-		  'The router answers 198.18.0.86.', 'Leaves through Main tunnel now.' ].forEach(function(line) {
+		  'The router answers 198.18.0.86.', 'Leaves through Tunnel 1 now.' ].forEach(function(line) {
 			if (said.indexOf(line) < 0) fail('the answer does not say: ' + line + ' / ' + said);
 		});
 	});
@@ -1554,34 +1570,45 @@ const tunnelsTree = tunnelsPage.renderData([ data, settingsData ]);
 // The main tunnel and each extra one are tabs, a "+" adds one, and the
 // inbound server stands apart after a divider.
 function tunnelTabs() { return tabButtons(tunnelsTree).map(function(node) { return textOf(node).trim(); }).join('|'); }
-if (tunnelTabs() !== 'Main tunnel|NL|+||Inbound server')
+if (tunnelTabs() !== 'vpn.example.net|NL|+||Inbound server')
 	fail('the Tunnels page does not offer each tunnel, a plus and the inbound server set apart: ' + tunnelTabs());
 if (shownPanels(tunnelsTree) !== '100')
 	fail('the Tunnels page does not open on the main tunnel: ' + shownPanels(tunnelsTree));
-// The header's state is the main tunnel's, shown on its tab alone.
-function headerPillShown() {
-	const head = nodesOf(tunnelsTree).find(function(node) { return hasClass(node, 'ikev2-header'); });
-	const pill = nodesOf(head).find(function(node) { return hasClass(node, 'ikev2-pill'); });
-	if (!pill) fail('the Tunnels page has no state in its header');
-	return pill.style.display !== 'none';
-}
-if (!headerPillShown())
-	fail('the main tunnel\'s state is not in the header on its tab');
+const tunnelContent = nodesOf(tunnelsTree).filter(function(node) { return hasClass(node, 'ikev2-tabs-panel'); });
+tunnelContent.slice(0, 2).forEach(function(panel) {
+	[ 'Remote gateway', 'Virtual IPv4', 'Current SA traffic', 'Accumulated tunnel traffic',
+	  'Connect', 'Disconnect' ].forEach(function(label) {
+		if (textOf(panel).indexOf(label) < 0)
+			fail('a tunnel panel is missing ' + label);
+	});
+});
+const trafficData = data.slice();
+trafficData.ready = true;
+trafficData[1] = { stdout: JSON.stringify({ errors: [], data: [
+	{ 'proxy-out-2': { 'remote-host': '203.0.113.24', 'local-vips': [ '10.20.20.14' ],
+		'child-sas': { active: { name: 'proxy4-2', 'install-time': '120', 'bytes-in': '20', 'bytes-out': '30' } }
+	} }
+] }) };
+trafficData[8] = { stdout: 'tunnel=2 up=1 interface_present=1 interface_bytes_in=7 interface_bytes_out=6\n' };
+const secondTraffic = nodesOf(tunnelsPage.renderData([ trafficData, settingsData ]))
+	.filter(function(node) { return hasClass(node, 'ikev2-tabs-panel'); })[1];
+[ '203.0.113.24', '10.20.20.14', '50 B', '13 B', 'Counter age:' ].forEach(function(value) {
+	if (textOf(secondTraffic).indexOf(value) < 0)
+		fail('the second tunnel did not show its own connection data: ' + value);
+});
 tabButtons(tunnelsTree)[1].listeners.click();
 if (shownPanels(tunnelsTree) !== '010')
 	fail('the tab of the second tunnel does not show its panel alone: ' + shownPanels(tunnelsTree));
-if (headerPillShown())
-	fail('the main tunnel\'s state stays in the header on another tunnel\'s tab');
 tabButtons(tunnelsTree)[2].listeners.click();
-if (tunnelTabs() !== 'Main tunnel|NL|New tunnel|+||Inbound server' || shownPanels(tunnelsTree) !== '0010')
+if (tunnelTabs() !== 'vpn.example.net|NL|New tunnel|+||Inbound server' || shownPanels(tunnelsTree) !== '0010')
 	fail('the "+" does not open a new tunnel on a tab of its own: ' + tunnelTabs() + ' ' + shownPanels(tunnelsTree));
 const discardTunnel = nodesOf(tunnelsTree).filter(function(node) { return node.tagName === 'BUTTON' && textOf(node).trim() === 'Discard tunnel'; })[0];
 if (!discardTunnel) fail('a new tunnel cannot be discarded');
 discardTunnel.listeners.click();
-if (tunnelTabs() !== 'Main tunnel|NL|+||Inbound server' || shownPanels(tunnelsTree) !== '010')
+if (tunnelTabs() !== 'vpn.example.net|NL|+||Inbound server' || shownPanels(tunnelsTree) !== '010')
 	fail('a discarded tunnel keeps its tab, or the one before it is not shown: ' + tunnelTabs() + ' ' + shownPanels(tunnelsTree));
 const tunnelsHeadings = headings(tunnelsTree);
-[ 'Connection', 'More tunnels', 'Service' ].forEach(function(title) {
+[ 'Connection', 'Service' ].forEach(function(title) {
 	if (tunnelsHeadings.indexOf(title) < 0) fail('the Tunnels page lost its section: ' + title);
 });
 // Another tunnel is laid out as the main one: its name is on the tab, its block is its connection.
@@ -1782,7 +1809,7 @@ const tunnelAdopted = backupSaved.then(function() {
 		if (blocks().some(function(node) { return textOf(node).indexOf('Discard tunnel') >= 0; }))
 			fail('a tunnel stored but not applied is still shown as a draft');
 		const tabsNow = tabButtons(adoptTree).map(function(node) { return textOf(node).trim(); }).join('|');
-		if (tabsNow !== 'Main tunnel|NL|DE|+||Inbound server')
+		if (tabsNow !== 'vpn.example.net|NL|DE|+||Inbound server')
 			fail('a tunnel stored but not applied has no tab of its own: ' + tabsNow);
 		const kept = blocks().find(function(node) { return textOf(node).indexOf('de.example.net') >= 0 || nodesOf(node).some(function(n) { return n.value === 'DE'; }); });
 		if (!kept || textOf(kept).indexOf('Delete tunnel') < 0)

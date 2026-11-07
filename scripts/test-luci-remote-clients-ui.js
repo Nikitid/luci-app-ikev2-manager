@@ -262,7 +262,7 @@ async function main() {
  // Tunnels are named as on the Tunnels page, not by their numbers.
  const named = page.renderData([[{code:1,stdout:''},data()[1],{code:0,stdout:JSON.stringify(Object.assign({}, fresh, {tunnel_names:{'2':'NL'}}))}], null]);
  assert.deepStrictEqual(nodes(named).find(n => n.tagName === 'SELECT').children.map(o => text(o).trim()),
-  ['Main tunnel, another tunnel when it fails', 'Main tunnel only', 'NL, another tunnel when it fails', 'NL only'], 'the exit tunnels are not offered by name');
+  ['Tunnel 1, another tunnel when it fails', 'Tunnel 1 only', 'NL, another tunnel when it fails', 'NL only'], 'the exit tunnels are not offered by name');
  portInput.value = '80'; const before = written.length;
  await click(button(first,'Set up remote clients'));
  assert.strictEqual(written.length, before, 'a privileged port cannot be staged'); assert(text(first).includes('1024 to 65535'));

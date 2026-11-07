@@ -29,7 +29,7 @@ var tunnelIndexes = { '1': true };
 
 // The tunnels the router has, the main one first, from tunnels-get.
 function parseTunnelChoices(stdout) {
-	var choices = [ { index: '1', name: _('Main tunnel'), enabled: '1' } ], current = null;
+	var choices = [ { index: '1', name: _('Tunnel %s').format('1'), enabled: '1' } ], current = null;
 	String(stdout || '').split('\n').forEach(function(line) {
 		var at = line.indexOf('=');
 		if (at < 1)

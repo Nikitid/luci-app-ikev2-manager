@@ -483,10 +483,11 @@ function parseTunnelStatus(stdout) {
 	return status;
 }
 
-function findOutbound(sas) {
+function findOutbound(sas, index) {
+	var name = index && index !== '1' ? 'proxy-out-' + index : 'proxy-out';
 	for (var i = 0; i < sas.length; i++) {
-		if (sas[i]['proxy-out'])
-			return sas[i]['proxy-out'];
+		if (sas[i][name])
+			return sas[i][name];
 	}
 	return null;
 }
@@ -952,7 +953,7 @@ function qualityChart() {
 
 // The quality of one tunnel: INITIAL is its last hour if already read;
 // OPTIONS.tunnel its number, OPTIONS.speed whether its card has the speed
-// test, which measures the main tunnel only.
+// test, scoped to the selected tunnel.
 function qualitySection(initial, options) {
 	options = options || {};
 	var windowId = '1h';
@@ -1290,7 +1291,7 @@ function qualitySection(initial, options) {
 			failure: _('Speed test failed'),
 			startPath: qualityHelper,
 			startArgs: [ 'speed-test-async', tunnelPicker.select.value, wanPicker.select.value,
-				speedDirection.value, speedStreams.value, tunnelPicker.value(), wanPicker.value() ],
+				speedDirection.value, speedStreams.value, tunnelPicker.value(), wanPicker.value(), tunnelId ],
 			statusPath: qualityHelper,
 			statusArgs: [ 'action-status' ],
 			// The live panel names each step; the result beside the button
@@ -1400,7 +1401,8 @@ return baseclass.extend({
 		}
 		showClientUnread();
 		var customMode = (data[2].stdout || '').trim() === '1';
-		var outbound = findOutbound(common.parseSwanmon(data[1]));
+		var sas = common.parseSwanmon(data[1]);
+		var outbound = findOutbound(sas);
 		var child = outbound && Object.values(outbound['child-sas'] || {})
 			.find(function(item) { return item.name === 'proxy4'; });
 		var statusPill = common.pill('', 'neutral');
@@ -1420,18 +1422,36 @@ return baseclass.extend({
 			};
 		}
 
-		var gatewayCard = liveCard(_('Remote gateway'));
-		var virtualCard = liveCard(_('Virtual IPv4'));
-		var trafficCard = liveCard(_('Current SA traffic'));
-		var accumulatedTrafficCard = liveCard(_('Accumulated tunnel traffic'));
+		var firstCards = connectionCards();
+
+		function connectionCards() {
+			return {
+				gateway: liveCard(_('Remote gateway')),
+				virtual: liveCard(_('Virtual IPv4')),
+				traffic: liveCard(_('Current SA traffic')),
+				accumulated: liveCard(_('Accumulated tunnel traffic'))
+			};
+		}
+
+		function cardsNode(cards) {
+			return E('div', { 'class': 'ikev2-grid' }, [
+				cards.gateway.node, cards.virtual.node, cards.traffic.node, cards.accumulated.node
+			]);
+		}
 
 		function updateConnectionView() {
 			common.setPill(statusPill,
-				saUnread ? _('Unavailable') : customMode ? _('Custom config') : (child ? _('Connected') : _('Disconnected')),
-				saUnread || customMode ? 'warn' : (child ? 'good' : 'bad'));
+				saUnread ? _('Unavailable') : child ? _('Connected') : value.enabled !== '1' ? _('Disabled') : _('Disconnected'),
+				saUnread ? 'warn' : child ? 'good' : value.enabled !== '1' ? 'neutral' : 'bad');
 			common.setPill(rawModePill,
 				customMode ? _('Override active') : _('Generated'),
 				customMode ? 'warn' : 'good');
+			updateCards(firstCards, value, outbound, child);
+		}
+
+		function updateCards(cards, value, outbound, child) {
+			var gatewayCard = cards.gateway, virtualCard = cards.virtual;
+			var trafficCard = cards.traffic, accumulatedTrafficCard = cards.accumulated;
 			gatewayCard.value.textContent = outbound ? outbound['remote-host'] :
 				(value.remote_address || '-');
 			gatewayCard.detail.textContent = outbound ? outbound['remote-id'] : (value.remote_id || '');
@@ -1440,8 +1460,8 @@ return baseclass.extend({
 				common.formatDuration(child['install-time']) + ' ' + _('online') : '';
 			var down = child ? Number(child['bytes-in'] || 0) : 0;
 			var up = child ? Number(child['bytes-out'] || 0) : 0;
-			trafficCard.value.textContent = common.formatBytes(down + up);
-			trafficCard.detail.textContent = child ?
+			trafficCard.value.textContent = saUnread ? '-' : common.formatBytes(down + up);
+			trafficCard.detail.textContent = saUnread ? _('Unavailable') : child ?
 				_('Down %s, up %s').format(common.formatBytes(down), common.formatBytes(up)) +
 					' · ' + _('Counter age: %s').format(common.formatDuration(child['install-time'])) :
 				_('No active traffic SA');
@@ -1462,22 +1482,28 @@ return baseclass.extend({
 				L.resolveDefault(fs.exec('/usr/sbin/swanmon', [ 'list-sas' ]), { code: 1, stdout: '' })
 			]).then(function(results) {
 				// A failed read keeps what was last known rather than emptying the view.
+				var previousTitle = tunnelName(1);
 				if (!common.readFailed(results[0]))
 					value = common.parseKeyValues(results[0].stdout || '');
 				saUnread = common.readFailed(results[1]);
 				if (!saUnread) {
-					outbound = findOutbound(common.parseSwanmon(results[1]));
+					sas = common.parseSwanmon(results[1]);
+					outbound = findOutbound(sas);
 					child = outbound && Object.values(outbound['child-sas'] || {})
 						.find(function(item) { return item.name === 'proxy4'; });
 				}
 				updateConnectionView();
+				Object.keys(tunnelStates).forEach(showTunnelState);
+				if (previousTitle !== tunnelName(1))
+					publishTunnels(null);
 			});
 		}
 		updateConnectionView();
 		poll.add(refreshClientState, 5);
 		var quality = qualitySection(common.parseKeyValues((data[6] && data[6].stdout) || ''), { tunnel: '1' });
 		quality.start();
-		var enabled = input('checkbox', value.enabled);
+		var firstName = input('text', value.name || '', { 'placeholder': value.remote_id || _('Tunnel %s').format('1') });
+		var firstBackup = input('checkbox', value.backup === '0' ? '0' : '1');
 		var address = input('text', value.remote_address, {
 			'placeholder': _('IPv4 address or hostname')
 		});
@@ -1503,15 +1529,7 @@ return baseclass.extend({
 			{ value: '30', label: '30 ' + _('seconds') },
 			{ value: '60', label: '60 ' + _('seconds') }
 		], { type: 'number', attrs: { 'min': '15', 'max': '300' } });
-		var save = E('button', { 'class': 'cbi-button cbi-button-apply' }, [
-			_('Save and connect')
-		]);
-		var saveOnly = E('button', { 'class': 'cbi-button' }, [
-			_('Save')
-		]);
-		var reconnect = E('button', { 'class': 'cbi-button cbi-button-neutral' }, [
-			_('Reconnect')
-		]);
+		var saveOnly = E('button', { 'class': 'cbi-button cbi-button-apply' }, [ _('Save') ]);
 		var tunnelDnsUpstream = dnsEndpointEditor(
 			value.tunnel_dns_upstream ||
 				'https://dns.google/dns-query https://dns.cloudflare.com/dns-query',
@@ -1607,7 +1625,7 @@ return baseclass.extend({
 				var token = common.inputToken();
 				var payload = [
 				mode,
-				enabled.checked ? '1' : '0',
+				value.enabled === '1' ? '1' : '0',
 				address.value.trim(),
 				remoteId.value.trim(),
 				username.value.trim(),
@@ -1618,8 +1636,10 @@ return baseclass.extend({
 				'custom',
 				tunnelUpstream.join(' '),
 				tunnelBootstrap.join(' ')
-			].join('\n') + '\n';
-				return fs.write('/var/run/ikev2-manager-client-' + token + '.in', payload, 384 /* 0600 */)
+			];
+				if (mode === 'save-settings')
+					payload.push(firstName.value.trim(), firstBackup.checked ? '1' : '0');
+				return fs.write('/var/run/ikev2-manager-client-' + token + '.in', payload.join('\n') + '\n', 384 /* 0600 */)
 					.then(function() { return token; });
 			}
 
@@ -1651,22 +1671,8 @@ return baseclass.extend({
 		}
 
 		saveOnly.addEventListener('click', function() {
-			return runClientInputJob(saveOnly, 'save',
+			return runClientInputJob(saveOnly, 'save-settings',
 				_('Saving...'), _('Saved'), _('Save failed'), 120000);
-		});
-
-		save.addEventListener('click', function() {
-			return runClientInputJob(save, 'set',
-				enabled.checked ? _('Saving and connecting...') : _('Saving and stopping...'),
-				enabled.checked ? _('Saved and connected') : _('Saved and disabled'),
-				_('Apply failed'), 150000);
-		});
-
-		// Reconnect the existing tunnel without changing saved settings.
-		reconnect.addEventListener('click', function() {
-			return runManagerJob(reconnect, connectResult, [ 'reconnect-client' ],
-				_('Reconnecting...'), _('Reconnected'), _('Reconnect failed'), 90000,
-				refreshClientState);
 		});
 
 		var dnsManaged = E('select', { 'class': 'cbi-input-select' }, [
@@ -2193,10 +2199,8 @@ return baseclass.extend({
 
 		// Everything that qualifies the connection profile without being part of
 		// setting it up: timers, MTU, and the generated swanctl config itself.
-		var connectionAdvanced = common.advancedPanel(E('div', {}, [
-			E('div', { 'class': 'ikev2-advanced-group' }, [
-				E('h4', {}, [ _('Advanced connectivity') ]),
-				E('div', { 'class': 'ikev2-form-grid' }, [
+		function advancedFields(dpd, mtu, reconnectCooldown) {
+			return E('div', { 'class': 'ikev2-form-grid' }, [
 					common.fieldLabel(_('DPD interval'),
 						_('Dead peer detection in seconds.')),
 					dpd.node,
@@ -2206,7 +2210,13 @@ return baseclass.extend({
 					common.fieldLabel(_('Reconnect cooldown'),
 						_('Minimum delay between automatic connection attempts, in seconds.')),
 					reconnectCooldown.node
-				])
+				]);
+		}
+
+		var connectionAdvanced = common.advancedPanel(E('div', {}, [
+			E('div', { 'class': 'ikev2-advanced-group' }, [
+				E('h4', {}, [ _('Advanced connectivity') ]),
+				advancedFields(dpd, mtu, reconnectCooldown)
 			]),
 			E('div', { 'class': 'ikev2-advanced-group' }, [
 				E('h4', {}, [ _('Advanced strongSwan configuration') ]),
@@ -2220,10 +2230,6 @@ return baseclass.extend({
 			])
 		]), _('Advanced connection settings'));
 
-		// Save buttons are grey until what they send has changed. "Save",
-		// "Save and connect" and "Apply tunnel DNS" all store the tunnel form with
-		// its DNS lists; only the last also applies the resolution path, which is
-		// compared with what the router has applied rather than with the page.
 		// The tunnels after the first. Each is a block of its own, as a DNS
 		// segment is: fields, Save, Delete and its own result, and a draft is a
 		// block without a stored counterpart.
@@ -2236,12 +2242,12 @@ return baseclass.extend({
 		var tunnelQualities = {};
 		var tunnelSeq = 0;
 		function publishTunnels(select) {
-			tunnelWatchers.forEach(function(watch) { watch(tunnelPanels.slice(), select, tunnels.length >= 6); });
+			tunnelWatchers.forEach(function(watch) { watch(tunnelPanels.slice(), select, tunnelsUnread || tunnels.length >= 6); });
 		}
 		// Kept across redraws: each polls its tunnel's history once a minute.
 		function tunnelQuality(index) {
 			if (!tunnelQualities[index]) {
-				tunnelQualities[index] = qualitySection(null, { tunnel: index, speed: false });
+				tunnelQualities[index] = qualitySection(null, { tunnel: index });
 				tunnelQualities[index].start();
 				tunnelQualities[index].refresh();
 			}
@@ -2254,7 +2260,7 @@ return baseclass.extend({
 
 		function tunnelName(index) {
 			if (String(index) === '1')
-				return _('Main tunnel');
+				return value.name || value.remote_id || value.remote_address || _('Tunnel %s').format(index);
 			var found = tunnels.find(function(item) { return item.index === String(index); });
 			return found && found.name ? found.name : _('Tunnel %s').format(index);
 		}
@@ -2264,7 +2270,16 @@ return baseclass.extend({
 			if (!view)
 				return;
 			var state = tunnelStatus[index] || {};
-			if (view.disabled)
+			var sa = findOutbound(sas, index);
+			var suffix = '-' + index;
+			var activeChild = sa && Object.values(sa['child-sas'] || {}).find(function(item) {
+				return item.name === 'proxy4' + suffix;
+			});
+			updateCards(view.cards, Object.assign({}, view.item, state), saUnread ? null : sa,
+				saUnread ? null : activeChild);
+			if (saUnread)
+				common.setPill(view.pill, _('Unavailable'), 'warn');
+			else if (view.disabled)
 				common.setPill(view.pill, _('Disabled'), 'neutral');
 			else
 				common.setPill(view.pill, state.up === '1' ? _('Connected') : _('Disconnected'),
@@ -2282,24 +2297,40 @@ return baseclass.extend({
 			view.detail.hidden = !view.detail.textContent;
 		}
 
-		// The main tunnel's own switch for what every other tunnel has in its
-		// block: applied at once, like the tunnels themselves.
-		var mainBackup = input('checkbox', value.backup === '0' ? '0' : '1');
-		var mainBackupResult = common.inlineResult();
-		mainBackup.addEventListener('change', function() {
-			var wanted = mainBackup.checked;
-			return runManagerJob(mainBackup, mainBackupResult,
-				[ 'client-backup', wanted ? '1' : '0' ],
-				_('Applying...'), _('Saved.'), _('Tunnel settings failed.'), 180000).then(function(st) {
-				if (!st || st.state === 'error')
-					mainBackup.checked = !wanted;
+		function connectionActions(index, result, refresh, blocked) {
+			var connect = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' },
+				[ _('Connect') ]);
+			var disconnect = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' },
+				[ _('Disconnect') ]);
+			[ connect, disconnect ].forEach(function(button) {
+				button.disabled = !!blocked;
+				button.addEventListener('click', function() {
+					var connecting = button === connect;
+					var other = connecting ? disconnect : connect;
+					var token = common.inputToken();
+					common.setBusy(button, true);
+					other.disabled = true;
+					return fs.write('/var/run/ikev2-manager-tunnel-' + token + '.in',
+						(connecting ? 'connect' : 'disconnect') + '\n' + index + '\n', 384)
+						.then(function() {
+							return runManagerJob(button, result, [ 'tunnel-input', token ],
+								connecting ? _('Connecting...') : _('Stopping...'),
+								connecting ? _('Connected') : _('Disconnected'),
+								_('Tunnel settings failed.'), 180000);
+						}).catch(function(error) {
+							common.setBusy(button, false);
+							result.err(error.message || error);
+						}).then(function() {
+							other.disabled = !!blocked;
+							return refresh().catch(function(error) { result.err(error.message || error); });
+						});
+				});
 			});
-		});
+			return [ connect, disconnect ];
+		}
 
 		function tunnelBlock(item) {
 			var name = input('text', item ? item.name : '', { 'placeholder': _('Netherlands') });
-			var enabledTunnel = input('checkbox', '1');
-			enabledTunnel.checked = !item || item.enabled === '1';
 			var remote = input('text', item ? item.remote_address : '', {
 				'placeholder': _('IPv4 address or hostname')
 			});
@@ -2322,6 +2353,11 @@ return baseclass.extend({
 				{ value: '1280', label: '1280 — ' + _('minimum') },
 				{ value: '1500', label: '1500 — ' + _('no reduction') }
 			], { type: 'number', attrs: { 'min': '1280', 'max': '1500' } });
+			var cooldown = common.choiceWithCustom(item && item.reconnect_cooldown || '15', [
+				{ value: '15', label: '15 ' + _('seconds') + ' — ' + _('recommended') },
+				{ value: '30', label: '30 ' + _('seconds') },
+				{ value: '60', label: '60 ' + _('seconds') }
+			], { type: 'number', attrs: { 'min': '15', 'max': '300' } });
 			var result = common.inlineResult();
 			var saveTunnel = E('button', {
 				'class': 'cbi-button cbi-button-apply', 'type': 'button'
@@ -2333,10 +2369,10 @@ return baseclass.extend({
 			function runTunnel(action, button) {
 				var payload = (action === 'delete' ?
 					[ 'delete', item.index, '', '', '', '', '', '', '', '', '' ] :
-					[ 'save', item ? item.index : 'new', name.value.trim(),
-						enabledTunnel.checked ? '1' : '0', remote.value.trim(),
+					[ 'save-only', item ? item.index : 'new', name.value.trim(),
+						'0', remote.value.trim(),
 						identity.value.trim(), user.value.trim(), tunnelDpd.value(),
-						tunnelMtu.value(), backup.checked ? '1' : '0', secret.value ])
+						tunnelMtu.value(), backup.checked ? '1' : '0', secret.value, cooldown.value() ])
 					.join('\n') + '\n';
 				var token = common.inputToken();
 				common.setBusy(button, true);
@@ -2346,7 +2382,7 @@ return baseclass.extend({
 				return fs.write('/var/run/ikev2-manager-tunnel-' + token + '.in', payload, 384)
 					.then(function() {
 						return runManagerJob(button, result, [ 'tunnel-input', token ],
-							action === 'delete' ? _('Removing the tunnel...') : _('Saving and connecting...'),
+							action === 'delete' ? _('Removing the tunnel...') : _('Saving...'),
 							action === 'delete' ? _('Tunnel removed.') : _('Tunnel saved.'),
 							_('Tunnel settings failed.'), 180000, function(st) {
 								if (st && st.state === 'timeout')
@@ -2400,7 +2436,7 @@ return baseclass.extend({
 					publishTunnels(null);
 					return;
 				}
-				if (!window.confirm(_('Delete this tunnel? Services, lists and devices sent through it go back to the main tunnel.')))
+				if (!window.confirm(_('Delete this tunnel? Its routing assignments return to Tunnel 1.')))
 					return;
 				return runTunnel('delete', removeTunnel);
 			});
@@ -2409,11 +2445,12 @@ return baseclass.extend({
 			var detail = E('div', { 'class': 'cbi-value-description' });
 			detail.hidden = true;
 			// The name goes on the tab and the state beside the heading, not in the block.
+			var advanced = common.advancedPanel(advancedFields(tunnelDpd, tunnelMtu, cooldown),
+				_('Advanced connection settings'));
 			var node = E('div', { 'class': 'ikev2-segment-block ikev2-tunnel-block' }, [
 				detail,
 				E('div', { 'class': 'ikev2-form-grid' }, [
 					common.fieldLabel(_('Name')), name,
-					common.toggleRow(enabledTunnel, _('Enabled')),
 					common.fieldLabel(_('Remote address'),
 						_('IPv4 address or hostname of the IKEv2 gateway.')),
 					remote,
@@ -2425,24 +2462,21 @@ return baseclass.extend({
 						_('Visible while editing; leave blank to preserve the saved secret.')),
 					secret,
 					common.toggleRow(backup, _('Stand in for other tunnels'),
-						_('When another tunnel drops, its traffic moves here until it is back. Off: only what is sent to this tunnel uses it.')),
-					common.fieldLabel(_('DPD interval'),
-						_('Dead peer detection in seconds.')),
-					tunnelDpd.node,
-					common.fieldLabel(_('XFRM MTU'),
-						_('Keep 1400 unless PMTU diagnostics show a problem.')),
-					tunnelMtu.node
+						_('When another tunnel drops, its traffic moves here until it is back. Off: only what is sent to this tunnel uses it.'))
 				]),
-				E('div', { 'class': 'ikev2-actions bar' }, [ result.node, removeTunnel, saveTunnel ])
+				advanced.panel,
+				E('div', { 'class': 'ikev2-actions bar' }, [ result.node, removeTunnel ].concat(item ?
+					connectionActions(item.index, result, function() { return refreshTunnels(true); }, tunnelsUnread) : [], [ saveTunnel ]))
 			]);
 			if (item) {
-				tunnelStates[item.index] = { pill: pill, detail: detail, disabled: item.enabled !== '1' };
+				tunnelStates[item.index] = { pill: pill, detail: detail, disabled: item.enabled !== '1',
+					item: item, cards: connectionCards() };
 				showTunnelState(item.index);
 			}
 			else
 				common.setPill(pill, _('Not saved'), 'neutral');
-			var tunnelFields = [ name, enabledTunnel, remote, identity, user, secret,
-				backup, tunnelDpd.node, tunnelMtu.node ];
+			var tunnelFields = [ name, remote, identity, user, secret,
+				backup, tunnelDpd.node, tunnelMtu.node, cooldown.node ];
 			// What was stored without being applied can be sent again as it is:
 			// the form matches the router, yet the tunnel is not in effect.
 			var unapplied = false;
@@ -2459,7 +2493,7 @@ return baseclass.extend({
 			}
 			node.saveButton = saveTunnel;
 			node.tunnelTitle = item ? (item.name || _('Tunnel %s').format(item.index)) : _('New tunnel');
-			node.tunnelPill = pill;
+			node.tunnelHeader = E('div', { 'class': 'ikev2-actions' }, [ pill, advanced.toggle ]);
 			return node;
 		}
 
@@ -2469,10 +2503,11 @@ return baseclass.extend({
 		function tunnelPanel(block, id, index) {
 			return { id: id, title: block.tunnelTitle, block: block,
 				content: E('div', {}, [
+					index ? cardsNode(block.tunnelState.cards) : '',
 					index ? tunnelQuality(index).node : '',
 					common.section(_('Connection'), index ?
-						_('Changing these values reloads the tunnel profile and reconnects it. Policy routing stays in place.') : null,
-						block, block.tunnelPill)
+						_('Connect uses the saved settings. Save stores changes separately.') : null,
+						block, block.tunnelHeader)
 				]) };
 		}
 		function renderTunnels() {
@@ -2488,6 +2523,12 @@ return baseclass.extend({
 						panel.block.tracker && panel.block.tracker.dirty();
 				})[0];
 				var block = kept ? kept.block : tunnelBlock(item);
+				if (kept) {
+					block.tunnelState.item = item;
+					block.tunnelState.disabled = item.enabled !== '1';
+					tunnelStates[item.index] = block.tunnelState;
+					showTunnelState(item.index);
+				}
 				if (item.index === saved)
 					common.flashButton(block.saveButton, 'ok', _('Saved'), _('Tunnel saved.'));
 				return kept || tunnelPanel(block, 'tunnel-' + item.index, item.index);
@@ -2509,7 +2550,7 @@ return baseclass.extend({
 			publishTunnels(panel.id);
 		}
 
-		function refreshTunnels() {
+		function refreshTunnels(stateOnly) {
 			return Promise.all([
 				common.execChecked(helper, [ 'tunnels-get' ], _('Could not refresh the tunnels')),
 				L.resolveDefault(fs.exec(helper, [ 'tunnels-status' ]), { stdout: '' })
@@ -2518,7 +2559,18 @@ return baseclass.extend({
 				tunnelStatus = parseTunnelStatus(results[1].stdout || '');
 				tunnelsUnread = false;
 				showClientUnread();
-				renderTunnels();
+				if (!stateOnly) {
+					renderTunnels();
+					return;
+				}
+				tunnels.forEach(function(item) {
+					var state = tunnelStates[item.index];
+					if (state) {
+						state.item = item;
+						state.disabled = item.enabled !== '1';
+						showTunnelState(item.index);
+					}
+				});
 			});
 		}
 
@@ -2532,8 +2584,8 @@ return baseclass.extend({
 		}, 5);
 		renderTunnels();
 
-		var clientTracker = common.trackChanges([ save, saveOnly ], [
-			enabled, address, remoteId, username, password, dpd.node, mtu.node,
+		var clientTracker = common.trackChanges(saveOnly, [
+			firstName, firstBackup, address, remoteId, username, password, dpd.node, mtu.node,
 			reconnectCooldown.node, tunnelDnsUpstream.node, tunnelDnsBootstrap.node
 		], { blocked: function() { return clientUnread; } });
 		var tunnelTracker = common.trackChanges(tunnelDnsApply,
@@ -2551,20 +2603,16 @@ return baseclass.extend({
 
 		return {
 			pill: statusPill,
+			tunnelTitle: function() { return tunnelName(1); },
 			tunnel: [
 				unreadNote,
-				E('div', { 'class': 'ikev2-grid' }, [
-					gatewayCard.node,
-					virtualCard.node,
-					trafficCard.node,
-					accumulatedTrafficCard.node
-				]),
+				cardsNode(firstCards),
 				quality.node,
 				common.section(_('Connection'),
-					_('Changing these values reloads the tunnel profile and reconnects it. Policy routing stays in place.'),
+					_('Connect uses the saved settings. Save stores changes separately.'),
 					E('div', {}, [
 						E('div', { 'class': 'ikev2-form-grid' }, [
-							common.toggleRow(enabled, _('Enable client')),
+							common.fieldLabel(_('Name')), firstName,
 							common.fieldLabel(_('Remote address'),
 								_('IPv4 address or hostname of the IKEv2 gateway.')),
 							address,
@@ -2575,26 +2623,22 @@ return baseclass.extend({
 							username,
 							common.fieldLabel(_('New EAP password'),
 								_('Visible while editing; leave blank to preserve the saved secret.')),
-							password
+							password,
+							common.toggleRow(firstBackup, _('Stand in for other tunnels'),
+								_('When another tunnel drops, its traffic moves here until it is back. Off: only what is sent to this tunnel uses it.'))
 						]),
 						connectionAdvanced.panel,
-						E('div', { 'class': 'ikev2-actions bar' }, [ connectResult.node, reconnect, saveOnly, save ])
+						E('div', { 'class': 'ikev2-actions bar' }, [ connectResult.node ].concat(connectionActions('1', connectResult, refreshClientState, clientUnread), [ saveOnly ]))
 					]),
-					connectionAdvanced.toggle),
-				common.section(_('More tunnels'),
-					_('Every enabled tunnel stays connected. When one drops, or stays connected while nothing passes through it, its traffic moves to the next one up within a minute and comes back after the tunnel has stayed up for two minutes; nothing falls back to the WAN. Which tunnel a service, a list or a device uses, and whether it may move, is chosen on the Policy Routing and Overview pages.'),
-					E('div', {}, [
-						common.toggleRow(mainBackup, _('The main tunnel stands in for the others'),
-							_('When another tunnel drops, its traffic moves to the main one until it is back. Off: only what is sent to the main tunnel uses it.'),
-							mainBackupResult.node)
-					]))
+					E('div', { 'class': 'ikev2-actions' }, [ statusPill, connectionAdvanced.toggle ]))
+
 			],
 			// One tab per extra tunnel after the main one, and a way to add one.
 			tunnels: {
 				panels: function() { return tunnelPanels.slice(); },
 				watch: function(fn) { tunnelWatchers.push(fn); },
 				add: addTunnel,
-				full: function() { return tunnels.length >= 6; }
+				full: function() { return tunnelsUnread || tunnels.length >= 6; }
 			},
 			dnsNote: dnsUnreadNote,
 			dns: [

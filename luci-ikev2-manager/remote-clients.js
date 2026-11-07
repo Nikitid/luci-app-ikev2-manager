@@ -58,7 +58,7 @@ function setupSection(settings, reload) {
  var exits = [];
  settings.tunnels.forEach(function(index) {
   // Named as on the Tunnels page: the main one, or the name it was given.
-  var name = index === '1' ? _('Main tunnel') : ((settings.tunnel_names || {})[index] || _('Tunnel %s').format(index));
+  var name = index === '1' ? _('Tunnel %s').format('1') : ((settings.tunnel_names || {})[index] || _('Tunnel %s').format(index));
   exits.push([ index, settings.tunnels.length > 1 ? _('%s, another tunnel when it fails').format(name) : name ]);
   if (settings.tunnels.length > 1) exits.push([ index + 's', _('%s only').format(name) ]);
  });

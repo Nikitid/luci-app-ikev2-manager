@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require ikev2-manager.shared-v24 as common';
-'require ikev2-manager.outbound-panel-v6 as outbound';
+'require ikev2-manager.outbound-panel-v7 as outbound';
 'require ikev2-manager.inbound-panel-v6 as inbound';
 
 // The tunnels the router opens and the server it runs, on one page under two
@@ -25,17 +25,17 @@ return view.extend(common.shell(_('Tunnels'),
 		// as well, and a reload returns to the tab that was open.
 		var where = (typeof window !== 'undefined' && window.location) || {};
 		var serverOpen = /\/server\/?$/.test(where.pathname || '') || where.hash === '#inbound';
-		var tunnelHash = /^#tunnel-[2-7]$/.test(where.hash || '') ? where.hash.slice(1) : null;
-		// The state in the header is the main tunnel's: shown on its tab only.
+		var tunnelHash = /^#tunnel-[1-7]$/.test(where.hash || '') ? where.hash.slice(1) : null;
 		function shown(index, item) {
 			var server = !!item && item.id === 'inbound';
-			out.pill.style.display = item && item.id === 'tunnel-1' ? '' : 'none';
 			if (typeof window !== 'undefined' && window.history && window.history.replaceState && item)
 				window.history.replaceState(null, '', server ? '#inbound' : '#' + item.id);
 		}
-		var panels = common.tabs([
-			{ id: 'tunnel-1', title: _('Main tunnel'), content: E('div', {}, out.tunnel) }
-		].concat(out.tunnels.panels()), {
+		var first = E('div', {}, out.tunnel);
+		function tunnelTabs(list) {
+			return [ { id: 'tunnel-1', title: out.tunnelTitle(), content: first } ].concat(list);
+		}
+		var panels = common.tabs(tunnelTabs(out.tunnels.panels()), {
 			bare: true,
 			openId: serverOpen ? 'inbound' : (tunnelHash || 'tunnel-1'),
 			trailing: [ { id: 'inbound', title: _('Inbound server'), content: E('div', {}, server.server) } ],
@@ -44,14 +44,13 @@ return view.extend(common.shell(_('Tunnels'),
 		});
 		panels.setAddDisabled(out.tunnels.full());
 		out.tunnels.watch(function(list, select, full) {
-			panels.setTabs(1, list, select);
+			panels.setTabs(0, tunnelTabs(list), select);
 			panels.setAddDisabled(full);
 		});
-		out.pill.style.display = serverOpen || tunnelHash ? 'none' : '';
 
 		return E([
 			common.styles(),
-			E('div', { 'class': 'ikev2-page' }, [ common.header(title, about, out.pill), panels ])
+			E('div', { 'class': 'ikev2-page' }, [ common.header(title, about), panels ])
 		]);
 	},
 

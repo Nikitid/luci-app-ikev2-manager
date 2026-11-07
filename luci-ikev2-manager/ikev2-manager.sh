@@ -244,7 +244,7 @@ consume_owned_user_input() {
 }
 
 consume_client_input() {
-	local extra
+	local extra client_name client_backup
 	[ -f "$client_input_file" ] || die 'Client input is missing'
 	[ ! -L "$client_input_file" ] || die 'Client input must not be a symbolic link'
 	input_bytes="$(wc -c <"$client_input_file" | tr -d ' ')"
@@ -266,7 +266,9 @@ consume_client_input() {
 	tunnel_dns_provider="$(sed -n '10p' "$client_input_file")"
 	tunnel_dns_upstream="$(sed -n '11p' "$client_input_file")"
 	tunnel_dns_bootstrap="$(sed -n '12p' "$client_input_file")"
-	extra="$(sed -n '13,$p' "$client_input_file" | sed '/^[[:space:]]*$/d')"
+	client_name="$(sed -n '13p' "$client_input_file")"
+	client_backup="$(sed -n '14p' "$client_input_file")"
+	extra="$(sed -n '15,$p' "$client_input_file" | sed '/^[[:space:]]*$/d')"
 	[ -n "$reconnect_cooldown" ] || reconnect_cooldown=15
 	[ -n "$tunnel_dns_provider" ] || tunnel_dns_provider=google
 	[ -n "$tunnel_dns_upstream" ] ||
@@ -276,7 +278,10 @@ consume_client_input() {
 	rm -f "$client_input_file"
 	[ -z "$extra" ] || die 'Client input contains unexpected fields'
 
-	[ "$mode" = set ] || [ "$mode" = save ] || die 'Invalid client action'
+	case "$mode" in set | save | save-settings) ;; *) die 'Invalid client action' ;; esac
+	[ -z "$client_name" ] || valid_tunnel_name "$client_name" ||
+		die 'Tunnel name: letters, digits, spaces, dots, dashes, up to 32 characters'
+	case "$client_backup" in '' | 0 | 1) ;; *) die 'Invalid backup value' ;; esac
 	[ "$enabled" = 0 ] || [ "$enabled" = 1 ] || die 'Invalid enabled value'
 	[ -z "$remote_address" ] || valid_host_list "$remote_address" ||
 		die 'Invalid remote address list'
@@ -677,7 +682,12 @@ restore_client_state() {
 }
 
 commit_client_settings() {
-	uci set "$uci_config.client.enabled=$enabled" || return 1
+	if [ "$mode" = save-settings ]; then
+		uci set "$uci_config.client.name=$client_name" || return 1
+	else
+		uci set "$uci_config.client.enabled=$enabled" || return 1
+	fi
+	[ -z "${client_backup:-}" ] || uci set "$uci_config.client.backup=$client_backup" || return 1
 	uci set "$uci_config.client.remote_address=$(normalize_host_list "$remote_address")" || return 1
 	uci set "$uci_config.client.remote_id=$remote_id" || return 1
 	uci set "$uci_config.client.username=$username" || return 1
@@ -1879,17 +1889,31 @@ run_action() {
 				fi
 			fi
 			;;
+		# Connect and Disconnect pass their own word and save nothing; the same
+		# jobs after a save of the settings say that the settings were saved.
 		client-connect)
-			action_status "$id" running 'Loading settings and reconnecting the outbound tunnel...'
+			if [ "${1:-}" = connect ]; then
+				action_status "$id" running 'Connecting the outbound tunnel...'
+			else
+				action_status "$id" running 'Loading settings and reconnecting the outbound tunnel...'
+			fi
 			rm -f "$connect_failure_file"
 			if swanctl_quiet --load-conns >/dev/null &&
 			   swanctl_quiet --load-creds >/dev/null &&
 			   connect_action; then
-				action_status "$id" ok 'Settings saved and tunnel connected.'
+				if [ "${1:-}" = connect ]; then
+					action_status "$id" ok 'Tunnel connected.'
+				else
+					action_status "$id" ok 'Settings saved and tunnel connected.'
+				fi
 			else
 				connect_reason="$(sed -n '1p' "$connect_failure_file" 2>/dev/null || true)"
 				rm -f "$connect_failure_file"
-				if [ -n "$connect_reason" ]; then
+				if [ "${1:-}" = connect ] && [ -n "$connect_reason" ]; then
+					action_status "$id" error "Tunnel did not come up: $connect_reason"
+				elif [ "${1:-}" = connect ]; then
+					action_status "$id" error 'Tunnel did not come up; see /tmp/ikev2-manager-action.log and logread.'
+				elif [ -n "$connect_reason" ]; then
 					action_status "$id" error "Settings were saved, but the tunnel did not come up: $connect_reason"
 				else
 					action_status "$id" error 'Settings were saved, but the tunnel did not come up; see logread.'
@@ -1897,17 +1921,35 @@ run_action() {
 			fi
 			;;
 		tunnels-apply)
-			action_status "$id" running 'Applying the outbound tunnels...'
-			if tunnels_apply_action; then
-				action_status "$id" ok 'Tunnel settings saved and applied.'
+			case "${2:-}" in
+				connect) action_status "$id" running 'Connecting the outbound tunnel...' ;;
+				disconnect) action_status "$id" running 'Stopping the outbound tunnel...' ;;
+				*) action_status "$id" running 'Applying the outbound tunnels...' ;;
+			esac
+			if tunnels_apply_action "${1:-}" "${2:-}"; then
+				case "${2:-}" in
+					connect) action_status "$id" ok 'Tunnel connected.' ;;
+					disconnect) action_status "$id" ok 'Tunnel disconnected.' ;;
+					*) action_status "$id" ok 'Tunnel settings saved and applied.' ;;
+				esac
 			else
-				action_status "$id" error 'Tunnel settings were saved, but applying them failed; see /tmp/ikev2-manager-action.log and logread.'
+				case "${2:-}" in
+					connect) action_status "$id" error 'Tunnel did not come up; see /tmp/ikev2-manager-action.log and logread.' ;;
+					disconnect) action_status "$id" error 'The tunnel could not be stopped cleanly; see /tmp/ikev2-manager-action.log and logread.' ;;
+					*) action_status "$id" error 'Tunnel settings were saved, but applying them failed; see /tmp/ikev2-manager-action.log and logread.' ;;
+				esac
 			fi
 			;;
 		client-disable)
 			action_status "$id" running 'Stopping the outbound tunnel...'
 			if disable_client_action; then
-				action_status "$id" ok 'Settings saved and tunnel disabled.'
+				if [ "${1:-}" = disconnect ]; then
+					action_status "$id" ok 'Tunnel disconnected.'
+				else
+					action_status "$id" ok 'Settings saved and tunnel disabled.'
+				fi
+			elif [ "${1:-}" = disconnect ]; then
+				action_status "$id" error 'The tunnel could not be stopped cleanly; see /tmp/ikev2-manager-action.log and logread.'
 			else
 				action_status "$id" error 'Settings were saved, but the tunnel could not be stopped cleanly.'
 			fi
@@ -2095,7 +2137,7 @@ case "${1:-}" in
 		acme_issue
 		;;
 	client-get)
-		for key in enabled remote_address remote_id username dpd mtu custom_config; do
+		for key in name enabled remote_address remote_id username dpd mtu custom_config; do
 			printf '%s=%s\n' "$key" "$(getv client "$key")"
 		done
 		printf 'backup=%s\n' "$(getv_default client backup 1)"

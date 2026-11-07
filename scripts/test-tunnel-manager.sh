@@ -9,7 +9,16 @@ set -eu
 
 root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT INT TERM
+# Queued actions run in the background and write into $tmp; let them finish
+# before it goes, or the removal races them.
+settle_actions() {
+	local i=0
+	while [ "$i" -lt 200 ] && grep -lqx 'state=running' "$tmp"/actions/*.status 2>/dev/null; do
+		sleep 0.1
+		i=$((i + 1))
+	done
+}
+trap 'settle_actions; rm -rf "$tmp" 2>/dev/null || { sleep 1; rm -rf "$tmp"; }' EXIT INT TERM
 
 fail() {
 	printf 'tunnel manager: %s\n' "$*" >&2
@@ -26,7 +35,10 @@ mkdir -p \
 cp "$root"/ikev2-manager-runtime/lib/*.sh "$tmp/root/usr/libexec/ikev2-manager.d/"
 cp "$root/scripts/uci-stub.sh" "$tmp/bin/uci"
 printf '#!/bin/sh\n[ "${1:-}" = strongswan-security ]\n' >"$tmp/bin/system-helper"
-chmod 755 "$tmp/bin/uci" "$tmp/bin/system-helper"
+# Queued actions start the helper again through setsid, which macOS lacks;
+# the helper is not executable in the tree, only where it is installed.
+printf '#!/bin/sh\ncase "$1" in *.sh) exec sh "$@" ;; esac\nexec "$@"\n' >"$tmp/bin/setsid"
+chmod 755 "$tmp/bin/uci" "$tmp/bin/system-helper" "$tmp/bin/setsid"
 
 cat >"$tmp/root/etc/config/ikev2-manager" <<'EOF'
 globals=globals
@@ -51,6 +63,7 @@ manager() {
 	IKEV2_UCI_BIN="$tmp/bin/uci" \
 	IKEV2_SYSTEM_HELPER="$tmp/bin/system-helper" \
 	IKEV2_TUNNEL_INPUT="$tmp/tunnel.in" \
+	IKEV2_CLIENT_INPUT="$tmp/client.in" \
 	IKEV2_CONFIG_LOCK="$tmp/config.lock" \
 	IKEV2_RUNTIME_LIB_DIR="$tmp/root/usr/libexec/ikev2-manager.d" \
 	IKEV2_ACTION_STATUS="$tmp/latest.status" \
@@ -71,6 +84,29 @@ input() {
 
 snapshot() {
 	cat "$tmp/root/etc/config/ikev2-manager" "$conf" "$secrets" "$db" 2>/dev/null >"$tmp/$1"
+}
+
+# What the action queued in $tmp/out said when it finished. Connect and
+# Disconnect save nothing, so neither may report that settings were saved.
+outcome() {
+	local id i=0
+	id="$(sed -n 's/^action_id=//p' "$tmp/out")"
+	while [ "$i" -lt 150 ]; do
+		grep -Eq '^state=(ok|error)$' "$tmp/actions/$id.status" 2>/dev/null && break
+		sleep 0.1
+		i=$((i + 1))
+	done
+	grep -Eq '^state=(ok|error)$' "$tmp/actions/$id.status" 2>/dev/null ||
+		fail "the action $id did not finish: $(cat "$tmp/actions/$id.status" 2>/dev/null)"
+	sed -n 's/^message=//p' "$tmp/actions/$id.status"
+}
+no_save_claim() {
+	local message
+	message="$(outcome)"
+	[ -n "$message" ] || fail "$1 left no outcome"
+	case "$message" in
+		*[Ss]aved*) fail "$1 reported a save it did not make: $message" ;;
+	esac
 }
 
 # A new tunnel takes the first free index and its own names.
@@ -103,6 +139,26 @@ manager tunnel-input >/dev/null 2>"$tmp/err" || fail "an edit was refused: $(cat
 grep -qx 'tunnel_2.backup=0' "$tmp/root/etc/config/ikev2-manager" || fail 'the backup flag was not stored'
 grep -q 'dpd_delay = 60s' "$conf" || fail 'the edited DPD was not rendered'
 
+# A settings-only save preserves the connection switch and queues no apply.
+input save-only 2 'Backup NL' 0 nl.example.test nl.example.test backup-user 60 1380 0 '' 30
+manager tunnel-input >"$tmp/out" || fail 'settings-only save failed'
+grep -qx 'tunnel=2' "$tmp/out" && ! grep -q '^action_id=' "$tmp/out" ||
+	fail 'saving settings queued a connection action'
+grep -qx 'tunnel_2.enabled=1' "$tmp/root/etc/config/ikev2-manager" ||
+	fail 'saving settings changed the enabled flag'
+grep -qx 'tunnel_2.reconnect_cooldown=30' "$tmp/root/etc/config/ikev2-manager" ||
+	fail 'the reconnect cooldown was not saved'
+input disconnect 2
+manager tunnel-input >"$tmp/out" || fail 'disconnect was refused'
+grep -q '^action_id=' "$tmp/out" && ! grep -q 'proxy-out-2 {' "$conf" ||
+	fail 'disconnect did not queue an apply or left the connection in the profile'
+no_save_claim 'Disconnect of an extra tunnel'
+input connect 2
+manager tunnel-input >"$tmp/out" || fail 'connect was refused'
+grep -q '^action_id=' "$tmp/out" && grep -q 'proxy-out-2 {' "$conf" ||
+	fail 'connect did not restore the saved profile and queue an apply'
+no_save_claim 'Connect of an extra tunnel'
+
 # Refused input changes nothing.
 snapshot before
 for bad in \
@@ -134,8 +190,11 @@ printf '#!/bin/sh\n[ "$1" = tunnels ] && printf "1\\t1\\t10.20.20.10\\n2\\t0\\t-
 printf '#!/bin/sh\n[ "$1" = status ] && printf "tunnel=up\\nexit_1=ipsec-out\\nexit_2=ipsec-out\\nexit_3=none\\n"\n' >"$tmp/bin/routing"
 chmod 755 "$tmp/bin/sa" "$tmp/bin/routing"
 manager tunnels-status >"$tmp/status"
+sed 's/ interface_present=.*//' "$tmp/status" >"$tmp/status-base"
+grep -q 'interface_present=0 interface_bytes_in=0 interface_bytes_out=0$' "$tmp/status" ||
+	fail 'tunnel status does not include the interface counters'
 printf '%s\n' 'tunnel=1 up=1 address=10.20.20.10 carries=1,2' 'tunnel=2 up=0 address= carries=' \
-	'tunnel=3 up=0 address= carries=' | cmp -s - "$tmp/status" ||
+	'tunnel=3 up=0 address= carries=' | cmp -s - "$tmp/status-base" ||
 	fail "the tunnel status is wrong: $(cat "$tmp/status")"
 
 # The first tunnel has the switch every other tunnel has in its block.
@@ -145,6 +204,24 @@ grep -qx 'client.backup=0' "$tmp/root/etc/config/ikev2-manager" || fail 'the set
 manager client-get | grep -qx 'backup=0' || fail 'the page is not told the setting of the first tunnel'
 manager client-backup 2 >/dev/null 2>&1 && fail 'a setting that is neither on nor off was accepted'
 manager client-backup 1 >/dev/null || fail 'the first tunnel could not stand in again'
+
+# The first slot uses the same separate controls while keeping its UCI layout.
+printf '%s\n' save-settings 0 home.example.test home.example.test tunnel-user 30 1400 '' 15 \
+	google 'https://dns.google/dns-query' '8.8.8.8:53' Home 0 >"$tmp/client.in"
+manager client-input >"$tmp/out" || fail 'settings-only save failed for the first slot'
+[ ! -s "$tmp/out" ] && manager client-get | grep -qx 'name=Home' ||
+	fail 'first-slot settings were not saved separately'
+manager client-get | grep -qx 'enabled=1' || fail 'saving settings disabled the first slot'
+input disconnect 1
+manager tunnel-input >"$tmp/out" || fail 'the first slot did not accept Disconnect'
+grep -q '^action_id=' "$tmp/out" && manager client-get | grep -qx 'enabled=0' ||
+	fail 'Disconnect did not disable the first slot'
+no_save_claim 'Disconnect of the first tunnel'
+input connect 1
+manager tunnel-input >"$tmp/out" || fail 'the first slot did not accept Connect'
+grep -q '^action_id=' "$tmp/out" && manager client-get | grep -qx 'enabled=1' ||
+	fail 'Connect did not enable the first slot'
+no_save_claim 'Connect of the first tunnel'
 
 # Seven at most: each has two exits, and there are fifteen marks.
 for name in A B C D; do

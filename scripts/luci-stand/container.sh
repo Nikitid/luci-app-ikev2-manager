@@ -99,7 +99,8 @@ seed_network() {
 }
 
 reset_state() {
-	rm -rf /etc/ikev2-manager/users.db /etc/ikev2-manager/client.secret /etc/ikev2-manager/mail.json \
+	rm -rf /etc/ikev2-manager/users.db /etc/ikev2-manager/client.secret /etc/ikev2-manager/tunnels.secret \
+		/etc/ikev2-manager/mail.json \
 		/etc/ikev2-manager/clients /etc/pbr-ikev2-*.txt /tmp/ikev2-*.status /tmp/dhcp.leases
 	for run in /var/run /tmp/run; do
 		rm -rf "$run"/ikev2-client-admin "$run"/ikev2-client-seen "$run"/ikev2-quality \
@@ -219,6 +220,10 @@ seed_vpn() {
 	uci commit ikev2-manager
 	printf 'router-test\t0sc3RhbmQ=\n' >/etc/ikev2-manager/client.secret
 	chmod 0600 /etc/ikev2-manager/client.secret
+	# A router always has the second tunnel's password: it cannot be added
+	# without one, and Save of its other settings keeps it.
+	printf '2\trouter-test-2\t0sc3RhbmQ=\n' >/etc/ikev2-manager/tunnels.secret
+	chmod 0600 /etc/ikev2-manager/tunnels.secret
 	seed_quality
 	for name in alice bob carol; do
 		printf '%s\t0sc3RhbmQ=\n' "$name" >>/etc/ikev2-manager/users.db

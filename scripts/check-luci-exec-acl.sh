@@ -66,7 +66,7 @@ const allText = sources.map(function(entry) { return entry.text; }).join('\n');
 // Words that look like subcommands but are not: they name a mode, a state or a
 // UI value that never reaches a helper.
 const notCommands = new Set([
-	'load-balance', 'fastest-addr', 'new-password', 'dns-query'
+	'load-balance', 'fastest-addr', 'new-password', 'dns-query', 'save-only'
 ]);
 
 // A subcommand named by a page: the first element of an argument array, or one

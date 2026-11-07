@@ -6,6 +6,7 @@ root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
 tmp="$(mktemp -d)"
 export IKEV2_RUNTIME_LIB_DIR="$root/ikev2-manager-runtime/lib"
 export IKEV2_USER_POLICY_LOCK="$tmp/user-policy.lock"
+export IKEV2_USER_POLICY_ALIVE="$tmp/user-policy.alive"
 cleanup() {
 	if [ "${KEEP_TEST_TMP:-0}" = 1 ]; then
 		printf 'test_tmp=%s\n' "$tmp" >&2

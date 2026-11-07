@@ -74,7 +74,6 @@ for pair in \
 	'luci-ikev2-manager/settings.js:trackChanges(save,' \
 	'luci-ikev2-manager/settings.js:trackChanges(acmeSave,' \
 	'luci-ikev2-manager/settings.js:trackChanges(rawSave,' \
-	'luci-ikev2-manager/client.js:trackChanges([ save, saveOnly ],' \
 	'luci-ikev2-manager/client.js:trackChanges(tunnelDnsApply,' \
 	'luci-ikev2-manager/client.js:trackChanges(dnsSave,' \
 	'luci-ikev2-manager/client.js:trackChanges(rawSave,' \

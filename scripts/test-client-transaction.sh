@@ -225,11 +225,4 @@ printf '%s\n' "$client_state" | grep -Fxq 'interface_present=1'
 printf '%s\n' "$client_state" | grep -Fxq 'interface_bytes_in=123456'
 printf '%s\n' "$client_state" | grep -Fxq 'interface_bytes_out=654321'
 
-grep -Fq "var trafficCard = liveCard(_('Current SA traffic'));" \
-	"$root/luci-ikev2-manager/client.js"
-grep -Fq "var accumulatedTrafficCard = liveCard(_('Accumulated tunnel traffic'));" \
-	"$root/luci-ikev2-manager/client.js"
-grep -Fq "_('Counter age: %s').format(common.formatDuration(child['install-time']))" \
-	"$root/luci-ikev2-manager/client.js"
-
 printf 'client transaction tests OK\n'

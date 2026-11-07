@@ -101,17 +101,29 @@ cmd_set_exclusions() {
 	commit_and_restart "$backup" device-firewall
 }
 
+validate_exit() {
+	local exit="$1"
+	case "$exit" in
+		[1-7] | [1-7]s) ;;
+		*) printf 'tunnel must be 1 to 7, with "s" to stay on it alone\n' >&2; return 1 ;;
+	esac
+	[ "${exit%s}" = 1 ] || uci -q get "ikev2-manager.tunnel_${exit%s}" >/dev/null 2>&1 ||
+		{ printf 'tunnel %s is not configured\n' "${exit%s}" >&2; return 1; }
+}
+
 # Full-VPN inclusion carries no exclusion flags of its own. RESPECT sends what
 # is never to go through the tunnel to WAN for this device too.
 cmd_set_included() {
-	local addr="${1:-}" respect="${2:-0}" backup
+	local addr="${1:-}" respect="${2:-0}" exit="${3:-}" backup
 	valid_addr "$addr" || { printf 'valid IPv4 address or subnet required\n' >&2; exit 1; }
 	case "$respect" in 0 | 1) ;; *) printf 'switch values must be 0 or 1\n' >&2; return 1 ;; esac
+	[ -z "$exit" ] || validate_exit "$exit" || return 1
 	backup="$(backup_pbr)" || return 1
 	if ! device_migrate || ! device_set "$addr" fullroute ||
 	   ! device_set_flag "$addr" dns_passthrough 0 ||
 	   ! device_set_flag "$addr" dpi_passthrough 0 ||
 	   ! device_set_flag "$addr" respect_exclusions "$respect" ||
+	   { [ -n "$exit" ] && ! device_set_exit "$addr" "$exit"; } ||
 	   ! render_policies; then
 		restore_pbr "$backup" device-firewall
 		return 1
@@ -124,12 +136,7 @@ cmd_set_included() {
 cmd_set_exit() {
 	local addr="${1:-}" exit="${2:-}" backup
 	valid_addr "$addr" || { printf 'valid IPv4 address or subnet required\n' >&2; exit 1; }
-	case "$exit" in
-		[1-7] | [1-7]s) ;;
-		*) printf 'tunnel must be 1 to 7, with "s" to stay on it alone\n' >&2; return 1 ;;
-	esac
-	[ "${exit%s}" = 1 ] || uci -q get "ikev2-manager.tunnel_${exit%s}" >/dev/null 2>&1 ||
-		{ printf 'tunnel %s is not configured\n' "${exit%s}" >&2; return 1; }
+	validate_exit "$exit" || return 1
 	backup="$(backup_pbr)" || return 1
 	if ! device_migrate || ! device_set_exit "$addr" "$exit" || ! render_policies; then
 		restore_pbr "$backup" device
@@ -461,7 +468,7 @@ case "${1:-}" in
 	set-flag)         cmd_set_flag "${2:-}" "${3:-}" "${4:-}" ;;
 	set-unmanaged)    cmd_set_unmanaged "${2:-}" ;;
 	set-exclusions)   cmd_set_exclusions "${2:-}" "${3:-}" "${4:-}" "${5:-}" ;;
-	set-included)     cmd_set_included "${2:-}" "${3:-0}" ;;
+	set-included)     cmd_set_included "${2:-}" "${3:-0}" "${4:-}" ;;
 	set-exit)         cmd_set_exit "${2:-}" "${3:-}" ;;
 	clear-policy)     cmd_clear_policy "${2:-}" ;;
     *)

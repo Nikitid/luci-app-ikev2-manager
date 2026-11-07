@@ -25,7 +25,6 @@ quality_dir="${IKEV2_QUALITY_DIR:-/var/run/ikev2-quality}"
 samples_file="$quality_dir/samples"
 events_file="$quality_dir/events"
 sample_state="$quality_dir/sample.state"
-speed_file="$quality_dir/speed.last"
 sample_lock="$quality_dir/sample.lock"
 speed_lock="$quality_dir/speed.lock"
 speed_step_file="$quality_dir/speed.step"
@@ -100,11 +99,13 @@ ping_stats() {
 use_tunnel() {
 	tunnel_names "$1"
 	tunnel_if="$tunnel_link"
+	speed_file="$quality_dir/speed.last"
 	if [ "$1" = 1 ]; then
 		samples_file="$quality_dir/samples"
 		events_file="$quality_dir/events"
 		sample_state="$quality_dir/sample.state"
 	else
+		speed_file="$quality_dir/speed-$1.last"
 		samples_file="$quality_dir/samples-$1"
 		events_file="$quality_dir/events-$1"
 		sample_state="$quality_dir/sample-$1.state"
@@ -682,7 +683,7 @@ speed_monitor() {
 # for that direction rather than failed.
 speed_test() {
 	local id="$1" tunnel_service="$2" wan_service="$3" direction="$4" streams="$5"
-	local tunnel_url="${6:--}" wan_url="${7:--}" wan loaded loaded_pid
+	local tunnel_url="${6:--}" wan_url="${7:--}" index="${8:-1}" wan loaded loaded_pid
 	local path device dir result failed='' limited='' directions key service url loaded_done=0
 	if ! pid_lock_acquire "$speed_lock"; then
 		action_status "$id" error 'A speed test is already running.'
@@ -691,7 +692,8 @@ speed_test() {
 	# Global, not local: the EXIT trap runs after this function has returned.
 	speed_monitor_pid=''
 	trap 'pid_lock_release "$speed_lock"; [ -z "$speed_monitor_pid" ] || { kill "$speed_monitor_pid" 2>/dev/null; wait "$speed_monitor_pid" 2>/dev/null; }; rm -rf "$quality_dir/speed.$$" "$speed_step_file" "$speed_live_file" "${speed_live_file}.new"' EXIT
-	if [ "$(uci -q get ikev2-manager.client.enabled || echo 0)" != 1 ] ||
+	use_tunnel "$index"
+	if [ "$(uci -q get "ikev2-manager.$tunnel_section.enabled" || echo 0)" != 1 ] ||
 	   ! child_installed || [ ! -d "$net_dir/$tunnel_if" ]; then
 		action_status "$id" error 'The outbound tunnel is not connected.'
 		return 1
@@ -786,7 +788,8 @@ valid_speed_service() {
 # is "-" when its path does not use a custom file.
 speed_test_start() {
 	local tunnel_service="$1" wan_service="$2" direction="$3" streams="$4"
-	local tunnel_url="${5:--}" wan_url="${6:--}" path service url
+	local tunnel_url="${5:--}" wan_url="${6:--}" index="${7:-1}" path service url
+	case "$index" in [1-7]) ;; *) die 'Invalid tunnel' ;; esac
 	valid_speed_service "$tunnel_service" && valid_speed_service "$wan_service" ||
 		die 'Unknown speed test service'
 	case "$direction" in down | up | both) ;; *) die 'Expected direction: down, up or both' ;; esac
@@ -816,7 +819,7 @@ speed_test_start() {
 	[ "$wan_url" = - ] || uci set ikev2-manager.quality.speed_wan_url="$wan_url"
 	uci commit ikev2-manager
 	mkdir -p "$action_status_dir"
-	start_action speed-test "$tunnel_service" "$wan_service" "$direction" "$streams" "$tunnel_url" "$wan_url"
+	start_action speed-test "$tunnel_service" "$wan_service" "$direction" "$streams" "$tunnel_url" "$wan_url" "$index"
 }
 
 run_action() {
@@ -853,8 +856,8 @@ case "${1:-}" in
 		summary "$1" "$2"
 		;;
 	speed-test-async)
-		[ "$#" -ge 5 ] && [ "$#" -le 7 ] ||
-			die 'Expected: speed-test-async tunnel_service wan_service down|up|both 1|4|8 [tunnel_url|-] [wan_url|-]'
+		[ "$#" -ge 5 ] && [ "$#" -le 8 ] ||
+			die 'Expected: speed-test-async tunnel_service wan_service down|up|both 1|4|8 [tunnel_url|-] [wan_url|-] [tunnel]'
 		shift
 		speed_test_start "$@"
 		;;
@@ -879,6 +882,6 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		die 'Usage: ikev2-tunnel-quality {sample|summary [1h|6h|24h] [tunnel]|speed-test-async tunnel_service wan_service direction streams [tunnel_url] [wan_url]|action-status [id]}'
+		die 'Usage: ikev2-tunnel-quality {sample|summary [1h|6h|24h] [tunnel]|speed-test-async tunnel_service wan_service direction streams [tunnel_url] [wan_url] [tunnel]|action-status [id]}'
 		;;
 esac

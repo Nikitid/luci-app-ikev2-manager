@@ -104,7 +104,7 @@ function parseDeviceDump(stdout) {
 
 // The tunnels the router has, the main one first, from tunnels-get.
 function parseTunnelChoices(stdout) {
-	var choices = [ { index: '1', name: _('Main tunnel') } ], current = null;
+	var choices = [ { index: '1', name: _('Tunnel %s').format('1') } ], current = null;
 	String(stdout || '').split('\n').forEach(function(line) {
 		var at = line.indexOf('=');
 		if (at < 1)
@@ -528,14 +528,13 @@ return view.extend(common.shell(_('IKEv2 Manager Overview'),
 		// The tunnel a full-route device leaves by. While it is down the
 		// device moves to the next tunnel up, or, bound to it without backup,
 		// waits for it; never to WAN.
-		function tunnelSelect(entry) {
-			var current = entry.exit || '1';
+		function tunnelSelect(current) {
 			var places = [];
 			tunnels.forEach(function(choice) {
 				places.push({ value: choice.index, label: choice.name });
 				places.push({ value: choice.index + 's', label: _('%s, no backup').format(choice.name) });
 			});
-			var select = E('select', {
+			return E('select', {
 				'class': 'cbi-input-select',
 				'aria-label': _('Tunnel')
 			}, places.map(function(place) {
@@ -544,6 +543,10 @@ return view.extend(common.shell(_('IKEv2 Manager Overview'),
 					'selected': place.value === current ? '' : null
 				}, [ place.label ]);
 			}));
+		}
+
+		function rowTunnelSelect(entry) {
+			var select = tunnelSelect(entry.exit || '1');
 			select.addEventListener('change', function() {
 				select.disabled = true;
 				self.deviceAction([ 'set-exit', entry.addr, select.value ], null, result)
@@ -624,7 +627,7 @@ return view.extend(common.shell(_('IKEv2 Manager Overview'),
 						policyCheck(entry, 'pbr', _('Exclude from project routing'), checks),
 					included ? '' : policyCheck(entry, 'dns', _('Use the device DNS without interception'), checks),
 					included ? '' : policyCheck(entry, 'dpi', _('Bypass Zapret processing'), checks),
-					!several ? '' : included ? tunnelSelect(entry) :
+					!several ? '' : included ? rowTunnelSelect(entry) :
 						E('span', { 'class': 'ikev2-policy-na' }, [ '—' ]),
 					E('span', { 'class': 'ikev2-device-policy-traffic' }, [
 						common.formatBytes(Number(hit.bytes || 0)) + ' · ' +
@@ -653,6 +656,13 @@ return view.extend(common.shell(_('IKEv2 Manager Overview'),
 			E('option', { 'value': 'exclude' }, [ _('Exclusion') ]),
 			E('option', { 'value': 'include' }, [ _('Include — all traffic through VPN') ])
 		]);
+		var addTunnel = several ? tunnelSelect('1') : null;
+		if (addTunnel) {
+			addTunnel.hidden = true;
+			type.addEventListener('change', function() {
+				addTunnel.hidden = type.value !== 'include';
+			});
+		}
 		var add = E('button', {
 			'class': 'cbi-button cbi-button-add', 'type': 'button'
 		}, [ _('Add') ]);
@@ -667,6 +677,8 @@ return view.extend(common.shell(_('IKEv2 Manager Overview'),
 			}
 			var action = type.value === 'include' ?
 				[ 'set-included', value ] : [ 'set-exclusions', value, '1', '0', '0' ];
+			if (type.value === 'include' && addTunnel)
+				action.push('0', addTunnel.value);
 			self.deviceAction(action, add, result, function() {
 				addr.setValue(choices.length ? choices[0].value : '');
 			});
@@ -676,7 +688,7 @@ return view.extend(common.shell(_('IKEv2 Manager Overview'),
 			list,
 			E('div', { 'class': 'ikev2-inline-form', 'style': 'margin-top:1rem' }, [
 				E('div', { 'class': 'ikev2-device-picker' }, [ addr.node ]),
-				type, result.node, add
+				type, addTunnel, result.node, add
 			])
 		]);
 	},

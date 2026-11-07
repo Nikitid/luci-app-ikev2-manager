@@ -230,6 +230,7 @@ tunnels_get() {
 			printf '%s=%s\n' "$key" "$(getv "tunnel_$index" "$key")"
 		done
 		printf 'dpd=%s\n' "$(getv_default "tunnel_$index" dpd 30)"
+		printf 'reconnect_cooldown=%s\n' "$(getv_default "tunnel_$index" reconnect_cooldown 15)"
 		printf 'mtu=%s\n' "$(getv_default "tunnel_$index" mtu 1400)"
 		printf 'backup=%s\n' "$(getv_default "tunnel_$index" backup 1)"
 		if tunnel_secret_get "$index" >/dev/null; then
@@ -274,14 +275,15 @@ restore_tunnels_state() {
 	restore_path "$extra_tunnels_conf" "$directory" profile || restored=0
 	restore_path "$extra_tunnels_secret" "$directory" rendered_secret || restored=0
 	restore_path "$outbound_secret" "$directory" client_secret || restored=0
+	restore_path "$outbound_conf" "$directory" client_profile || restored=0
 	[ "$restored" -eq 1 ]
 }
 
-# Input lines: action (save or delete), tunnel index or "new", name, enabled,
-# remote addresses, remote identity, user name, DPD, MTU, backup, password
-# (empty keeps the stored one).
+# Connect, disconnect and delete take only the slot. Save also takes name,
+# enabled, gateway, identity, user, DPD, MTU, backup, password and cooldown.
+# An empty password keeps the stored one. Save-only preserves the enabled flag.
 consume_tunnel_input() {
-	local input="$1" action index name enabled remote_address remote_id username dpd mtu backup password extra
+	local input="$1" action index name enabled remote_address remote_id username dpd mtu backup password extra cooldown
 	[ -f "$input" ] || die 'Tunnel input is missing'
 	[ ! -L "$input" ] || die 'Tunnel input must not be a symbolic link'
 	input_bytes="$(wc -c <"$input" | tr -d ' ')"
@@ -302,19 +304,23 @@ consume_tunnel_input() {
 	mtu="$(sed -n '9p' "$input")"
 	backup="$(sed -n '10p' "$input")"
 	password="$(sed -n '11p' "$input")"
-	extra="$(sed -n '12,$p' "$input" | sed '/^[[:space:]]*$/d')"
+	cooldown="$(sed -n '12p' "$input")"
+	extra="$(sed -n '13,$p' "$input" | sed '/^[[:space:]]*$/d')"
 	rm -f "$input"
 	[ -z "$extra" ] || die 'Tunnel input contains unexpected fields'
 
 	[ "$(getv globals configured)" = 1 ] || die 'Complete and enable Overview first'
 	case "$action" in
-		save | delete) ;;
+		save | save-only | delete | connect | disconnect) ;;
 		*) die 'Invalid tunnel action' ;;
 	esac
 	case "$index" in
 		new)
-			[ "$action" = save ] || die 'Invalid tunnel'
+			case "$action" in save | save-only) ;; *) die 'Invalid tunnel' ;; esac
 			index="$(free_tunnel_index)" || die 'At most seven tunnels can be configured'
+			;;
+		1)
+			case "$action" in connect | disconnect) ;; *) die 'Invalid tunnel action' ;; esac
 			;;
 		[2-7])
 			uci -q get "$uci_config.tunnel_$index" >/dev/null 2>&1 || die 'Unknown tunnel'
@@ -326,7 +332,7 @@ consume_tunnel_input() {
 	if [ "$action" = delete ] && tunnel_bound "$index"; then
 		die 'Move the services and devices bound to this tunnel without backup first'
 	fi
-	if [ "$action" = save ]; then
+	if [ "$action" = save ] || [ "$action" = save-only ]; then
 		valid_tunnel_name "$name" || die 'Tunnel name: letters, digits, spaces, dots, dashes, up to 32 characters'
 		[ "$enabled" = 0 ] || [ "$enabled" = 1 ] || die 'Invalid enabled value'
 		valid_host_list "$remote_address" || die 'Invalid remote address list'
@@ -338,6 +344,7 @@ consume_tunnel_input() {
 			die 'EAP password is required for a new tunnel'
 		in_range "$dpd" 10 300 || die 'DPD must be 10-300 seconds'
 		in_range "$mtu" 1280 1500 || die 'MTU must be 1280-1500'
+		[ -z "$cooldown" ] || in_range "$cooldown" 15 300 || die 'Reconnect cooldown must be 15-300 seconds'
 		[ "$backup" = 0 ] || [ "$backup" = 1 ] || die 'Invalid backup value'
 	fi
 
@@ -351,7 +358,8 @@ consume_tunnel_input() {
 	   ! snapshot_path "$tunnels_secret_db" "$tunnel_state" secret ||
 	   ! snapshot_path "$extra_tunnels_conf" "$tunnel_state" profile ||
 	   ! snapshot_path "$extra_tunnels_secret" "$tunnel_state" rendered_secret ||
-	   ! snapshot_path "$outbound_secret" "$tunnel_state" client_secret; then
+	   ! snapshot_path "$outbound_secret" "$tunnel_state" client_secret ||
+	   ! snapshot_path "$outbound_conf" "$tunnel_state" client_profile; then
 		rm -rf "$tunnel_state"
 		pid_lock_release "$config_lock_dir"
 		die 'Unable to back up current tunnel configuration'
@@ -371,11 +379,40 @@ consume_tunnel_input() {
 	pid_lock_release "$config_lock_dir"
 	trap - INT TERM HUP
 	printf 'tunnel=%s\n' "$index"
-	start_action tunnels-apply
+	case "$action:$index" in
+		save-only:*) return 0 ;;
+		connect:1) start_action client-connect connect ;;
+		disconnect:1) start_action client-disable disconnect ;;
+		connect:* | disconnect:*) start_action tunnels-apply "$index" "$action" ;;
+		*) start_action tunnels-apply ;;
+	esac
 }
 
 commit_tunnel_settings() {
 	local action="$1" index="$2" section="tunnel_$2"
+	case "$action" in
+		connect | disconnect)
+			enabled=0
+			[ "$action" != connect ] || enabled=1
+			if [ "$index" = 1 ]; then
+				section=client
+				if [ "$enabled" = 1 ]; then
+					valid_host_list "$(getv client remote_address)" &&
+						valid_host "$(getv client remote_id)" &&
+						valid_user "$(getv client username)" &&
+						[ -s "$client_secret_db" ] || return 1
+				fi
+			fi
+			uci set "$uci_config.$section.enabled=$enabled" &&
+				uci commit "$uci_config" || return 1
+			if [ "$index" = 1 ]; then
+				render_client && render_client_secret
+			else
+				render_extra_tunnels
+			fi
+			return
+			;;
+	esac
 	if [ "$action" = delete ]; then
 		uci delete "$uci_config.$section" || return 1
 		uci commit "$uci_config" || return 1
@@ -383,13 +420,16 @@ commit_tunnel_settings() {
 	else
 		uci set "$uci_config.$section=tunnel" || return 1
 		uci set "$uci_config.$section.name=$name" || return 1
-		uci set "$uci_config.$section.enabled=$enabled" || return 1
+		if [ "$action" = save ] || ! uci -q get "$uci_config.$section.enabled" >/dev/null; then
+			uci set "$uci_config.$section.enabled=$enabled" || return 1
+		fi
 		uci set "$uci_config.$section.remote_address=$(normalize_host_list "$remote_address")" || return 1
 		uci set "$uci_config.$section.remote_id=$remote_id" || return 1
 		uci set "$uci_config.$section.username=$username" || return 1
 		uci set "$uci_config.$section.dpd=$dpd" || return 1
 		uci set "$uci_config.$section.mtu=$mtu" || return 1
 		uci set "$uci_config.$section.backup=$backup" || return 1
+		[ -z "$cooldown" ] || uci set "$uci_config.$section.reconnect_cooldown=$cooldown" || return 1
 		uci commit "$uci_config" || return 1
 		tunnel_secret_put "$index" "$username" "$password" || return 1
 	fi
@@ -401,7 +441,7 @@ commit_tunnel_settings() {
 # routing and the FakeIP resolver, which has an outbound per tunnel. A tunnel
 # disabled or removed has its IKE_SA ended and its address taken off its link.
 tunnels_apply_action() {
-	local index rc=0
+	local index requested="${1:-}" operation="${2:-}" rc=0
 	/etc/init.d/ikev2-xfrm start || return 1
 	"$system_helper" _sync-firewall || return 1
 	swanctl_quiet --load-all >/dev/null || return 1
@@ -414,7 +454,24 @@ tunnels_apply_action() {
 		rm -f "/var/run/ikev2-vip4-$index"
 		ip -4 addr flush dev "$tunnel_link" scope global 2>/dev/null || :
 	done
-	ensure_extra_tunnels || rc=1
+	case "$operation" in
+		connect)
+			tunnel_names "$requested"
+			if [ "$(getv "$tunnel_section" enabled)" = 1 ]; then
+				if "$sa_helper" present "$tunnel_conn"; then
+					swanctl_quiet --terminate --ike "$tunnel_conn" --timeout 5 >/dev/null 2>&1 || rc=1
+				fi
+				[ "$rc" != 0 ] || swanctl_quiet --initiate --child "$tunnel_child" --timeout 20 >/dev/null || rc=1
+			else
+				rc=1
+			fi
+			;;
+		disconnect)
+			tunnel_names "$requested"
+			"$sa_helper" present "$tunnel_conn" && rc=1
+			;;
+		*) ensure_extra_tunnels || rc=1 ;;
+	esac
 	/usr/libexec/ikev2-sync-vips || :
 	# The lists of each exit follow the tunnels configured: a removed one's
 	# services return to the first exit.
@@ -446,6 +503,9 @@ EOF
 			[ "${entry#*:}" = "$tunnel_link" ] || continue
 			carries="$carries${carries:+,}${entry%%:*}"
 		done
-		printf 'tunnel=%s up=%s address=%s carries=%s\n' "$index" "$up" "$address" "$carries"
+		printf 'tunnel=%s up=%s address=%s carries=%s interface_present=%s interface_bytes_in=%s interface_bytes_out=%s\n' \
+			"$index" "$up" "$address" "$carries" \
+			"$([ ! -d "$root/sys/class/net/$tunnel_link" ] && echo 0 || echo 1)" \
+			"$(interface_counter "$tunnel_link" rx_bytes)" "$(interface_counter "$tunnel_link" tx_bytes)"
 	done
 }
