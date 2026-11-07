@@ -403,6 +403,42 @@ async function pages() {
 	assert.strictEqual(names[1].value, 'Third edited', 'client: unsaved edits of another tunnel survive');
 }
 
+// Installing the dependencies can restart the web server and the RPC daemon,
+// and for a while every read of the job's status fails. The page keeps asking:
+// a failed read is not a finished job, and no number of them is a reason to stop.
+async function depsInstallSurvivesDrops() {
+	for (const key of Object.keys(helpers)) delete helpers[key];
+	Object.keys(files).forEach(k => delete files[k]);
+	helpers['ikev2-manager-system get'] = { code: 0, stdout: 'configured=1\nrouting_paused=0\nwan_interface=wan\n' };
+	helpers['ikev2-manager-system doctor-ui'] = { code: 0, stdout: 'diagnostic_status=ok\ndependencies_ok=0\n' };
+	helpers['ikev2-manager-system install-deps'] = { code: 0, stdout: 'action_id=7\n' };
+	const tree = page = setup.renderData(await setup.loadData());
+	flushTimers();
+	const install = button(tree, 'Install runtime dependencies');
+	assert(install, 'setup: missing dependencies offer Install');
+	let reads = 0;
+	const dropped = 60;
+	const before = fsStub.read;
+	fsStub.read = file => {
+		if (file !== '/tmp/ikev2-manager-deps.status')
+			return before(file);
+		return ++reads <= dropped ? Promise.reject(new Error('XHR request aborted by browser')) :
+			Promise.resolve('action_id=7\nstate=ok\nmessage=done\n');
+	};
+	try {
+		install.click();
+		for (let i = 0; i < 2000 && reads <= dropped; i++) { await Promise.resolve(); flushTimers(); }
+		for (let i = 0; i < 3000; i++) { await Promise.resolve(); flushTimers(); }
+	}
+	finally {
+		fsStub.read = before;
+	}
+	assert(reads > dropped, 'setup: the page gave up asking after ' + reads + ' failed reads');
+	// A success is shown on the button, not written out; what must not appear is a give-up.
+	assert(!/continues in the background|Operation failed|Lost contact/.test(tree.textContent), 'setup: the install was reported as lost');
+	assert(!install.disabled, 'setup: the button stays busy after the install finished');
+}
+
 async function main() {
 	// A router read in full: Save sends the services where they were.
 	healthyRouter();
@@ -449,6 +485,7 @@ async function main() {
 
 	await shellOpensAtOnce();
 	await pages();
+	await depsInstallSurvivesDrops();
 	console.log('failed reads OK');
 }
 
