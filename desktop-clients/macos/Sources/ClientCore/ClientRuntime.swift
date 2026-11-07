@@ -116,6 +116,13 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var next: Int? = nil
     public var updatedAt: Int
 
+    public init(state: String, guardInstalled: Bool, protected: Bool, routed: Bool, wanted: Bool, profileInstalled: Bool,
+                error: String, services: [String], available: [String], domains: Int, revision: Int, release: String, updatedAt: Int) {
+        self.state = state; self.guardInstalled = guardInstalled; self.protected = protected; self.routed = routed
+        self.wanted = wanted; self.profileInstalled = profileInstalled; self.error = error; self.services = services
+        self.available = available; self.domains = domains; self.revision = revision; self.release = release; self.updatedAt = updatedAt
+    }
+
     /// Whether `release` is newer than the running program's own version.
     public static func newer(_ release: String, than own: String) -> Bool {
         let offered = release.split(separator: ".").compactMap { Int($0) }, running = own.split(separator: ".").compactMap { Int($0) }
@@ -229,19 +236,27 @@ public actor ClientRuntime {
         remember(state, now: now)
         if state != "connecting" && state != "connection_error" { connectingSince = nil }
         let history = try? store.loadHistory()
-        report = ClientStatusReport(
-            state: state, guardInstalled: guardInstalled, protected: state == "protected" && permitted != nil && guardInstalled,
+        let open = state == "protected" && permitted != nil
+        var next = ClientStatusReport(
+            state: state, guardInstalled: guardInstalled, protected: open && guardInstalled,
             routed: state == "tunnel_connected" || state == "protected", wanted: (try? store.loadIntent()) ?? false,
             profileInstalled: system.vpnInstalled(), error: connectionError,
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
-            revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true, fullTunnel: names?.full ?? false,
-            warnings: conditions, entries: names?.entries.map { StatusView.paths($0, protected: state == "protected" && permitted != nil) }, own: names?.own,
-            addresses: history.map { ConnectionAddresses(server: $0.current.serverAddress, serverIP: serverIP,
-                services: $0.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "") }, reset: lastReset,
-            visible: StatusView.visible(state: state, error: connectionError),
-            next: retryConnectionAt > now && retryConnectionAt != .distantFuture ? Int(retryConnectionAt.timeIntervalSince1970) : nil,
-            updatedAt: Int(now.timeIntervalSince1970))
+            revision: history?.current.revision ?? 0, release: release, updatedAt: Int(now.timeIntervalSince1970))
+        next.blockWithoutTunnel = names?.block ?? true
+        next.fullTunnel = names?.full ?? false
+        next.warnings = conditions
+        next.entries = names?.entries.map { StatusView.paths($0, protected: open) }
+        next.own = names?.own
+        if let history {
+            next.addresses = ConnectionAddresses(server: history.current.serverAddress, serverIP: serverIP,
+                                                 services: history.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "")
+        }
+        next.reset = lastReset
+        next.visible = StatusView.visible(state: state, error: connectionError)
+        if retryConnectionAt > now, retryConnectionAt != .distantFuture { next.next = Int(retryConnectionAt.timeIntervalSince1970) }
+        report = next
     }
 
     // MARK: registration
