@@ -16,7 +16,8 @@ public enum StatusCodes {
         "registration_error": ["enrollment_connection_failed", "enrollment_access_rejected", "enrollment_http_rejected",
                                "enrollment_response_invalid", "enrollment_invalid_endpoint", "enrollment_internal"],
         "blocked": ["none"], "profile_required": ["none", "profile_removed"], "connecting": ["none"],
-        "connection_error": [TunnelFault.unavailable.rawValue, TunnelFault.takesEverything.rawValue, "profile_mode"],
+        "connection_error": [TunnelFault.unavailable.rawValue, TunnelFault.takesEverything.rawValue, "profile_mode",
+                             "offline", "server_not_found", "ike_no_answer"],
         "tunnel_connected": ["path_connection_failed", "path_unavailable", "path_different_policy", "device_access_revoked",
                              "path_response_invalid"],
         "protected": ["none"], "access_closed": ["no_services", "synchronization"], "error": ["internal", "synchronization", "guard_restoring", "guard_unconfirmed"],
@@ -108,6 +109,12 @@ public enum StatusPhrases {
                 return Phrase(heading: "Нет подключения", detail: "Сервер предложил направить в туннель весь трафик. Подключение отклонено.")
             case "profile_mode":
                 return Phrase(heading: "Нет подключения", detail: "Режим изменён администратором. Установите профиль заново.")
+            case "offline":
+                return Phrase(heading: "Нет подключения", detail: "Mac не в сети.")
+            case "server_not_found":
+                return Phrase(heading: "Нет подключения", detail: "Имя сервера не находится. Проверьте интернет.")
+            case "ike_no_answer":
+                return Phrase(heading: "Нет подключения", detail: "Эта сеть не пропускает IKEv2: UDP 500 и 4500 к серверу закрыты.")
             default:
                 return Phrase(heading: "Нет подключения", detail: "Туннель не установлен. Попытка повторится.")
             }

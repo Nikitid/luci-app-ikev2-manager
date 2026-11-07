@@ -29,6 +29,19 @@ public struct DeviceReadiness: Sendable, Equatable {
 /// required or not, blocked without the tunnel or not and whether that is the
 /// person's to choose, and which of the policy's resources and networks it
 /// holds. It grants nothing; the router decides what passes.
+/// Whether a service works now, as the router routes it. A router that does
+/// not say is `unknown`, and nothing is drawn for it.
+public struct ServiceHealth: Sendable, Equatable, Codable {
+    public enum State: String, Sendable, Codable { case ok, down, direct, unknown }
+    public var state: State
+    /// Why it is down: "no_tunnel" or "silent".
+    public var reason: String?
+    /// Since when it works, seconds since 1970.
+    public var since: Int?
+    public init(state: State, reason: String? = nil, since: Int? = nil) { self.state = state; self.reason = reason; self.since = since }
+    public static let unknown = ServiceHealth(state: .unknown)
+}
+
 public struct ServiceEntry: Sendable, Equatable, Codable {
     public let id: String
     /// The name to show; the identifier where the router gives none.
@@ -41,6 +54,9 @@ public struct ServiceEntry: Sendable, Equatable, Codable {
     public let networks: Int
     public let resources: [String]
     public let cidrs: [String]
+    public var health = ServiceHealth.unknown
+    /// Where it goes now on this device: "tunnel", "direct" or "blocked"; nil while it is off.
+    public var path: String? = nil
     public init(id: String, required: Bool, on: Bool, closed: Bool, chooseClosed: Bool, domains: Int, networks: Int, resources: [String], cidrs: [String]) {
         self.id = id; self.label = id; self.required = required; self.on = on; self.closed = closed; self.chooseClosed = chooseClosed
         self.domains = domains; self.networks = networks; self.resources = resources; self.cidrs = cidrs
@@ -60,6 +76,69 @@ public struct OwnAddresses: Sendable, Equatable, Codable {
     /// The service the router makes of them, which the window shows apart.
     public static func isService(_ id: String) -> Bool { id.hasPrefix("own-") }
 
+    /// The same check as the router's (`client-access-own.uc`, examples in
+    /// `fixtures/own-addresses.json`): a site, or why it is refused.
+    public static func checkDomain(_ text: String, server: [String] = []) -> Result<String, OwnRefusal> {
+        var name = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let range = name.range(of: #"\A[a-z][a-z0-9+.-]*://"#, options: .regularExpression) { name.removeSubrange(range) }
+        if let cut = name.firstIndex(where: { "/?#:".contains($0) }) { name = String(name[..<cut]) }
+        if name.hasSuffix(".") { name.removeLast() }
+        let refused = OwnRefusal(reason: "invalid_site", entry: text)
+        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
+        guard name.utf8.count <= 253, labels.count >= 2, !name.allSatisfy({ $0.isNumber || $0 == "." }) else { return .failure(refused) }
+        for label in labels where label.count > 63 || label.range(of: #"\A[a-z0-9]([a-z0-9-]*[a-z0-9])?\z"#, options: .regularExpression) == nil {
+            return .failure(refused)
+        }
+        if ["local", "lan", "home", "internal", "localhost", "arpa", "test", "invalid", "example"].contains(String(labels.last!)) {
+            return .failure(OwnRefusal(reason: "local_name", entry: text))
+        }
+        if server.contains(name) { return .failure(OwnRefusal(reason: "server_name", entry: text)) }
+        return .success(name)
+    }
+
+    private static let reserved: [(UInt32, Int, String)] = [
+        (0x0000_0000, 8, "local"), (0x0A00_0000, 8, "private"), (0x6440_0000, 10, "shared"), (0x7F00_0000, 8, "local"),
+        (0xA9FE_0000, 16, "local"), (0xAC10_0000, 12, "private"), (0xC000_0000, 24, "local"), (0xC000_0200, 24, "documentation"),
+        (0xC0A8_0000, 16, "private"), (0xC612_0000, 15, "fake_ip"), (0xC633_6400, 24, "documentation"),
+        (0xCB00_7100, 24, "documentation"), (0xE000_0000, 3, "multicast")]
+
+    /// A network as the router takes it: an address alone is the host, a
+    /// range is set at its base, nothing wider than /16 and nothing reserved.
+    public static func checkNetwork(_ text: String) -> Result<String, OwnRefusal> {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        func refuse(_ reason: String) -> Result<String, OwnRefusal> { .failure(OwnRefusal(reason: reason, entry: text)) }
+        guard value.utf8.count <= 18 else { return refuse("invalid_network") }
+        let parts = value.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count <= 2 else { return refuse("invalid_network") }
+        let prefix = parts.count == 2 ? (parts[1].range(of: #"\A[0-9]{1,2}\z"#, options: .regularExpression) != nil ? Int(parts[1])! : -1) : 32
+        guard (16...32).contains(prefix) else { return refuse("network_size") }
+        let octets = parts[0].split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4 else { return refuse("invalid_network") }
+        var address: UInt32 = 0
+        for octet in octets {
+            guard octet.count <= 3, octet.range(of: #"\A(0|[1-9][0-9]*)\z"#, options: .regularExpression) != nil,
+                  let number = UInt32(octet), number <= 255 else { return refuse("invalid_network") }
+            address = address << 8 | number
+        }
+        let size = UInt64(1) << (32 - prefix)
+        let first = UInt64(address) - UInt64(address) % size, last = first + size - 1
+        for (base, bits, reason) in reserved {
+            let end = UInt64(base) + (UInt64(1) << (32 - bits)) - 1
+            if first <= end && last >= UInt64(base) { return refuse(reason) }
+        }
+        let text = (0..<4).map { String((first >> (24 - 8 * $0)) & 0xFF) }.joined(separator: ".")
+        return .success("\(text)/\(prefix)")
+    }
+
+    /// One field for both: what looks like an address is a network.
+    public static func check(_ text: String, server: [String] = []) -> Result<(domain: String?, network: String?), OwnRefusal> {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.isEmpty, value.allSatisfy({ $0.isNumber || $0 == "." || $0 == "/" }) {
+            return checkNetwork(value).map { (nil, $0) }
+        }
+        return checkDomain(value, server: server).map { ($0, nil) }
+    }
+
     /// What the person typed or pasted: a link is taken for its host, an
     /// address alone is the host itself, a range is kept as written. Nil for
     /// anything else. The router checks what is sent again.
@@ -78,6 +157,14 @@ public struct OwnAddresses: Sendable, Equatable, Codable {
         else { return nil }
         return (value, nil)
     }
+}
+
+/// Why a site or network of the person's own is not taken, and which one as
+/// written ("over_limit" names none). The router gives the same reasons.
+public struct OwnRefusal: Error, Sendable, Equatable, Codable {
+    public let reason: String
+    public let entry: String
+    public init(reason: String, entry: String) { self.reason = reason; self.entry = entry }
 }
 
 /// Informational service names and tunnel network. It grants no access.
@@ -358,7 +445,7 @@ public struct DeviceTransport: DeviceRequests {
         }
         for item in items {
             let keys: Set<String> = ["id", "required", "on", "closed", "choose_closed", "domains", "networks", "resources", "cidrs"]
-            guard Set(item.keys) == keys || Set(item.keys) == keys.union(["label"]),
+            guard Set(item.keys).subtracting(["label", "health"]) == keys,
                   let id = item["id"] as? String, matches(id, service), seen.insert(id).inserted,
                   let resources = item["resources"] as? [String], resources.count <= 4096,
                   resources.allSatisfy({ matches($0, #"\Ahost-[0-9]{1,7}\z"#) }),
@@ -375,9 +462,23 @@ public struct DeviceTransport: DeviceRequests {
                       text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else { throw DeviceError.invalidResponse }
                 entry.label = text
             }
+            if let value = item["health"] { entry.health = try decodeHealth(value) }
             entries.append(entry)
         }
         return entries
+    }
+
+    static func decodeHealth(_ value: Any) throws -> ServiceHealth {
+        guard let item = value as? [String: Any], Set(item.keys).isSubset(of: ["state", "reason", "tunnel", "since"]),
+              let name = item["state"] as? String, let state = ServiceHealth.State(rawValue: name) else { throw DeviceError.invalidResponse }
+        var health = ServiceHealth(state: state)
+        if let reason = item["reason"] {
+            guard let text = reason as? String, matches(text, #"\A[a-z_]{1,32}\z"#) else { throw DeviceError.invalidResponse }
+            health.reason = text
+        }
+        if let tunnel = item["tunnel"] { _ = try integer(tunnel, 0...4096) }
+        if let since = item["since"] { health.since = try integer(since, 0...Int(Int32.max) * 2) }
+        return health
     }
 
     public func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws {
@@ -398,11 +499,18 @@ public struct DeviceTransport: DeviceRequests {
         // What the router refused is said plainly: not allowed, not accepted, too often.
         switch answer.status {
         case 202: return
-        case 400: throw DeviceError.ownRefused
+        case 400: throw Self.decodeOwnRefusal(answer.data) ?? DeviceError.ownRefused
         case 403: throw DeviceError.ownNotAllowed
         case 429: throw DeviceError.ownTooOften
         default: throw DeviceError.httpRejected
         }
+    }
+
+    static func decodeOwnRefusal(_ data: Data) -> OwnRefusal? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any], root["error"] as? String == "invalid_own",
+              let reason = root["reason"] as? String, matches(reason, #"\A[a-z_]{1,32}\z"#) else { return nil }
+        let entry = (root["entry"] as? String).map { String($0.prefix(253)) } ?? ""
+        return OwnRefusal(reason: reason, entry: entry)
     }
 
     static func decodeRelease(_ data: Data) throws -> String {

@@ -169,6 +169,9 @@ struct RealSystem: SystemActions {
         }.sorted()
     }
 
+    /// A default route is what "online" means here; without one nothing leaves the Mac.
+    func online() -> Bool { ((try? routeInterface("default")) ?? nil) != nil }
+
     func vpnInstalled() -> Bool { vpn.installed }
     func vpnConnected() -> Bool { vpn.connected }
     func startVPN() throws { try vpn.start() }

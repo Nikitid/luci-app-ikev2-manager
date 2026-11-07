@@ -56,6 +56,8 @@ public protocol SystemActions: Sendable {
     func installedProfiles() -> Set<String>?
     /// The domains the system currently asks the tunnel's resolver for on this client's behalf.
     func heldNames() -> [String]
+    /// Whether the Mac has a route to the Internet at all.
+    func online() -> Bool
 }
 
 public extension SystemActions {
@@ -66,6 +68,7 @@ public extension SystemActions {
     func restorePacketFilter(_ rules: String) throws { try loadPacketFilter(rules) }
     func installedProfiles() -> Set<String>? { nil }
     func heldNames() -> [String] { [] }
+    func online() -> Bool { true }
 }
 
 /// The packet filter does not act and switching it on again did not help.
@@ -107,6 +110,10 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var addresses: ConnectionAddresses? = nil
     /// The last reset, while it has steps left or until the next registration.
     public var reset: ResetReport? = nil
+    /// The one state the window and the menu show (`StatusView.visible`) and
+    /// when the next attempt is, seconds since 1970, where one is due.
+    public var visible: String? = nil
+    public var next: Int? = nil
     public var updatedAt: Int
 
     /// Whether `release` is newer than the running program's own version.
@@ -151,6 +158,7 @@ public actor ClientRuntime {
     private var lastReset: ResetReport?
     private var phase = "guard"
     private var recordedAt: [String: Date] = [:]
+    private var connectingSince: Date?
 
     /// A failure of the daemon itself, kept for the program to report. The
     /// same code in the same phase is kept once in ten minutes.
@@ -218,6 +226,7 @@ public actor ClientRuntime {
 
     private func publish(_ state: String, now: Date) {
         remember(state, now: now)
+        if state != "connecting" && state != "connection_error" { connectingSince = nil }
         let history = try? store.loadHistory()
         report = ClientStatusReport(
             state: state, guardInstalled: guardInstalled, protected: state == "protected" && permitted != nil && guardInstalled,
@@ -226,9 +235,12 @@ public actor ClientRuntime {
             services: Array((names?.selected ?? []).prefix(64)), available: Array((names?.available ?? []).prefix(64)),
             domains: Set(history?.current.resources.map(\.domain) ?? []).count,
             revision: history?.current.revision ?? 0, release: release, blockWithoutTunnel: names?.block ?? true, fullTunnel: names?.full ?? false,
-            warnings: conditions, entries: names?.entries, own: names?.own,
+            warnings: conditions, entries: names?.entries.map { StatusView.paths($0, protected: state == "protected" && permitted != nil) }, own: names?.own,
             addresses: history.map { ConnectionAddresses(server: $0.current.serverAddress, serverIP: serverIP,
-                services: $0.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "") }, reset: lastReset, updatedAt: Int(now.timeIntervalSince1970))
+                services: $0.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "") }, reset: lastReset,
+            visible: StatusView.visible(state: state, error: connectionError),
+            next: retryConnectionAt > now && retryConnectionAt != .distantFuture ? Int(retryConnectionAt.timeIntervalSince1970) : nil,
+            updatedAt: Int(now.timeIntervalSince1970))
     }
 
     // MARK: registration
@@ -499,8 +511,19 @@ public actor ClientRuntime {
         }
         guard system.vpnConnected() else {
             closePermission(history)
+            let since = connectingSince ?? now
             if now >= retryConnectionAt { retryConnectionAt = now.addingTimeInterval(10); try system.startVPN() }
-            publish("connecting", now: now); return
+            // Thirty seconds without a session: why, as far as this Mac can
+            // tell - no network, a server name that does not resolve, or an
+            // IKE exchange nobody answers (UDP 500 and 4500 closed on the way).
+            if now.timeIntervalSince(since) >= 30 {
+                if !system.online() { connectionError = "offline" }
+                else if await system.serverIPv4(history.current.serverAddress).isEmpty { connectionError = "server_not_found" }
+                else { connectionError = "ike_no_answer" }
+                publish("connection_error", now: now); connectingSince = since; return
+            }
+            connectionError = "none"
+            publish("connecting", now: now); connectingSince = since; return
         }
         let seen: TunnelObservation?
         let layout = try SystemPlan.layout(history.current.virtualSubnet)
@@ -513,7 +536,7 @@ public actor ClientRuntime {
             retryConnectionAt = now.addingTimeInterval(30)
             connectionError = fault.rawValue; publish("connection_error", now: now); return
         }
-        guard let seen else { closePermission(history); publish("connecting", now: now); return }
+        guard let seen else { closePermission(history); connectionError = "none"; publish("connecting", now: now); return }
         // The installed profile decides what the system routes into the
         // tunnel, and it must agree with the mode the router set: a tunnel
         // that takes everything when only services were meant is refused, and

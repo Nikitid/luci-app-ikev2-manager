@@ -33,6 +33,9 @@ final class Machine: SystemActions, @unchecked Sendable {
     func vpnConnected() -> Bool { sync { connected } }
     func startVPN() throws { sync { started += 1 } }
     func stopVPN() throws { sync { stopped += 1; connected = false } }
+    var isOnline = true, serverAddress = "203.0.113.10"
+    func online() -> Bool { sync { isOnline } }
+    func serverIPv4(_ name: String) async -> String { sync { serverAddress } }
     var browserProfile = false
     func removeVPNProfile(identifier: String) {
         sync {
