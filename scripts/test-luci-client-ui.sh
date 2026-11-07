@@ -74,7 +74,7 @@ function makeNode(tag, attrs) {
 				return handler.call(this, event);
 			} : handler;
 		},
-		removeAttribute() {}, setAttribute() {}, getAttribute() { return null; }, focus() {}, remove() {}, click() {},
+		removeAttribute() {}, setAttribute() {}, getAttribute() { return null; }, focus() { documentStub.activeElement = this; }, remove() {}, click() {},
 		// The overview shows an issue twice, in the summary and the details.
 		cloneNode(deep) {
 			const copy = Object.assign(makeNode(this.tagName, this.attrs), { textContent: this.textContent });
@@ -315,6 +315,36 @@ if (!collect(page, function(node) { return node.tagName === 'CIRCLE' && /event/.
 	fail('events are not marked on the chart');
 if (!collect(page, function(node) { return node.tagName === 'RECT' && node.attrs['class'] === 'maint'; }, []).length)
 	fail('an operator action is not shown as maintenance on the chart');
+// The readout of the chart is reachable without a pointer: the chart takes
+// focus, the arrow keys move between the measurements, Escape hides it.
+(function() {
+	const svg = collect(page, function(node) { return node.tagName === 'SVG' && node.attrs.role === 'img'; }, [])[0];
+	const tip = collect(page, function(node) { return hasClass(node, 'ikev2-quality-tip'); }, [])[0];
+	if (!svg || !tip)
+		fail('the chart or its readout is missing');
+	if (svg.attrs.tabindex !== '0' || !svg.listeners.keydown)
+		fail('the chart readout cannot be reached from the keyboard');
+	function press(key) { svg.listeners.keydown({ key: key, preventDefault() {} }); }
+	const shown = function() { return tip.style.display !== 'none'; };
+	press('ArrowLeft');
+	if (!shown() || !/Tunnel/.test(textOf(tip)) || !/50/.test(textOf(tip)))
+		fail('the left arrow does not show the latest measurement: ' + textOf(tip));
+	press('ArrowLeft');
+	if (!/Maintenance/.test(textOf(tip)))
+		fail('the left arrow does not step back to the earlier measurement: ' + textOf(tip));
+	press('Home');
+	if (!/48/.test(textOf(tip)))
+		fail('Home does not show the first measurement: ' + textOf(tip));
+	press('ArrowLeft');
+	if (!/48/.test(textOf(tip)))
+		fail('the left arrow runs past the first measurement: ' + textOf(tip));
+	press('End');
+	if (!/50/.test(textOf(tip)))
+		fail('End does not show the last measurement: ' + textOf(tip));
+	press('Escape');
+	if (shown())
+		fail('Escape leaves the chart readout open');
+})();
 const speedOptions = collect(page, function(node) { return hasClass(node, 'ikev2-speed-options'); }, [])[0];
 if (!speedOptions || collect(speedOptions, function(node) { return node.tagName === 'SELECT'; }, []).length !== 4)
 	fail('the speed test does not offer a service per path, direction and streams');
@@ -430,6 +460,30 @@ endpointRows.forEach(function(row) {
 // every row choose. A single shape means one of them stopped rendering.
 if (!rowShapes['1'] || !rowShapes['2'])
 	fail('endpoint rows all render the same shape');
+// Removing an endpoint row keeps the keyboard in the list: focus goes to the
+// remove button that took its place, and to Add when the list is empty.
+(function() {
+	// A page of its own: the removals change the lists.
+	const own = view.render(data);
+	const list = firstWithClass(own, 'ikev2-dns-endpoint', []).map(function(row) {
+		return collect(own, function(node) { return hasClass(node, 'ikev2-dns-endpoints') && node.children.indexOf(row) >= 0; }, [])[0];
+	}).find(function(candidate, i, all) { return all.indexOf(candidate) !== all.lastIndexOf(candidate); });
+	if (!list)
+		fail('no endpoint list in the fixture has two rows');
+	const rowsOf = list.children.filter(function(child) { return hasClass(child, 'ikev2-dns-endpoint'); });
+	const removeOf = function(row) { return row.children.find(function(child) { return child.tagName === 'BUTTON'; }); };
+	const editor = collect(own, function(node) {
+		return hasClass(node, 'ikev2-dns-editor') && node.children.indexOf(list) >= 0;
+	}, [])[0];
+	const addButton = editor.children[1].children[0];
+	rowsOf.forEach(function(row, i) {
+		removeOf(row).listeners.click();
+		const expected = i < rowsOf.length - 1 ? removeOf(rowsOf[i + 1]) : addButton;
+		if (documentStub.activeElement !== expected)
+			fail('after removing endpoint row ' + (i + 1) + ' of ' + rowsOf.length + ' focus is not on ' +
+				(i < rowsOf.length - 1 ? 'the next remove button' : 'the Add button'));
+	});
+})();
 // The fallback line under a segment must not repeat a list the fields above it
 // already show; it exists to spell out what an empty field inherits, and the
 // provider's servers the router adds after a list of the segment's own.
@@ -747,6 +801,13 @@ if (!nodesOf(fullRoutePage).some(function(node) {
 		/Exclusions go direct/.test(textOf(node));
 }))
 	fail('the full-route box does not say that exclusions go direct');
+// On a phone every other box is named by its data-name after the box; this one
+// already carries its caption, so a name too would read it twice.
+if (nodesOf(fullRoutePage).some(function(node) {
+	return node.tagName === 'LABEL' && node.children && node.children.indexOf(respectBox) >= 0 &&
+		node.attrs['data-name'] != null;
+}))
+	fail('the full-route box is named twice on a phone');
 // After the other checks that stub exec, and once the job has started.
 const respectStored = Promise.resolve().then(dnsSentReady).then(function() {
 	const execBefore = fsStub.exec;

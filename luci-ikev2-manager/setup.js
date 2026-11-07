@@ -521,7 +521,9 @@ return view.extend(common.shell(_('IKEv2 Manager Overview'),
 			});
 			// The Routing column means something else for an exclusion, so the box
 			// says what it does here, across the columns an inclusion does not use.
-			return E('label', { 'class': 'ikev2-policy-check ikev2-policy-check-wide', 'data-name': _('Routing'), 'title': title }, [
+			// On a phone the other boxes are named by their data-name; this one's
+			// caption is its name.
+			return E('label', { 'class': 'ikev2-policy-check ikev2-policy-check-wide', 'title': title }, [
 				control, E('span', {}), E('small', { 'class': 'ikev2-policy-caption' }, [ _('Exclusions go direct') ]) ]);
 		}
 

@@ -12,13 +12,15 @@
 #                                         IKEV2_UI_PROBE is the path of ui_probe.cjs
 #   scripts/luci-stand.sh down            remove the container
 #
+# IKEV2_STAND_NAME and IKEV2_STAND_PORT run a second stand beside the first.
+#
 # The pages are served on http://127.0.0.1:$IKEV2_STAND_PORT (default 18081)
 # through a proxy that signs in, so a probe or a browser opens them directly.
 
 set -eu
 
 root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-name=ikev2-luci-stand
+name="${IKEV2_STAND_NAME:-ikev2-luci-stand}"
 port="${IKEV2_STAND_PORT:-18081}"
 inner=$((port - 1))
 release="${IKEV2_STAND_RELEASE:-25.12.6}"

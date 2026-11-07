@@ -365,12 +365,18 @@ function dnsEndpointEditor(value, placeholder, addLabel, emptyLabel, options) {
 			'title': _('Remove'),
 			'aria-label': _('Remove')
 		}, [ '×' ]);
+		row.remove = remove;
 		remove.addEventListener('click', function() {
+			var at = rows.indexOf(row);
 			rows = rows.filter(function(entry) { return entry !== row; });
 			row.node.remove();
 			if (!rows.length)
 				render([]);
 			syncAdd();
+			// The button that had focus is gone: the next row's takes its place,
+			// so deleting several rows is a run of key presses, and an empty
+			// list leaves focus on Add.
+			(rows.length ? rows[Math.min(at, rows.length - 1)].remove : add).focus();
 		});
 
 		fillProviders();
@@ -755,10 +761,11 @@ var qualityCharts = 0;
 function qualityChart() {
 	var fillId = 'ikev2-quality-fill-' + (++qualityCharts);
 	var wrap = E('div', { 'class': 'ikev2-quality-chart' });
-	var tip = E('div', { 'class': 'ikev2-quality-tip', 'style': 'display:none' });
-	var root = svgNode('svg', { 'role': 'img' });
+	var tip = E('div', { 'class': 'ikev2-quality-tip', 'style': 'display:none', 'aria-live': 'polite' });
+	var root = svgNode('svg', { 'role': 'img', 'tabindex': '0' });
 	wrap.appendChild(root);
 	wrap.appendChild(tip);
+	var current = null;
 	var state = null;
 	var geometry = null;
 
@@ -861,6 +868,7 @@ function qualityChart() {
 
 	function hide() {
 		tip.style.display = 'none';
+		current = null;
 		if (geometry) {
 			geometry.cursor.style.display = 'none';
 			geometry.dot.style.display = 'none';
@@ -877,11 +885,42 @@ function qualityChart() {
 		var px = event.clientX - box.left;
 		if (px < geometry.left || px > geometry.right)
 			return hide();
-		var index = Math.min(state.points.length - 1,
-			Math.max(0, Math.floor((px - geometry.left) / (geometry.right - geometry.left) * state.points.length)));
+		show(Math.min(state.points.length - 1,
+			Math.max(0, Math.floor((px - geometry.left) / (geometry.right - geometry.left) * state.points.length))));
+	}
+
+	// The same readout for the keyboard: the arrows step between the
+	// measurements, Home and End jump to the first and the last, and a bucket
+	// with nothing measured is stepped over.
+	function step(event) {
+		if (!state || !geometry || !state.points.length)
+			return;
+		var last = state.points.length - 1;
+		var from = current == null ? null : current;
+		var direction = 0, index;
+		if (event.key === 'Escape')
+			return hide();
+		if (event.key === 'ArrowLeft') direction = -1;
+		else if (event.key === 'ArrowRight') direction = 1;
+		else if (event.key === 'Home') { direction = 1; from = -1; }
+		else if (event.key === 'End') { direction = -1; from = last + 1; }
+		else
+			return;
+		event.preventDefault();
+		if (from == null)
+			from = direction < 0 ? last + 1 : -1;
+		for (index = from + direction; index >= 0 && index <= last; index += direction)
+			if (state.points[index].state !== 'none')
+				return show(index);
+		if (current != null)
+			show(current);
+	}
+
+	function show(index) {
 		var p = state.points[index];
 		if (p.state === 'none')
 			return hide();
+		current = index;
 		var cx = geometry.x(p.ts + geometry.step / 2);
 		geometry.cursor.setAttribute('x1', cx);
 		geometry.cursor.setAttribute('x2', cx);
@@ -929,6 +968,8 @@ function qualityChart() {
 	root.addEventListener('pointermove', track);
 	root.addEventListener('pointerdown', track);
 	root.addEventListener('pointerleave', hide);
+	root.addEventListener('keydown', step);
+	root.addEventListener('blur', hide);
 	if (window.ResizeObserver) {
 		var width = 0;
 		new ResizeObserver(function() {
