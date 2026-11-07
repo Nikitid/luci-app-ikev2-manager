@@ -812,6 +812,9 @@ var CSS = `
 					grid-template-columns: repeat(2, minmax(0, 1fr));
 					align-items: center;
 				}
+				/* The name goes beside the box: in the 2rem square it overflowed
+				   both ways and pushed the box out of the card's padding. */
+				.ikev2-page .ikev2-policy-check { display: inline-flex; align-items: center; width: auto; }
 				.ikev2-page .ikev2-policy-check::after {
 					content: attr(data-name);
 					margin-left: .5rem;
@@ -1247,6 +1250,19 @@ var CSS = `
 					background .14s var(--ikev2-ease),
 					border-color .14s var(--ikev2-ease),
 					filter .14s var(--ikev2-ease);
+			}
+			/* On a phone the theme's mobile.css sets fields to 16px so that iOS
+			   does not zoom into them, which makes a field 39.6px tall. A button
+			   beside one, square ones included, takes the same height. */
+			@media screen and (max-device-width: 600px) {
+				.ikev2-page { --ikev2-phone-control: calc(16px * 1.35 + 1rem + 2px); }
+				.ikev2-page .cbi-button { min-height: var(--ikev2-phone-control); }
+				.ikev2-page .ikev2-square-action {
+					width: var(--ikev2-phone-control);
+					height: var(--ikev2-phone-control);
+					min-width: var(--ikev2-phone-control) !important;
+				}
+				.ikev2-page .ikev2-with-tunnel select { height: auto; min-height: var(--ikev2-phone-control); }
 			}
 			.ikev2-page .cbi-button:hover {
 				background: var(--ikev2-accent-soft);
