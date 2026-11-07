@@ -168,13 +168,13 @@ install_file 644 luci-ikev2-manager/status-widget.js \
 install_file 644 luci-ikev2-manager/settings.js \
 	/www/luci-static/resources/ikev2-manager/inbound-panel-v6.js
 install_file 644 luci-ikev2-manager/client.js \
-	/www/luci-static/resources/ikev2-manager/outbound-panel-v7.js
+	/www/luci-static/resources/ikev2-manager/outbound-panel-v8.js
 install_file 644 luci-ikev2-manager/tunnels.js \
-	/www/luci-static/resources/view/ikev2-manager/tunnels-v7.js
+	/www/luci-static/resources/view/ikev2-manager/tunnels-v8.js
 install_file 644 luci-ikev2-manager/dns.js \
-	/www/luci-static/resources/view/ikev2-manager/dns-v7.js
+	/www/luci-static/resources/view/ikev2-manager/dns-v8.js
 install_file 644 luci-ikev2-manager/setup.js \
-	/www/luci-static/resources/view/ikev2-manager/setup-v23.js
+	/www/luci-static/resources/view/ikev2-manager/setup-v24.js
 install_file 644 luci-ikev2-manager/users.js \
 	/www/luci-static/resources/ikev2-manager/users-panel-v9.js
 install_file 644 luci-ikev2-manager/remote-clients.js \
@@ -402,6 +402,10 @@ rm -f /www/luci-static/resources/ikev2-manager/shared.js \
 	/www/luci-static/resources/view/ikev2-manager/setup-v22.js \
 	/www/luci-static/resources/view/ikev2-manager/remote-clients-v33.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v20.js \
+	/www/luci-static/resources/view/ikev2-manager/setup-v23.js \
+	/www/luci-static/resources/ikev2-manager/outbound-panel-v7.js \
+	/www/luci-static/resources/view/ikev2-manager/tunnels-v7.js \
+	/www/luci-static/resources/view/ikev2-manager/dns-v7.js \
 	/www/luci-static/resources/view/ikev2-domains/editor-v19.js
 # Releases before 1.13 shipped the charon settings under strongswan.d/charon/,
 # which strongswan.conf includes inside charon.plugins, so none of them applied.

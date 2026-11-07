@@ -1,7 +1,7 @@
 'use strict';
 'require view';
 'require ikev2-manager.shared-v24 as common';
-'require ikev2-manager.outbound-panel-v7 as outbound';
+'require ikev2-manager.outbound-panel-v8 as outbound';
 'require ikev2-manager.inbound-panel-v6 as inbound';
 
 // The tunnels the router opens and the server it runs, on one page under two
