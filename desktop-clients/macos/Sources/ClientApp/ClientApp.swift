@@ -260,6 +260,7 @@ final class ClientModel: ObservableObject {
         switch error as? ProblemReportError {
         case .unavailable: "Сервис отчётов сейчас не принимает отчёты Waypoint."
         case .busy: "Сервис отчётов занят; отправьте снова через несколько минут."
+        case .tooMany(let seconds): "Слишком много отчётов подряд; отправьте снова через \(max(1, seconds / 60)) мин."
         case .unreachable: "Сервис отчётов недоступен. Проверьте интернет и отправьте снова."
         case .gone: "Обращение больше не найдено на сервере."
         case .refused(let status, let code): "Сервис отклонил отчёт (" + String(status) + (code.isEmpty ? "" : ", " + code) + ")."
@@ -817,7 +818,7 @@ struct ClientView: View {
                 Divider()
                 Text("Написать разработчику").font(.subheadline).fontWeight(.medium)
                 Picker("", selection: $problemKind) {
-                    ForEach(ReportKind.allCases, id: \.self) { Text($0.label).tag($0) }
+                    ForEach(ReportKind.chosen, id: \.self) { Text($0.label).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 520)
                 TextEditor(text: $problem).font(.body).frame(width: 520, height: 80)
                     .overlay(alignment: .topLeading) {

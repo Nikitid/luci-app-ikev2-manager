@@ -159,6 +159,7 @@ public actor ClientRuntime {
     private var phase = "guard"
     private var recordedAt: [String: Date] = [:]
     private var connectingSince: Date?
+    private var mismatchSince: Date?
 
     /// A failure of the daemon itself, kept for the program to report. The
     /// same code in the same phase is kept once in ten minutes.
@@ -476,6 +477,18 @@ public actor ClientRuntime {
         nextPolicyPoll = .distantPast
     }
 
+    /// "Check now": the router probes its tunnels; the services answer a few
+    /// seconds later says how each service is. Seconds until it may be asked again.
+    public func checkNow() async throws -> Int {
+        guard let registration = try store.loadRegistration(), registration.complete else { throw StoreError.invalid }
+        let next = try await transport.checkNow(endpoint: registration.endpoint, deviceToken: registration.deviceToken)
+        nextPolicyPoll = Date().addingTimeInterval(5)
+        return next
+    }
+
+    /// The daemon's own failures, for the program to report.
+    public func failures() -> [FaultEvent] { store.loadFaults() }
+
     public func setWanted(_ wanted: Bool) throws {
         let registered = try store.loadRegistration()?.complete == true
         guard !wanted || registered else { throw StoreError.invalid }
@@ -567,7 +580,15 @@ public actor ClientRuntime {
             let transient = refusal == .pathUnavailable || refusal == .connectionFailed
             if transient, permitted == seen, now < readyUntil { publish("protected", now: now); return }
             closePermission(history)
-            connectionError = StatusCodes.path(refusal); publish("tunnel_connected", now: now); return
+            connectionError = StatusCodes.path(refusal)
+            // The router and this Mac disagreeing on the policy for five
+            // minutes is not the network: it is reported.
+            if refusal == .differentPolicy {
+                let since = mismatchSince ?? now
+                mismatchSince = since
+                if now.timeIntervalSince(since) >= 300 { recordFailure("policy_mismatch", phase: "readiness", now: now) }
+            } else { mismatchSince = nil }
+            publish("tunnel_connected", now: now); return
         }
         // The answer was awaited; access may have been switched off meanwhile.
         guard try store.loadIntent() else { closePermission(history); connectionError = "none"; publish("blocked", now: now); return }
@@ -576,6 +597,7 @@ public actor ClientRuntime {
             do { loadedRules = try rules(for: history); try system.loadPacketFilter(loadedRules) }
             catch { permitted = nil; throw error }
         }
+        mismatchSince = nil
         readyUntil = now.addingTimeInterval(20)
         nextReadinessAt = now.addingTimeInterval(6)
         connectionError = "none"

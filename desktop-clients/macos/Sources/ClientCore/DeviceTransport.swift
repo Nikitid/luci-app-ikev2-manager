@@ -8,6 +8,13 @@ public enum DeviceError: String, Error, Sendable, CaseIterable {
     case ownRefused, ownNotAllowed, ownTooOften
 }
 
+/// "Check now" was not taken: asked again too soon (and how many seconds are
+/// left), or another check of this device is in progress.
+public enum CheckRefusal: Error, Equatable, Sendable {
+    case tooOften(Int)
+    case busy
+}
+
 /// A registration that is still waiting for the router, or its result.
 public struct EnrollmentAnswer: Sendable {
     public let id: String
@@ -202,6 +209,8 @@ public protocol DeviceRequests: Sendable {
     func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws
     /// The sites and networks this device keeps of its own, as a whole list.
     func setOwn(endpoint: URL, deviceToken: String, domains: [String], networks: [String]) async throws
+    /// Asks the router to check the services now; seconds until it may be asked again.
+    func checkNow(endpoint: URL, deviceToken: String) async throws -> Int
 }
 
 public extension DeviceRequests {
@@ -209,6 +218,7 @@ public extension DeviceRequests {
     func sendReport(endpoint: URL, deviceToken: String, report: Data) async -> Bool { false }
     func choose(endpoint: URL, deviceToken: String, on: [String], closed: [String]) async throws { throw DeviceError.httpRejected }
     func setOwn(endpoint: URL, deviceToken: String, domains: [String], networks: [String]) async throws { throw DeviceError.httpRejected }
+    func checkNow(endpoint: URL, deviceToken: String) async throws -> Int { throw DeviceError.httpRejected }
 }
 
 /// Requests of an enrolled or enrolling device. Platform certificate and
@@ -504,6 +514,28 @@ public struct DeviceTransport: DeviceRequests {
         case 429: throw DeviceError.ownTooOften
         default: throw DeviceError.httpRejected
         }
+    }
+
+    /// 202 `{"version":1,"accepted":true,"next_after":30}`; 429 `check_too_often`
+    /// with `retry_after`; 409 `check_busy`. The result comes in the next services answer.
+    static func decodeCheck(status: Int, data: Data) throws -> Int {
+        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        switch status {
+        case 202:
+            guard root?["accepted"] as? Bool == true else { throw DeviceError.invalidResponse }
+            return try integer(root?["next_after"] ?? 30, 1...3600)
+        case 429: throw CheckRefusal.tooOften((try? integer(root?["retry_after"], 1...3600)) ?? 30)
+        case 409: throw CheckRefusal.busy
+        case 401: throw DeviceError.accessRejected
+        default: throw DeviceError.httpRejected
+        }
+    }
+
+    public func checkNow(endpoint: URL, deviceToken: String) async throws -> Int {
+        guard Self.matches(deviceToken, Self.token) else { throw DeviceError.invalidEndpoint }
+        let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/check"), method: "POST",
+            headers: ["Authorization": "Bearer " + deviceToken], limit: 1024, timeout: 10)
+        return try Self.decodeCheck(status: answer.status, data: answer.data)
     }
 
     static func decodeOwnRefusal(_ data: Data) -> OwnRefusal? {

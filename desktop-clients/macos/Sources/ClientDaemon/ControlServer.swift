@@ -69,6 +69,11 @@ final class ControlServer: @unchecked Sendable {
         do {
             switch request.op {
             case "status": return Control.Response(result: "ok", status: await runtime.status())
+            case "faults": return Control.Response(result: "ok", faults: await runtime.failures())
+            case "check":
+                do { return Control.Response(result: "ok", status: await runtime.status(), retryAfter: try await runtime.checkNow()) }
+                catch CheckRefusal.tooOften(let seconds) { return Control.Response(result: "check_too_often", retryAfter: seconds) }
+                catch CheckRefusal.busy { return Control.Response(result: "check_busy") }
             case "connect": try await runtime.setWanted(true)
             case "disconnect": try await runtime.setWanted(false)
             // The person's own choice of their offer; the router decides what it allows.

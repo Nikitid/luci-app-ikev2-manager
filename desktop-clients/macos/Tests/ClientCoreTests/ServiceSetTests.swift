@@ -92,3 +92,25 @@ private let entry = #"{"id":"chat","required":false,"on":true,"closed":false,"ch
     #expect(StatusView.paths([entry, open, off], protected: false).map(\.path) == ["blocked", "direct", nil])
     #expect(StatusView.paths([entry, open, off], protected: true).map(\.path) == ["tunnel", "tunnel", nil])
 }
+
+@Test func checkNowIsReadAsTheRouterAnswers() throws {
+    #expect(try DeviceTransport.decodeCheck(status: 202, data: Data(#"{"version":1,"accepted":true,"next_after":30}"#.utf8)) == 30)
+    #expect(throws: CheckRefusal.tooOften(17)) { try DeviceTransport.decodeCheck(status: 429, data: Data(#"{"error":"check_too_often","retry_after":17}"#.utf8)) }
+    #expect(throws: CheckRefusal.busy) { try DeviceTransport.decodeCheck(status: 409, data: Data(#"{"error":"check_busy"}"#.utf8)) }
+    #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeCheck(status: 202, data: Data(#"{"version":1}"#.utf8)) }
+    #expect(throws: DeviceError.accessRejected) { try DeviceTransport.decodeCheck(status: 401, data: Data()) }
+}
+
+@Test func policyTheRouterDisagreesWithForFiveMinutesIsAFailure() async throws {
+    var (runtime, machine, router, store, now) = try await registered()
+    try await runtime.setWanted(true)
+    machine.sync { machine.connected = true; machine.tunnel = TunnelObservation(interface: "ipsec0", address: "10.20.0.7") }
+    router.sync { router.ready = .success(DeviceReadiness(id: "alice-mac", address: "10.20.0.7", revision: 9)) }
+    await runtime.tick(now: now); now += 200
+    await runtime.tick(now: now)
+    #expect(!store.loadFaults().contains { $0.code == "policy_mismatch" })
+    now += 101
+    await runtime.tick(now: now)
+    #expect(store.loadFaults().contains { $0.code == "policy_mismatch" && $0.phase == "readiness" })
+    try? FileManager.default.removeItem(at: store.directory)
+}
