@@ -1026,6 +1026,24 @@ tunnel and refuses) or `silent` (the tunnel is up and nothing crosses it);
 watcher has written anything. One service can be down while the others work.
 Both files are read per answer; nothing is run.
 
+A device can ask the router to check now: `POST /client/v1/check`, no body,
+the same bearer key as the other calls. The API leaves a request file
+(`/var/run/ikev2-health.recheck`); at its next tick (a few seconds) the watcher
+probes the tunnels and runs its pass, and again when the probes have answered.
+The call returns `202` with `{"version": 1, "accepted": true, "next_after": 30}`
+and nothing about the result: the device reads `health` in its next services
+answer, a few seconds later. A tunnel is still called `silent` only after the
+usual number of failed rounds, so one check does not change that verdict by
+itself. Each device may ask once in 30 seconds. A call inside the window is
+refused with `429`, `{"error": "check_too_often", "retry_after": N}` and a
+`Retry-After: N` header, N being the seconds left; it asks the watcher for
+nothing. The time of the last accepted call is a file per device
+(`/var/run/ikev2-client-checks/<id>.at`), and a directory made beside it
+serialises concurrent calls, so the limit holds across the server's worker
+processes; a call that meets another in progress gets `409` `check_busy`.
+Other errors are those of the other calls: `401`, `405` (`Allow: POST`), `400`
+with a body, `503` `check_unavailable`.
+
 ## A person's own addresses
 
 The administrator may let a person's devices keep sites and networks of their

@@ -23,13 +23,15 @@ global.handle_request = function(env) {
 	let result = env.REQUEST_URI == '/client/v1/enroll' || env.REQUEST_URI == '/client/v1/enrollment' ?
 		client_enrollment_response(env, '/etc/ikev2-manager/clients') : client_policy_response(env, '/etc/ikev2-manager/clients', '/var/run/ikev2-client-seen', count => uhttpd.recv(count));
 	let phrases = { '200': 'OK', '202': 'Accepted', '400': 'Bad Request', '401': 'Unauthorized',
-		'403': 'Forbidden', '404': 'Not Found', '405': 'Method Not Allowed', '409': 'Conflict', '503': 'Service Unavailable' };
+		'403': 'Forbidden', '404': 'Not Found', '405': 'Method Not Allowed', '409': 'Conflict', '429': 'Too Many Requests', '503': 'Service Unavailable' };
 	let body = sprintf('%J\n', result.body);
 	uhttpd.send(sprintf('Status: %d %s\r\n', result.status, phrases[`${result.status}`]));
 	uhttpd.send('Content-Type: application/json\r\nCache-Control: no-store\r\n');
 	uhttpd.send('X-Content-Type-Options: nosniff\r\nConnection: close\r\n');
 	if (result.status == 405)
 		uhttpd.send(sprintf('Allow: %s\r\n', result.allow ?? 'GET'));
+	if (result.retry_after != null)
+		uhttpd.send(sprintf('Retry-After: %d\r\n', result.retry_after));
 	uhttpd.send(sprintf('Content-Length: %d\r\n\r\n%s', length(body), body));
 };
 %}

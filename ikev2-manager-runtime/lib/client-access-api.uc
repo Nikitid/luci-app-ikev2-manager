@@ -3,7 +3,7 @@
 'use strict';
 import { read_client_state } from './client-access-store.uc';
 import { sha256 } from 'digest';
-import { readfile, lstat, popen, mkdir, chmod, open, rename, unlink } from 'fs';
+import { readfile, writefile, lstat, popen, mkdir, rmdir, chmod, open, rename, unlink } from 'fs';
 import { check_client_choices, client_service_entries } from './client-access-offer.uc';
 import { OWN_PREFIX, is_own_service, check_own_entries, own_refusal } from './client-access-own.uc';
 import { record_client_seen, read_client_labels } from './client-access-directory.uc';
@@ -234,6 +234,45 @@ function device_services(publication, id, revision, directory) {
 		'offer' in own ? client_service_entries(own.offer, own.choices, publication) : null, directory, own_list);
 }
 
+// A device's request to check its services now: the watcher is asked to probe
+// the tunnels and run its pass at once, and the device reads the outcome in its
+// next services answer. Once in CHECK_INTERVAL seconds a device. Requests
+// arrive in separate processes, so the time of the last accepted one is a
+// file, and taking it is serialised by a directory that only one process can
+// create; one left behind by a process that died is cleared after a few seconds.
+const CHECKS = '/var/run/ikev2-client-checks', CHECK_WANTED = '/var/run/ikev2-health.recheck', CHECK_INTERVAL = 30;
+function accept_check(id) {
+	let info = lstat(CHECKS);
+	if (info == null && (!mkdir(CHECKS, 0700) || !chmod(CHECKS, 0700))) return reply(503, 'check_unavailable');
+	info = lstat(CHECKS);
+	if (info?.type != 'directory' || info.uid != 0 || info.mode != 0700) return reply(503, 'check_unavailable');
+	let lock = CHECKS + '/' + id + '.lock', stamp = CHECKS + '/' + id + '.at', now = time();
+	if (!mkdir(lock, 0700)) {
+		let held = lstat(lock);
+		if (held == null || now - held.mtime < 5) return reply(409, 'check_busy');
+		rmdir(lock);
+		if (!mkdir(lock, 0700)) return reply(409, 'check_busy');
+	}
+	let outcome, last = readfile(stamp, 32);
+	if (last != null && match(last, /^[0-9]+\n$/) && int(last) <= now && now - int(last) < CHECK_INTERVAL) {
+		let left = CHECK_INTERVAL - (now - int(last));
+		outcome = { status: 429, body: { error: 'check_too_often', retry_after: left }, retry_after: left };
+	} else {
+		let staged = stamp + '.new', raw = now + '\n';
+		unlink(staged);
+		let file = open(staged, 'wxe', 0600);
+		if (file == null || file.write(raw) != length(raw) || !file.close() || !rename(staged, stamp)) {
+			unlink(staged);
+			outcome = reply(503, 'check_unavailable');
+		} else if (writefile(CHECK_WANTED, raw) == null)
+			outcome = reply(503, 'check_unavailable');
+		else
+			outcome = { status: 202, body: { version: 1, accepted: true, next_after: CHECK_INTERVAL } };
+	}
+	rmdir(lock);
+	return outcome;
+}
+
 // The one request that carries a body: the report the administrator asked
 // this device for. Exactly the announced length is read, and no more than the
 // limit.
@@ -266,10 +305,11 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 	let release = env.REQUEST_URI == '/client/v1/release';
 	let report = env.REQUEST_URI == '/client/v1/report', sending = report && env.REQUEST_METHOD == 'POST';
 	let choosing = env.REQUEST_URI == '/client/v1/choices', owning = env.REQUEST_URI == '/client/v1/own';
-	if (!readiness && !services && !release && !report && !choosing && !owning && env.REQUEST_URI != '/client/v1/policy')
+	let checking = env.REQUEST_URI == '/client/v1/check';
+	if (!readiness && !services && !release && !report && !choosing && !owning && !checking && env.REQUEST_URI != '/client/v1/policy')
 		return reply(404, 'not_found');
-	if (((choosing || owning) && env.REQUEST_METHOD != 'POST') || (!choosing && !owning && env.REQUEST_METHOD != 'GET' && !sending))
-		return { status: 405, body: { error: 'method_not_allowed' }, allow: choosing || owning ? 'POST' : report ? 'GET, POST' : 'GET' };
+	if (((choosing || owning || checking) && env.REQUEST_METHOD != 'POST') || (!choosing && !owning && !checking && env.REQUEST_METHOD != 'GET' && !sending))
+		return { status: 405, body: { error: 'method_not_allowed' }, allow: choosing || owning || checking ? 'POST' : report ? 'GET, POST' : 'GET' };
 	let headers = env.headers ?? {};
 	if (headers['transfer-encoding'] != null ||
 		(!sending && !choosing && !owning && headers['content-length'] != null && headers['content-length'] != '0'))
@@ -305,6 +345,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 			}
 			if (choosing) return reply(409, 'no_offer');
 			if (owning) return device.enabled || device.idle ? accept_own(device.id, device.policy?.server ?? null, headers, receive, directory) : reply(401, 'unauthorized');
+			if (checking) return device.enabled || device.idle ? accept_check(device.id) : reply(401, 'unauthorized');
 			if (!device.enabled) return device.idle ? reply(409, 'no_services') : reply(401, 'unauthorized');
 			if (readiness) {
 				if (type(headers['x-client-address']) != 'string') return reply(400, 'invalid_client_address');
@@ -372,6 +413,8 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 		if (choosing) return reply(409, 'no_offer');
 		if (owning)
 			return own != null && (selected != null || idle != null) ? accept_own(own.id, committed.publication.server, headers, receive, directory) : reply(401, 'unauthorized');
+		if (checking)
+			return matches == 1 && (selected != null || idle != null) ? accept_check((selected ?? idle).id) : reply(401, 'unauthorized');
 		if (idle != null)
 			return reply(409, 'no_services');
 		if (matches != 1 || selected == null)

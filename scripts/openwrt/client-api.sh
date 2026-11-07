@@ -168,6 +168,49 @@ rm -f /etc/pbr-ikev2-exits.txt /var/run/ikev2-tunnels.state
 [ ! -s "$work/exits.saved" ] || cp "$work/exits.saved" /etc/pbr-ikev2-exits.txt
 [ ! -s "$work/tunnels.saved" ] || cp "$work/tunnels.saved" /var/run/ikev2-tunnels.state
 request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+test_step=check
+# A device may ask for the services to be checked now, once in 30 seconds:
+# the watcher is asked, and a second call says how long is left.
+check=https://127.0.0.1:18443/client/v1/check
+request 401 -X POST "$check"
+request 401 -X POST -H 'Authorization: Bearer invalid' "$check"
+request 405 -H "Authorization: Bearer $first" "$check"
+grep -qi '^Allow: POST' "$work/headers"
+request 400 -X POST -H "Authorization: Bearer $first" -d '{}' "$check"
+[ ! -e /var/run/ikev2-health.recheck ] || { echo 'client-api: a refused check asked the watcher' >&2; exit 1; }
+request 202 -X POST -H "Authorization: Bearer $first" "$check"
+[ "$(jsonfilter -i "$work/body" -e '@.accepted')" = true ] && [ "$(jsonfilter -i "$work/body" -e '@.next_after')" = 30 ] ||
+	{ echo "client-api: an accepted check is not said so: $(cat "$work/body")" >&2; exit 1; }
+[ -s /var/run/ikev2-health.recheck ] || { echo 'client-api: an accepted check did not ask the watcher' >&2; exit 1; }
+rm -f /var/run/ikev2-health.recheck
+request 429 -X POST -H "Authorization: Bearer $first" "$check"
+left="$(jsonfilter -i "$work/body" -e '@.retry_after')"
+[ "$(jsonfilter -i "$work/body" -e '@.error')" = check_too_often ] && [ "$left" -ge 1 ] && [ "$left" -le 30 ] &&
+	grep -qi "^Retry-After: $left" "$work/headers" || { echo "client-api: a check inside the window is not refused with the time left: $(cat "$work/body")" >&2; exit 1; }
+[ ! -e /var/run/ikev2-health.recheck ] || { echo 'client-api: a refused check asked the watcher' >&2; exit 1; }
+# Past the window it is accepted again; at once from several connections, only
+# one is.
+rm -f /var/run/ikev2-client-checks/team.at
+n=0 racers=''
+while [ "$n" -lt 8 ]; do
+	curl -sk --max-time 8 -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $first" "$check" >"$work/race.$n" &
+	racers="$racers $!"
+	n=$((n + 1))
+done
+# The server runs in the background of this script: wait for the callers only.
+for racer in $racers; do wait "$racer" || :; done
+accepted="$(cat "$work"/race.* | grep -c '^202$')"
+[ "$accepted" = 1 ] || { echo "client-api: $accepted of 8 simultaneous checks were accepted: $(cat "$work"/race.* | tr '\n' ' ')" >&2; exit 1; }
+! cat "$work"/race.* | grep -qv '^\(202\|429\|409\)$' || { echo 'client-api: a simultaneous check got an unexpected answer' >&2; exit 1; }
+rm -f "$work"/race.*
+[ ! -d /var/run/ikev2-client-checks/team.lock ] || { echo 'client-api: a check left its lock' >&2; exit 1; }
+# A lock left by a process that died does not hold a device off for good.
+mkdir /var/run/ikev2-client-checks/team.lock
+touch -t "$(date -d "@$(($(date +%s) - 60))" +%Y%m%d%H%M.%S)" /var/run/ikev2-client-checks/team.lock
+printf '%s\n' "$(($(date +%s) - 31))" >/var/run/ikev2-client-checks/team.at
+request 202 -X POST -H "Authorization: Bearer $first" "$check"
+rm -rf /var/run/ikev2-client-checks /var/run/ikev2-health.recheck
+request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 test_step=offer
 optional="$(jsonfilter -i "$work/body" -e '@.entries[1].id')"
 request 405 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/choices

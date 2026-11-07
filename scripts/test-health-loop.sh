@@ -345,6 +345,24 @@ sleep 2
 passes="$(count '^sa tunnels')"
 kill -USR1 "$watcher"
 wait_for '^sa tunnels' $((passes + 1)) 'a wake-up signal did not run a pass'
+# A device's request to check now (left as a file by the client API) runs the
+# next pass at once, is taken once, and is not lost while a router action
+# holds the passes back.
+sleep 2
+passes="$(count '^sa tunnels')"
+: >"$tmp/run/ikev2-health.recheck"
+wait_for '^sa tunnels' $((passes + 1)) 'a request to check now did not run a pass'
+[ ! -e "$tmp/run/ikev2-health.recheck" ] || fail 'a request to check now was not taken'
+sleep 2
+passes="$(count '^sa tunnels')"
+mkdir "$S/action.lock"
+printf 'owner=test\naction_id=1\npid=%s\npid_start=\n' "$$" >"$S/action.lock.status"
+: >"$tmp/run/ikev2-health.recheck"
+sleep 2.5
+[ "$(count '^sa tunnels')" = "$passes" ] || fail 'a request to check now ran a pass during a router action'
+[ -e "$tmp/run/ikev2-health.recheck" ] || fail 'a request made during a router action was lost'
+rm -rf "$S/action.lock" "$S/action.lock.status"
+wait_for '^sa tunnels' $((passes + 1)) 'a request held back by a router action never ran'
 kill -TERM "$watcher"
 wait "$watcher" 2>/dev/null || :
 watcher=''
