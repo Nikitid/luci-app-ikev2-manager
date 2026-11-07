@@ -1016,6 +1016,16 @@ started at once, commits it and tries again when another edit committed
 first. Its `block_without_tunnel` answers clients that know one rule: blocked
 as soon as any service it has on is (`client-api.sh`).
 
+Each entry also says whether its service works now (`health`), as the router
+routes it: the exit the service leaves by (`/etc/pbr-ikev2-exits.txt`, the
+first when none is named) and the tunnel the health watcher chose for that
+exit (`/var/run/ikev2-tunnels.state`). `state` is `ok` with the `tunnel` and
+`since` when it came up; `down` with `reason` `no_tunnel` (the exit has no
+tunnel and refuses) or `silent` (the tunnel is up and nothing crosses it);
+`direct` when the operator sends the service to the WAN; `unknown` before the
+watcher has written anything. One service can be down while the others work.
+Both files are read per answer; nothing is run.
+
 ## A person's own addresses
 
 The administrator may let a person's devices keep sites and networks of their

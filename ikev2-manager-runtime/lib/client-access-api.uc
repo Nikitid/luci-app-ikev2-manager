@@ -82,8 +82,47 @@ function apply_pass(pass) {
 		'/usr/libexec/ikev2-manager.d/client-access-control.uc', pass ]);
 }
 
+// Whether each service works now, as the router routes it: the exit the
+// service leaves by (the first when the operator named none) and the tunnel
+// the health watcher chose for that exit. "ok" with that tunnel and since when
+// it is up; "down" when the exit has no tunnel or its tunnel is up but nothing
+// crosses it; "direct" when the operator sends the service to the WAN;
+// "unknown" before the watcher has said anything. Two small files the
+// watcher and the routing page already keep - nothing is run per request.
+const EXITS_FILE = '/etc/pbr-ikev2-exits.txt', TUNNELS_STATE = '/var/run/ikev2-tunnels.state';
+function with_health(entries) {
+	let state = readfile(TUNNELS_STATE), exits = {}, ready = {}, silent = {}, chosen = {};
+	for (let line in split(readfile(EXITS_FILE) ?? '', '\n')) {
+		let field = split(trim(line), /[ \t]+/);
+		if (length(field) >= 2) exits[field[0]] = field[1];
+	}
+	for (let line in split(state ?? '', '\n')) {
+		let field = split(trim(line), ' ');
+		if (length(field) != 3) continue;
+		if (field[0] == 'ready') ready[field[1]] = int(field[2]);
+		else if (field[0] == 'silent') silent[field[1]] = true;
+		else if (field[0] == 'exit') chosen[field[1]] = field[2];
+	}
+	return map(entries, entry => {
+		let exit = exits[entry.id] ?? '1', tunnel = chosen[exit] ?? chosen[replace(exit, /s$/, '')], health;
+		if (exit == 'wan') health = { state: 'direct' };
+		else if (state == null || tunnel == null) health = { state: 'unknown' };
+		else if (tunnel == '0') health = { state: 'down', reason: 'no_tunnel' };
+		else if (silent[tunnel]) health = { state: 'down', reason: 'silent', tunnel: int(tunnel) };
+		else {
+			health = { state: 'ok', tunnel: int(tunnel) };
+			if (ready[tunnel] != null) health.since = ready[tunnel];
+		}
+		let copy = {};
+		for (let key in entry) copy[key] = entry[key];
+		copy.health = health;
+		return copy;
+	});
+}
+
 // The services answer. With an offer it lists every entry: on or off,
-// required or not, blocked without the tunnel or not and whose choice that is.
+// required or not, blocked without the tunnel or not and whose choice that is,
+// and whether it works now.
 function services_answer(id, revision, selected, available, entries, directory, own_list) {
 	let label = null, mode = 'services';
 	try { label = read_client_labels(directory)[id]; } catch (error) { label = null; }
@@ -91,7 +130,7 @@ function services_answer(id, revision, selected, available, entries, directory, 
 	let body = { version: 1, id: id, revision: revision, selected: selected, available: available,
 		block_without_tunnel: blocked_without_tunnel(entries, label), mode: mode,
 		names_https: names_over_https(), tunnel_subnet: tunnel_subnet() };
-	if (entries != null) body.entries = entries;
+	if (entries != null) body.entries = with_health(entries);
 	// What the person may add for themselves, and what this device keeps.
 	if (label?.own != null)
 		body.own = { limit: label.own.limit, ports: label.own.ports, domains: own_list?.domains ?? [], networks: own_list?.networks ?? [] };
