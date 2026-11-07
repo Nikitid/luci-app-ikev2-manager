@@ -136,23 +136,40 @@ printf '%s\n' 'client-managed: the rendered server offers managed peers the virt
 ucode /src/scripts/openwrt/client-runtime-state.uc /etc/ikev2-manager/clients networks
 /usr/libexec/ikev2-manager device-selectors-sync || fail 'the device connections could not be brought in line'
 swanctl --list-conns | grep -q '^ikev2-in-device-alice:' || fail 'the device with networks has no connection of its own'
-far swanctl --initiate --child net --ike managed >"$work/device.log" 2>&1 || {
-	# Only CI has XFRM interfaces; what the peer and the server said is all
-	# there is to go on there.
-	tail -n 30 "$work/device.log" >&2
-	swanctl --list-conns 2>&1 | sed -n '/^ikev2-in-device-alice:/,/^[a-z]/p' | head -n 30 >&2
-	tail -n 30 "$work/peer.log" >&2
-	fail 'the device with networks could not log in'
-}
-swanctl --list-sas | grep -q '^ikev2-in-device-alice:' || fail 'the device was not answered by its own connection'
-[ "$(offered ikev2-in-device-alice)" = '172.31.254.0/24 203.0.113.0/24' ] || fail "the device was offered $(offered ikev2-in-device-alice)"
-swanmon list-sas >"$work/sas.json"
-ucode /usr/libexec/ikev2-manager.d/client-access-policy.uc sessions <"$work/sas.json" >"$work/sessions.json" || fail 'the session reader refused the device connection'
-[ "$(jsonfilter -i "$work/sessions.json" -e '@[0].identity')" = alice ] || fail 'the device session was not read as its account'
-/usr/libexec/ikev2-manager device-selectors-sync || fail 'an unchanged publication could not be synced'
-swanctl --list-sas | grep -q '^ikev2-in-device-alice:' || fail 'an unchanged publication ended the device session'
+# The connection answers the device's name and its own account alone, and
+# offers the virtual subnet and the networks.
+swanctl --list-conns | sed -n '/^ikev2-in-device-alice:/,/^[a-z]/p' >"$work/device-conn.txt"
+grep -q '^ *id: alice@managed\.ikev2-manager$' "$work/device-conn.txt" || fail 'the device connection does not answer the device name'
+grep -q '^ *eap_id: alice$' "$work/device-conn.txt" || fail 'the device connection does not hold the device to its account'
+grep -q '^ *local: *172\.31\.254\.0/24 203\.0\.113\.0/24$' "$work/device-conn.txt" || fail 'the device connection does not offer its networks'
+# strongSwan 5 as a server takes the configured EAP name without asking, and
+# as a client then answers with its IKE name; Waypoint answers with its EAP
+# name either way, but a strongSwan 5 peer cannot stand in for it. strongSwan 6
+# asks for the name and holds it to the account, so the login runs there.
+case "$(far swanctl --version 2>/dev/null)" in
+*' 5.'*) login=0 ;;
+*) login=1 ;;
+esac
+if [ "$login" = 1 ]; then
+	far swanctl --initiate --child net --ike managed >"$work/device.log" 2>&1 || {
+		# Only CI has XFRM interfaces; what the peer and the server said is all
+		# there is to go on there.
+		tail -n 30 "$work/device.log" >&2
+		cat "$work/device-conn.txt" >&2
+		tail -n 30 "$work/peer.log" >&2
+		fail 'the device with networks could not log in'
+	}
+	swanctl --list-sas | grep -q '^ikev2-in-device-alice:' || fail 'the device was not answered by its own connection'
+	[ "$(offered ikev2-in-device-alice)" = '172.31.254.0/24 203.0.113.0/24' ] || fail "the device was offered $(offered ikev2-in-device-alice)"
+	swanmon list-sas >"$work/sas.json"
+	ucode /usr/libexec/ikev2-manager.d/client-access-policy.uc sessions <"$work/sas.json" >"$work/sessions.json" || fail 'the session reader refused the device connection'
+	[ "$(jsonfilter -i "$work/sessions.json" -e '@[0].identity')" = alice ] || fail 'the device session was not read as its account'
+	/usr/libexec/ikev2-manager device-selectors-sync || fail 'an unchanged publication could not be synced'
+	swanctl --list-sas | grep -q '^ikev2-in-device-alice:' || fail 'an unchanged publication ended the device session'
+fi
 ucode /src/scripts/openwrt/client-runtime-state.uc /etc/ikev2-manager/clients no-networks
 /usr/libexec/ikev2-manager device-selectors-sync || fail 'taking the networks away could not be synced'
 if swanctl --list-conns | grep -q '^ikev2-in-device-alice:'; then fail 'the device connection outlived its networks'; fi
 if swanctl --list-sas | grep -q '^ikev2-in-device-alice:'; then fail 'the device kept a session offering networks it lost'; fi
+[ "$login" = 1 ] || printf '%s\n' 'client-managed: strongSwan 5 cannot log in as a device, checked the device connection as loaded'
 printf '%s\n' 'client-managed: a device with networks is offered them on its own connection, and loses both together'

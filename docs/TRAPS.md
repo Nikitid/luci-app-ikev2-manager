@@ -737,3 +737,16 @@ A background sleep inherits the shell's flock descriptor unless explicitly
 closed. After the shell stops, that child can keep the lock across a service
 restart. Close the descriptor for idle sleeps and let a new writer wait for
 bounded in-flight probes instead of exiting successfully without recording.
+
+## strongSwan 5 does not ask for a configured EAP name
+
+With `remote { eap_id = <name> }` strongSwan 5.9 (OpenWrt 24.10) skips
+EAP-Identity and runs MSCHAPv2 for that name; strongSwan 6 (OpenWrt 25.12)
+asks for the name and holds it to the configured one. Both bind the
+connection to that account. A strongSwan 5 client that is not asked answers
+MSCHAPv2 with its IKE identity, not its `eap_id`, so it cannot stand in for a
+Waypoint device (IKE name `<device>@managed.ikev2-manager`, EAP name
+`<device>`); Waypoint answers with its EAP name either way. Logins of such
+peers are tested on strongSwan 6 only (`scripts/openwrt/client-managed.sh`).
+Do not "fix" it with `eap_id = %any`: that lets any account take a device's
+connection and the networks it offers.
