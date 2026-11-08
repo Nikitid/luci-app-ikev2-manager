@@ -17,11 +17,31 @@ public static class Program
     public static bool Background { get; private set; }
     public static EventWaitHandle ShowRequests { get; private set; }
 
+    public const string SettingsKey = @"Software\Waypoint";
+
+    public static bool StartAtSignIn
+    {
+        get
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(SettingsKey);
+            return !(key?.GetValue("StartAtSignIn") is int value && value == 0);
+        }
+        set
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(SettingsKey);
+            key.SetValue("StartAtSignIn", value ? 1 : 0, Microsoft.Win32.RegistryValueKind.DWord);
+        }
+    }
+
     [STAThread]
     public static int Main(string[] args)
     {
         Register = args.Contains("--register");
         Background = args.Contains("--background");
+        // Started at sign-in by the entry every user shares; a person who
+        // turned "Open at sign-in" off is left alone. Task Manager's switch
+        // for the same entry is the system's own and stays in force.
+        if (Background && !StartAtSignIn) return 0;
         using var mutex = new Mutex(false, MutexName, out _);
         if (!Own(mutex, TimeSpan.Zero))
         {

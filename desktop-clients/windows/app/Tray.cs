@@ -1,32 +1,39 @@
 using System.Runtime.InteropServices;
+using IkeV2Manager.Client;
 
 namespace Waypoint;
 
-// The notification area icon: it names the state, a click opens the window,
-// and its menu switches the connection without opening it. WinUI has no tray
-// control, so this is Shell_NotifyIcon on a hidden window.
+// The notification area icon: one-colour Waypoint mark in four states - open,
+// off, connecting, attention - dark on a light taskbar and white on a dark
+// one. A click opens the window; its menu is the system's (TrackPopupMenuEx):
+// the state, the switch, the services by choice with a tick, the update, the
+// window and the exit. WinUI has no tray control, so this is Shell_NotifyIcon
+// on a hidden window.
 sealed class Tray : IDisposable
 {
     const int WM_USER = 0x0400, CallbackMessage = WM_USER + 1, WM_LBUTTONUP = 0x0202, WM_LBUTTONDBLCLK = 0x0203, WM_RBUTTONUP = 0x0205,
               WM_CONTEXTMENU = 0x007B, NIN_SELECT = 0x0400, NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETVERSION = 4,
               NIF_MESSAGE = 1, NIF_ICON = 2, NIF_TIP = 4, NIF_SHOWTIP = 0x80, NOTIFYICON_VERSION_4 = 4,
-              TPM_RETURNCMD = 0x100, TPM_RIGHTBUTTON = 2, MF_STRING = 0, MF_SEPARATOR = 0x800;
+              TPM_RETURNCMD = 0x100, TPM_RIGHTBUTTON = 2, MF_STRING = 0, MF_SEPARATOR = 0x800, MF_GRAYED = 1, MF_CHECKED = 8;
 
-    readonly Action open, toggle, quit;
+    readonly Action open;
+    readonly Action<string> choose;
     readonly WindowProcedure procedure;
     readonly uint taskbarCreated;
+    readonly Dictionary<string, IntPtr> icons = new();
     IntPtr window, icon;
-    string tip = "Waypoint", toggleLabel;
+    string tip = "Waypoint", state = "off";
+    bool light = true;
+    TrayItem[] items = new TrayItem[0];
 
     public bool Visible { get; private set; }
 
     delegate IntPtr WindowProcedure(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
-    public Tray(Action open, Action toggle, Action quit)
+    public Tray(Action open, Action<string> choose)
     {
         this.open = open;
-        this.toggle = toggle;
-        this.quit = quit;
+        this.choose = choose;
         procedure = Procedure;
         taskbarCreated = RegisterWindowMessageW("TaskbarCreated");
     }
@@ -46,23 +53,51 @@ sealed class Tray : IDisposable
             };
             RegisterClassExW(ref windowClass);
             window = CreateWindowExW(0, name, "Waypoint", 0, 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
-            icon = LoadImageW(IntPtr.Zero, Path.Combine(AppContext.BaseDirectory, "Assets", "Waypoint.ico"), 1, 16, 16, 0x10);
+            icon = Icon();
         }
         Add();
     }
 
-    // What the icon says on hover, and which way its menu switches the
-    // connection; null where there is nothing to switch.
-    public void Update(string state, string switchLabel)
+    // The icon of the state for the taskbar's light or dark, at the size the
+    // system asks for the notification area.
+    IntPtr Icon()
     {
-        toggleLabel = switchLabel;
-        string next = state.Length > 127 ? state[..127] : state;
-        if (next == tip || window == IntPtr.Zero) { tip = next; return; }
-        tip = next;
+        string name = "tray-" + (light ? "light" : "dark") + "-" + state + ".ico";
+        if (icons.TryGetValue(name, out var known)) return known;
+        int size = GetSystemMetrics(49); // SM_CXSMICON
+        var loaded = LoadImageW(IntPtr.Zero, Path.Combine(AppContext.BaseDirectory, "Assets", "tray", name), 1, size, size, 0x10);
+        if (loaded == IntPtr.Zero) loaded = LoadImageW(IntPtr.Zero, Path.Combine(AppContext.BaseDirectory, "Assets", "Waypoint.ico"), 1, size, size, 0x10);
+        icons[name] = loaded;
+        return loaded;
+    }
+
+    public void Taskbar(bool isLight)
+    {
+        if (isLight == light) return;
+        light = isLight;
+        Repaint();
+    }
+
+    void Repaint()
+    {
+        icon = Icon();
+        if (window == IntPtr.Zero) return;
         var data = Data();
-        data.Flags = NIF_TIP | NIF_SHOWTIP;
+        data.Flags = NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+        data.Icon = icon;
         data.Tip = tip;
         Shell_NotifyIconW(NIM_MODIFY, ref data);
+    }
+
+    // What the icon says on hover, which of the four it shows ("open",
+    // "off", "connecting", "attention") and what its menu offers.
+    public void Update(string text, string kind, TrayItem[] menu)
+    {
+        items = menu ?? new TrayItem[0];
+        string next = text.Length > 127 ? text[..127] : text;
+        if (next == tip && kind == state) return;
+        tip = next; state = kind;
+        Repaint();
     }
 
     void Add()
@@ -100,20 +135,21 @@ sealed class Tray : IDisposable
     void Menu()
     {
         var menu = CreatePopupMenu();
-        AppendMenuW(menu, MF_STRING, 1, "Открыть Waypoint");
-        if (toggleLabel != null) AppendMenuW(menu, MF_STRING, 2, toggleLabel);
-        AppendMenuW(menu, MF_SEPARATOR, 0, null);
-        AppendMenuW(menu, MF_STRING, 3, "Выйти");
+        foreach (var item in items)
+        {
+            if (item.Separator) { AppendMenuW(menu, MF_SEPARATOR, 0, null); continue; }
+            uint flags = MF_STRING | (item.Enabled ? 0u : MF_GRAYED) | (item.Checked ? MF_CHECKED : 0u);
+            AppendMenuW(menu, flags, (nuint)item.Id, item.Text);
+        }
+        if (items.Length == 0) AppendMenuW(menu, MF_STRING, 1, "Открыть Waypoint");
         GetCursorPos(out var point);
         SetForegroundWindow(window);
         int choice = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, point.X, point.Y, window, IntPtr.Zero);
         DestroyMenu(menu);
-        switch (choice)
-        {
-            case 1: open(); break;
-            case 2: toggle(); break;
-            case 3: quit(); break;
-        }
+        if (choice == 0) return;
+        var picked = items.FirstOrDefault(i => i.Id == choice && !i.Separator);
+        if (picked?.Action != null) choose(picked.Action);
+        else if (items.Length == 0) open();
     }
 
     public void Dispose()
@@ -169,4 +205,5 @@ sealed class Tray : IDisposable
     [DllImport("user32.dll")] static extern int TrackPopupMenuEx(IntPtr menu, uint flags, int x, int y, IntPtr window, IntPtr parameters);
     [DllImport("user32.dll")] static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
 }

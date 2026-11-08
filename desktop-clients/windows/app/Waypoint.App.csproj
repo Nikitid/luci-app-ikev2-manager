@@ -38,7 +38,11 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\JsonCompat.cs;..\ManagedHosts.cs;..\ClientPolicy.cs;..\EnrollmentTransport.cs;..\ClientCommands.cs;..\ClientStatusReader.cs;..\ClientPresentation.cs;..\BrowserNames.cs;..\ProblemReports.cs" />
+    <Compile Include="..\JsonCompat.cs;..\ManagedHosts.cs;..\ClientPolicy.cs;..\EnrollmentTransport.cs;..\ClientCommands.cs;..\ClientStatusReader.cs;..\ClientPresentation.cs;..\BrowserNames.cs;..\ProblemReports.cs;..\WindowModel.cs;..\RemovalResult.cs;..\FailureQueue.cs;..\FailureReporter.cs" />
     <Content Include="..\..\assets\Waypoint.ico" Link="Assets\Waypoint.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The window's icon follows the taskbar: Stone on a light one, graphite
+         on a dark one; the tray icon in four states, dark or white. -->
+    <Content Include="..\..\assets\Waypoint-dark.ico" Link="Assets\Waypoint-dark.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\assets\tray\*.ico" Link="Assets\tray\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

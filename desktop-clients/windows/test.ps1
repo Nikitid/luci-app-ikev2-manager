@@ -1,4 +1,4 @@
-param([switch]$Wfp, [switch]$EnrollmentStorage, [switch]$Profiles)
+param([switch]$Wfp, [switch]$EnrollmentStorage, [switch]$Profiles, [ValidateSet('', 'win-x64', 'win-arm64')][string]$Runtime = '')
 
 # The Windows client's tests, on current .NET and on this machine's own
 # architecture, as the service ships: an ARM64 machine runs them as ARM64.
@@ -9,7 +9,9 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $dotnet = if ($env:WAYPOINT_DOTNET) { $env:WAYPOINT_DOTNET } else { (Get-Command dotnet -ErrorAction SilentlyContinue).Source }
 if (-not $dotnet -or -not (Test-Path $dotnet)) { throw '.NET SDK not found; set WAYPOINT_DOTNET or put dotnet on PATH' }
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'; $env:DOTNET_NOLOGO = '1'
-$runtime = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'win-arm64' } else { 'win-x64' }
+# -Runtime win-x64 on an ARM64 machine runs the x64 build under emulation.
+$runtime = if ($Runtime) { $Runtime } elseif ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'win-arm64' } else { 'win-x64' }
+Write-Host "Testing the $runtime build"
 $policies = Join-Path $PSScriptRoot '..\fixtures\policies.json'
 
 # Current .NET reads and writes JSON through JsonCompat.cs; it has to give what
@@ -50,8 +52,10 @@ Test PolicyTransportTests 'Policy transport tests failed' $policies
 Test EnrollmentTransportTests 'Enrollment transport tests failed' $policies
 Test ClientCommandsTests 'Control protocol tests failed'
 Test ClientPresentationTests 'Window presentation tests failed'
+Test WindowModelTests 'Window model tests failed' (Join-Path $PSScriptRoot '..\fixtures\window')
 Test StatusCodesTests 'Status code tests failed' (Join-Path $PSScriptRoot '..\fixtures\status-codes.json')
 Test BrowserNamesTests 'Browser names test failed'
+Test OwnAddressesTests 'Own address tests failed' (Join-Path $PSScriptRoot '..\fixtures\own-addresses.json')
 if ($EnrollmentStorage -or $Wfp) { Test EnrollmentStoreTests 'Enrollment storage tests failed' $policies }
 
 # The WinUI window, built as it ships.
@@ -66,6 +70,9 @@ if ($Wfp) {
     }
     Test WfpGuardTests 'WFP behavior tests failed' (Join-Path $PSScriptRoot '..\fixtures')
     Test MaintenanceTests 'Browser settings tests failed'
+    # The failure queue lives under HKLM: written as an administrator.
+    Test FailureReportsTests 'Failure report tests failed' (Join-Path $PSScriptRoot '..\fixtures\status-codes.json')
+    Test UpdaterTests 'Update tests failed' (Join-Path $PSScriptRoot '..\fixtures\update')
 }
 if ($Profiles) { Test ManagedVpnProfileTests 'Managed profile integration failed' $policies }
 # PolicyTransportIntegrationTests, EnrollmentIntegrationTests and

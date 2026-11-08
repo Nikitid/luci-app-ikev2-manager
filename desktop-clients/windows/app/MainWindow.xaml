@@ -8,145 +8,72 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
+    <!-- Layout Б: the window's own title bar, side navigation - Overview,
+         Services, own sites and addresses, Reports; the state and Settings at
+         the foot. The pages are built in code from WindowModel. -->
     <Grid x:Name="Root">
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- The title bar: the window's own, drawn over the backdrop. -->
         <Grid x:Name="TitleBar" Grid.Row="0" Padding="12,0,0,0">
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Image Source="ms-appx:///Assets/Waypoint.ico" Width="16" Height="16" />
+                <Image x:Name="TitleIcon" Width="16" Height="16" />
                 <TextBlock Text="Waypoint" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center" />
             </StackPanel>
         </Grid>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <Grid Padding="24,12,24,12" ColumnSpacing="20">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MinWidth="380" />
-                    <ColumnDefinition Width="300" />
-                </Grid.ColumnDefinitions>
+        <NavigationView x:Name="Nav" Grid.Row="1" PaneDisplayMode="Auto" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+                        CompactModeThresholdWidth="0" ExpandedModeThresholdWidth="900" OpenPaneLength="264"
+                        SelectionChanged="OnNavigate">
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="NavOverview" Tag="overview" AutomationProperties.Name="Обзор">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE80F;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NavServices" Tag="services" AutomationProperties.Name="Сервисы">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE71D;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NavOwn" Tag="own" AutomationProperties.Name="Свои сайты и адреса">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE774;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NavReports" Tag="reports" AutomationProperties.Name="Обращения">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE8BD;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <!-- The state, in every section: a click opens Overview. -->
+                <NavigationViewItem x:Name="NavState" Tag="state" SelectsOnInvoked="False">
+                    <NavigationViewItem.Icon><FontIcon x:Name="NavStateSign" Glyph="&#xE915;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NavSettings" Tag="settings" Content="Параметры">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
 
-                <StackPanel Grid.Column="0" Spacing="12">
-                    <!-- Status: sign, what it is, what it means. -->
-                    <Grid ColumnSpacing="14">
+            <Grid>
+                <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <!-- Pages fill the width up to a reading measure, set to the left. -->
+                    <Grid Padding="32,20,32,32">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MaxWidth="760" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <FontIcon x:Name="Sign" FontSize="20" VerticalAlignment="Top" Margin="0,10,0,0" />
-                        <StackPanel Grid.Column="1" Spacing="4">
-                            <TextBlock x:Name="Heading" FontSize="30" LineHeight="34" FontWeight="ExtraLight" TextWrapping="Wrap" />
-                            <TextBlock x:Name="Description" Style="{StaticResource BodyTextBlockStyle}" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
+                        <ContentPresenter x:Name="Body" HorizontalContentAlignment="Stretch" />
                     </Grid>
-
-                    <InfoBar x:Name="Notice" Severity="Warning" IsClosable="False" />
-                    <InfoBar x:Name="SupportNotice" Severity="Informational" IsClosable="False" Message="Поддержка ответила на ваше обращение.">
-                        <InfoBar.ActionButton>
-                            <Button Content="Открыть" Click="OnReplies" />
-                        </InfoBar.ActionButton>
-                    </InfoBar>
-
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Проверки" Style="{StaticResource SectionLabel}" />
-                            <StackPanel x:Name="Checks" Spacing="4" />
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Сервисы" Style="{StaticResource SectionLabel}" />
-                            <StackPanel x:Name="Services" Spacing="2" />
-                            <TextBlock x:Name="ServicesLine" Style="{StaticResource Emphasis}" TextWrapping="Wrap" />
-                            <TextBlock x:Name="ServicesNote" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock x:Name="AvailableLine" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-                    </Border>
-
-                    <!-- The person's own sites and networks, where the administrator allows them. -->
-                    <Border x:Name="OwnCard" Style="{StaticResource Card}" Visibility="Collapsed">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Мои адреса" Style="{StaticResource SectionLabel}" />
-                            <TextBlock x:Name="OwnEmpty" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       Text="Пока ничего. Добавьте сайт или адрес, который должен идти через туннель на этом компьютере." />
-                            <StackPanel x:Name="OwnList" Spacing="2" />
-                            <Grid ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="OwnInput" PlaceholderText="example.com или 203.0.113.5" />
-                                <Button x:Name="OwnAdd" Grid.Column="1" Content="Добавить" Click="OnOwnAdd" />
-                            </Grid>
-                            <TextBlock x:Name="OwnLine" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock x:Name="OwnProblem" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
-                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
-                <!-- The addresses another VPN needs to leave this one alone. -->
-                <Border Grid.Column="1" Style="{StaticResource Card}" VerticalAlignment="Top">
-                    <StackPanel Spacing="10">
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="Адреса Waypoint" Style="{StaticResource Emphasis}" />
-                            <TextBlock Text="Для исключений в другом VPN." Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-                        <StackPanel x:Name="Addresses" Spacing="10" />
-                        <TextBlock Text="Используйте домен или IP сервера." Style="{StaticResource CaptionTextBlockStyle}"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
+                </ScrollViewer>
+                <!-- The one motion of its own: the content of a section changes
+                     under a layer that fades out in 0.2 s. -->
+                <Border x:Name="Veil" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" Opacity="0" IsHitTestVisible="False" />
             </Grid>
+        </NavigationView>
+
+        <!-- First run: no navigation before the answers. -->
+        <ScrollViewer x:Name="Welcome" Grid.Row="1" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+            <ContentPresenter x:Name="WelcomeBody" MaxWidth="560" Padding="32,40,32,32" />
         </ScrollViewer>
 
-        <!-- What to do next on the left, the rest on the right, and under them
-             when the state was last checked: the same order as on macOS. -->
-        <Grid Grid.Row="2" Padding="24,8,24,14" RowSpacing="6">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="RegisterButton" Content="Регистрация…" Style="{StaticResource AccentButtonStyle}" Click="OnRegister" />
-                <Button x:Name="ResumeButton" Content="Продолжить" Click="OnResume" />
-                <Button x:Name="ConnectButton" Content="Включить" Style="{StaticResource AccentButtonStyle}" Click="OnConnect" />
-                <Button x:Name="DisconnectButton" Content="Отключить" Click="OnDisconnect" />
-                <Button x:Name="UpdateButton" Content="Обновить" Click="OnUpdate" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                <Button x:Name="BrowsersButton" Content="Браузеры…" Click="OnBrowsers" />
-                <Button Content="Проверить" Click="OnRefresh" />
-                <Button Content="Отчёт…" Click="OnReport" />
-                <DropDownButton ToolTipService.ToolTip="Тема">
-                    <FontIcon Glyph="&#xE790;" FontSize="14" />
-                    <DropDownButton.Flyout>
-                        <MenuFlyout Placement="TopEdgeAlignedRight">
-                            <RadioMenuFlyoutItem x:Name="ThemeSystem" Text="Системная" GroupName="Theme" Click="OnTheme" Tag="system" />
-                            <RadioMenuFlyoutItem x:Name="ThemeLight" Text="Светлая" GroupName="Theme" Click="OnTheme" Tag="light" />
-                            <RadioMenuFlyoutItem x:Name="ThemeDark" Text="Тёмная" GroupName="Theme" Click="OnTheme" Tag="dark" />
-                        </MenuFlyout>
-                    </DropDownButton.Flyout>
-                </DropDownButton>
-                <!-- Everything the program put on this computer goes with one action. -->
-                <Button Content="Сбросить…" Click="OnReset" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
-            </StackPanel>
-            <TextBlock x:Name="CheckedLine" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource CaptionTextBlockStyle}"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-        </Grid>
+        <TeachingTip x:Name="TrayTip" Title="Waypoint в трее" PreferredPlacement="BottomRight" IsLightDismissEnabled="True"
+                     Subtitle="Здесь подключение и сервисы по выбору. Окно — двойным щелчком." CloseButtonContent="Понятно" />
     </Grid>
 </Window>

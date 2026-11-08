@@ -15,7 +15,29 @@ sealed class Reports
     // Called on the window's thread whenever an answer of the service changed what is known.
     public event Action Changed;
 
-    public Reports() { All = journal.Load(); }
+    public Reports() { All = Load(); }
+
+    // The person's own reports and those the service sent by itself after
+    // the person agreed; the latter are kept by the service for the device.
+    List<SentReport> Load()
+    {
+        var all = journal.Load();
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Waypoint\Reports");
+            if (key?.GetValue("Reports") is string text &&
+                new System.Web.Script.Serialization.JavaScriptSerializer().DeserializeObject(text) is object[] items)
+                foreach (var item in items.OfType<Dictionary<string, object>>())
+                {
+                    if (item.GetValueOrDefault("id") is not string id || item.GetValueOrDefault("claim") is not string claim || all.Any(r => r.Id == id)) continue;
+                    DateTime.TryParse(item.GetValueOrDefault("sent_at") as string, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var sent);
+                    all.Add(new SentReport { Id = id, Claim = claim, Kind = "crash", Title = "Сбой Waypoint: " + (item.GetValueOrDefault("code") as string ?? ""), SentAt = sent });
+                }
+        }
+        catch (Exception) { }
+        return all.OrderByDescending(r => r.SentAt).ToList();
+    }
 
     public ReportConversation Conversation(SentReport report) => conversations.TryGetValue(report.Id, out var known) ? known : null;
     public int UnreadOf(SentReport report) => Math.Max(0, (Conversation(report)?.FromSupport ?? 0) - report.Seen);
@@ -25,7 +47,7 @@ sealed class Reports
     public void Keep(SentReport sent)
     {
         try { journal.Add(sent); } catch (Exception) { }
-        All = journal.Load();
+        All = Load();
         Changed?.Invoke();
     }
 
@@ -36,7 +58,7 @@ sealed class Reports
         if (conversation == null || conversation.FromSupport == report.Seen) return;
         try { journal.MarkSeen(report.Id, conversation.FromSupport); } catch (Exception) { }
         report.Seen = conversation.FromSupport;
-        All = journal.Load();
+        All = Load();
         Changed?.Invoke();
     }
 
@@ -48,9 +70,9 @@ sealed class Reports
         looking = true;
         try
         {
-            All = journal.Load();
+            All = Load();
             foreach (var report in All.Take(20).ToList()) await LookAt(report);
-            All = journal.Load();
+            All = Load();
             Changed?.Invoke();
             done?.Invoke();
         }
