@@ -69,6 +69,16 @@ final class ControlServer: @unchecked Sendable {
         do {
             switch request.op {
             case "status": return Control.Response(result: "ok", status: await runtime.status())
+            // The person came back to the window, perhaps from System Settings:
+            // a step now instead of at the next tick.
+            case "look": break
+            // Held until the status changes, at most fifteen seconds: the
+            // window's own timeout is twenty.
+            case "watch":
+                let (sequence, status) = await runtime.waitForChange(after: request.since ?? -1, timeout: 15)
+                var response = Control.Response(result: "ok", status: status)
+                response.sequence = sequence
+                return response
             case "faults": return Control.Response(result: "ok", faults: await runtime.failures())
             case "check":
                 do { return Control.Response(result: "ok", status: await runtime.status(), retryAfter: try await runtime.checkNow()) }

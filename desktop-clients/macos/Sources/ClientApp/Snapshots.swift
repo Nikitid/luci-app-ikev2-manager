@@ -50,7 +50,7 @@ enum Snapshots {
         model.asked = asked
         model.failed = failed
         model.checked = Date(timeIntervalSince1970: 1_800_000_000)
-        UserDefaults.standard.set(!firstRun, forKey: "firstRunDone")
+        model.showFirstRun(firstRun)
         return model
     }
 
@@ -72,6 +72,7 @@ enum Snapshots {
             ("04-own", CGSize(width: 680, height: 520), { AnyView(OwnSitesView(model: model(status())).background(Palette.bg)) }),
             ("05-report", CGSize(width: 480, height: 520), { AnyView(NewReportSheet(model: model(status())).background(Palette.bg)) }),
             ("06-first-run", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model(status(), firstRun: true))) }),
+            ("06-first-run-profile", CGSize(width: 900, height: 760), { AnyView(MainWindow(model: model({ var s = status("profile_required"); s.profileInstalled = false; return s }(), firstRun: true))) }),
             ("07-settings", CGSize(width: 560, height: 520), { AnyView(SettingsView(model: model(status()))) }),
             ("08-update", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model(status()))) }),
             ("08-update-installing", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model({ var s = status(); s.update = UpdateState(version: "3.0.1", phase: .installing); return s }()))) }),

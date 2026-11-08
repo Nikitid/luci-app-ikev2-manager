@@ -85,10 +85,8 @@ let watchdog = TickWatchdog { seconds in
     FileHandle.standardError.write(Data("ikev2-manager-clientd: step stalled for \(Int(seconds)) s, restarting\n".utf8))
     exit(75)
 }
-let watching = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "watchdog"))
-watching.schedule(deadline: .now() + 5, repeating: 5)
-watching.setEventHandler { watchdog.check() }
-watching.resume()
+// The timer lives in ClientCore, outside the main actor this file runs on.
+watchdog.watch(every: 5)
 let power = PowerWatch(runtime: runtime)
 if dryDirectory == nil {
     SystemInstaller.clear()

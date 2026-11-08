@@ -137,8 +137,19 @@ struct FirstRunView: View {
             WaypointSign(visible: model.visible, size: 18)
             Text("Почти готово").font(.system(size: 28, weight: .thin))
             Text("Waypoint зарегистрирован на этом Mac. Всё это меняется в Настройках.").foregroundStyle(.secondary)
+            ProfileStep(model: model)
             Panel {
-                PanelRow { SwitchRow(title: "Открывать при входе в систему", note: "Значок появится в строке меню сам.", isOn: $choices.openAtLogin) }
+                PanelRow {
+                    VStack(alignment: .leading, spacing: 6) {
+                        SwitchRow(title: "Открывать при входе в систему", note: "Значок появится в строке меню сам.", isOn: $choices.openAtLogin)
+                        if model.loginNeedsApproval {
+                            HStack {
+                                Text("macOS ждёт разрешения в «Объектах входа».").font(.caption).foregroundStyle(.secondary)
+                                Button("Открыть") { model.openLoginItems() }.controlSize(.small)
+                            }
+                        }
+                    }
+                }
                 PanelRow { SwitchRow(title: "Ставить обновления сами", note: "Когда туннель не нужен; только проверенный файл.", isOn: $choices.installUpdates) }
                 PanelRow(last: true) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -164,6 +175,39 @@ struct FirstRunView: View {
         .frame(maxWidth: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.bg)
+    }
+}
+
+/// The VPN profile, the one permission Waypoint cannot do without: what to
+/// press, the button that opens the right pane, and a mark that appears by
+/// itself once the daemon sees the profile installed.
+struct ProfileStep: View {
+    @ObservedObject var model: ClientModel
+    var body: some View {
+        if let status = model.status {
+            Panel {
+                PanelRow(last: true) {
+                    if status.profileInstalled {
+                        Label("Профиль VPN установлен", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Нужен профиль VPN")
+                            Text("«Открыть Настройки» откроет «Основные» → «Управление устройством». Там выберите «Waypoint», нажмите «Установить» и введите пароль. Waypoint заметит это сам.")
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 8) {
+                                Button(model.profileWaiting ? "Открыть Настройки снова" : "Открыть Настройки") { model.installProfile() }
+                                    .buttonStyle(.borderedProminent).disabled(model.busy)
+                                if model.profileWaiting {
+                                    ProgressView().controlSize(.small)
+                                    Text("жду одобрения в Настройках").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            if !model.message.isEmpty { Text(model.message).font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

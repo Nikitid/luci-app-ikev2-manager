@@ -191,7 +191,7 @@ public actor ClientRuntime {
     private func updated(_ state: UpdateState?) {
         lookingAtUpdate = false
         updateState = state
-        report.update = state
+        if report.update != state { report.update = state; changed() }
     }
 
     public func setAutoUpdate(_ auto: Bool) throws { try store.saveAutoUpdate(auto) }
@@ -260,6 +260,36 @@ public actor ClientRuntime {
 
     public func status() -> ClientStatusReport { report }
 
+    // MARK: watching
+
+    /// Counts changes of what the window shows; the time of the answer alone is no change.
+    public private(set) var sequence = 0
+    private var watchers: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    /// Answers as soon as the status differs from the one the window has
+    /// (AFTER is the sequence it saw), or after TIMEOUT with the same one.
+    /// The window learns of a change at once instead of on its next poll.
+    public func waitForChange(after: Int, timeout: TimeInterval) async -> (sequence: Int, status: ClientStatusReport) {
+        if after != sequence { return (sequence, report) }
+        let id = UUID()
+        let wake = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+            await self?.release(id)
+        }
+        await withCheckedContinuation { continuation in watchers[id] = continuation }
+        wake.cancel()
+        return (sequence, report)
+    }
+
+    private func release(_ id: UUID) { watchers.removeValue(forKey: id)?.resume() }
+
+    private func changed() {
+        sequence += 1
+        let waiting = watchers
+        watchers.removeAll()
+        for continuation in waiting.values { continuation.resume() }
+    }
+
     private func publish(_ state: String, now: Date) {
         remember(state, now: now)
         if state != "connecting" && state != "connection_error" { connectingSince = nil }
@@ -285,7 +315,10 @@ public actor ClientRuntime {
         next.update = updateState
         next.visible = StatusView.visible(state: state, error: connectionError)
         if retryConnectionAt > now, retryConnectionAt != .distantFuture { next.next = Int(retryConnectionAt.timeIntervalSince1970) }
+        var before = report, after = next
+        before.updatedAt = 0; after.updatedAt = 0
         report = next
+        if before != after { changed() }
     }
 
     // MARK: registration
