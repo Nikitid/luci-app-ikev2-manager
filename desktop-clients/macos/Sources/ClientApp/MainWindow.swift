@@ -48,7 +48,11 @@ struct MainWindow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Group {
+        // One container, so its appearance is the window's own and not that
+        // of whichever page is inside: in 2.3.0 the modifiers below sat on
+        // a Group, ran for each page as it swapped, and switched the program
+        // out of the Dock and back, which hid and showed the window.
+        ZStack {
             if model.firstRunDue {
                 FirstRunView(model: model)
             } else {
@@ -68,8 +72,7 @@ struct MainWindow: View {
         }
         .frame(minWidth: 780, minHeight: 520)
         .tint(Palette.accent)
-        .onAppear { model.start(); NSApp.setActivationPolicy(.regular) }
-        .onDisappear { NSApp.setActivationPolicy(.accessory) }
+        .onAppear { model.start() }
     }
 
     private func badge(_ item: Section) -> Text? {

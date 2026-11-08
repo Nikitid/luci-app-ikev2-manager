@@ -15,10 +15,12 @@ public enum Control {
         /// "own": the whole list of the person's own sites and networks.
         public var domains: [String]?
         public var networks: [String]?
+        /// "watch": the sequence of the status the window already has.
+        public var since: Int?
         public init(op: String, invitation: String? = nil, on: [String]? = nil, closed: [String]? = nil,
-                    domains: [String]? = nil, networks: [String]? = nil) {
+                    domains: [String]? = nil, networks: [String]? = nil, since: Int? = nil) {
             self.op = op; self.invitation = invitation; self.on = on; self.closed = closed
-            self.domains = domains; self.networks = networks
+            self.domains = domains; self.networks = networks; self.since = since
         }
     }
 
@@ -34,6 +36,8 @@ public enum Control {
         public var faults: [FaultEvent]?
         /// "check": seconds until the router may be asked again.
         public var retryAfter: Int?
+        /// "watch": the sequence of this status, to ask after.
+        public var sequence: Int?
         public init(result: String, status: ClientStatusReport? = nil, profile: String? = nil, reset: ResetReport? = nil,
                     faults: [FaultEvent]? = nil, retryAfter: Int? = nil) {
             self.result = result; self.status = status; self.profile = profile; self.reset = reset

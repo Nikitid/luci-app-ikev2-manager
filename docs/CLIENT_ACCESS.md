@@ -1456,6 +1456,12 @@ to it a day later, five reports a day per device, not within a minute of the
 failure or ten seconds of launch, and the service's `Retry-After` is kept. The
 daemon hands its own failures (`faults.json`) over the socket (`faults`).
 
+The macOS window does not poll: it asks the daemon `watch` with the
+sequence of the status it has, and the daemon answers as soon as the status
+changes, or after fifteen seconds with the same one. Without an answer the
+window asks again every second and calls the daemon gone only after two
+misses in a row, so a daemon that restarts does not make it blink.
+
 "Check now" on macOS asks the router through the daemon (`check` over the
 socket, `POST /client/v1/check`); the next services answer, five seconds
 later, brings each service's `health`. Too soon, the router's `retry_after`

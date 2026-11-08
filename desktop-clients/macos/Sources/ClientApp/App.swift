@@ -24,6 +24,35 @@ extension ClientModel {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Theme.apply(UserDefaults.standard.string(forKey: "theme") ?? "system")
+        // In the Dock while a window is open, only in the menu bar otherwise,
+        // decided by the windows themselves and not by the views inside them.
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+            let id = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated { Self.follow(opened: Self.window(id)) }
+        }
+        center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+            let id = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated { Self.follow(closing: Self.window(id)) }
+        }
+    }
+
+    @MainActor static func window(_ id: ObjectIdentifier?) -> NSWindow? {
+        NSApp.windows.first { ObjectIdentifier($0) == id }
+    }
+
+    @MainActor static func ordinary(_ window: NSWindow) -> Bool {
+        window.styleMask.contains(.titled) && !(window is NSPanel) && window.className != "NSStatusBarWindow"
+    }
+
+    @MainActor static func follow(opened window: NSWindow?) {
+        guard let window, ordinary(window), NSApp.activationPolicy() != .regular else { return }
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    @MainActor static func follow(closing window: NSWindow?) {
+        let others = NSApp.windows.filter { $0 !== window && $0.isVisible && ordinary($0) }
+        if others.isEmpty { NSApp.setActivationPolicy(.accessory) }
     }
     // The menu bar item stays when the window closes; the tunnel belongs to the daemon.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

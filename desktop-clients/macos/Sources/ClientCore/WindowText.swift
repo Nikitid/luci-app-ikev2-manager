@@ -173,3 +173,32 @@ public struct FirstRunChoices: Equatable, Sendable {
     public init() {}
     public var canFinish: Bool { sendReports != nil }
 }
+
+/// Whether the window counts the daemon as gone. A daemon that restarts
+/// (an update, launchd after a crash) misses an answer or two; the window
+/// says so only after a second in a row, so it does not blink on each.
+public struct DaemonLink: Equatable, Sendable {
+    public private(set) var misses = 0
+    public init() {}
+    public var failed: Bool { misses >= 2 }
+    public mutating func answered() { misses = 0 }
+    public mutating func missed() { misses += 1 }
+}
+
+/// The first-launch page, decided once per launch of the window: shown when
+/// the device is registered and the page was never finished, and kept while
+/// the daemon goes away and comes back, so the window does not swap between
+/// the page and the sections each time.
+public struct FirstRunGate: Equatable, Sendable {
+    public private(set) var shown: Bool?
+    public init() {}
+
+    public mutating func update(status: ClientStatusReport?, done: Bool) -> Bool {
+        if done { shown = false; return false }
+        if let shown { return shown }
+        guard let status else { return false }
+        let registered = !["enrollment_required", "registration_pending", "registration_error", "starting"].contains(status.state)
+        if registered { shown = true }
+        return registered
+    }
+}

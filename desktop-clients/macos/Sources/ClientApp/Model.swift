@@ -13,9 +13,11 @@ final class ClientModel: ObservableObject {
     /// Whether the window has had an answer at all, and whether the last question went unanswered.
     @Published var asked = false
     @Published var failed = false
-    private var timer: Timer?
+    private var link = DaemonLink()
+    private var gate = FirstRunGate()
+    @Published private(set) var firstRunDue = false
     private var connectAfterRegistration = false
-    private var profileFile: URL?
+    @Published private var profileFile: URL?
 
     private var started = false
     /// Pictures of the views for checking them: the model asks nobody.
@@ -26,10 +28,7 @@ final class ClientModel: ObservableObject {
         started = true
         // The daemon installs; the person's choice is told to it at every start.
         ask(Control.Request(op: "auto_update", on: [installUpdates ? "on" : "off"])) { _ in }
-        refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
+        watch()
         lookAtReports()
         autoTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.runAutoReports() }
@@ -48,12 +47,32 @@ final class ClientModel: ObservableObject {
         }
     }
 
-    func refresh() {
-        ask(Control.Request(op: "status")) { [self] response in
-            asked = true
-            failed = response?.status == nil
-            // An answer that did not come keeps the last one, marked as stale by `failed`.
-            if let next = response?.status { status = next; checked = Date() }
+    /// Asks the daemon to answer when the status changes, and asks again
+    /// at once: a change shows the moment the daemon publishes it. Without an
+    /// answer it asks again every second.
+    private func watch() {
+        Task.detached { [weak self] in
+            var since = -1
+            while self != nil {
+                let response = try? Control.send(Control.Request(op: "watch", since: since))
+                since = response?.sequence ?? -1
+                await self?.received(response)
+                if response?.status == nil { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            }
+        }
+    }
+
+    func refresh() { ask(Control.Request(op: "status")) { [self] response in received(response) } }
+
+    private func received(_ response: Control.Response?) {
+        asked = true
+        if response?.status != nil { link.answered() } else { link.missed() }
+        if failed != link.failed { failed = link.failed }
+        // An answer that did not come keeps the last one, marked as stale by `failed`.
+        if let next = response?.status { status = next; checked = Date() }
+        let due = gate.update(status: response?.status, done: UserDefaults.standard.bool(forKey: "firstRunDone"))
+        if due != firstRunDue { firstRunDue = due }
+        do {
             guard let status, !failed else { return }
             if status.profileInstalled, let file = profileFile {
                 // The profile carries the device's credential; it has done its work.
@@ -272,6 +291,13 @@ final class ClientModel: ObservableObject {
         }
     }
 
+    /// macOS may ask the person to allow the login item in System Settings.
+    var loginNeedsApproval: Bool { SMAppService.mainApp.status == .requiresApproval }
+    func openLoginItems() { SMAppService.openSystemSettingsLoginItems() }
+
+    /// The profile was handed to System Settings and is not installed yet.
+    var profileWaiting: Bool { profileFile != nil && status?.profileInstalled != true }
+
     /// Automatic failure reports: nil until the person answered once.
     var sendReports: Bool? {
         get { UserDefaults.standard.object(forKey: "autoReports") as? Bool }
@@ -292,12 +318,9 @@ final class ClientModel: ObservableObject {
     }
 
     /// The first launch after registration, or the first of this version on a
-    /// device registered before: once.
-    var firstRunDue: Bool {
-        guard let status, !["enrollment_required", "registration_pending", "registration_error", "starting"].contains(status.state)
-        else { return false }
-        return !UserDefaults.standard.bool(forKey: "firstRunDone")
-    }
+    /// device registered before: once, decided by `FirstRunGate`.
+    /// Pictures of the views set it directly.
+    func showFirstRun(_ due: Bool) { firstRunDue = due }
 
     func finishFirstRun(_ choices: FirstRunChoices) {
         guard choices.canFinish else { return }
@@ -305,7 +328,7 @@ final class ClientModel: ObservableObject {
         installUpdates = choices.installUpdates
         sendReports = choices.sendReports
         UserDefaults.standard.set(true, forKey: "firstRunDone")
-        objectWillChange.send()
+        firstRunDue = gate.update(status: status, done: true)
     }
 
     // MARK: automatic failure reports
