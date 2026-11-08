@@ -213,7 +213,7 @@ final class ClientModel: ObservableObject {
             profileFile = file
             connectAfterRegistration = true
             NSWorkspace.shared.open(file)
-            if let settings = URL(string: "x-apple.systempreferences:com.apple.Profiles-Settings.extension") { NSWorkspace.shared.open(settings) }
+            Self.openProfiles()
             message = "«Системные настройки» → «Основные» → «Управление устройством» → «Waypoint» → «Установить»."
         }
     }
@@ -245,7 +245,7 @@ final class ClientModel: ObservableObject {
     }
 
     func openProfileSettings() {
-        if let settings = URL(string: "x-apple.systempreferences:com.apple.Profiles-Settings.extension") { NSWorkspace.shared.open(settings) }
+        Self.openProfiles()
     }
 
     var heading: String { phrase.heading }
@@ -289,6 +289,22 @@ final class ClientModel: ObservableObject {
             do { if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
             catch { message = "Не удалось изменить запуск при входе." }
         }
+    }
+
+    /// The pane where profiles are approved: System Settings by its current
+    /// identifier, the older one where that does not resolve.
+    static func openProfiles() {
+        let current = URL(string: "x-apple.systempreferences:com.apple.Profiles-Settings.extension")!
+        let legacy = URL(string: "x-apple.systempreferences:com.apple.preferences.configurationprofiles")!
+        if !NSWorkspace.shared.open(current) { NSWorkspace.shared.open(legacy) }
+    }
+
+    /// The person came back to Waypoint, often from System Settings: what
+    /// they may have allowed there is looked at now, not on a timer.
+    func cameBack() {
+        guard started else { return }
+        objectWillChange.send()
+        ask(Control.Request(op: "look")) { [self] response in if response?.status != nil { received(response) } }
     }
 
     /// macOS may ask the person to allow the login item in System Settings.

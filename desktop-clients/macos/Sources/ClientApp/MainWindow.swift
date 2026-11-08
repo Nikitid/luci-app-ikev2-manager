@@ -73,6 +73,7 @@ struct MainWindow: View {
         .frame(minWidth: 780, minHeight: 520)
         .tint(Palette.accent)
         .onAppear { model.start() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.cameBack() }
     }
 
     private func badge(_ item: Section) -> Text? {

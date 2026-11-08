@@ -69,6 +69,9 @@ final class ControlServer: @unchecked Sendable {
         do {
             switch request.op {
             case "status": return Control.Response(result: "ok", status: await runtime.status())
+            // The person came back to the window, perhaps from System Settings:
+            // a step now instead of at the next tick.
+            case "look": break
             // Held until the status changes, at most fifteen seconds: the
             // window's own timeout is twenty.
             case "watch":
