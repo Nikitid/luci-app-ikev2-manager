@@ -1,7 +1,8 @@
 #!/bin/bash
 # Runs the Windows client's tests or build in a Parallels Windows VM on this Mac.
 #
-#   scripts/windows-vm.sh test     desktop-clients/windows/test.ps1 -Wfp
+#   scripts/windows-vm.sh test     desktop-clients/windows/test.ps1 -Wfp, or with the switches in
+#                                  IKEV2_WINDOWS_TEST_FLAGS (for example "-Wfp -Profiles -Runtime win-x64")
 #   scripts/windows-vm.sh build    desktop-clients/windows/build.ps1, outputs in dist/windows/
 #   scripts/windows-vm.sh install  desktop-clients/windows/install-check.ps1 with the outputs of
 #                                  build and the setup of release IKEV2_WINDOWS_EARLIER (default v2.2.8)
@@ -107,7 +108,9 @@ disown "$SERVER"
 sleep 1
 BASE="http://$HOST:$PORT/$TOKEN"
 if [ "$MODE" = test ]; then
-    RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\test.ps1 -Wfp *>&1 | Tee-Object C:\\waypoint\\windows-test.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-test.log; \$code = 1 }"
+    FLAGS="${IKEV2_WINDOWS_TEST_FLAGS:--Wfp}"
+    case "$FLAGS" in *[!A-Za-z0-9\ -]*) echo "IKEV2_WINDOWS_TEST_FLAGS: switches and values only" >&2; exit 2 ;; esac
+    RUN="try { & C:\\waypoint\\src\\desktop-clients\\windows\\test.ps1 $FLAGS *>&1 | Tee-Object C:\\waypoint\\windows-test.log; \$code = \$LASTEXITCODE; if (-not \$?) { \$code = 1 } } catch { \$_ | Out-File -Append C:\\waypoint\\windows-test.log; \$code = 1 }"
     UPLOAD="Invoke-WebRequest -UseBasicParsing -Method Put -InFile C:\\waypoint\\windows-test.log '$BASE/upload/windows-test.log' | Out-Null"
 elif [ "$MODE" = install ]; then
     # Long command lines are cut short by Parallels: the check fetches its own files.
