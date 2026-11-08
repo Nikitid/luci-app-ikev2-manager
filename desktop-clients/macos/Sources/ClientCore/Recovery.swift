@@ -58,6 +58,23 @@ public final class TickWatchdog: @unchecked Sendable {
         self.limit = limit; self.onStall = onStall
     }
 
+    private var timer: DispatchSourceTimer?
+    private let queue = DispatchQueue(label: "io.github.nikitid.ikev2-manager-client.watchdog")
+
+    /// Checks on its own queue every INTERVAL seconds. The handler is made
+    /// here, outside any actor: written in main.swift it took the main
+    /// actor's isolation and the runtime stopped the daemon the first time
+    /// the timer fired on this queue (2.3.0).
+    public func watch(every interval: TimeInterval) {
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(deadline: .now() + interval, repeating: interval)
+        source.setEventHandler { [weak self] in self?.check() }
+        lock.lock(); timer?.cancel(); timer = source; lock.unlock()
+        source.resume()
+    }
+
+    public func stop() { lock.lock(); timer?.cancel(); timer = nil; lock.unlock() }
+
     public func begin(_ now: Date = Date()) { lock.lock(); startedAt = now; lock.unlock() }
     public func end() { lock.lock(); startedAt = nil; lock.unlock() }
 
