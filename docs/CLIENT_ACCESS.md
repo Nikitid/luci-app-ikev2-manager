@@ -423,9 +423,13 @@ a removal it cannot finish stops the uninstallation. The installer refuses to
 run over an installation made by the setup program of earlier releases.
 
 `WaypointSetup.exe` is what a person runs and what an earlier window opens to
-update. It requires elevation, takes the installer for the machine's own
-processor - lying next to it, or from the same release - and checks it
-against the SHA-256 written into it at build time. An installation made by
+update. It carries both installers inside it (about 117 MB) and needs no
+network: an earlier version of it downloaded the installer first, showed
+nothing while it did, and failed minutes later when the release page did not
+answer. It requires elevation, shows its window at once with the step it is
+on, takes the installer for the machine's own processor out of itself and
+checks it against the SHA-256 written into it at build time; a failure is
+named in the window, with "Retry" where running it again can help. An installation made by
 the earlier setup program is moved over: its service, files, shortcut and
 uninstall entry go, its registration and filters in ProgramData stay for the
 new service. Then it installs and opens the window as the signed-in user;
