@@ -101,6 +101,16 @@ apk upgrade luci-app-ikev2-manager
 
 This upgrades only IKEv2 Manager, not all system packages.
 
+### Waypoint for macOS
+
+Download `Waypoint-X.Y.Z.pkg` from the same release and open it. The package
+is not signed with an Apple developer identity, so macOS stops it the first
+time: open System Settings -> Privacy & Security, find the message about
+`Waypoint-X.Y.Z.pkg` and press "Open Anyway", then confirm with your
+password. On macOS 15 and later "Open" from the context menu no longer does
+this. Later versions install by themselves, checked against the project's
+signed release list.
+
 ## Policy routing
 
 Domain rules use sing-box FakeIP and nftables TProxy. IPv4 and CIDR rules work
