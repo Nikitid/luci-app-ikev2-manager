@@ -1,8 +1,8 @@
 param([string]$Output = (Join-Path $PSScriptRoot '..\..\build\client-windows'), [string]$Version = '0.0.0')
 # Waypoint for Windows: for each processor the service and the window on
-# current .NET, an installer of the two, and WaypointSetup.exe, which picks the
-# installer for the machine it runs on and checks it against the digests
-# written into it here.
+# current .NET, an installer of the two, and WaypointSetup.exe, which carries
+# both installers, picks the one for the machine it runs on and checks it
+# against the digests written into it here.
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^\d{1,4}\.\d{1,4}\.\d{1,4}$') { throw 'Version must be X.Y.Z' }
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -44,7 +44,10 @@ Set-Content -LiteralPath $stamp -Encoding ASCII -Value @(
     "    internal const string X64 = `"$($digests['x64'])`";",
     "    internal const string Arm64 = `"$($digests['arm64'])`";",
     '}')
+# Both installers go inside: the setup needs no network, and a release page
+# that does not answer cannot stop it.
 & $compiler /nologo /platform:anycpu /optimize+ /target:winexe "/out:$(Join-Path $Output 'WaypointSetup.exe')" `
+    "/resource:$(Join-Path $Output "Waypoint-$Version-x64.msi"),Waypoint-x64.msi" "/resource:$(Join-Path $Output "Waypoint-$Version-arm64.msi"),Waypoint-arm64.msi" `
     "/win32manifest:$(Join-Path $PSScriptRoot 'Setup.manifest')" "/win32icon:$(Join-Path $PSScriptRoot '..\assets\Waypoint.ico')" `
     /r:System.ServiceProcess.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll $stamp (Join-Path $PSScriptRoot 'Setup.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Setup build failed' }
