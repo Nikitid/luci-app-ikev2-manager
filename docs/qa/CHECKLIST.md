@@ -330,12 +330,14 @@ Waypoint и почта. Таблицы выше сняты на этапе 1, п
 - `delay` округляется вверх до целых секунд: BusyBox `sleep` не принимает дробные.
 - В `probe` проверка `timing` даёт шум, см. F-01 в `docs/qa/AUDIT.md`.
 
-## Не проверено
+## Этап 1 (хвосты), 2026-11-08
 
-Подробно - `docs/qa/AUDIT.md`, раздел «Не проверено». Из описи этапа 1 остаётся:
-
-- Состояния Paused и Reliable mode, ожидающие ссылки.
-- Не нажимались: Install и Reset, Resume, Test speed, Save custom config и Reset to
-  generated, импорт с верным паролем, Create invitation, Save в диалогах Users, Send
-  test, перетаскивание фишек, скачивание профилей и QR.
-- Скринридер. Обход клавиатурой выборочный: сценарии записаны в AUDIT, раздел 5.
+- Исправлено с тестом: дубль «Routing» на телефоне у строки «Exclusions go direct»;
+  подсказка графика качества с клавиатуры (стрелки, Home, End, Esc); фокус после удаления
+  строки DNS; переключатель в `forced-colors` (состояние и кольцо фокуса).
+- `pollDeps`: кода менять не пришлось, счётчика пропусков там нет; тест держит это.
+- `probe`, пять режимов, шесть страниц, обе темы, 1440 и 390 px: **ERROR нет**; WARN те же
+  (`target` у фишек routing, `center` у метки в LuCI). Снимки: `build/luci-stand/s1-<режим>/`.
+- Действием на стенде: Pause/Resume, Create invitation, Test speed, Restart reliable mode,
+  русский в тёмной теме на 390 px, `forced-colors`. Остаток и причины - `docs/qa/AUDIT.md`,
+  «Не проверено».
