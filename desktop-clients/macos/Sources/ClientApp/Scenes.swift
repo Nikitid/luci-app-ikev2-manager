@@ -236,6 +236,7 @@ struct SettingsView: View {
     }
 }
 
+@MainActor
 enum Theme {
     static func apply(_ value: String) {
         NSApp.appearance = value == "light" ? NSAppearance(named: .aqua) : value == "dark" ? NSAppearance(named: .darkAqua) : nil
