@@ -6,10 +6,19 @@ extension ClientModel {
     func releaseNotes(_ version: String) -> URL {
         URL(string: "https://github.com/Nikitid/luci-app-ikev2-manager/releases/tag/v\(version)")!
     }
-    var updating: Bool { false }
-    var updateFailed: Bool { false }
-    var updateDetail: String { "Поставится сама, когда туннель не нужен." }
-    func updateNow() { if let url = update?.url { NSWorkspace.shared.open(url) } }
+    var updating: Bool { status?.update?.phase == .installing }
+    var updateFailed: Bool { status?.update?.phase == .failed }
+    var updateDetail: String {
+        switch status?.update?.phase {
+        case .installing?: return "Ставится. Туннель на минуту отключится и вернётся сам."
+        case .failed?:
+            let code = status?.update?.failure ?? ""
+            if code == "noKey" { return "В этой сборке нет ключа проверки; поставьте версию вручную." }
+            return "Файл не совпал с подписанным списком релиза; ничего не установлено, отчёт отправлен. Попытка повторится через 6 ч."
+        default: return installUpdates ? "Поставится сама, когда туннель не нужен." : "Ставится только по кнопке."
+        }
+    }
+    func updateNow() { command("update") }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -18,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     // The menu bar item stays when the window closes; the tunnel belongs to the daemon.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    // Quitting is a moment the tunnel is not in use by this program: the
+    // daemon may install a verified update now, if the person lets it.
+    func applicationWillTerminate(_ notification: Notification) {
+        if UserDefaults.standard.object(forKey: "installUpdates") as? Bool ?? true { _ = try? Control.send(Control.Request(op: "update_quit")) }
+    }
 }
 
 @main

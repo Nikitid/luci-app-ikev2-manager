@@ -110,6 +110,8 @@ public struct ClientStatusReport: Codable, Sendable, Equatable {
     public var addresses: ConnectionAddresses? = nil
     /// The last reset, while it has steps left or until the next registration.
     public var reset: ResetReport? = nil
+    /// A newer version and where its installation stands.
+    public var update: UpdateState? = nil
     /// The one state the window and the menu show (`StatusView.visible`) and
     /// when the next attempt is, seconds since 1970, where one is due.
     public var visible: String? = nil
@@ -167,6 +169,32 @@ public actor ClientRuntime {
     private var recordedAt: [String: Date] = [:]
     private var connectingSince: Date?
     private var mismatchSince: Date?
+    private var updater: Updater?
+    private var updateState: UpdateState?
+    private var lookingAtUpdate = false
+    private var nextUpdateLook = Date.distantPast
+
+    public func attach(_ updater: Updater) { self.updater = updater }
+
+    /// Looks at a newer version away from the step: a download must not
+    /// hold the step, which the watchdog times.
+    public func considerUpdate(force: Bool = false, quitting: Bool = false) {
+        guard let updater, !lookingAtUpdate, !release.isEmpty else { return }
+        lookingAtUpdate = true
+        let release = release, wanted = (try? store.loadIntent()) ?? false, auto = store.autoUpdate()
+        Task {
+            await updater.consider(release: release, now: Date(), tunnelNeeded: wanted, auto: auto, now: force, quitting: quitting)
+            await self.updated(await updater.state)
+        }
+    }
+
+    private func updated(_ state: UpdateState?) {
+        lookingAtUpdate = false
+        updateState = state
+        report.update = state
+    }
+
+    public func setAutoUpdate(_ auto: Bool) throws { try store.saveAutoUpdate(auto) }
 
     /// A failure of the daemon itself, kept for the program to report. The
     /// same code in the same phase is kept once in ten minutes.
@@ -254,6 +282,7 @@ public actor ClientRuntime {
                                                  services: history.current.virtualSubnet, tunnel: names?.tunnelSubnet ?? "")
         }
         next.reset = lastReset
+        next.update = updateState
         next.visible = StatusView.visible(state: state, error: connectionError)
         if retryConnectionAt > now, retryConnectionAt != .distantFuture { next.next = Int(retryConnectionAt.timeIntervalSince1970) }
         report = next
@@ -665,6 +694,7 @@ public actor ClientRuntime {
                 connectionError = noServices ? "no_services" : "synchronization"; publish(accessClosed ? "access_closed" : "error", now: now); return
             }
             try await advanceConnection(registration, history: current, now: now)
+            if now >= nextUpdateLook { nextUpdateLook = now.addingTimeInterval(60); considerUpdate() }
         } catch let fault as GuardFault {
             closePermission(history ?? lastHistory)
             guardInstalled = false

@@ -74,6 +74,11 @@ final class ControlServer: @unchecked Sendable {
                 do { return Control.Response(result: "ok", status: await runtime.status(), retryAfter: try await runtime.checkNow()) }
                 catch CheckRefusal.tooOften(let seconds) { return Control.Response(result: "check_too_often", retryAfter: seconds) }
                 catch CheckRefusal.busy { return Control.Response(result: "check_busy") }
+            case "update": await runtime.considerUpdate(force: true)
+            case "update_quit": await runtime.considerUpdate(quitting: true)
+            case "auto_update":
+                guard let on = request.on?.first else { return Control.Response(result: "refused") }
+                try await runtime.setAutoUpdate(on == "on")
             case "connect": try await runtime.setWanted(true)
             case "disconnect": try await runtime.setWanted(false)
             // The person's own choice of their offer; the router decides what it allows.

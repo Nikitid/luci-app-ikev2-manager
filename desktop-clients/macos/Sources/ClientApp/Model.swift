@@ -24,6 +24,8 @@ final class ClientModel: ObservableObject {
         // The window and the menu-bar item share this model; it starts once.
         guard !started, !offline else { return }
         started = true
+        // The daemon installs; the person's choice is told to it at every start.
+        ask(Control.Request(op: "auto_update", on: [installUpdates ? "on" : "off"])) { _ in }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -282,7 +284,11 @@ final class ClientModel: ObservableObject {
 
     var installUpdates: Bool {
         get { UserDefaults.standard.object(forKey: "installUpdates") as? Bool ?? true }
-        set { objectWillChange.send(); UserDefaults.standard.set(newValue, forKey: "installUpdates") }
+        set {
+            objectWillChange.send()
+            UserDefaults.standard.set(newValue, forKey: "installUpdates")
+            ask(Control.Request(op: "auto_update", on: [newValue ? "on" : "off"])) { _ in }
+        }
     }
 
     /// The first launch after registration, or the first of this version on a

@@ -119,6 +119,15 @@ public struct ClientStore: Sendable {
         try write("profile.json", Data(#"{"version":1,"seen":true}"#.utf8))
     }
 
+    /// Whether updates install by themselves; on unless the person said no.
+    public func autoUpdate() -> Bool {
+        guard let data = try? read("update.json", limit: 64),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
+        return root["auto"] as? Bool ?? true
+    }
+
+    public func saveAutoUpdate(_ auto: Bool) throws { try write("update.json", Data(#"{"version":1,"auto":\#(auto)}"#.utf8)) }
+
     /// The mark of a reset that has not finished: the steps still to do.
     public func loadResetMark() throws -> ResetMark? {
         guard let data = try read("reset.json", limit: 4096) else { return nil }

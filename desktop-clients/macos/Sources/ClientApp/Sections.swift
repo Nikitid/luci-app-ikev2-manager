@@ -303,8 +303,12 @@ struct UpdateRow: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 4) {
-                                Text("Есть версия \(update.version) ·")
-                                Link("что нового", destination: model.releaseNotes(update.version)).foregroundStyle(Palette.accent)
+                                if model.updateFailed {
+                                    Text("Версия \(update.version) не прошла проверку").foregroundStyle(Palette.danger)
+                                } else {
+                                    Text((model.updating ? "Ставится " : "Есть версия ") + update.version + " ·")
+                                    Link("что нового", destination: model.releaseNotes(update.version)).foregroundStyle(Palette.accent)
+                                }
                             }
                             Text(model.updateDetail).font(.caption).foregroundStyle(model.updateFailed ? Palette.danger : .secondary)
                         }

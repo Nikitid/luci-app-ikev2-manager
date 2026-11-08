@@ -74,6 +74,8 @@ enum Snapshots {
             ("06-first-run", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model(status(), firstRun: true))) }),
             ("07-settings", CGSize(width: 560, height: 520), { AnyView(SettingsView(model: model(status()))) }),
             ("08-update", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model(status()))) }),
+            ("08-update-installing", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model({ var s = status(); s.update = UpdateState(version: "3.0.1", phase: .installing); return s }()))) }),
+            ("08-update-failed", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model({ var s = status(); s.update = UpdateState(version: "3.0.1", phase: .failed, failure: "digestMismatch"); return s }()))) }),
             ("90-worst-services", CGSize(width: 900, height: 900), { AnyView(ServicesView(model: model(status(worst: true))).background(Palette.bg)) }),
             ("90-worst-own", CGSize(width: 680, height: 1200), { AnyView(OwnSitesView(model: model(status(worst: true))).background(Palette.bg)) }),
             ("90-worst-empty", CGSize(width: 900, height: 640), { AnyView(MainWindow(model: model({ var s = status(); s.entries = []; s.own = nil; return s }()))) }),

@@ -90,6 +90,13 @@ watching.schedule(deadline: .now() + 5, repeating: 5)
 watching.setEventHandler { watchdog.check() }
 watching.resume()
 let power = PowerWatch(runtime: runtime)
+if dryDirectory == nil {
+    SystemInstaller.clear()
+    let updater = Updater(key: ReleaseKey.pem.flatMap(ReleaseVerifier.key), installer: SystemInstaller(),
+                          directory: URL(fileURLWithPath: stateDirectory).appendingPathComponent("updates"), ownVersion: installed,
+                          failed: { code in try? store.appendFault(FaultEvent(code: "update_signature", phase: "update", at: Int(Date().timeIntervalSince1970))) })
+    Task { await runtime.attach(updater) }
+}
 Task {
     while true {
         watchdog.begin()
