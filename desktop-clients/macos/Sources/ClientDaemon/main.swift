@@ -63,20 +63,45 @@ let runtime = ClientRuntime(store: store, system: system, transport: DeviceTrans
 
 if remove {
     let done = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var failed = false
+    nonisolated(unsafe) var left: [String] = []
     // Detached: the main thread is about to wait and must not be asked to run this.
-    Task.detached { do { try await runtime.remove() } catch { failed = true }; done.signal() }
+    Task.detached {
+        do { left = try await runtime.remove().failed.map(\.rawValue) } catch { left = ["registration"] }
+        done.signal()
+    }
     done.wait()
     unlink(socketPath)
-    exit(failed ? 1 : 0)
+    if !left.isEmpty { FileHandle.standardError.write(Data(("not removed: " + left.joined(separator: ", ") + "\n").utf8)) }
+    exit(left.isEmpty ? 0 : 1)
 }
 
 signal(SIGPIPE, SIG_IGN)
 guard let server = try? ControlServer(path: socketPath, runtime: runtime) else { fail("the control socket is unavailable") }
 server.start()
+// A step that has not finished in a minute is stalled: it is written down and
+// the daemon exits, and launchd (KeepAlive) starts it again.
+let watchdog = TickWatchdog { seconds in
+    try? store.appendFault(FaultEvent(code: "tick_stalled", phase: "tick", at: Int(Date().timeIntervalSince1970)))
+    FileHandle.standardError.write(Data("ikev2-manager-clientd: step stalled for \(Int(seconds)) s, restarting\n".utf8))
+    exit(75)
+}
+let watching = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "watchdog"))
+watching.schedule(deadline: .now() + 5, repeating: 5)
+watching.setEventHandler { watchdog.check() }
+watching.resume()
+let power = PowerWatch(runtime: runtime)
+if dryDirectory == nil {
+    SystemInstaller.clear()
+    let updater = Updater(key: ReleaseKey.pem.flatMap(ReleaseVerifier.key), installer: SystemInstaller(),
+                          directory: URL(fileURLWithPath: stateDirectory).appendingPathComponent("updates"), ownVersion: installed,
+                          failed: { code in try? store.appendFault(FaultEvent(code: "update_signature", phase: "update", at: Int(Date().timeIntervalSince1970))) })
+    Task { await runtime.attach(updater) }
+}
 Task {
     while true {
+        watchdog.begin()
         await runtime.tick()
+        watchdog.end()
         try? await Task.sleep(nanoseconds: 2_000_000_000)
     }
 }

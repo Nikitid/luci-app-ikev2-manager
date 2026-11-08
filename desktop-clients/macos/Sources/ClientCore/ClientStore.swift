@@ -110,6 +110,65 @@ public struct ClientStore: Sendable {
         try write("connection.json", Data(#"{"version":1,"wanted":\#(wanted)}"#.utf8))
     }
 
+    /// Whether a VPN profile of this registration was seen installed: one
+    /// that is missing afterwards was removed, not yet installed.
+    public func profileSeen() -> Bool { (try? read("profile.json", limit: 64)) != nil }
+
+    public func saveProfileSeen() throws {
+        guard !profileSeen() else { return }
+        try write("profile.json", Data(#"{"version":1,"seen":true}"#.utf8))
+    }
+
+    /// Whether updates install by themselves; on unless the person said no.
+    public func autoUpdate() -> Bool {
+        guard let data = try? read("update.json", limit: 64),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
+        return root["auto"] as? Bool ?? true
+    }
+
+    public func saveAutoUpdate(_ auto: Bool) throws { try write("update.json", Data(#"{"version":1,"auto":\#(auto)}"#.utf8)) }
+
+    /// The mark of a reset that has not finished: the steps still to do.
+    public func loadResetMark() throws -> ResetMark? {
+        guard let data = try read("reset.json", limit: 4096) else { return nil }
+        return try JSONDecoder().decode(ResetMark.self, from: data)
+    }
+
+    public func saveResetMark(_ mark: ResetMark) throws { try write("reset.json", JSONEncoder().encode(mark)) }
+
+    public func clearResetMark() throws {
+        try verifyDirectory()
+        let path = directory.appendingPathComponent("reset.json").path
+        if unlink(path) != 0, errno != ENOENT { throw StoreError.unsafe }
+    }
+
+    /// The daemon's own failures, kept between runs for the program to report.
+    public func loadFaults() -> [FaultEvent] {
+        guard let data = try? read("faults.json", limit: 65_536) else { return [] }
+        return (try? JSONDecoder().decode([FaultEvent].self, from: data)) ?? []
+    }
+
+    /// Adds one failure; the journal keeps the last forty of the last week.
+    public func appendFault(_ event: FaultEvent) throws {
+        let week = event.at - 7 * 86_400
+        var events = loadFaults().filter { $0.at >= week }
+        events.append(event)
+        if events.count > FaultEvent.limit { events.removeFirst(events.count - FaultEvent.limit) }
+        try write("faults.json", JSONEncoder().encode(events))
+    }
+
+    /// Reset: the registration and everything known of it go; the mark of the
+    /// reset itself and the failure journal stay. Whether anything was there.
+    public func forget() throws -> Bool {
+        try verifyDirectory()
+        var removed = false
+        for name in try FileManager.default.contentsOfDirectory(atPath: directory.path) where !["reset.json", "faults.json"].contains(name) {
+            try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+            removed = true
+        }
+        return removed
+    }
+
     /// After a reset the same program registers again: an empty store.
     public func prepare() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,

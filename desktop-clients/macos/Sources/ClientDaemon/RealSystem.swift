@@ -23,6 +23,9 @@ enum Tool {
     }
 }
 
+/// The reference `pfctl -E` gave this daemon; kept for the life of the process.
+enum PacketFilterToken { nonisolated(unsafe) static var value = "" }
+
 /// The machine itself: the hosts file, the packet filter and the system's VPN service.
 struct RealSystem: SystemActions {
     let hostsPath = "/etc/hosts"
@@ -132,15 +135,42 @@ struct RealSystem: SystemActions {
     /// again. A main ruleset that no longer reaches "com.apple" is reported,
     /// which closes access: only a listing that worked and lacks it says so.
     func packetFilterEffective() throws -> Bool {
-        func enabled() throws -> Bool { try Tool.run("/sbin/pfctl", ["-s", "info"]).output.contains("Status: Enabled") }
-        if !(try enabled()) {
-            _ = try Tool.run("/sbin/pfctl", ["-E"])
-            guard try enabled() else { return false }
-        }
+        guard try Tool.run("/sbin/pfctl", ["-s", "info"]).output.contains("Status: Enabled") else { return false }
         let anchors = try Tool.run("/sbin/pfctl", ["-s", "Anchors"])
         guard anchors.status == 0 else { return true }
         return anchors.output.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "com.apple" }
     }
+
+    /// Switched on again with a reference of this client's own (`pfctl -E`
+    /// counts them), so another program's `-X` of its own reference does not
+    /// switch it off; then the anchor's rules are loaded again. A main
+    /// ruleset another program loaded is left as it is.
+    func restorePacketFilter(_ rules: String) throws {
+        let output = try Tool.run("/sbin/pfctl", ["-E"]).output
+        if let token = output.split(separator: "\n").first(where: { $0.hasPrefix("Token") })?.split(separator: ":").last {
+            PacketFilterToken.value = token.trimmingCharacters(in: .whitespaces)
+        }
+        guard try Tool.run("/sbin/pfctl", ["-a", SystemPlan.anchor, "-f", "-"], input: rules).status == 0 else { throw StoreError.unsafe }
+    }
+
+    func installedProfiles() -> Set<String>? {
+        guard let listed = try? Tool.run("/usr/bin/profiles", ["list", "-all"]), listed.status == 0 else { return nil }
+        var found = Set<String>()
+        for line in listed.output.split(separator: "\n") {
+            guard let range = line.range(of: "profileIdentifier:") else { continue }
+            found.insert(line[range.upperBound...].trimmingCharacters(in: .whitespaces))
+        }
+        return found
+    }
+
+    func heldNames() -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: "/etc/resolver")) ?? []).filter {
+            (try? String(contentsOfFile: "/etc/resolver/" + $0, encoding: .utf8))?.hasPrefix("# IKEv2 Manager Client") == true
+        }.sorted()
+    }
+
+    /// A default route is what "online" means here; without one nothing leaves the Mac.
+    func online() -> Bool { ((try? routeInterface("default")) ?? nil) != nil }
 
     func vpnInstalled() -> Bool { vpn.installed }
     func vpnConnected() -> Bool { vpn.connected }
@@ -220,6 +250,7 @@ final class DrySystem: SystemActions, @unchecked Sendable {
     private func text(_ name: String) -> String { (try? String(contentsOf: file(name), encoding: .utf8)) ?? "" }
     func readHosts() throws -> String { text("hosts") }
     func writeHosts(_ text: String) throws { try text.write(to: file("hosts"), atomically: true, encoding: .utf8) }
+    func heldNames() -> [String] { text("resolvers").split(separator: " ").dropFirst().map { $0.trimmingCharacters(in: .newlines) } }
     func setNameResolution(domains: [String], resolver: String) throws {
         let wanted = domains.isEmpty ? "" : resolver + " " + domains.joined(separator: " ") + "\n"
         if wanted != text("resolvers") { try wanted.write(to: file("resolvers"), atomically: true, encoding: .utf8) }

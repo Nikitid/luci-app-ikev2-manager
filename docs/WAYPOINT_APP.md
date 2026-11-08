@@ -79,7 +79,7 @@ with their next policy poll.
 | tunnel | Windows' own IKEv2 (RAS): native on x64 and ARM64, no driver | the system's IKEv2 profile |
 | blocking | WFP filters per service | packet-filter anchor per service |
 | names | hosts block for the effective set; real resolution for open services while the tunnel is down | the same |
-| installer | MSI per architecture (WiX) | signed, notarized package; universal binary |
+| installer | MSI per architecture (WiX) | package for Apple silicon (`arm64`), ad-hoc signed; updates checked against the signed release list |
 
 What it shows, taken from the clients that get this right (WireGuard,
 Tailscale, Mullvad, Proton, WARP):
@@ -94,7 +94,7 @@ Tailscale, Mullvad, Proton, WARP):
 - a reset that always finishes and says what it removed.
 
 ARM: separate x64 and ARM64 Windows builds, tested on an ARM64 runner in CI,
-not only built; a universal macOS binary, tested on Apple silicon.
+not only built; macOS on Apple silicon only (`arm64`), no Intel build.
 
 ## Order of work
 

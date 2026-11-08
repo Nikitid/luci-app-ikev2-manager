@@ -24,6 +24,11 @@ public struct ProblemReport: Equatable, Sendable {
 /// What a report is about, as the person picks it.
 public enum ReportKind: String, CaseIterable, Codable, Sendable {
     case bug, feature, question, feedback
+    /// Sent by the program itself after a failure of its own, never picked by the person.
+    case crash
+
+    /// What the person may pick.
+    public static let chosen: [ReportKind] = [.bug, .feature, .question, .feedback]
 
     public var label: String {
         switch self {
@@ -31,6 +36,7 @@ public enum ReportKind: String, CaseIterable, Codable, Sendable {
         case .feature: "Идея"
         case .question: "Вопрос"
         case .feedback: "Отзыв"
+        case .crash: "Сбой"
         }
     }
 }
@@ -157,11 +163,25 @@ public struct ReportFile: Equatable, Sendable {
 /// One HTTP exchange, so the protocol can be followed without a network.
 public protocol ReportTransport: Sendable {
     func exchange(_ method: String, _ url: URL, headers: [String: String], body: Data?) async throws -> (Int, Data)
+    /// The same, with the answer's headers (lowercased names), for Retry-After.
+    func exchangeWithHeaders(_ method: String, _ url: URL, headers: [String: String], body: Data?) async throws -> (Int, Data, [String: String])
+}
+
+public extension ReportTransport {
+    func exchangeWithHeaders(_ method: String, _ url: URL, headers: [String: String], body: Data?) async throws -> (Int, Data, [String: String]) {
+        let (status, data) = try await exchange(method, url, headers: headers, body: body)
+        return (status, data, [:])
+    }
 }
 
 public struct URLSessionReportTransport: ReportTransport {
     public init() {}
     public func exchange(_ method: String, _ url: URL, headers: [String: String], body: Data?) async throws -> (Int, Data) {
+        let (status, data, _) = try await exchangeWithHeaders(method, url, headers: headers, body: body)
+        return (status, data)
+    }
+
+    public func exchangeWithHeaders(_ method: String, _ url: URL, headers: [String: String], body: Data?) async throws -> (Int, Data, [String: String]) {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60)
         request.httpMethod = method
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
@@ -170,7 +190,11 @@ public struct URLSessionReportTransport: ReportTransport {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         let (data, response) = try await URLSession(configuration: configuration).data(for: request)
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        var answered: [String: String] = [:]
+        for (name, value) in (response as? HTTPURLResponse)?.allHeaderFields ?? [:] {
+            if let name = name as? String, let value = value as? String { answered[name.lowercased()] = value }
+        }
+        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data, answered)
     }
 }
 
@@ -179,6 +203,8 @@ public enum ProblemReportError: Error, Equatable {
     case unavailable
     /// Busy: try again in a few minutes.
     case busy
+    /// Too many reports from this sender: not before this many seconds.
+    case tooMany(Int)
     /// The network or the service did not answer.
     case unreachable
     /// Refused, with the service's code.
@@ -207,11 +233,15 @@ public struct ProblemReporter: Sendable {
             body = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
             all["Content-Type"] = "application/json"
         }
+        let answer: (Int, Data, [String: String])
         do {
-            return try await transport.exchange(method, endpoint.appendingPathComponent(path), headers: all, body: body)
+            answer = try await transport.exchangeWithHeaders(method, endpoint.appendingPathComponent(path), headers: all, body: body)
         } catch {
             throw ProblemReportError.unreachable
         }
+        // The service limits each sender; its word on when to come back is kept.
+        if answer.0 == 429 { throw ProblemReportError.tooMany(max(1, min(86_400, Int(answer.2["retry-after"] ?? "") ?? 600))) }
+        return (answer.0, answer.1)
     }
 
     private static func fail(_ status: Int, _ data: Data) -> ProblemReportError {

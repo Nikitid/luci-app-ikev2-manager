@@ -28,8 +28,16 @@ public enum Control {
         public var status: ClientStatusReport?
         /// The VPN profile, base64, for an administrator only.
         public var profile: String?
-        public init(result: String, status: ClientStatusReport? = nil, profile: String? = nil) {
-            self.result = result; self.status = status; self.profile = profile
+        /// "reset": what each step did.
+        public var reset: ResetReport?
+        /// "faults": the daemon's own failures, codes and times only.
+        public var faults: [FaultEvent]?
+        /// "check": seconds until the router may be asked again.
+        public var retryAfter: Int?
+        public init(result: String, status: ClientStatusReport? = nil, profile: String? = nil, reset: ResetReport? = nil,
+                    faults: [FaultEvent]? = nil, retryAfter: Int? = nil) {
+            self.result = result; self.status = status; self.profile = profile; self.reset = reset
+            self.faults = faults; self.retryAfter = retryAfter
         }
     }
 

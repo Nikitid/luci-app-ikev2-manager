@@ -1184,11 +1184,20 @@ needs "Open" from the context menu. The jobs have built both for every release
 since 2.2.0.
 
 `GET /client/v1/release` tells an enrolled device the version of the router's
-package, as a number and nothing else. A client whose own version is older
-shows it and offers a download button; the address is built in the client from
-the project's release page, so the router cannot point a user elsewhere. The
-program never installs anything by itself: the user runs the downloaded
-installer, which keeps the registration. A device that is known but has no
+package, as a number and nothing else. The address of a newer client is built
+in the client from the project's release page, so the router cannot point a
+user elsewhere. On macOS the daemon fetches `Waypoint-X.Y.Z.pkg`,
+`Waypoint-SHA256SUMS` and its signature from there, checks the signature with
+the client release key built into it, the package's SHA-256 against the list
+and the version in its `PackageInfo`, and installs it with `installer` as a
+one-off launchd job of its own (the package's scripts restart the daemon).
+It installs only when the tunnel is not needed - access switched off, between
+02:00 and 05:00, or when the person quits Waypoint - and only if "Install
+updates by themselves" is on (it is by default); "Update" installs at once. A
+package that fails any check is not installed, is reported as
+`update_signature` and is tried again in six hours. A build without the
+public key installs nothing and says so. The installer keeps the
+registration. A device that is known but has no
 service is answered too, and both clients ask in that state, so a machine
 waiting for its first service is still offered the newer program.
 
@@ -1355,6 +1364,31 @@ network, each with its own copy button. Unknown values remain visible with
 copying disabled. The optional `tunnel_subnet` field in `/client/v1/services`
 supplies the inbound network; older routers leave that row unavailable.
 
+The macOS daemon mends what it can and never forgets the device by itself.
+Another program that switches the packet filter off finds it switched on again
+with the daemon's own `pfctl -E` reference and the anchor reloaded; until that
+holds, permission is withdrawn and the state is `error` with
+`guard_restoring`, and after five failed tries `guard_unconfirmed`. A main
+ruleset another program loaded is left alone. Before the Mac sleeps the
+permission goes and the denial stays; after wake the daemon connects and asks
+the router at once. A step that has not finished in 60 seconds is written down
+as `tick_stalled` and the daemon exits for launchd to start it again. A VPN
+profile seen installed and gone later is `profile_required` with
+`profile_removed`. A registration or policy the daemon cannot read is
+`needs_reset`: the denial stays, nothing is erased (an invitation link is
+single-use), and the owner decides with "Reset...".
+
+A reset takes seven steps in a fixed order - disconnect, the VPN profile, the
+browsers profile, the hosts block, the resolver files, the anchor, the stored
+device - each whatever became of the one before, then reads the system back.
+It answers with each step as `removed`, `absent` or `failed` and a reason
+(`refused`, `still_present`). Steps that failed stay in `reset.json` in the
+daemon's directory; the daemon takes them again at every step and at start,
+reports `reset_incomplete` meanwhile, and refuses a new registration until
+they are done. The uninstaller runs the same steps. The daemon's own failures
+are kept as codes and times in `faults.json` there (forty, one week) for the
+program to report.
+
 `desktop-clients/macos/build.sh X.Y.Z` builds an installer package for Apple
 silicon: the application, the daemon under `/Library/PrivilegedHelperTools`,
 its launchd job and `io.github.nikitid.ikev2-manager-client.uninstall`, which
@@ -1402,3 +1436,27 @@ the list is opened; a report the service no longer knows leaves the journal.
 Unread replies show a notice in the main window. `ProblemReports.swift` and
 `ProblemReports.cs` hold this, tested against a recorder of the service
 contract.
+
+On macOS the program also reports failures of Waypoint itself, never of the
+network or of an administrator's decision: the codes `auto_report` in
+`desktop-clients/fixtures/status-codes.json` lists for macOS. Nothing is sent
+before the person has answered the question once; until then failures wait in
+a queue (twenty at most, a week at most) in
+`~/Library/Application Support/Waypoint/auto-reports.json`, and answering no
+or switching reports off empties it. A report is of kind `crash`, its text is
+fixed ("Сбой Waypoint: <code>, фаза <phase>"), its context is the versions,
+the processor, the language, the code, the phase, a fingerprint (code, phase,
+version), the number of occurrences and the mode. It carries
+`waypoint-fault.json`, built from a list of allowed fields (state, cause,
+flags, counts, revisions, the daemon's failure codes with seconds ago) so
+that no name, address, service, domain or network gets in, and for a crash a
+`.ips` file with the home folder replaced by `~` and the machine and boot
+identifiers removed. One report per fingerprint a day, repeats as one message
+to it a day later, five reports a day per device, not within a minute of the
+failure or ten seconds of launch, and the service's `Retry-After` is kept. The
+daemon hands its own failures (`faults.json`) over the socket (`faults`).
+
+"Check now" on macOS asks the router through the daemon (`check` over the
+socket, `POST /client/v1/check`); the next services answer, five seconds
+later, brings each service's `health`. Too soon, the router's `retry_after`
+is shown as the time left.

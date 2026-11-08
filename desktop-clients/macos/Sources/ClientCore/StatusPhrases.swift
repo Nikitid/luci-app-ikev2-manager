@@ -8,18 +8,20 @@ public enum StatusCodes {
     /// Every state the daemon publishes.
     public static let states = [
         "starting", "enrollment_required", "registration_pending", "registration_error", "blocked", "profile_required",
-        "connecting", "connection_error", "tunnel_connected", "protected", "access_closed", "error"]
+        "connecting", "connection_error", "tunnel_connected", "protected", "access_closed", "error", "needs_reset", "reset_incomplete"]
 
     /// The cause codes each state is published with; "none" is no cause.
     public static let causes: [String: [String]] = [
         "starting": ["none"], "enrollment_required": ["none"], "registration_pending": ["none"],
         "registration_error": ["enrollment_connection_failed", "enrollment_access_rejected", "enrollment_http_rejected",
                                "enrollment_response_invalid", "enrollment_invalid_endpoint", "enrollment_internal"],
-        "blocked": ["none"], "profile_required": ["none"], "connecting": ["none"],
-        "connection_error": [TunnelFault.unavailable.rawValue, TunnelFault.takesEverything.rawValue, "profile_mode"],
+        "blocked": ["none"], "profile_required": ["none", "profile_removed"], "connecting": ["none"],
+        "connection_error": [TunnelFault.unavailable.rawValue, TunnelFault.takesEverything.rawValue, "profile_mode",
+                             "offline", "server_not_found", "ike_no_answer"],
         "tunnel_connected": ["path_connection_failed", "path_unavailable", "path_different_policy", "device_access_revoked",
                              "path_response_invalid"],
-        "protected": ["none"], "access_closed": ["no_services", "synchronization"], "error": ["internal", "synchronization"]]
+        "protected": ["none"], "access_closed": ["no_services", "synchronization"], "error": ["internal", "synchronization", "guard_restoring", "guard_unconfirmed"],
+        "needs_reset": ["registration_unreadable", "policy_unreadable"], "reset_incomplete": ["none"]]
 
     /// What the router refused while a registration was under way.
     public static func enrollment(_ error: DeviceError) -> String {
@@ -81,7 +83,14 @@ public enum StatusPhrases {
                               detail: "Сервер ответил не так, как ожидалось (\(error)). Попытка повторится сама; если не проходит, нажмите «Отчёт…» и передайте его администратору.")
             }
         case "profile_required":
-            return Phrase(heading: "Нужен профиль VPN", detail: "Установите профиль в «Системных настройках».")
+            return error == "profile_removed"
+                ? Phrase(heading: "Нужен профиль VPN", detail: "Профиль VPN удалён в «Системных настройках». Установите его снова.")
+                : Phrase(heading: "Нужен профиль VPN", detail: "Установите профиль в «Системных настройках».")
+        case "needs_reset":
+            return Phrase(heading: "Нужен сброс",
+                          detail: "Данные регистрации на этом Mac повреждены. Нажмите «Сбросить…», затем зарегистрируйте его по новой ссылке.")
+        case "reset_incomplete":
+            return Phrase(heading: "Сброс не завершён", detail: "Waypoint удаляет оставшееся сам и повторяет попытки.")
         case "connecting":
             return Phrase(heading: "Подключение", detail: "Устанавливается туннель.")
         case "tunnel_connected":
@@ -100,6 +109,12 @@ public enum StatusPhrases {
                 return Phrase(heading: "Нет подключения", detail: "Сервер предложил направить в туннель весь трафик. Подключение отклонено.")
             case "profile_mode":
                 return Phrase(heading: "Нет подключения", detail: "Режим изменён администратором. Установите профиль заново.")
+            case "offline":
+                return Phrase(heading: "Нет подключения", detail: "Mac не в сети.")
+            case "server_not_found":
+                return Phrase(heading: "Нет подключения", detail: "Имя сервера не находится. Проверьте интернет.")
+            case "ike_no_answer":
+                return Phrase(heading: "Нет подключения", detail: "Эта сеть не пропускает IKEv2: UDP 500 и 4500 к серверу закрыты.")
             default:
                 return Phrase(heading: "Нет подключения", detail: "Туннель не установлен. Попытка повторится.")
             }
@@ -109,6 +124,10 @@ public enum StatusPhrases {
                 : Phrase(heading: "Доступ не разрешён", detail: "Доступ для этого устройства выключен администратором.")
         case "starting":
             return Phrase(heading: "Запуск", detail: "Состояние защиты не подтверждено. Подробности в отчёте.")
+        case "error" where error == "guard_restoring":
+            return Phrase(heading: "Защита восстанавливается", detail: "Другая программа выключила фильтр пакетов. Waypoint включает его снова.")
+        case "error" where error == "guard_unconfirmed":
+            return Phrase(heading: "Защита не подтверждена", detail: "Блокировка вне туннеля не действует: фильтр пакетов не включается.")
         case "error":
             return Phrase(heading: "Ошибка службы", detail: "Состояние защиты не подтверждено. Подробности в отчёте.")
         default:
