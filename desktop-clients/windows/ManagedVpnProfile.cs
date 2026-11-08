@@ -9,6 +9,14 @@ using System.Web.Script.Serialization;
 
 namespace IkeV2Manager.Client
 {
+    // The program's own VPN connection is not what the service made: its
+    // server, sign-in or ciphers were changed, it was deleted, or another
+    // connection took its name. The service makes it again.
+    public sealed class ProfileChangedException : InvalidOperationException
+    {
+        public ProfileChangedException() : base("Managed VPN profile changed") { }
+    }
+
     public sealed class ManagedVpnProfile
     {
         public readonly Guid Owner, EntryId;
@@ -28,6 +36,13 @@ namespace IkeV2Manager.Client
             return new ManagedVpnProfile(owner, Invoke(EnsureRequest(policy, owner, pinnedEntry, full, false), pinnedEntry));
         }
 
+        // Made anew under the same owner: whatever carries the owner's name goes
+        // first. Used only after Ensure found the connection changed.
+        public static ManagedVpnProfile Recreate(ClientPolicy policy, Guid owner, bool full = false)
+        {
+            return new ManagedVpnProfile(owner, Invoke(EnsureRequest(policy, owner, Guid.Empty, full, false, true), Guid.Empty));
+        }
+
         // Whether the profile already is what Ensure would make it. Changes nothing.
         public static bool InPlace(ClientPolicy policy, Guid owner, Guid pinnedEntry, bool full)
         {
@@ -35,13 +50,13 @@ namespace IkeV2Manager.Client
             return Run(EnsureRequest(policy, owner, pinnedEntry, full, true), null) == pinnedEntry.ToString("D");
         }
 
-        private static string EnsureRequest(ClientPolicy policy, Guid owner, Guid pinnedEntry, bool full, bool check)
+        private static string EnsureRequest(ClientPolicy policy, Guid owner, Guid pinnedEntry, bool full, bool check, bool recreate = false)
         {
             if (policy == null || owner == Guid.Empty || policy.ServerAddress != policy.RemoteId)
                 throw new ArgumentException("Windows profile requires an identical server hostname and remote identity");
             // Never interpolate policy metadata into PowerShell source or argv.
             return new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
-                { "operation", "ensure" }, { "check", check },
+                { "operation", "ensure" }, { "check", check }, { "recreate", recreate },
                 { "owner", owner.ToString("N") }, { "entry_id", pinnedEntry == Guid.Empty ? null : pinnedEntry.ToString("D") },
                 { "server", policy.ServerAddress }, { "full", full }, { "addresses", policy.Resources.Select(r => r.Address)
                     .Concat(new[] { PolicyHistory.NamesResolver(policy.VirtualSubnet), PolicyHistory.NamesRange(policy.VirtualSubnet) }).ToArray() }
@@ -95,6 +110,17 @@ namespace IkeV2Manager.Client
             }), entry);
         }
 
+        // Every connection and name rule of this program, by name. Returns how
+        // many connections and how many name rules went.
+        public static int[] Purge()
+        {
+            string[] counts = Run("{\"operation\":\"purge\"}", null).Split(' ');
+            int connections, rules;
+            if (counts.Length != 2 || !Int32.TryParse(counts[0], out connections) || !Int32.TryParse(counts[1], out rules))
+                throw new InvalidOperationException("Managed VPN profile unavailable");
+            return new[] { connections, rules };
+        }
+
         public static ManagedVpnProfile FromJournal(Guid owner, Guid entry)
         {
             if (owner == Guid.Empty || entry == Guid.Empty) throw new ArgumentException("Owned profile identity required");
@@ -119,8 +145,15 @@ namespace IkeV2Manager.Client
                 using (var reader = new StreamReader(stream, new UTF8Encoding(false, true))) script = reader.ReadToEnd();
             }
             string system = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            // The script is longer than a command line may be (32767
+            // characters, encoded): the command line carries a loader that
+            // reads the script and then the request from standard input. The
+            // script never touches the disk, where somebody else could change it.
+            const string loader = "$all = [Console]::In.ReadToEnd(); $cut = $all.IndexOf(\"`n\"); " +
+                "$WaypointRequest = $all.Substring($cut + 1); " +
+                ". ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($all.Substring(0, $cut)))))";
             var start = new ProcessStartInfo(Path.Combine(system, @"WindowsPowerShell\v1.0\powershell.exe"),
-                "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(script))) {
+                "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(loader))) {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
                 RedirectStandardOutput = true, RedirectStandardError = true
             };
@@ -128,12 +161,14 @@ namespace IkeV2Manager.Client
             {
                 var output = process.StandardOutput.ReadToEndAsync();
                 var errors = process.StandardError.ReadToEndAsync();
-                process.StandardInput.Write(request); process.StandardInput.Close();
+                process.StandardInput.Write(Convert.ToBase64String(new UTF8Encoding(false).GetBytes(script)) + "\n" + request);
+                process.StandardInput.Close();
                 if (!process.WaitForExit(30000))
                 {
                     process.Kill(); process.WaitForExit(5000);
                     throw new InvalidOperationException("Managed profile operation timed out");
                 }
+                if (process.ExitCode == 3) throw new ProfileChangedException();
                 if (!output.Wait(5000) || !errors.Wait(5000) || process.ExitCode != 0)
                     throw new InvalidOperationException("Managed VPN profile unavailable");
                 if (expected != null && output.Result != expected) throw new InvalidOperationException("Managed VPN profile unavailable");

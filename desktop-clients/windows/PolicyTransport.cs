@@ -59,6 +59,28 @@ namespace IkeV2Manager.Client
         public int Networks { get; set; }
         public string[] Resources { get; set; }
         public string[] Cidrs { get; set; }
+        // Whether the service works now, as the router routes it: "ok", "down",
+        // "direct" or "unknown"; why it is down ("no_tunnel", "silent"), and
+        // since when it works, in seconds of the router's clock (0 unknown).
+        public string Health { get; set; }
+        public string HealthReason { get; set; }
+        public int HealthSince { get; set; }
+
+        // Read leniently: a state this program does not know yet is "unknown",
+        // and fields it does not know are left alone, so a newer router never
+        // takes the list of services away from an older client.
+        internal static void ReadHealth(ServiceEntry entry, object value)
+        {
+            entry.Health = "unknown"; entry.HealthReason = ""; entry.HealthSince = 0;
+            var data = value as System.Collections.Generic.IDictionary<string, object>;
+            if (data == null) return;
+            object state, reason, since;
+            if (data.TryGetValue("state", out state) && (state as string == "ok" || state as string == "down" || state as string == "direct"))
+                entry.Health = (string)state;
+            if (entry.Health == "down" && data.TryGetValue("reason", out reason) && (reason as string == "no_tunnel" || reason as string == "silent"))
+                entry.HealthReason = (string)reason;
+            if (entry.Health == "ok" && data.TryGetValue("since", out since) && since is int && (int)since > 0) entry.HealthSince = (int)since;
+        }
 
         internal static ServiceEntry[] ParseAll(object value)
         {
@@ -68,8 +90,8 @@ namespace IkeV2Manager.Client
             {
                 var data = ClientPolicy.Object(item);
                 string[] keys = { "id", "required", "on", "closed", "choose_closed", "domains", "networks", "resources", "cidrs" };
-                if (data.ContainsKey("label")) ClientPolicy.Fields(data, keys.Concat(new[] { "label" }).ToArray());
-                else ClientPolicy.Fields(data, keys);
+                var optional = new[] { "label", "health" }.Where(data.ContainsKey);
+                ClientPolicy.Fields(data, keys.Concat(optional).ToArray());
                 string id = ClientPolicy.Text(data["id"]);
                 if (!Regex.IsMatch(id, @"\A[a-z0-9][a-z0-9_-]{0,47}\z") || !seen.Add(id)) throw new ArgumentException();
                 foreach (string flag in new[] { "required", "on", "closed", "choose_closed" })
@@ -90,6 +112,7 @@ namespace IkeV2Manager.Client
                     Domains = ClientPolicy.Integer(data["domains"], 0, 65536), Networks = ClientPolicy.Integer(data["networks"], 0, 64),
                     Resources = resources, Cidrs = cidrs };
                 if (entry.Required && !entry.On) throw new ArgumentException();
+                ReadHealth(entry, data.ContainsKey("health") ? data["health"] : null);
                 entries.Add(entry);
             }
             return entries.ToArray();
@@ -419,6 +442,62 @@ namespace IkeV2Manager.Client
         // What this device chose of its offer: the optional services it turns
         // on, and those it blocks without the tunnel where that is its choice.
         // Whether the router took it; what it allows comes with the next poll.
+        // Asks the router to check the services now. Returns the seconds until
+        // the next check may be asked for, and what the router said:
+        // "accepted", "too_often", "busy", or "failed" when it could not be asked.
+        public static string RequestCheck(Uri policyEndpoint, string token, out int wait)
+        {
+            ValidateEndpoint(policyEndpoint, token);
+            wait = 30;
+            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            var request = ReportRequest(policyEndpoint, token, "POST", "/client/v1/check");
+            request.ContentLength = 0;
+            request.ServicePoint.Expect100Continue = false;
+            using (var deadline = new Timer(ignored => request.Abort(), null, 10000, Timeout.Infinite))
+            try
+            {
+                using (var response = (HttpWebResponse)request.GetResponse())
+                {
+                    if (response.StatusCode != HttpStatusCode.Accepted) return "failed";
+                    var answer = ReadSmall(response);
+                    object next;
+                    if (answer != null && answer.TryGetValue("next_after", out next) && next is int && (int)next >= 1 && (int)next <= 3600) wait = (int)next;
+                    return "accepted";
+                }
+            }
+            catch (WebException failure)
+            {
+                var response = failure.Response as HttpWebResponse;
+                if (response == null) return "failed";
+                using (response)
+                {
+                    if ((int)response.StatusCode == 409) { wait = 5; return "busy"; }
+                    if ((int)response.StatusCode != 429) return "failed";
+                    int after;
+                    if (Int32.TryParse(response.Headers["Retry-After"], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out after) &&
+                        after >= 1 && after <= 3600) wait = after;
+                    return "too_often";
+                }
+            }
+            catch (IOException) { return "failed"; }
+        }
+
+        private static System.Collections.Generic.IDictionary<string, object> ReadSmall(HttpWebResponse response)
+        {
+            try
+            {
+                using (var stream = response.GetResponseStream())
+                using (var reader = new StreamReader(stream, new UTF8Encoding(false, true)))
+                {
+                    var buffer = new char[4096];
+                    int read = reader.ReadBlock(buffer, 0, buffer.Length);
+                    return new System.Web.Script.Serialization.JavaScriptSerializer().DeserializeObject(new string(buffer, 0, read)) as System.Collections.Generic.IDictionary<string, object>;
+                }
+            }
+            catch (ArgumentException) { return null; }
+            catch (InvalidOperationException) { return null; }
+        }
+
         public static bool SendChoices(Uri policyEndpoint, string token, string[] on, string[] closed)
         {
             ValidateEndpoint(policyEndpoint, token);

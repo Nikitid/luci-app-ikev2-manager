@@ -42,7 +42,8 @@ namespace IkeV2Manager.Client
         public static string Label(string kind)
         {
             foreach (var pair in All) if (pair[0] == kind) return pair[1];
-            return "Обращение";
+            // Sent by the service on its own; never a kind the person picks.
+            return kind == "crash" ? "Сбой · отправлен автоматически" : "Обращение";
         }
     }
 

@@ -1185,10 +1185,17 @@ since 2.2.0.
 
 `GET /client/v1/release` tells an enrolled device the version of the router's
 package, as a number and nothing else. A client whose own version is older
-shows it and offers a download button; the address is built in the client from
-the project's release page, so the router cannot point a user elsewhere. The
-program never installs anything by itself: the user runs the downloaded
-installer, which keeps the registration. A device that is known but has no
+shows it; the address of the installer is built in the client from the
+project's release page, so the router cannot point a user elsewhere. The
+Windows service looks at most every six hours, fetches the installer of its
+own processor with `Waypoint-SHA256SUMS` and its signature, and installs it
+with `msiexec /qn` only when the list passes the signature with the clients'
+key built into it and the installer matches the list. It does so by itself -
+unless the person turned that off - only while the tunnel is not wanted: at
+night or as the window exits; at once when the person presses "Update". An
+installer that fails the check is deleted, nothing is installed and a failure
+report waits. A build without the key only offers the download. The installer
+keeps the registration. A device that is known but has no
 service is answered too, and both clients ask in that state, so a machine
 waiting for its first service is still offered the newer program.
 

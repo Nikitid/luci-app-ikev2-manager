@@ -30,11 +30,11 @@ internal static class MaintenanceTests
         {
             using (var key = Registry.LocalMachine.CreateSubKey(Edge)) key.SetValue("DnsOverHttpsMode", "automatic", RegistryValueKind.String);
             using (var key = Registry.LocalMachine.CreateSubKey(Chrome)) key.DeleteValue("DnsOverHttpsMode", false);
-            Require(Maintenance.Run("IKEv2ManagerClient", "--unknown", n => 0) == 2, "an unknown request is refused");
-            Require(Maintenance.Run("IKEv2ManagerClient", "--browsers-on", n => 0) == 0 && (Value(Chrome, "DnsOverHttpsMode") as string) == "off",
+            Require(Maintenance.Run("IKEv2ManagerClient", "--unknown") == 2, "an unknown request is refused");
+            Require(Maintenance.Run("IKEv2ManagerClient", "--browsers-on") == 0 && (Value(Chrome, "DnsOverHttpsMode") as string) == "off",
                 "browsers are told to ask the system");
             Require((Value(Edge, "DnsOverHttpsMode") as string) == "automatic", "a setting somebody else made stays theirs");
-            Require(Maintenance.Run("IKEv2ManagerClient", "--browsers-off", n => 0) == 0 && Value(Chrome, "DnsOverHttpsMode") == null &&
+            Require(Maintenance.Run("IKEv2ManagerClient", "--browsers-off") == 0 && Value(Chrome, "DnsOverHttpsMode") == null &&
                 (Value(Edge, "DnsOverHttpsMode") as string) == "automatic", "only what this program set is taken back");
             return 0;
         }

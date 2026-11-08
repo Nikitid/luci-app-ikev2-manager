@@ -9,7 +9,7 @@ namespace IkeV2Manager.Client
 {
     public sealed class ClientStatus
     {
-        public int Version { get { return 6; } }
+        public int Version { get { return 7; } }
         public string State { get; internal set; }
         public bool GuardInstalled { get; internal set; }
         // True only while every gate holds at once: persistent denials, the
@@ -41,6 +41,16 @@ namespace IkeV2Manager.Client
         // The person's own sites and networks, where allowed; null where not.
         public OwnStatus Own { get; internal set; }
         public bool ChoicePending { get; internal set; }
+        // The last "check now": what the router said ("" taken) and when it
+        // may be asked again ("" any time).
+        public string CheckAnswer { get; internal set; }
+        public string CheckNextAtUtc { get; internal set; }
+        // A newer release: its version ("" none), where it stands ("",
+        // "available", "ready", "installing", "failed") and whether the
+        // service installs it by itself.
+        public string UpdateVersion { get; internal set; }
+        public string UpdateState { get; internal set; }
+        public bool UpdateAuto { get; internal set; }
     }
 
     public sealed class GuardRuntime : IDisposable
@@ -106,6 +116,46 @@ namespace IkeV2Manager.Client
         private string registrationError = "none";
         private string publishedState = "starting";
         private readonly DateTime startedAt = DateTime.UtcNow;
+        // The name of this installation: the store's folder, the description of
+        // its WFP sublayers, the key of its failure queue.
+        private readonly string installation;
+        private readonly FailureQueue failures;
+        // Damage the service cannot repair by itself (needs_reset): the reason,
+        // or null. Registration is never reset here - the link it came from
+        // works once - so the person is asked to reset.
+        private string damage;
+        // The filtering engine was not there at start, at boot before BFE or
+        // while it restarted: the start is tried again every step.
+        private bool starting;
+        private int startAttempts;
+        // A guard that failed its check, while it is being put back.
+        private string guardFault;
+        private int guardAttempts;
+        private DateTime guardRetryAt;
+        private int profileRepairs;
+        // "Check now": asked for at the window, sent with the next poll.
+        private bool checkWanted;
+        private string checkAnswer = "";
+        private DateTime checkNextAt, pollSoonUntil;
+        // The watchdog's view of the step: when the running one began, 0 when none runs.
+        private int ticking;
+        private long tickSince;
+        private readonly TimeSpan stallLimit;
+        private readonly ManualResetEvent watchStop = new ManualResetEvent(false);
+        private Thread watchdog;
+        // Failures go out from here, once the person said "send".
+        private FailureReporter reporter;
+        private Timer reporting;
+        private Updater updater;
+        private volatile bool updateAsked, windowExited;
+        internal const string Settings = @"SOFTWARE\Waypoint";
+        // How long one step may take before the service is restarted. Not 30 s,
+        // as first planned: a step may wait for the lock behind a policy update
+        // and itself run the VPN profile's PowerShell checks, each bounded by
+        // 35 s and up to three in a row, so 30 s would restart a slow but
+        // healthy service. 180 s is above every bounded wait of a step.
+        internal static readonly TimeSpan DefaultStallLimit = TimeSpan.FromSeconds(180);
+        internal const int GuardAttempts = 5;
 
         // A configured proxy carries a program's requests by name to the proxy,
         // which then reaches the service from wherever the proxy is: neither
@@ -178,35 +228,144 @@ namespace IkeV2Manager.Client
             return false;
         }
 
-        public GuardRuntime(string storeName, bool enableSystemIntegration = false)
+        public GuardRuntime(string storeName, bool enableSystemIntegration = false, TimeSpan? stallLimit = null)
         {
             systemIntegration = enableSystemIntegration;
+            installation = storeName;
+            failures = new FailureQueue(storeName);
+            this.stallLimit = stallLimit ?? DefaultStallLimit;
+            bool resecured;
+            store = GuardStore.OpenRepairing(storeName, out resecured);
             try
             {
-                store = new GuardStore(storeName);
-                GuardReceipt plan = store.LoadPlan();
-                if (plan != null) { guard = WfpGuard.Resume(plan); healthy = true; }
-                store.LoadPolicyHistory();
-                RestoreEnrollmentProtection();
-                connectionWanted = systemIntegration && registrationComplete && store.LoadConnectionIntent();
-                if (systemIntegration && guard != null && store.LoadVpnEntry() != Guid.Empty)
-                {
-                    // Nothing of a previous instance stays connected behind a
-                    // status that is about to say "blocked".
-                    var abandoned = ManagedVpnProfile.FromJournal(store.LoadPlan().Owner, store.LoadVpnEntry());
-                    RasTunnel.Release(abandoned.EntryId, abandoned.Phonebook);
-                }
-                Publish(guard == null ? (EnrollmentRegistration.Load(store) == null ? "enrollment_required" : "registration_pending") : "blocked");
+                Start(resecured);
                 // The router's readiness lasts five seconds; ask well inside that.
                 heartbeat = new Timer(Tick, null, 2000, 2000);
+                if (systemIntegration)
+                {
+                    watchdog = new Thread(Watch) { IsBackground = true, Name = "Waypoint watchdog" };
+                    watchdog.Start();
+                    // Outside the lock: the report service may take its time.
+                    reporter = new FailureReporter(failures);
+                    updater = new Updater(System.IO.Path.Combine(store.DirectoryPath, "update"), Updater.EmbeddedKey(), failures);
+                    reporting = new Timer(ignored => reporter.SendDue(startedAt), null, 70000, 300000);
+                }
             }
             catch
             {
-                if (store != null) { try { faultCode = "service_fault"; Publish("error"); } catch { } }
-                if (guard != null) guard.Dispose();
-                if (store != null) store.Dispose();
+                if (heartbeat != null) heartbeat.Dispose();
+                try { if (guard != null) guard.Dispose(); if (networkGuard != null) networkGuard.Dispose(); } catch { }
+                store.Dispose();
                 throw;
             }
+        }
+
+        // What a start does, and what the step tries again while the filtering
+        // engine is not there. A start never fails on what it finds: the
+        // denials of the plan go in first whenever the plan can be read, and
+        // damage the service cannot repair leaves it running in needs_reset,
+        // with the reason, rather than stopped with nothing to say why.
+        private void Start(bool resecured)
+        {
+            starting = false;
+            GuardReceipt plan;
+            try { plan = store.LoadPlan(); }
+            catch (Exception unreadable) when (Corrupt(unreadable)) { Damaged(resecured ? "damaged_acl" : "damaged_plan", "start", unreadable); return; }
+            if (plan != null && guard == null)
+            {
+                try { guard = WfpGuard.Resume(plan, installation); }
+                catch (Exception failure) when (WfpGuard.EngineLost(failure))
+                {
+                    store.RecordFault("start", failure);
+                    starting = true; healthy = false; faultCode = "guard_engine_lost";
+                    // A minute without the filtering engine is a failure of its own.
+                    if (++startAttempts == 30)
+                        failures.Record("guard_engine_lost", "start", "the filtering engine was not available for a minute after start", store.ReadFaults());
+                    Publish("error");
+                    return;
+                }
+                catch (Exception failure)
+                {
+                    store.RecordFault("start", failure);
+                    try { guard = WfpGuard.Repair(plan, installation); }
+                    catch (Exception again) { Damaged("damaged_guard", "start", again); return; }
+                }
+                healthy = true;
+            }
+            startAttempts = 0;
+            if (resecured) { Damaged("damaged_acl", "start", null); return; }
+            string broken = Inspect();
+            if (broken != null) { Damaged(broken, "start", null); return; }
+            try { RestoreEnrollmentProtection(); }
+            catch (Exception failure)
+            {
+                // Not damage - every journal was read above - but something of
+                // the system, the VPN profile or PowerShell, did not answer.
+                // The service's next step stages the policy again.
+                store.RecordFault("start", failure);
+                synchronizationFailed = true;
+                faultCode = failure is ProfileChangedException ? "profile_changed" : "service_fault";
+            }
+            connectionWanted = systemIntegration && registrationComplete && store.LoadConnectionIntent();
+            if (systemIntegration && guard != null && store.LoadVpnEntry() != Guid.Empty)
+            {
+                // Nothing of a previous instance stays connected behind a
+                // status that is about to say "blocked".
+                try
+                {
+                    var abandoned = ManagedVpnProfile.FromJournal(store.LoadPlan().Owner, store.LoadVpnEntry());
+                    RasTunnel.Release(abandoned.EntryId, abandoned.Phonebook);
+                }
+                catch (Exception failure) { store.RecordFault("start", failure); }
+            }
+            Publish(synchronizationFailed ? "error" : guard == null ? (EnrollmentRegistration.Load(store) == null ? "enrollment_required" : "registration_pending") : "blocked");
+        }
+
+        // A journal that is there but cannot be read as written - not an
+        // input or output error, which passes - is damage.
+        private static bool Corrupt(Exception failure)
+        {
+            return !(failure is ObjectDisposedException) && (failure is InvalidOperationException || failure is ArgumentException ||
+                failure is FormatException || failure is OverflowException || failure is InvalidCastException ||
+                failure is KeyNotFoundException || failure is System.Security.Cryptography.CryptographicException);
+        }
+
+        // Reads every journal the way the service uses it; the first one that
+        // fails names the damage, or null when all read.
+        private string Inspect()
+        {
+            string found = null;
+            Action<string, Action> look = (reason, read) => {
+                if (found != null) return;
+                try { read(); }
+                catch (Exception failure) when (Corrupt(failure)) { store.RecordFault("inspect", failure); found = reason; }
+            };
+            look("damaged_plan", () => store.LoadPlan());
+            look("damaged_plan", () => store.LoadNetworksPlan());
+            look("damaged_plan", () => store.LoadConnectionIntent());
+            look("damaged_plan", () => store.LoadServerAddresses());
+            look("damaged_policy", () => store.LoadPolicyHistory());
+            look("damaged_registration", () => EnrollmentRegistration.Load(store));
+            look("damaged_profile", () => store.LoadVpnEntry());
+            return found;
+        }
+
+        // Damage the service cannot repair. Services stay closed - the denials
+        // that could be installed stay in force - and the service keeps
+        // running and saying so, until the person resets it.
+        private void Damaged(string reason, string phase, Exception failure)
+        {
+            if (failure != null) store.RecordFault(phase, failure);
+            bool first = damage == null;
+            damage = reason;
+            healthy = false;
+            try { ClosePermission(); }
+            catch { Environment.FailFast("Client guard could not close on damage"); }
+            try { CloseConnection(); } catch (Exception closing) { store.RecordFault(phase, closing); }
+            if (first)
+                failures.Record(reason == "damaged_acl" ? "start_failed_acl" : "needs_reset", phase,
+                    "state needs_reset; reason " + reason + "; guard " + (guard != null ? "installed" : "absent"), store.ReadFaults());
+            Publish("needs_reset");
         }
 
         public void BeginEnrollment(Uri endpoint, string invitation)
@@ -214,6 +373,7 @@ namespace IkeV2Manager.Client
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                if (damage != null) throw new InvalidOperationException("Reset required");
                 if (store.LoadPolicyHistory() != null) throw new InvalidOperationException("Client is already configured");
                 EnrollmentRegistration.Begin(store, endpoint, invitation);
                 Publish("registration_pending");
@@ -245,8 +405,49 @@ namespace IkeV2Manager.Client
         // had answered, a state file lost - is staged again from the
         // registration, as a start would, before the router is asked: every
         // poll used to end in an error from which nothing led out.
+        // Whether the service installs updates by itself: on unless the
+        // person turned it off.
+        internal static bool AutoUpdate
+        {
+            get
+            {
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(Settings))
+                    return !(key != null && key.GetValue("AutoUpdate") is int && (int)key.GetValue("AutoUpdate") == 0);
+            }
+        }
+
+        public void SetAutoUpdate(bool on)
+        {
+            using (var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(Settings))
+                key.SetValue("AutoUpdate", on ? 1 : 0, Microsoft.Win32.RegistryValueKind.DWord);
+            lock (gate) if (!disposed && publishedState != null) Publish(publishedState);
+        }
+
+        // "Update" at the window, and the window's exit, which is a moment
+        // the update may go by itself.
+        public void AskUpdate() { updateAsked = true; }
+        public void WindowExited() { windowExited = true; }
+
+        // Looks for a newer release and installs it when it is due. Outside
+        // the lock: fetching an installer takes its time.
+        public void AdvanceUpdate()
+        {
+            if (updater == null) return;
+            string offered; bool wanted;
+            lock (gate) { if (disposed || Held()) return; offered = release; wanted = connectionWanted; }
+            var own = typeof(GuardRuntime).Assembly.GetName().Version;
+            string before = updater.State;
+            updater.Consider(offered, own, DateTime.UtcNow, updateAsked && updater.State == "available");
+            if (updater.Due(updateAsked, AutoUpdate, wanted, windowExited, DateTime.Now)) updater.InstallNow();
+            updateAsked = false; windowExited = false;
+            if (updater.State != before) lock (gate) if (!disposed && publishedState != null) Publish(publishedState);
+        }
+
         public bool Step()
         {
+            // Damage waits for a reset; a guard being put back and an engine
+            // not yet there wait for the step that repairs them.
+            lock (gate) { if (disposed) throw new ObjectDisposedException("GuardRuntime"); if (Held()) return false; }
             if (HasPendingEnrollment()) return !ContinueEnrollment();
             bool committed;
             lock (gate)
@@ -276,6 +477,7 @@ namespace IkeV2Manager.Client
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                if (Held()) return;
                 choice = pendingChoice;
                 own = pendingOwn;
                 registration = EnrollmentRegistration.Load(store);
@@ -315,6 +517,23 @@ namespace IkeV2Manager.Client
                     if (own != null)
                         try { ownSent = PolicyTransportClient.SendOwn(endpoint, registration.DeviceToken, own.Domains, own.Networks); }
                         catch (Exception) { ownSent = "failed"; }
+                    bool asking;
+                    lock (gate) asking = checkWanted;
+                    if (asking)
+                    {
+                        int wait;
+                        string said;
+                        try { said = PolicyTransportClient.RequestCheck(endpoint, registration.DeviceToken, out wait); }
+                        catch (Exception) { said = "failed"; wait = 30; }
+                        lock (gate)
+                        {
+                            checkWanted = false;
+                            checkAnswer = said == "accepted" ? "" : said;
+                            checkNextAt = DateTime.UtcNow.AddSeconds(wait);
+                            // The answer lands in the services a few seconds later.
+                            if (said == "accepted") pollSoonUntil = DateTime.UtcNow.AddSeconds(15);
+                        }
+                    }
                     try { fetchedServices = PolicyTransportClient.FetchServices(endpoint, registration.DeviceToken, registration.Id); }
                     catch (PolicyFetchException) { }
                     try { fetchedRelease = PolicyTransportClient.FetchRelease(endpoint, registration.DeviceToken); }
@@ -386,7 +605,7 @@ namespace IkeV2Manager.Client
                         if (fetchedRelease != null) release = fetchedRelease;
                     }
                     accessClosed = noServices || (named != null && named.Code == "device_access_revoked");
-                    faultCode = named != null ? named.Code : "service_fault";
+                    faultCode = named != null ? named.Code : refusal is ProfileChangedException ? "profile_changed" : "service_fault";
                     warnings = noServices ? new[] { "idle" } : warnings.Where(w => w != "idle").ToArray();
                     try { permittedInterface = 0; if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block(); }
                     catch { Environment.FailFast("Client guard could not close after synchronization failure"); }
@@ -489,6 +708,7 @@ namespace IkeV2Manager.Client
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                if (Held()) return false;
                 try
                 {
                     var registration = EnrollmentRegistration.Resume(store);
@@ -541,7 +761,33 @@ namespace IkeV2Manager.Client
             if (InPlace(policy, full)) return;
             ClosePermission();
             SyncNames(policy);
-            var profile = ManagedVpnProfile.Ensure(policy, store.LoadPlan().Owner, store.LoadVpnEntry(), full);
+            Guid owner = store.LoadPlan().Owner, entry = store.LoadVpnEntry();
+            ManagedVpnProfile profile;
+            try { profile = ManagedVpnProfile.Ensure(policy, owner, entry, full); profileRepairs = 0; }
+            catch (ProfileChangedException changed)
+            {
+                // The service's own VPN connection was changed outside the
+                // program - its server, sign-in, ciphers, "remember me" - or
+                // deleted, or a second one took its name. It is made again
+                // under the same owner, and the journal follows its new identity.
+                store.RecordFault("profile", changed);
+                CloseConnection();
+                if (entry != Guid.Empty)
+                    try { var stale = ManagedVpnProfile.FromJournal(owner, entry); RasTunnel.Release(stale.EntryId, stale.Phonebook); }
+                    catch (Exception releasing) { store.RecordFault("profile", releasing); }
+                try { profile = ManagedVpnProfile.Recreate(policy, owner, full); }
+                catch (Exception failed)
+                {
+                    store.RecordFault("profile", failed);
+                    if (++profileRepairs == GuardAttempts)
+                        failures.Record("profile_changed", "policy", "the VPN profile could not be made again in " + GuardAttempts + " attempts", store.ReadFaults());
+                    throw new ProfileChangedException();
+                }
+                profileRepairs = 0;
+                store.ReplaceVpnEntry(profile.EntryId);
+                retryConnectionAt = DateTime.MinValue;
+                lookedFor = null;
+            }
             // A changed mode takes effect on a new connection.
             if (full != appliedFull) { appliedFull = full; CloseConnection(); retryConnectionAt = DateTime.MinValue; }
             store.SaveVpnEntry(profile.EntryId);
@@ -679,7 +925,7 @@ namespace IkeV2Manager.Client
             var stored = store.LoadNetworksPlan();
             if (networkGuard == null && stored != null)
             {
-                networkGuard = WfpGuard.Resume(stored);
+                networkGuard = WfpGuard.Resume(stored, installation);
                 networksHeld = String.Join(",", stored.Addresses);
                 if (permittedInterface != 0) networkGuard.AllowInterface(permittedInterface);
             }
@@ -688,7 +934,7 @@ namespace IkeV2Manager.Client
             if (key == (networksHeld ?? "")) return;
             GuardReceipt plan = null;
             if (wanted.Length > 0)
-                using (var planned = new WfpGuard(Guid.NewGuid(), wanted)) plan = planned.Receipt();
+                using (var planned = new WfpGuard(Guid.NewGuid(), wanted, installation)) plan = planned.Receipt();
             if (networkGuard != null)
             {
                 var receipt = networkGuard.Receipt();
@@ -699,7 +945,7 @@ namespace IkeV2Manager.Client
             store.SaveNetworksPlan(plan);
             networksHeld = key;
             if (plan == null) return;
-            networkGuard = WfpGuard.Resume(plan);
+            networkGuard = WfpGuard.Resume(plan, installation);
             if (permittedInterface != 0) networkGuard.AllowInterface(permittedInterface);
         }
 
@@ -724,7 +970,29 @@ namespace IkeV2Manager.Client
             }
         }
 
-        public bool ChoicePending() { lock (gate) return pendingChoice != null || sentChoice != null; }
+        public bool ChoicePending() { lock (gate) return pendingChoice != null || sentChoice != null || DateTime.UtcNow < pollSoonUntil; }
+
+        // The person asked the router to check the services now. Sent with the
+        // next poll; the result comes in the services' health a few seconds later.
+        public bool AskCheck()
+        {
+            lock (gate)
+            {
+                if (disposed) throw new ObjectDisposedException("GuardRuntime");
+                if (Held() || !registrationComplete || checkWanted) return false;
+                checkWanted = true;
+                if (publishedState != null) Publish(publishedState);
+                return true;
+            }
+        }
+
+        // The person's one answer about failure reports, kept for the device.
+        public void AnswerReports(bool send)
+        {
+            failures.Consent = send;
+            if (!send) failures.Clear();
+            else if (reporter != null) ThreadPool.QueueUserWorkItem(ignored => reporter.SendDue(startedAt));
+        }
 
         // The person's own sites and networks for this device, as a whole list,
         // within what the administrator allows. The router checks it again.
@@ -793,6 +1061,7 @@ namespace IkeV2Manager.Client
         public void RequestConnection(bool wanted)
         {
             if (!systemIntegration || (wanted && !registrationComplete)) throw new InvalidOperationException("Registered system integration required");
+            if (wanted && damage != null) throw new InvalidOperationException("Reset required");
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("GuardRuntime");
@@ -993,7 +1262,7 @@ namespace IkeV2Manager.Client
                     .Concat(new[] { PolicyHistory.NamesResolver(policy.VirtualSubnet), PolicyHistory.NamesRange(policy.VirtualSubnet) }).ToArray();
                 bool initial = plan == null;
                 if (initial)
-                    using (var planned = new WfpGuard(Guid.NewGuid(), addresses)) plan = planned.Receipt();
+                    using (var planned = new WfpGuard(Guid.NewGuid(), addresses, installation)) plan = planned.Receipt();
                 else plan = WfpGuard.ExtendPlan(plan, addresses);
                 healthy = false;
                 try
@@ -1001,7 +1270,7 @@ namespace IkeV2Manager.Client
                     ClosePermission();
                     if (initial) store.SavePlan(plan); else store.ExtendPlan(plan);
                     if (guard != null) { guard.Dispose(); guard = null; }
-                    guard = WfpGuard.Resume(plan);
+                    guard = WfpGuard.Resume(plan, installation);
                     store.SavePolicyHistory(next);
                     EnsureProfile(policy);
                     healthy = true;
@@ -1017,33 +1286,142 @@ namespace IkeV2Manager.Client
             }
         }
 
+        // Whether the service waits instead of working: damage that needs a
+        // reset, an engine not there yet, a guard being put back.
+        private bool Held() { return damage != null || starting || guardFault != null; }
+
         private void Tick(object ignored)
         {
-            lock (gate)
+            // A step still running is the watchdog's business, not a reason to
+            // queue another one behind it.
+            if (Interlocked.CompareExchange(ref ticking, 1, 0) != 0) return;
+            Volatile.Write(ref tickSince, Stopwatch.GetTimestamp());
+            try { lock (gate) { if (!disposed) Turn(); } }
+            finally { Volatile.Write(ref tickSince, 0L); Volatile.Write(ref ticking, 0); }
+        }
+
+        private void Turn()
+        {
+            if (store.TestMarker("stall-tick")) Thread.Sleep(Timeout.Infinite);
+            if (damage != null) { Publish("needs_reset"); return; }
+            if (starting)
             {
-                if (disposed) return;
+                Start(false);
+                if (Held()) return;
+            }
+            if (!HoldGuards()) return;
+            try
+            {
+                store.LoadPolicyHistory();
+                var registration = EnrollmentRegistration.Load(store);
+                healthy = guard != null;
+                AdvanceConnection();
+                if (systemIntegration && guard != null && registrationComplete &&
+                    (WantNames() != namesApplied || (namesApplied && String.Join(",", OrdinaryNames(store.LoadPolicyHistory().Current).OrderBy(d => d, StringComparer.Ordinal)) != namesExcept)))
+                    SyncNames(store.LoadPolicyHistory().Current);
+                Publish(synchronizationFailed ? (accessClosed ? "access_closed" : "error") : guard == null ? (registration == null ? "enrollment_required" : "registration_pending") : connectionState);
+            }
+            catch (Exception fault)
+            {
+                healthy = false;
+                store.RecordFault("tick", fault);
+                // A journal that stopped reading while the service ran is
+                // damage, told as such; anything else is tried again.
+                string broken = Corrupt(fault) ? Inspect() : null;
+                if (broken != null) { Damaged(broken, "tick", null); return; }
+                // A future permission owner must also close before publishing
+                // an error; failure to close cannot leave a live process.
+                try { permittedInterface = 0; if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block(); }
+                catch { Environment.FailFast("Client guard could not close its permission session"); }
+                try { faultCode = "service_fault"; Publish("error"); } catch { }
+            }
+        }
+
+        // Both guards are checked every step. One that another program
+        // changed or deleted, or whose engine handle died with a restart of
+        // BFE, is put back from its plan: permission goes first, so services
+        // stay closed while it is. A repair that does not take is tried again
+        // after 4, 8, 16 and 32 seconds; after the fifth the process ends, and
+        // the service control manager starts it afresh. False while the guard
+        // is not in place.
+        private bool HoldGuards()
+        {
+            if (guardFault == null)
+            {
                 try
                 {
                     if (guard != null) guard.VerifyProtection();
-                    store.LoadPolicyHistory();
-                    var registration = EnrollmentRegistration.Load(store);
-                    healthy = guard != null;
-                    AdvanceConnection();
-                    if (systemIntegration && guard != null && registrationComplete &&
-                        (WantNames() != namesApplied || (namesApplied && String.Join(",", OrdinaryNames(store.LoadPolicyHistory().Current).OrderBy(d => d, StringComparer.Ordinal)) != namesExcept)))
-                        SyncNames(store.LoadPolicyHistory().Current);
-                    Publish(synchronizationFailed ? (accessClosed ? "access_closed" : "error") : guard == null ? (registration == null ? "enrollment_required" : "registration_pending") : connectionState);
+                    if (networkGuard != null) networkGuard.VerifyProtection();
+                    return true;
                 }
-                catch (Exception fault)
+                catch (Exception broken)
                 {
-                    healthy = false;
-                    store.RecordFault("tick", fault);
-                    // A future permission owner must also close before publishing
-                    // an error; failure to close cannot leave a live process.
-                    try { permittedInterface = 0; if (guard != null) guard.Block(); if (networkGuard != null) networkGuard.Block(); }
-                    catch { Environment.FailFast("Client guard could not close its permission session"); }
-                    try { faultCode = "service_fault"; Publish("error"); } catch { }
+                    guardFault = WfpGuard.EngineLost(broken) ? "guard_engine_lost" : "guard_changed";
+                    guardAttempts = 0; guardRetryAt = DateTime.MinValue;
+                    store.RecordFault("guard", broken);
                 }
+            }
+            healthy = false;
+            try { ClosePermission(); }
+            catch { Environment.FailFast("Client guard could not close its permission session"); }
+            if (DateTime.UtcNow >= guardRetryAt)
+            {
+                guardAttempts++;
+                try
+                {
+                    RepairGuards();
+                    guardFault = null; guardAttempts = 0;
+                    healthy = guard != null;
+                    return true;
+                }
+                catch (Exception failed)
+                {
+                    store.RecordFault("guard", failed);
+                    if (guardAttempts >= GuardAttempts)
+                    {
+                        failures.Record(guardFault, "tick", "the guard did not come back in " + GuardAttempts + " attempts; the service restarts", store.ReadFaults());
+                        faultCode = guardFault;
+                        try { Publish("error"); } catch { }
+                        if (systemIntegration) Environment.Exit(1);
+                    }
+                    guardRetryAt = DateTime.UtcNow.AddSeconds(2 << Math.Min(guardAttempts, 4));
+                }
+            }
+            faultCode = guardFault;
+            Publish("error");
+            return false;
+        }
+
+        private void RepairGuards()
+        {
+            permittedInterface = 0;
+            GuardReceipt plan = store.LoadPlan(), networks = store.LoadNetworksPlan();
+            if (plan != null)
+            {
+                var old = guard; guard = null;
+                if (old != null) try { old.Dispose(); } catch (Exception) { }
+                guard = WfpGuard.Repair(plan, installation);
+            }
+            if (networks != null)
+            {
+                var old = networkGuard; networkGuard = null;
+                if (old != null) try { old.Dispose(); } catch (Exception) { }
+                networkGuard = WfpGuard.Repair(networks, installation);
+                networksHeld = String.Join(",", networks.Addresses);
+            }
+        }
+
+        // The step is watched from a thread of its own: one that has not ended
+        // within the limit - a call that never returns, a lock never let go -
+        // ends the process, and the service control manager starts it again.
+        private void Watch()
+        {
+            while (!watchStop.WaitOne(5000))
+            {
+                long since = Volatile.Read(ref tickSince);
+                if (since == 0 || Stopwatch.GetTimestamp() - since < (long)(stallLimit.TotalSeconds * Stopwatch.Frequency)) continue;
+                failures.Record("tick_stalled", "tick", "a step ran longer than " + (int)stallLimit.TotalSeconds + " s; the service restarts", store.ReadFaults());
+                Environment.FailFast("Waypoint service step stalled");
             }
         }
 
@@ -1074,13 +1452,15 @@ namespace IkeV2Manager.Client
                 ServerName = server, ServerIP = ip, ServicesSubnet = subnet, TunnelSubnet = assigned == null ? "" : assigned.TunnelSubnet,
                 Entries = assigned == null || assigned.Entries == null ? new ServiceChoice[0] : assigned.Entries.Take(64).Select(e => new ServiceChoice {
                     Id = e.Id, Label = String.IsNullOrEmpty(e.Label) ? e.Id : e.Label, Required = e.Required, On = e.On, Closed = e.Closed,
-                    ChooseClosed = e.ChooseClosed }).ToArray(),
+                    ChooseClosed = e.ChooseClosed, Health = e.Health ?? "unknown", Reason = e.HealthReason ?? "", Since = e.HealthSince }).ToArray(),
+                UpdateVersion = updater == null ? "" : updater.Version, UpdateState = updater == null ? "" : updater.State, UpdateAuto = AutoUpdate,
+                CheckAnswer = checkAnswer, CheckNextAtUtc = DateTime.UtcNow < checkNextAt ? checkNextAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture) : "",
                 ChoicePending = pendingChoice != null || sentChoice != null,
                 Own = assigned == null || assigned.Own == null ? null : new OwnStatus { Limit = assigned.Own.Limit, Ports = assigned.Own.Ports,
                     Domains = pendingOwn != null ? pendingOwn.Domains : assigned.Own.Domains, Networks = pendingOwn != null ? pendingOwn.Networks : assigned.Own.Networks,
                     Pending = pendingOwn != null, Answer = ownAnswer },
                 Protected = healthy && state == "protected" && permittedInterface != 0,
-                ConnectionError = state == "error" ? faultCode : state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
+                ConnectionError = state == "error" ? faultCode : state == "needs_reset" ? damage : state == "registration_pending" || state == "registration_error" ? registrationError : connectionError,
                 UpdatedAtUtc = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
                 ProcessId = Process.GetCurrentProcess().Id });
         }
@@ -1091,6 +1471,8 @@ namespace IkeV2Manager.Client
             {
                 if (disposed) return;
                 disposed = true;
+                watchStop.Set();
+                if (reporting != null) reporting.Dispose();
                 if (heartbeat != null) heartbeat.Dispose();
                 try
                 {

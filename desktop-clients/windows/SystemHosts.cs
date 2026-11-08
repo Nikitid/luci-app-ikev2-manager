@@ -42,6 +42,14 @@ namespace IkeV2Manager.Client
             return (policy == null ? ManagedHosts.Reconcile(text, server == null ? new HostEntry[0] : new[] { server }) : policy.ReconcileHosts(text, server, except)) == text;
         }
 
+        // How many lines of this program's block are in the hosts file now.
+        public static int Managed()
+        {
+            string[] lines = Bytes.GetString(Read(PathName)).Replace("\r\n", "\n").Split('\n');
+            int begin = Array.IndexOf(lines, "# BEGIN IKEv2 Manager managed hosts"), end = Array.IndexOf(lines, "# END IKEv2 Manager managed hosts");
+            return begin < 0 || end <= begin ? 0 : end - begin - 1;
+        }
+
         // Explicit privileged removal only; ordinary disconnect retains mappings.
         public static void Remove(GuardStore store)
         { Replace(store, text => ManagedHosts.Reconcile(text, new HostEntry[0])); }

@@ -96,6 +96,41 @@ internal static class ClientStatusTests
             {
                 var spoiled = own(); spoil(spoiled); data["Own"] = spoiled; Check(data, 123, now, "status_invalid");
             }
+            // Version 7: each service says whether it works now, and the last
+            // "check now" what the router said and when it may be asked again.
+            data["Own"] = null; data["Version"] = 7; Check(data, 123, now, "status_invalid");
+            data["CheckAnswer"] = "too_often"; data["CheckNextAtUtc"] = now.AddSeconds(20).ToString("o");
+            data["UpdateVersion"] = "2.4.0"; data["UpdateState"] = "ready"; data["UpdateAuto"] = true;
+            Func<string, string, int, Dictionary<string, object>> healthy = (health, reason, since) => new Dictionary<string, object> {
+                { "Id", "mail" }, { "Label", "Mail" }, { "Required", true }, { "On", true }, { "Closed", true }, { "ChooseClosed", false },
+                { "Health", health }, { "Reason", reason }, { "Since", since } };
+            data["Entries"] = new object[] { healthy("down", "silent", 0) };
+            var seven = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now);
+            if (seven.Entries.Length != 1 || seven.Entries[0].Health != "down" || seven.Entries[0].Reason != "silent" ||
+                seven.CheckAnswer != "too_often" || seven.CheckNextAt != now.AddSeconds(20)) throw new Exception("Service health or the check answer was lost");
+            foreach (var spoiled in new[] { healthy("broken", "", 0), healthy("down", "<b>", 0), healthy("ok", "", -1) })
+            {
+                data["Entries"] = new object[] { spoiled }; Check(data, 123, now, "status_invalid");
+            }
+            data["Entries"] = new object[] { healthy("ok", "", 1700000000) };
+            data["CheckAnswer"] = "nope"; Check(data, 123, now, "status_invalid");
+            data["CheckAnswer"] = ""; data["CheckNextAtUtc"] = "soon"; Check(data, 123, now, "status_invalid");
+            data["CheckNextAtUtc"] = "";
+            if (ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).CheckNextAt != null) throw new Exception("No wait was read as one");
+            // A newer router's services answer: health read leniently, unknown fields left alone.
+            var parsed = ServiceEntry.ParseAll(new JavaScriptSerializer().DeserializeObject(
+                "[{\"id\":\"mail\",\"label\":\"Mail\",\"required\":true,\"on\":true,\"closed\":true,\"choose_closed\":false,\"domains\":1,\"networks\":0,\"resources\":[\"host-1\"],\"cidrs\":[],\"health\":{\"state\":\"down\",\"reason\":\"silent\",\"tunnel\":2}}," +
+                "{\"id\":\"wiki\",\"required\":false,\"on\":true,\"closed\":false,\"choose_closed\":true,\"domains\":1,\"networks\":0,\"resources\":[],\"cidrs\":[],\"health\":{\"state\":\"later\",\"more\":1}}," +
+                "{\"id\":\"docs\",\"required\":false,\"on\":true,\"closed\":false,\"choose_closed\":true,\"domains\":1,\"networks\":0,\"resources\":[],\"cidrs\":[],\"health\":{\"state\":\"ok\",\"tunnel\":1,\"since\":1700000000}}]"));
+            if (parsed.Length != 3 || parsed[0].Health != "down" || parsed[0].HealthReason != "silent" || parsed[1].Health != "unknown" ||
+                parsed[2].Health != "ok" || parsed[2].HealthSince != 1700000000) throw new Exception("The router's service health was not read");
+            var update = ClientStatusReader.Evaluate(new JavaScriptSerializer().Serialize(data), 123, now).Update;
+            if (update == null || update.Version != "2.4.0" || update.State != "ready" || !update.Auto) throw new Exception("The update was lost");
+            data["UpdateState"] = "pwned"; Check(data, 123, now, "status_invalid");
+            data["UpdateState"] = "ready"; data["UpdateVersion"] = "https://example.com/x.msi"; Check(data, 123, now, "status_invalid");
+            data.Remove("UpdateVersion"); data.Remove("UpdateState"); data.Remove("UpdateAuto");
+            data.Remove("CheckAnswer"); data.Remove("CheckNextAtUtc");
+            data["Entries"] = new object[0];
             data.Remove("Own"); data["Version"] = 5;
             data.Remove("ChoicePending"); Check(data, 123, now, "status_invalid");
             data.Remove("Entries"); data["Version"] = 4;

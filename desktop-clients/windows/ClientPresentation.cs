@@ -77,6 +77,21 @@ namespace IkeV2Manager.Client
             }
         }
 
+        // What is damaged, in words, for "needs_reset".
+        public static string Damage(string code)
+        {
+            switch (code)
+            {
+                case "damaged_plan": return "план блокировки";
+                case "damaged_policy": return "настройки сервисов";
+                case "damaged_registration": return "данные регистрации";
+                case "damaged_profile": return "журнал VPN-подключения";
+                case "damaged_acl": return "другая программа изменила права на папку службы";
+                case "damaged_guard": return "фильтры блокировки нельзя поставить заново";
+                default: return "причина в отчёте";
+            }
+        }
+
         public static ClientPresentation Of(ClientView view, Version own, string[] selfResolving, bool browsersTold)
         {
             var p = new ClientPresentation();
@@ -126,7 +141,11 @@ namespace IkeV2Manager.Client
                     break;
                 case "connection_error":
                     p.Heading = "Нет подключения";
+                    // What Windows said when dialing, in words a person can act on.
                     p.Description = code == "path_stalled" ? "Данные через туннель не идут. Если включён другой VPN, он может их блокировать. Попытка повторится." :
+                        code == "native_809" ? "Сервер не отвечает из этой сети: вероятно, здесь закрыты порты UDP 500 и 4500. Попытка повторится." :
+                        code == "native_13801" || code == "native_13806" || code == "native_628" ? "Сертификат сервера не принят. Сообщите администратору; попытка повторится." :
+                        code == "native_691" ? "Сервер не принял вход этого устройства. Сообщите администратору; попытка повторится." :
                         "Туннель не установлен. Попытка повторится.";
                     break;
                 case "access_closed":
@@ -140,6 +159,19 @@ namespace IkeV2Manager.Client
                         code == "services_unavailable" || code == "release_unavailable";
                     bool rejected = code == "policy_http_rejected" || code == "policy_update_rejected";
                     bool garbled = (code != null && code.EndsWith("_invalid", StringComparison.Ordinal)) || code == "policy_response_too_large";
+                    if (code == "guard_changed" || code == "guard_engine_lost")
+                    {
+                        p.Heading = code == "guard_changed" ? "Блокировка снята извне" : "Блокировка восстанавливается";
+                        p.Description = (code == "guard_changed" ? "Другая программа удалила фильтры Waypoint." : "Служба фильтрации Windows перезапустилась.") +
+                            " Сервисы закрыты, пока фильтры ставятся заново.";
+                        break;
+                    }
+                    if (code == "profile_changed")
+                    {
+                        p.Heading = "Подключение изменено";
+                        p.Description = "VPN-подключение Waypoint изменено вне программы и создаётся заново.";
+                        break;
+                    }
                     if (code == "enrollment_missing")
                     {
                         p.Heading = "Регистрация потеряна";
@@ -158,7 +190,16 @@ namespace IkeV2Manager.Client
                     break;
                 case "service_stopped":
                     p.Heading = "Служба остановлена";
-                    p.Description = "Состояние защиты не подтверждено.";
+                    p.Description = "Сервисы закрыты, пока служба не запущена.";
+                    break;
+                case "status_stale":
+                    p.Heading = "Служба не отвечает";
+                    p.Description = "Служба давно не обновляла состояние. Перезапустите её.";
+                    break;
+                case "needs_reset":
+                    p.Heading = "Нужен сброс";
+                    p.Description = "Данные Waypoint на этом компьютере повреждены: " + Damage(code) +
+                        ". Сервисы закрыты. Нажмите «Сбросить…», затем зарегистрируйте устройство по новой ссылке.";
                     break;
                 default:
                     p.Heading = "Состояние неизвестно";
@@ -212,8 +253,9 @@ namespace IkeV2Manager.Client
             p.Register = view.State == "enrollment_required" || view.State == "registration_error";
             p.Resume = view.State == "registration_pending" || view.State == "registration_error";
             // Nothing to switch on until the administrator assigns a service or opens access.
-            p.Connect = p.Registered && !view.Wanted && view.State != "access_closed";
-            p.Disconnect = p.Registered && view.Wanted && view.State != "access_closed";
+            // Damage waits for a reset: nothing to switch until then.
+            p.Connect = p.Registered && !view.Wanted && view.State != "access_closed" && view.State != "needs_reset";
+            p.Disconnect = p.Registered && view.Wanted && view.State != "access_closed" && view.State != "needs_reset";
             p.Update = ClientView.Newer(view.Release, own);
 
             var notes = new List<string>();

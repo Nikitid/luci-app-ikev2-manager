@@ -40,6 +40,11 @@ namespace IkeV2Manager.Client
         private IntPtr engine;
         private IntPtr permissionEngine;
         private bool installed;
+        // The installation the guard belongs to, written as the description of
+        // its sublayer: a reset finds what it has to take away by this name
+        // even when the plan that lists the filters cannot be read.
+        private readonly string installation;
+        internal const string SublayerName = "IKEv2 Manager client guard";
 
         public WfpGuard(Guid owner, IEnumerable<IPAddress> destinations)
             : this(owner, destinations == null ? null : new List<IPAddress>(destinations).ConvertAll(d => d == null ? null : d.ToString())) { }
@@ -77,10 +82,11 @@ namespace IkeV2Manager.Client
             return text + "/" + length.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        public WfpGuard(Guid owner, IEnumerable<string> destinations)
+        public WfpGuard(Guid owner, IEnumerable<string> destinations, string installation = null)
         {
             if (IntPtr.Size != 8) throw new PlatformNotSupportedException("64-bit Windows required");
             sublayer = owner;
+            this.installation = installation;
             if (owner == Guid.Empty) throw new ArgumentException("Guard owner required");
             if (destinations == null) throw new ArgumentNullException("destinations");
             addresses = new List<uint>();
@@ -97,7 +103,13 @@ namespace IkeV2Manager.Client
             engine = Open(false);
         }
 
-        public void InstallBlocking()
+        public void InstallBlocking() { Install(false); }
+
+        // `replace`: what is left of the planned filters is taken away and the
+        // whole plan put in again, in one transaction, so a filter another
+        // program changed or deleted comes back as planned and nothing that
+        // still denies is lifted before its replacement is in.
+        private void Install(bool replace)
         {
             if (installed) throw new InvalidOperationException("Guard already installed");
             Check(Native.FwpmTransactionBegin0(engine, 0));
@@ -106,11 +118,33 @@ namespace IkeV2Manager.Client
                 using (var memory = new NativeMemory())
                 {
                     var layer = new Native.Sublayer {
-                        Key = sublayer, Display = new Native.Display { Name = memory.String("IKEv2 Manager client guard") },
+                        Key = sublayer, Display = new Native.Display { Name = memory.String(SublayerName),
+                            Description = installation == null ? IntPtr.Zero : memory.String(installation) },
                         Flags = 1, Weight = Weight
                     };
+                    if (replace)
+                        foreach (Guid key in filters)
+                        {
+                            Guid copy = key;
+                            uint deleted = Native.FwpmFilterDeleteByKey0(engine, ref copy);
+                            if (deleted != 0x80320003) Check(deleted); // FWP_E_FILTER_NOT_FOUND
+                        }
                     uint error = Native.FwpmSubLayerAdd0(engine, ref layer, IntPtr.Zero);
                     if (error != 0x80320009) Check(error); // FWP_E_ALREADY_EXISTS: verify, never replace.
+                    if (replace)
+                    {
+                        // A sublayer somebody put back under this key with other
+                        // properties goes, and ours comes in its place; one that
+                        // still holds a filter of another program cannot be
+                        // deleted, and the repair fails as it should.
+                        try { VerifySublayer(); }
+                        catch (InvalidOperationException)
+                        {
+                            Guid changed = sublayer;
+                            Check(Native.FwpmSubLayerDeleteByKey0(engine, ref changed));
+                            Check(Native.FwpmSubLayerAdd0(engine, ref layer, IntPtr.Zero));
+                        }
+                    }
                     VerifySublayer();
                     if (legacy)
                     {
@@ -173,8 +207,27 @@ namespace IkeV2Manager.Client
         public void Block()
         {
             if (permissionEngine == IntPtr.Zero) return;
-            Check(Native.FwpmEngineClose0(permissionEngine));
+            uint error = Native.FwpmEngineClose0(permissionEngine);
+            // The filtering engine restarted: the dynamic session and its
+            // permission went with it, and the handle is no longer anything.
+            if (error != 0 && !EngineLost(error)) Check(error);
             permissionEngine = IntPtr.Zero;
+        }
+
+        // A handle to the filtering engine stops working when the Base
+        // Filtering Engine service restarts: Windows updates it, or it fails.
+        // Its calls then end in an RPC error or an aborted session; while the
+        // engine is not running at all, opening it ends the same way.
+        internal static bool EngineLost(uint error)
+        {
+            if ((error & 0xFFFF0000) == 0x80070000) error &= 0xFFFF;
+            return error == 6 || (error >= 1700 && error <= 1830) || error == 0x80320010 || error == 0x8032000F;
+        }
+
+        internal static bool EngineLost(Exception failure)
+        {
+            var native = failure as Win32Exception;
+            return native != null && EngineLost(unchecked((uint)native.NativeErrorCode));
         }
 
         public void VerifyProtection()
@@ -204,9 +257,11 @@ namespace IkeV2Manager.Client
         // Reset and uninstall: takes away whatever of a recorded plan is
         // still in WFP, without installing it first. A plan that was never
         // installed or only partly installed is removed all the same.
-        public static void RemoveRecorded(GuardReceipt receipt)
+        // Returns how many of the recorded filters were still there.
+        public static int RemoveRecorded(GuardReceipt receipt)
         {
-            if (receipt == null || receipt.Owner == Guid.Empty) return;
+            if (receipt == null || receipt.Owner == Guid.Empty) return 0;
+            int removed = 0;
             IntPtr handle = Open(false);
             try
             {
@@ -217,7 +272,7 @@ namespace IkeV2Manager.Client
                     {
                         Guid copy = key;
                         uint error = Native.FwpmFilterDeleteByKey0(handle, ref copy);
-                        if (error != 0x80320003) Check(error);
+                        if (error != 0x80320003) { Check(error); removed++; }
                     }
                     Guid layer = receipt.Owner;
                     uint missing = Native.FwpmSubLayerDeleteByKey0(handle, ref layer);
@@ -226,6 +281,102 @@ namespace IkeV2Manager.Client
                 }
                 catch { Native.FwpmTransactionAbort0(handle); throw; }
             }
+            finally { Native.FwpmEngineClose0(handle); }
+            return removed;
+        }
+
+        private delegate bool Visit(IntPtr entry);
+
+        // Pages through an enumeration of WFP objects, entry pointer by pointer.
+        private static void Enumerate(IntPtr handle, bool sublayers, Visit visit)
+        {
+            IntPtr enumeration;
+            Check(sublayers ? Native.FwpmSubLayerCreateEnumHandle0(handle, IntPtr.Zero, out enumeration)
+                            : Native.FwpmFilterCreateEnumHandle0(handle, IntPtr.Zero, out enumeration));
+            try
+            {
+                while (true)
+                {
+                    IntPtr entries; uint count;
+                    Check(sublayers ? Native.FwpmSubLayerEnum0(handle, enumeration, 256, out entries, out count)
+                                    : Native.FwpmFilterEnum0(handle, enumeration, 256, out entries, out count));
+                    try
+                    {
+                        for (int item = 0; item < count; item++)
+                            if (!visit(Marshal.ReadIntPtr(entries, item * IntPtr.Size))) return;
+                    }
+                    finally { if (entries != IntPtr.Zero) Native.FwpmFreeMemory0(ref entries); }
+                    if (count < 256) return;
+                }
+            }
+            finally
+            {
+                if (sublayers) Native.FwpmSubLayerDestroyEnumHandle0(handle, enumeration);
+                else Native.FwpmFilterDestroyEnumHandle0(handle, enumeration);
+            }
+        }
+
+        private static HashSet<Guid> Sublayers(IntPtr handle, string installation, bool untagged, bool first)
+        {
+            var owned = new HashSet<Guid>();
+            Enumerate(handle, true, entry => {
+                var layer = (Native.Sublayer)Marshal.PtrToStructure(entry, typeof(Native.Sublayer));
+                string name = layer.Display.Name == IntPtr.Zero ? null : Marshal.PtrToStringUni(layer.Display.Name);
+                string description = layer.Display.Description == IntPtr.Zero ? null : Marshal.PtrToStringUni(layer.Display.Description);
+                if (name == SublayerName && (description == installation || (untagged && String.IsNullOrEmpty(description)))) owned.Add(layer.Key);
+                return !first || owned.Count == 0;
+            });
+            return owned;
+        }
+
+        // Reset when the plan is lost or unreadable: every sublayer of this
+        // program that belongs to the installation, found by its name and
+        // description, goes with every filter in it. Sublayers written before
+        // they carried a description belong to the product's own installation
+        // (`untagged`). Returns the filters taken away, -1 when nothing of the
+        // installation is there at all.
+        public static int RemoveInstallation(string installation, bool untagged)
+        {
+            if (String.IsNullOrEmpty(installation)) throw new ArgumentException("Installation required");
+            IntPtr handle = Open(false);
+            try
+            {
+                var owned = Sublayers(handle, installation, untagged, false);
+                if (owned.Count == 0) return -1;
+                var keys = new List<Guid>();
+                Enumerate(handle, false, entry => {
+                    var filter = (Native.Filter)Marshal.PtrToStructure(entry, typeof(Native.Filter));
+                    if (owned.Contains(filter.Sublayer)) keys.Add(filter.Key);
+                    return true;
+                });
+                Check(Native.FwpmTransactionBegin0(handle, 0));
+                try
+                {
+                    foreach (Guid key in keys)
+                    {
+                        Guid copy = key;
+                        uint error = Native.FwpmFilterDeleteByKey0(handle, ref copy);
+                        if (error != 0x80320003) Check(error);
+                    }
+                    foreach (Guid key in owned)
+                    {
+                        Guid copy = key;
+                        uint error = Native.FwpmSubLayerDeleteByKey0(handle, ref copy);
+                        if (error != 0x80320007) Check(error);
+                    }
+                    Check(Native.FwpmTransactionCommit0(handle));
+                }
+                catch { Native.FwpmTransactionAbort0(handle); throw; }
+                return keys.Count;
+            }
+            finally { Native.FwpmEngineClose0(handle); }
+        }
+
+        // Whether any sublayer of the installation is still in WFP.
+        public static bool InstallationPresent(string installation, bool untagged)
+        {
+            IntPtr handle = Open(false);
+            try { return Sublayers(handle, installation, untagged, true).Count != 0; }
             finally { Native.FwpmEngineClose0(handle); }
         }
 
@@ -244,9 +395,9 @@ namespace IkeV2Manager.Client
             return new GuardReceipt { Owner = sublayer, Filters = filters.ToArray(), Addresses = texts };
         }
 
-        public static WfpGuard Recover(GuardReceipt receipt)
+        public static WfpGuard Recover(GuardReceipt receipt, string installation = null)
         {
-            var guard = FromReceipt(receipt);
+            var guard = FromReceipt(receipt, installation);
             try
             {
                 guard.VerifyInstalled();
@@ -256,10 +407,20 @@ namespace IkeV2Manager.Client
             catch { guard.Dispose(); throw; }
         }
 
-        public static WfpGuard Resume(GuardReceipt receipt)
+        public static WfpGuard Resume(GuardReceipt receipt, string installation = null)
         {
-            var guard = FromReceipt(receipt);
-            try { guard.InstallBlocking(); return guard; }
+            var guard = FromReceipt(receipt, installation);
+            try { guard.Install(false); return guard; }
+            catch { guard.Dispose(); throw; }
+        }
+
+        // The plan put back whole through a session of its own: after another
+        // program deleted or changed its filters, or after the filtering
+        // engine restarted and every earlier handle stopped working.
+        public static WfpGuard Repair(GuardReceipt receipt, string installation = null)
+        {
+            var guard = FromReceipt(receipt, installation);
+            try { guard.Install(true); return guard; }
             catch { guard.Dispose(); throw; }
         }
 
@@ -286,7 +447,7 @@ namespace IkeV2Manager.Client
             }
         }
 
-        private static WfpGuard FromReceipt(GuardReceipt receipt)
+        private static WfpGuard FromReceipt(GuardReceipt receipt, string installation = null)
         {
             if (receipt == null || receipt.Version != 1 || receipt.Addresses == null || receipt.Filters == null ||
                 receipt.Addresses.Length == 0 || receipt.Addresses.Length > 4096 ||
@@ -301,7 +462,7 @@ namespace IkeV2Manager.Client
                 if (!ParseDestination(value, out address, out mask) || DestinationText(address, mask) != value)
                     throw new ArgumentException("Canonical guard address required");
             }
-            var guard = new WfpGuard(receipt.Owner, receipt.Addresses);
+            var guard = new WfpGuard(receipt.Owner, receipt.Addresses, installation);
             guard.filters.Clear();
             guard.filters.AddRange(receipt.Filters);
             return guard;
@@ -398,7 +559,10 @@ namespace IkeV2Manager.Client
         public void Dispose()
         {
             Block();
-            if (engine != IntPtr.Zero) { Check(Native.FwpmEngineClose0(engine)); engine = IntPtr.Zero; }
+            if (engine == IntPtr.Zero) return;
+            uint error = Native.FwpmEngineClose0(engine);
+            engine = IntPtr.Zero;
+            if (error != 0 && !EngineLost(error)) Check(error);
         }
 
         private sealed class NativeMemory : IDisposable
@@ -461,6 +625,12 @@ namespace IkeV2Manager.Client
             [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterDeleteByKey0(IntPtr handle, ref Guid key);
             [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterGetByKey0(IntPtr handle, ref Guid key, out IntPtr filter);
             [DllImport("fwpuclnt.dll")] internal static extern void FwpmFreeMemory0(ref IntPtr memory);
+            [DllImport("fwpuclnt.dll")] internal static extern uint FwpmSubLayerCreateEnumHandle0(IntPtr handle, IntPtr template, out IntPtr enumeration);
+            [DllImport("fwpuclnt.dll")] internal static extern uint FwpmSubLayerEnum0(IntPtr handle, IntPtr enumeration, uint requested, out IntPtr entries, out uint returned);
+            [DllImport("fwpuclnt.dll")] internal static extern uint FwpmSubLayerDestroyEnumHandle0(IntPtr handle, IntPtr enumeration);
+            [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterCreateEnumHandle0(IntPtr handle, IntPtr template, out IntPtr enumeration);
+            [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterEnum0(IntPtr handle, IntPtr enumeration, uint requested, out IntPtr entries, out uint returned);
+            [DllImport("fwpuclnt.dll")] internal static extern uint FwpmFilterDestroyEnumHandle0(IntPtr handle, IntPtr enumeration);
             [DllImport("iphlpapi.dll")] internal static extern uint ConvertInterfaceIndexToLuid(uint index, out ulong luid);
         }
     }

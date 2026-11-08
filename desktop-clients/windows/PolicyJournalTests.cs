@@ -101,13 +101,21 @@ internal static class PolicyJournalTests
                 while (deadline.ElapsedMilliseconds < 9000)
                 {
                     var status = (Dictionary<string, object>)serializer.DeserializeObject(File.ReadAllText(Path.Combine(directory, "status.json")));
-                    if ((string)status["State"] == "error" && !(bool)status["Protected"]) { refused = true; break; }
+                    if ((string)status["State"] == "needs_reset" && (string)status["ConnectionError"] == "damaged_policy" && !(bool)status["Protected"]) { refused = true; break; }
                     Thread.Sleep(50);
                 }
                 if (!refused) throw new Exception("Running service ignored a corrupt policy journal");
             }
 
-            Reject(() => { using (var broken = new GuardRuntime(name)) { } }, "corrupt journal on service startup");
+            // A start on a damaged journal does not fail: the denials go in, and
+            // the service says it needs a reset and why.
+            using (var broken = new GuardRuntime(name))
+            {
+                var status = (Dictionary<string, object>)serializer.DeserializeObject(File.ReadAllText(Path.Combine(directory, "status.json")));
+                if ((string)status["State"] != "needs_reset" || (string)status["ConnectionError"] != "damaged_policy" || (bool)status["Protected"])
+                    throw new Exception("A start on a corrupt journal did not ask for a reset");
+                if (broken.Step()) throw new Exception("A service that needs a reset went on with its registration");
+            }
             using (var retained = WfpGuard.Recover(plan)) retained.VerifyProtection();
             Console.WriteLine("Policy journal checks passed: verified guard first, monotonic updates, restart and corruption retain denial");
         }

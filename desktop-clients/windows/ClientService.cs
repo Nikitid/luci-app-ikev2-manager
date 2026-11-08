@@ -1,6 +1,7 @@
 using System;
 using System.ServiceProcess;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace IkeV2Manager.Client
 {
@@ -18,15 +19,22 @@ namespace IkeV2Manager.Client
             CanShutdown = CanStop = true;
         }
 
+        // An installation of the tests restarts after a stalled step within
+        // seconds, not minutes; nothing else about it differs.
+        private bool Test { get { return storeName != Removal.Product; } }
+
         protected override void OnStart(string[] args)
         {
-            runtime = new GuardRuntime(storeName, true);
+            runtime = new GuardRuntime(storeName, true, Test ? TimeSpan.FromSeconds(20) : (TimeSpan?)null);
             try { commands = new ClientCommandServer(ServiceName, runtime); }
             catch { runtime.Dispose(); runtime = null; throw; }
         }
         protected override void OnStop()
         {
             RequestAdditionalTime(60000);
+            // A test of the reset needs a service that does not stop.
+            if (Test && System.IO.File.Exists(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), storeName, "test-stall-stop")))
+                Thread.Sleep(Timeout.Infinite);
             StopController();
         }
         private void StopController()
@@ -36,59 +44,12 @@ namespace IkeV2Manager.Client
         }
         protected override void OnShutdown() { StopController(); }
 
-        // Uninstallation is the one place where the denials, the managed
-        // names, the VPN profile and the enrolled state are taken away, and only
-        // while the service is stopped. Stopping or crashing never does this.
-        private static int RemoveProtection(string name)
-        {
-            try
-            {
-                using (var service = new ServiceController(name))
-                {
-                    try { if (service.Status != ServiceControllerStatus.Stopped) return 3; }
-                    catch (InvalidOperationException) { }
-                }
-                string directory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), name);
-                if (!System.IO.Directory.Exists(directory)) return 0;
-                // Every step is tried whatever became of the others: a half-made
-                // installation is exactly what a reset is asked for. The state
-                // stays while anything is left, so the next reset finds it.
-                Exception failed = null;
-                using (var store = new GuardStore(name))
-                {
-                    GuardReceipt plan = null;
-                    Action<Action> step = action => { try { action(); } catch (Exception error) { if (failed == null) failed = error; } };
-                    step(() => plan = store.LoadPlan());
-                    step(() => SystemHosts.Remove(store));
-                    if (plan != null)
-                    {
-                        step(() => ManagedVpnProfile.RemoveNames(plan.Owner));
-                        step(() =>
-                        {
-                            var entry = store.LoadVpnEntry();
-                            if (entry == Guid.Empty) return;
-                            var profile = ManagedVpnProfile.FromJournal(plan.Owner, entry);
-                            RasTunnel.Release(profile.EntryId, profile.Phonebook);
-                            ManagedVpnProfile.Remove(plan.Owner, entry);
-                        });
-                        step(() => WfpGuard.RemoveRecorded(plan));
-                    }
-                    // The guard of the networks blocked without the tunnel, if any.
-                    step(() => WfpGuard.RemoveRecorded(store.LoadNetworksPlan()));
-                    if (failed != null) { try { store.RecordFault("reset", failed); } catch { } return 1; }
-                }
-                System.IO.Directory.Delete(directory, true);
-                return 0;
-            }
-            catch (Exception) { return 1; }
-        }
-
         private static int Main(string[] args)
         {
-            string name = "IKEv2ManagerClient";
-            if (args.Length == 1 && args[0] == "--remove") return RemoveProtection(name);
+            string name = Removal.Product;
             // Asked for by the window or the installer, with an administrator's right.
-            if (args.Length == 1 && Array.IndexOf(Maintenance.Requests, args[0]) >= 0) return Maintenance.Run(name, args[0], RemoveProtection);
+            if (args.Length == 1 && Array.IndexOf(Maintenance.Requests, args[0]) >= 0) return Maintenance.Run(name, args[0]);
+            if (args.Length == 1 && args[0] == "--remove") return Maintenance.Run(name, "--uninstall");
             if (args.Length != 0)
             {
                 // Isolated service integration tests use their own protected

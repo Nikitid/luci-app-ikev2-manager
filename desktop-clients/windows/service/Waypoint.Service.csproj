@@ -36,9 +36,13 @@
     <NoWarn>$(NoWarn);SYSLIB0014;SYSLIB0023;IL2026;IL2067;IL2070;IL2075</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\JsonCompat.cs;..\ManagedHosts.cs;..\ClientPolicy.cs;..\EnrollmentTransport.cs;..\ClientCommands.cs;..\ClientStatusReader.cs" />
-    <Compile Include="..\EnrollmentRegistration.cs;..\GuardStore.cs;..\WfpGuard.cs;..\GuardRuntime.cs;..\SystemHosts.cs;..\PolicyTransport.cs;..\ManagedVpnProfile.cs;..\OwnedRasConnection.cs;..\OwnedTunnelRoutes.cs;..\RasTunnel.cs;..\RouteObservation.cs;..\ClientCommandServer.cs;..\Maintenance.cs;..\ClientService.cs" />
+    <Compile Include="..\Updater.cs;..\FailureQueue.cs;..\FailureReporter.cs;..\ProblemReports.cs;..\JsonCompat.cs;..\ManagedHosts.cs;..\ClientPolicy.cs;..\EnrollmentTransport.cs;..\ClientCommands.cs;..\ClientStatusReader.cs" />
+    <Compile Include="..\Removal.cs;..\RemovalResult.cs;..\EnrollmentRegistration.cs;..\GuardStore.cs;..\WfpGuard.cs;..\GuardRuntime.cs;..\SystemHosts.cs;..\PolicyTransport.cs;..\ManagedVpnProfile.cs;..\OwnedRasConnection.cs;..\OwnedTunnelRoutes.cs;..\RasTunnel.cs;..\RouteObservation.cs;..\ClientCommandServer.cs;..\Maintenance.cs;..\ClientService.cs" />
     <EmbeddedResource Include="..\ManagedVpnProfile.ps1" LogicalName="ManagedVpnProfile.ps1" />
+    <!-- The project's key for the clients' releases: with it the service checks
+         and installs updates; a build without it only offers them. -->
+    <EmbeddedResource Include="..\..\..\keys\waypoint-client-release.pem" LogicalName="waypoint-client-release.pem"
+                      Condition="Exists('..\..\..\keys\waypoint-client-release.pem')" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />

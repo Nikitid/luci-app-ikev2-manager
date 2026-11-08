@@ -108,6 +108,26 @@ namespace IkeV2Manager.Client
                     if (!runtime.SetOwn(domains, networks)) return "invalid_request";
                     wake.Set(); StartRegistration(); return "accepted";
                 }
+                else if (operation == "check")
+                {
+                    if (!runtime.AskCheck()) return "operation_rejected";
+                    wake.Set(); StartRegistration(); return "accepted";
+                }
+                else if (operation == "update_now" || operation == "window_exited")
+                {
+                    if (operation == "update_now") runtime.AskUpdate(); else runtime.WindowExited();
+                    wake.Set(); StartRegistration(); return "accepted";
+                }
+                else if (operation == "updates_auto_on" || operation == "updates_auto_off")
+                {
+                    runtime.SetAutoUpdate(operation == "updates_auto_on");
+                    return "accepted";
+                }
+                else if (operation == "reports_send" || operation == "reports_skip")
+                {
+                    runtime.AnswerReports(operation == "reports_send");
+                    wake.Set(); return "accepted";
+                }
                 else
                 {
                     if (operation == "connect" || operation == "disconnect")
@@ -146,6 +166,7 @@ namespace IkeV2Manager.Client
                         // Asked in every registered state: a device that cannot
                         // get its policy is the one worth hearing from.
                         if (!pending) try { runtime.AnswerReportRequest(); } catch { }
+                        if (!pending) try { runtime.AdvanceUpdate(); } catch { }
                         // A choice on its way is looked after closely, as an
                         // unfinished registration is.
                         bool choosing = false;

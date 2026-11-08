@@ -74,7 +74,11 @@ namespace IkeV2Manager.Client
             if (!request.ContainsKey("version") || !(request["version"] is int) || (int)request["version"] != 1 ||
                 !request.ContainsKey("operation") || !(request["operation"] is string)) throw new ArgumentException("Invalid control request");
             string operation = (string)request["operation"];
-            if (operation == "continue" || operation == "connect" || operation == "disconnect") { if (request.Count != 2) throw new ArgumentException("Invalid control request"); return; }
+            // "check": ask the router to check the services now. "reports_send" and
+            // "reports_skip": the person's one answer about failure reports.
+            if (operation == "continue" || operation == "connect" || operation == "disconnect" || operation == "check" || operation == "update_now" ||
+                operation == "window_exited" || operation == "updates_auto_on" || operation == "updates_auto_off" ||
+                operation == "reports_send" || operation == "reports_skip") { if (request.Count != 2) throw new ArgumentException("Invalid control request"); return; }
             if (operation == "choose")
             {
                 // The services turned on and the ones blocked by the person's
