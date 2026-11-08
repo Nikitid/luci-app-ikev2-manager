@@ -2,7 +2,7 @@
 'require baseclass';
 'require fs';
 'require poll';
-'require ikev2-manager.shared-v24 as common';
+'require ikev2-manager.shared-v25 as common';
 
 var helper = '/usr/libexec/ikev2-manager';
 var systemHelper = '/usr/libexec/ikev2-manager-system';

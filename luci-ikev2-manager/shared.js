@@ -1412,6 +1412,18 @@ var CSS = `
 			@media (forced-colors: active) {
 				.ikev2-page :focus-visible { outline-color: Highlight; }
 				.ikev2-page .ikev2-chip.selected { border: 2px solid Highlight; }
+				/* Shadows and fills are dropped here, so the switch's knob, its
+				   on state and the focus rings drawn as shadows would vanish:
+				   say them with borders, outlines and system colours. */
+				.ikev2-page .ikev2-switch-track { forced-color-adjust: none; border-color: ButtonText; background: Canvas; }
+				.ikev2-page .ikev2-switch-track::after { background: ButtonText; box-shadow: none; }
+				.ikev2-page .ikev2-switch input:checked + .ikev2-switch-track { background: Highlight; border-color: Highlight; }
+				.ikev2-page .ikev2-switch input:checked + .ikev2-switch-track::after { background: HighlightText; }
+				.ikev2-page .ikev2-switch input:focus-visible + .ikev2-switch-track,
+				.ikev2-page .ikev2-policy-check input:focus-visible + span {
+					outline: 2px solid Highlight;
+					outline-offset: 2px;
+				}
 			}
 			/* ── Toggle switch ──────────────────────────────────────── */
 			.ikev2-switch {
