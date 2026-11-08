@@ -146,6 +146,19 @@ for script in /usr/libexec/ikev2-manager.d/*.uc; do
 	[ "$rc" -ne 255 ] || fail "$script does not compile"
 done
 
+step 'charon logs no packet-level detail by default'
+# The installed settings keep ike and cfg at the default level and lower net
+# and enc, which write a line for every packet and payload.
+level() { sed -n "/syslog *{/,/^	}/s/^[[:space:]]*$1 *= *\\(-\\{0,1\\}[0-9]\\{1,\\}\\).*/\\1/p" /etc/strongswan.d/ikev2-manager.conf; }
+[ -r /etc/strongswan.d/ikev2-manager.conf ] || fail 'the charon settings are not installed'
+for group in net enc; do
+	value="$(level "$group")"
+	[ -n "$value" ] && [ "$value" -le 0 ] || fail "charon $group log level is '$value', not lowered"
+done
+for group in ike cfg; do
+	[ "$(level "$group")" = 1 ] || fail "charon $group log level was changed"
+done
+
 # --- a router to route on -------------------------------------------------
 step 'device readiness binds admitted sessions and current policy'
 device_ready_fixture="$(mktemp -d)"
