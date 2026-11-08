@@ -2,7 +2,23 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 try {
-    $inputDocument = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    # The service hands the request over with the script (see ManagedVpnProfile.Run).
+    $inputDocument = $WaypointRequest | ConvertFrom-Json
+    if ($inputDocument.operation -eq 'purge') {
+        # Reset when the journal that names the owner cannot be read: every
+        # connection and name rule this program makes carries a name of the
+        # form "Waypoint <owner>", and only those go.
+        Import-Module (Join-Path $PSHOME 'Modules\VpnClient') -ErrorAction Stop
+        Import-Module (Join-Path $PSHOME 'Modules\DnsClient') -ErrorAction Stop
+        $pattern = '^Waypoint [0-9a-f]{32}$'
+        $connections = @(Get-VpnConnection -AllUserConnection | Where-Object { $_.Name -cmatch $pattern })
+        foreach ($connection in $connections) { Remove-VpnConnection -Name $connection.Name -AllUserConnection -Force }
+        $rules = @(Get-DnsClientNrptRule | Where-Object { [string]$_.Comment -cmatch $pattern })
+        foreach ($rule in $rules) { Remove-DnsClientNrptRule -Name $rule.Name -Force }
+        if ($rules.Count) { Clear-DnsClientCache }
+        [Console]::Out.Write([string]$connections.Count + ' ' + [string]$rules.Count)
+        exit 0
+    }
     $owner = [Guid]::ParseExact($inputDocument.owner, 'N')
     if ($owner -eq [Guid]::Empty) { throw 'Invalid owner' }
     $name = 'Waypoint ' + $owner.ToString('N')
@@ -112,6 +128,12 @@ try {
     })
     if ($prefixes.Count -lt 1 -or $prefixes.Count -gt 4096 -or @($prefixes | Select-Object -Unique).Count -ne $prefixes.Count) { throw 'Invalid routes' }
     $existing = @(Get-VpnConnection -AllUserConnection | Where-Object Name -CEQ $name)
+    if ($inputDocument.recreate -eq $true) {
+        # The connection was changed outside the program: it goes, whatever
+        # it became, and is made again below.
+        foreach ($old in $existing) { Remove-VpnConnection -Name $name -AllUserConnection -Force }
+        $existing = @()
+    }
     if ($existing.Count -gt 1) { throw 'Ambiguous owner' }
     if ($existing.Count -eq 0) {
         if ($inputDocument.entry_id) { throw 'Owned profile missing' }
@@ -166,6 +188,13 @@ try {
     [Console]::Out.Write(([Guid]$profile.Guid).ToString('D'))
     exit 0
 } catch {
+    # The connection is no longer what the service made: told apart, so the
+    # service makes it again instead of failing on every check.
+    $changed = @('Owned profile changed', 'Owned crypto policy changed', 'Owned profile missing', 'Ambiguous owner')
+    if ($inputDocument.operation -eq 'ensure' -and $changed -contains [string]$_.Exception.Message) {
+        [Console]::Error.Write('Managed VPN profile changed')
+        exit 3
+    }
     # Provider diagnostics can contain private metadata. Only fixed errors escape.
     [Console]::Error.Write('Managed VPN profile unavailable')
     exit 1

@@ -46,6 +46,101 @@ namespace IkeV2Manager.Client
                 FileShare.None, 4096, FileOptions.WriteThrough, FileSecurity());
         }
 
+        // The service's own way in. A directory or a file of the store whose
+        // owner or permissions were changed from outside - an antivirus, a
+        // restore from a backup, "take ownership" - is given back its own
+        // owner and permissions, so the service can say what happened through
+        // its status; what such a store holds is not trusted any more, and the
+        // caller asks for a reset (`resecured`). A link is never followed.
+        internal static GuardStore OpenRepairing(string directoryName, out bool resecured)
+        {
+            resecured = false;
+            if (directoryName == null || !Regex.IsMatch(directoryName, @"\A[A-Za-z0-9][A-Za-z0-9.-]{0,63}\z"))
+                throw new ArgumentException("A single store directory name is required");
+            string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), directoryName);
+            if (Directory.Exists(directory) && (File.GetAttributes(directory) & FileAttributes.ReparsePoint) == 0)
+            {
+                bool safe = true;
+                try
+                {
+                    using (var probe = new GuardStore(directoryName))
+                        foreach (string journal in Journals)
+                        {
+                            string file = Path.Combine(directory, journal);
+                            if (!File.Exists(file)) continue;
+                            if (Shared(file)) VerifySharedFile(file); else VerifyFile(file);
+                        }
+                }
+                catch (InvalidOperationException) { safe = false; }
+                catch (UnauthorizedAccessException) { safe = false; }
+                if (!safe) { Resecure(directory); resecured = true; }
+            }
+            return new GuardStore(directoryName);
+        }
+
+        // The files the service trusts what it reads from; anything else in
+        // the folder - a copy of the hosts file kept for a reset - is not read.
+        private static readonly string[] Journals = { "guard.json", "networks-guard.json", "policy.json", "vpn-profile.json",
+            "vpn-profile-initialized", "enrollment.json", "enrollment.pending", "enrollment-initialized", "connection.json",
+            "server.json", "controller.lock", "status.json", "faults.log" };
+
+        private static bool Shared(string file)
+        {
+            string name = Path.GetFileName(file);
+            return name == "status.json" || name == "faults.log";
+        }
+
+        private static void Resecure(string directory)
+        {
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(true, false);
+            security.SetOwner(Administrators);
+            foreach (SecurityIdentifier sid in new[] { Administrators, SystemAccount })
+                security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            new DirectoryInfo(directory).SetAccessControl(security);
+            foreach (string journal in Journals)
+            {
+                string file = Path.Combine(directory, journal);
+                if (!File.Exists(file)) continue;
+                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) { File.Delete(file); continue; }
+                var fileSecurity = FileSecurity();
+                if (Shared(file)) fileSecurity.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
+                    FileSystemRights.Read, AccessControlType.Allow));
+                new FileInfo(file).SetAccessControl(fileSecurity);
+            }
+        }
+
+        // A status or journal of failures: the service's alone, readable by every user.
+        private static void VerifySharedFile(string path)
+        {
+            RejectLink(path);
+            var security = new FileInfo(path).GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner);
+            var owner = (SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier));
+            var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+            if ((!owner.Equals(Administrators) && !owner.Equals(SystemAccount)) || !security.AreAccessRulesProtected)
+                throw new InvalidOperationException("Protection file ownership is unsafe");
+            foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+            {
+                bool own = rule.IdentityReference.Equals(Administrators) || rule.IdentityReference.Equals(SystemAccount);
+                if (rule.AccessControlType != AccessControlType.Allow || rule.IsInherited ||
+                    (own && rule.FileSystemRights != FileSystemRights.FullControl) ||
+                    (!own && (!rule.IdentityReference.Equals(users) || (rule.FileSystemRights & ~(FileSystemRights.Read | FileSystemRights.Synchronize)) != 0)))
+                    throw new InvalidOperationException("Protection file permissions are unsafe");
+            }
+        }
+
+        // For tests of an installation of their own only: a file the test puts
+        // in the store makes the service hold a step or its stop.
+        internal bool TestMarker(string marker)
+        {
+            CheckOpen();
+            return Path.GetFileName(directory).StartsWith("IKEv2Manager-Test-", StringComparison.Ordinal) &&
+                File.Exists(Path.Combine(directory, "test-" + marker));
+        }
+
+        internal string Name { get { return Path.GetFileName(directory); } }
+
         public void SavePlan(GuardReceipt plan)
         {
             CheckOpen();
@@ -260,6 +355,20 @@ namespace IkeV2Manager.Client
             WriteProtectedJson("vpn-profile.json", new JavaScriptSerializer().Serialize(new Dictionary<string,object> {
                 {"version",1}, {"owner",plan.Owner.ToString("D")}, {"entry_id",entry.ToString("D")}
             }), 1024, false);
+            if (LoadVpnEntry() != entry) throw new InvalidOperationException("VPN profile journal unavailable");
+        }
+
+        // The service's own VPN profile was changed from outside and made
+        // again: it has a new identity under the same owner.
+        public void ReplaceVpnEntry(Guid entry)
+        {
+            CheckOpen(); VerifyDirectory();
+            GuardReceipt plan = LoadPlan();
+            if (plan == null || entry == Guid.Empty) throw new InvalidOperationException("VPN profile identity changed");
+            if (File.Exists(Path.Combine(directory, "vpn-profile.json")) && LoadVpnEntry() == entry) return;
+            WriteProtectedJson("vpn-profile.json", new JavaScriptSerializer().Serialize(new Dictionary<string,object> {
+                {"version",1}, {"owner",plan.Owner.ToString("D")}, {"entry_id",entry.ToString("D")}
+            }), 1024, File.Exists(Path.Combine(directory, "vpn-profile.json")));
             if (LoadVpnEntry() != entry) throw new InvalidOperationException("VPN profile journal unavailable");
         }
 

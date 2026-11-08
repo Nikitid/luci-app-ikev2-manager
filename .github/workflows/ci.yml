@@ -11,7 +11,9 @@ jobs:
   desktop-core:
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
+        # The Windows client is tested on x64 and on ARM64, each as it ships:
+        # on Windows on ARM the service must be an ARM64 process.
+        os: [macos-latest, windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

@@ -55,6 +55,24 @@ internal static class ManagedVpnProfileTests
             if (!ManagedVpnProfile.InPlace(changed, owner, profile.EntryId, false) || ManagedVpnProfile.InPlace(changed, owner, profile.EntryId, true) ||
                 ManagedVpnProfile.InPlace(first, owner, profile.EntryId, false)) throw new Exception();
             if (!ManagedVpnProfile.InPlace(changed, owner, profile.EntryId, false)) throw new Exception("looking changed the profile");
+            // С5: the connection changed or deleted outside the program is told
+            // apart from a failure and made again under the same owner.
+            step = "changed profile told apart";
+            PowerShell("Set-VpnConnection -Name '" + name + "' -AllUserConnection -ServerAddress 'changed.example.net' -Force; [Console]::Out.Write('ok')");
+            bool told = false;
+            try { ManagedVpnProfile.Ensure(changed, owner, profile.EntryId); } catch (ProfileChangedException) { told = true; }
+            if (!told) throw new Exception();
+            step = "changed profile made again";
+            var made = ManagedVpnProfile.Recreate(changed, owner);
+            if (made.EntryId == profile.EntryId || !ManagedVpnProfile.InPlace(changed, owner, made.EntryId, false)) throw new Exception();
+            step = "deleted profile made again";
+            PowerShell("Remove-VpnConnection -Name '" + name + "' -AllUserConnection -Force; [Console]::Out.Write('ok')");
+            told = false;
+            try { ManagedVpnProfile.Ensure(changed, owner, made.EntryId); } catch (ProfileChangedException) { told = true; }
+            if (!told) throw new Exception();
+            made = ManagedVpnProfile.Recreate(changed, owner);
+            if (ManagedVpnProfile.Ensure(changed, owner, made.EntryId).EntryId != made.EntryId) throw new Exception();
+            Console.WriteLine("A profile changed or deleted outside the program is told apart and made again");
             step = "unrelated profiles";
             if (PowerShell(snapshot) != before) throw new Exception();
             Console.WriteLine("Native IKEv2 profile creation, stable identity, strict ownership, /32 route update and unrelated VPN preservation passed");

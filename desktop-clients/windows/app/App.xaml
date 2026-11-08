@@ -24,8 +24,13 @@
                     <Color x:Key="ToneWorking">#7B5518</Color>
                     <Color x:Key="ToneAttention">#993A31</Color>
                     <Color x:Key="ToneOff">#65696F</Color>
-                    <SolidColorBrush x:Key="CardSurface" Color="#FBFAF7" />
-                    <SolidColorBrush x:Key="CardEdge" Color="#DBD9D3" />
+                    <!-- surface, line, line-strong, text-2 and danger of the tokens. -->
+                    <SolidColorBrush x:Key="CardSurface" Color="#FDFDFB" />
+                    <SolidColorBrush x:Key="CardEdge" Color="#D4D2CF" />
+                    <SolidColorBrush x:Key="CardHighlight" Color="#BFFFFFFF" />
+                    <SolidColorBrush x:Key="NotchBrush" Color="#4B5056" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#993A31" />
+                    <SolidColorBrush x:Key="WarningBrush" Color="#7B5518" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <Color x:Key="SystemAccentColor">#7ABFBF</Color>
@@ -41,10 +46,18 @@
                     <Color x:Key="ToneOff">#909499</Color>
                     <SolidColorBrush x:Key="CardSurface" Color="#232528" />
                     <SolidColorBrush x:Key="CardEdge" Color="#383B3F" />
+                    <SolidColorBrush x:Key="CardHighlight" Color="#0EFFFFFF" />
+                    <SolidColorBrush x:Key="NotchBrush" Color="#AEB1B6" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#ED8C80" />
+                    <SolidColorBrush x:Key="WarningBrush" Color="#E1BB74" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <StaticResource x:Key="CardSurface" ResourceKey="SystemColorWindowColorBrush" />
                     <StaticResource x:Key="CardEdge" ResourceKey="SystemColorWindowTextColorBrush" />
+                    <StaticResource x:Key="CardHighlight" ResourceKey="SystemColorWindowColorBrush" />
+                    <StaticResource x:Key="NotchBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+                    <StaticResource x:Key="DangerBrush" ResourceKey="SystemColorHighlightColorBrush" />
+                    <StaticResource x:Key="WarningBrush" ResourceKey="SystemColorHighlightColorBrush" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
             <!-- A card: held by a hairline edge, not a shadow. -->
@@ -55,8 +68,72 @@
                 <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="Padding" Value="18,16,18,16" />
             </Style>
-            <!-- Controls and fields are a step less round than the cards. -->
-            <CornerRadius x:Key="ControlCornerRadius">5</CornerRadius>
+            <!-- A list of rows on one card: 8 px, as Fluent beside its 4 px
+                 controls; the rows stand on hairlines inside it. -->
+            <Style x:Key="ListCard" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardSurface}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardEdge}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="0" />
+            </Style>
+            <!-- Text and lines of the pages built in code. Their colours come
+                 through these styles as theme resources, so they follow the
+                 window's light or dark, which a brush read in code does not. -->
+            <Style x:Key="SecondaryBody" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="SecondaryCaption" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="DangerCaption" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource DangerBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="WarningCaption" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource WarningBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="DangerBody" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource DangerBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="WarningBody" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource WarningBrush}" />
+            </Style>
+            <Style x:Key="StateHeading" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="28" />
+                <Setter Property="FontWeight" Value="Light" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+            </Style>
+            <Style x:Key="StateHeadingAttention" TargetType="TextBlock" BasedOn="{StaticResource StateHeading}">
+                <Setter Property="Foreground" Value="{ThemeResource DangerBrush}" />
+            </Style>
+            <Style x:Key="Hairline" TargetType="Border">
+                <Setter Property="Height" Value="1" />
+                <Setter Property="Background" Value="{ThemeResource CardEdge}" />
+            </Style>
+            <Style x:Key="DangerLine" TargetType="Border">
+                <Setter Property="Height" Value="1" />
+                <Setter Property="Background" Value="{ThemeResource DangerBrush}" />
+                <Setter Property="Opacity" Value="0.55" />
+            </Style>
+            <Style x:Key="Notch" TargetType="Rectangle">
+                <Setter Property="Width" Value="1.5" />
+                <Setter Property="Height" Value="12" />
+                <Setter Property="Fill" Value="{ThemeResource NotchBrush}" />
+            </Style>
+            <Style x:Key="NotchFailed" TargetType="Rectangle">
+                <Setter Property="Width" Value="2" />
+                <Setter Property="Height" Value="18" />
+                <Setter Property="Fill" Value="{ThemeResource DangerBrush}" />
+            </Style>
+            <Style x:Key="SecondaryIcon" TargetType="FontIcon">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
             <!-- The name of a section: plain words, not capitals. -->
             <Style x:Key="SectionLabel" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
                 <Setter Property="FontWeight" Value="Medium" />

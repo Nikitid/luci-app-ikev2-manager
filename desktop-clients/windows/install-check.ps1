@@ -68,8 +68,11 @@ $native = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq '
 Check ((Machine (Join-Path $folder 'ClientService.exe')) -eq $native) 'the service is built for this processor'
 Check (Until { (Get-Service $name).Status -eq 'Running' } 60) 'the service runs'
 Check ((Get-Content (Join-Path $state 'kept-by-update.txt')) -eq 'registration') 'the registration is kept'
-Check (Until { try { ((Get-Content (Join-Path $state 'status.json') -Raw) | ConvertFrom-Json).Version -eq 6 } catch { $false } } 60) 'the new service publishes its status'
+Check (Until { try { ((Get-Content (Join-Path $state 'status.json') -Raw) | ConvertFrom-Json).Version -eq 7 } catch { $false } } 60) 'the new service publishes its status'
 Check ($null -ne (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name Waypoint -ErrorAction SilentlyContinue)) 'the icon comes with sign-in'
+$config = (& sc.exe qc $name) -join "`n"
+Check ($config -match 'BFE' -and $config -match 'RasMan') 'the service starts after BFE and RasMan'
+Check (((& sc.exe qfailureflag $name) -join "`n") -match 'NONCRASH_FAILURES\s*:\s*TRUE') 'recovery follows a failed start, not only a crash'
 
 # The same release again: an update in place.
 $again = Start-Process (Join-Path $Files 'WaypointSetup.exe') '/quiet' -Wait -PassThru

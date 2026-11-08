@@ -28,8 +28,15 @@
           <ServiceInstall Id="Service" Name="IKEv2ManagerClient" DisplayName="Waypoint" Type="ownProcess" Start="auto"
                           Account="LocalSystem" ErrorControl="normal" Vital="yes"
                           Description="Keeps selected services inside the organization's IKEv2 tunnel and blocks them outside it.">
+            <!-- The filtering engine and the remote access manager start first:
+                 at boot the guard is put in only once BFE answers. -->
+            <ServiceDependency Id="BFE" />
+            <ServiceDependency Id="RasMan" />
             <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart"
                                 RestartServiceDelayInSeconds="5" ResetPeriodInDays="1" />
+            <!-- The recovery actions also follow a start that fails or a stop
+                 with an error, not only a process that falls. -->
+            <ServiceConfig FailureActionsWhen="failedToStopOrReturnedError" OnInstall="yes" OnReinstall="yes" />
           </ServiceInstall>
           <ServiceControl Id="Service" Name="IKEv2ManagerClient" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
         </Component>

@@ -22,6 +22,10 @@ namespace IkeV2Manager.Client
         public bool On { get; set; }
         public bool Closed { get; set; }
         public bool ChooseClosed { get; set; }
+        // Whether it works now, as the router routes it (status version 7).
+        public string Health { get; set; } = "unknown";
+        public string Reason { get; set; } = "";
+        public int Since { get; set; }
     }
 
     // Sites and networks the person added for this device, and how many and on
@@ -48,6 +52,77 @@ namespace IkeV2Manager.Client
                 domains.Any(name => name.Length > 253 || !Regex.IsMatch(name, @"\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z")) ||
                 networks.Any(network => Input(network) == null || Input(network)[1] != network)) throw new ArgumentException();
             return new OwnAddresses { Limit = limit, Ports = ports, Domains = domains, Networks = networks };
+        }
+
+        // The router's own check of a site (client-access-own.uc, own_domain),
+        // made here before anything is sent, with the same reasons:
+        // fixtures/own-addresses.json holds the examples both check. Null when
+        // it is refused, with the reason in `reason`.
+        public static string CheckDomain(string value, string server, out string reason)
+        {
+            reason = null;
+            string name = (value ?? "").Trim().ToLowerInvariant();
+            name = Regex.Replace(Regex.Replace(name, @"\A[a-z][a-z0-9+.-]*://", ""), @"[/?#:].*\z", "");
+            if (name.EndsWith(".", StringComparison.Ordinal)) name = name.Substring(0, name.Length - 1);
+            var labels = name.Split('.');
+            if (name.Length > 253 || labels.Length < 2 || Regex.IsMatch(name, @"\A[0-9.]+\z") ||
+                labels.Any(label => label.Length > 63 || !Regex.IsMatch(label, @"\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\z"))) { reason = "invalid_site"; return null; }
+            if (new[] { "local", "lan", "home", "internal", "localhost", "arpa", "test", "invalid", "example" }.Contains(labels[labels.Length - 1])) { reason = "local_name"; return null; }
+            if (!String.IsNullOrEmpty(server) && name == server) { reason = "server_name"; return null; }
+            return name;
+        }
+
+        private static readonly object[][] Reserved = {
+            new object[] { "0.0.0.0", 8, "local" }, new object[] { "10.0.0.0", 8, "private" }, new object[] { "100.64.0.0", 10, "shared" },
+            new object[] { "127.0.0.0", 8, "local" }, new object[] { "169.254.0.0", 16, "local" }, new object[] { "172.16.0.0", 12, "private" },
+            new object[] { "192.0.0.0", 24, "local" }, new object[] { "192.0.2.0", 24, "documentation" }, new object[] { "192.168.0.0", 16, "private" },
+            new object[] { "198.18.0.0", 15, "fake_ip" }, new object[] { "198.51.100.0", 24, "documentation" }, new object[] { "203.0.113.0", 24, "documentation" },
+            new object[] { "224.0.0.0", 3, "multicast" } };
+
+        // The router's own check of a network (own_network): an address alone
+        // is the host, a range is set at its base, nothing wider than /16, and
+        // nothing that touches a private, shared, local, documentation, FakeIP
+        // or multicast range.
+        public static string CheckNetwork(string value, out string reason)
+        {
+            reason = null;
+            if (value == null || value.Length > 18) { reason = "invalid_network"; return null; }
+            var parts = value.Trim().Split('/');
+            if (parts.Length > 2) { reason = "invalid_network"; return null; }
+            int prefix = parts.Length == 2 ? (Regex.IsMatch(parts[1], @"\A[0-9]{1,2}\z") ? Int32.Parse(parts[1], CultureInfo.InvariantCulture) : -1) : 32;
+            if (prefix < 16 || prefix > 32) { reason = "network_size"; return null; }
+            long first;
+            if (!Number(parts[0], out first)) { reason = "invalid_network"; return null; }
+            long size = 1L << (32 - prefix);
+            first -= first % size;
+            long last = first + size - 1;
+            foreach (var range in Reserved)
+            {
+                long start; Number((string)range[0], out start);
+                long end = start + (1L << (32 - (int)range[1])) - 1;
+                if (first <= end && last >= start) { reason = (string)range[2]; return null; }
+            }
+            return String.Format(CultureInfo.InvariantCulture, "{0}.{1}.{2}.{3}/{4}", first >> 24, (first >> 16) & 255, (first >> 8) & 255, first & 255, prefix);
+        }
+
+        private static bool Number(string text, out long value)
+        {
+            value = 0;
+            var parts = text.Split('.');
+            if (parts.Length != 4) return false;
+            foreach (string part in parts)
+            {
+                if (part.Length > 3 || !Regex.IsMatch(part, @"\A(?:0|[1-9][0-9]*)\z") || Int32.Parse(part, CultureInfo.InvariantCulture) > 255) return false;
+                value = value * 256 + Int32.Parse(part, CultureInfo.InvariantCulture);
+            }
+            return true;
+        }
+
+        // One field for both: digits, dots and a slash make a network.
+        public static bool LooksLikeNetwork(string text)
+        {
+            string value = (text ?? "").Trim();
+            return value.Length > 0 && value.All(c => Char.IsDigit(c) || c == '.' || c == '/');
         }
 
         // What the person typed or pasted: a link is taken for its host, an
@@ -80,6 +155,13 @@ namespace IkeV2Manager.Client
     // The person's own sites and networks as the window shows them: what the
     // administrator allows, what this device keeps or is sending, and what the
     // router said of the last list ("" when it was taken).
+    public sealed class UpdateStatus
+    {
+        public string Version { get; set; }
+        public string State { get; set; }
+        public bool Auto { get; set; }
+    }
+
     public sealed class OwnStatus
     {
         public int Limit { get; set; }
@@ -126,6 +208,12 @@ namespace IkeV2Manager.Client
         public bool ChoicePending { get; internal set; }
         // Where the person may add addresses of their own; null where not.
         public OwnStatus Own { get; internal set; }
+        // What the router said of the last "check now": "" when it took it,
+        // "too_often", "busy" or "failed"; and from when it may be asked again.
+        public string CheckAnswer { get; internal set; } = "";
+        public DateTime? CheckNextAt { get; internal set; }
+        // A newer release as the service sees it (status version 7), or null.
+        public UpdateStatus Update { get; internal set; }
 
         // Whether the router runs a newer release than this program.
         public static bool Newer(string release, Version own)
@@ -151,7 +239,7 @@ namespace IkeV2Manager.Client
         // Written by the service into status.json.
         public static readonly string[] Published = {
             "blocked", "enrollment_required", "error", "access_closed", "registration_pending", "registration_error",
-            "connecting", "tunnel_connected", "connection_error", "protected" };
+            "connecting", "tunnel_connected", "connection_error", "protected", "needs_reset" };
 
         // Made up by the reader when there is no status to read.
         public static readonly string[] Unreadable = {
@@ -167,7 +255,8 @@ namespace IkeV2Manager.Client
             "policy_response_too_large", "services_unavailable", "services_response_invalid", "release_unavailable",
             "release_response_invalid", "enrollment_connection_failed", "enrollment_server_busy", "enrollment_access_rejected",
             "enrollment_http_rejected", "enrollment_response_invalid", "enrollment_response_too_large", "enrollment_internal",
-            "enrollment_missing" };
+            "enrollment_missing", "guard_changed", "guard_engine_lost", "profile_changed",
+            "damaged_plan", "damaged_policy", "damaged_registration", "damaged_profile", "damaged_acl", "damaged_guard" };
 
         public static readonly string[] NumberedCauses = { "route_fields_", "native_" };
     }
@@ -233,7 +322,7 @@ namespace IkeV2Manager.Client
                 var data = serializer.DeserializeObject(json) as Dictionary<string, object>;
                 if (data == null || !data.ContainsKey("Version") || !(data["Version"] is int)) return new ClientView("status_invalid");
                 int version = (int)data["Version"];
-                if (version < 1 || version > 6 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : version == 3 ? 14 : version == 4 ? 18 : version == 5 ? 20 : 21) || !data.ContainsKey("State") ||
+                if (version < 1 || version > 7 || data.Count != (version == 1 ? 6 : version == 2 ? 7 : version == 3 ? 14 : version == 4 ? 18 : version == 5 ? 20 : version == 6 ? 21 : 26) || !data.ContainsKey("State") ||
                     !data.ContainsKey("GuardInstalled") || !data.ContainsKey("Protected") ||
                     !data.ContainsKey("UpdatedAtUtc") || !data.ContainsKey("ProcessId") ||
                     !(data["ProcessId"] is int) ||
@@ -243,7 +332,7 @@ namespace IkeV2Manager.Client
                 if (version >= 2)
                 {
                     if (!data.ContainsKey("ConnectionError") || !(data["ConnectionError"] is string) ||
-                        !Regex.IsMatch((string)data["ConnectionError"], @"\A(?:none|route_or_identity|interface_missing|route_mismatch|route_loopback|route_interface|route_source|route_prefix|route_fields_[0-9]{1,3}|projection_missing|native_[0-9]{1,5}|path_unavailable|path_connection_failed|path_stalled|path_response_invalid|path_different_policy|device_access_revoked|device_no_services|service_fault|(?:policy|services|release)_[a-z_]{1,40}|enrollment_[a-z_]{1,40})\z")) return new ClientView("status_invalid");
+                        !Regex.IsMatch((string)data["ConnectionError"], @"\A(?:none|route_or_identity|interface_missing|route_mismatch|route_loopback|route_interface|route_source|route_prefix|route_fields_[0-9]{1,3}|projection_missing|native_[0-9]{1,5}|path_unavailable|path_connection_failed|path_stalled|path_response_invalid|path_different_policy|device_access_revoked|device_no_services|service_fault|guard_changed|guard_engine_lost|profile_changed|damaged_(?:plan|policy|registration|profile|acl|guard)|(?:policy|services|release)_[a-z_]{1,40}|enrollment_[a-z_]{1,40})\z")) return new ClientView("status_invalid");
                     connectionError = (string)data["ConnectionError"];
                 }
                 if (servicePid == 0 || (int)data["ProcessId"] <= 0 || (int)data["ProcessId"] != servicePid)
@@ -261,7 +350,7 @@ namespace IkeV2Manager.Client
                 if ((bool)data["Protected"] != (state == "protected") || (state == "protected" && connectionError != "none") ||
                     (state != "blocked" && state != "enrollment_required" && state != "error" && state != "access_closed" &&
                     state != "registration_pending" && state != "registration_error" && state != "connecting" &&
-                    state != "tunnel_connected" && state != "connection_error" && state != "protected") ||
+                    state != "tunnel_connected" && state != "connection_error" && state != "protected" && state != "needs_reset") ||
                     ((state == "blocked" || state == "connecting" || state == "tunnel_connected" || state == "connection_error" || state == "protected") && !guard) || (state == "enrollment_required" && guard))
                     return new ClientView("status_invalid");
                 // Older statuses never carried protection; they cannot claim it.
@@ -302,7 +391,7 @@ namespace IkeV2Manager.Client
                     foreach (object item in items)
                     {
                         var entry = item as Dictionary<string, object>;
-                        if (entry == null || entry.Count != 6) return new ClientView("status_invalid");
+                        if (entry == null || entry.Count != (version >= 7 ? 9 : 6)) return new ClientView("status_invalid");
                         object id, label, required, on, closed, choose;
                         if (!entry.TryGetValue("Id", out id) || !(id is string) || !Regex.IsMatch((string)id, @"\A[a-z0-9][a-z0-9_-]{0,47}\z") || !seen.Add((string)id) ||
                             !entry.TryGetValue("Label", out label) || !(label is string) || ((string)label).Length < 1 || ((string)label).Length > 64 ||
@@ -311,21 +400,53 @@ namespace IkeV2Manager.Client
                             !entry.TryGetValue("Closed", out closed) || !(closed is bool) || !entry.TryGetValue("ChooseClosed", out choose) || !(choose is bool) ||
                             ((bool)required && !(bool)on))
                             return new ClientView("status_invalid");
-                        entries.Add(new ServiceChoice { Id = (string)id, Label = (string)label, Required = (bool)required, On = (bool)on,
-                            Closed = (bool)closed, ChooseClosed = (bool)choose });
+                        var choice = new ServiceChoice { Id = (string)id, Label = (string)label, Required = (bool)required, On = (bool)on,
+                            Closed = (bool)closed, ChooseClosed = (bool)choose };
+                        if (version >= 7)
+                        {
+                            object health, reason, since;
+                            if (!entry.TryGetValue("Health", out health) || !(health is string) || !Regex.IsMatch((string)health, @"\A(?:ok|down|direct|unknown)\z") ||
+                                !entry.TryGetValue("Reason", out reason) || !(reason is string) || !Regex.IsMatch((string)reason, @"\A(?:|no_tunnel|silent)\z") ||
+                                !entry.TryGetValue("Since", out since) || !(since is int) || (int)since < 0)
+                                return new ClientView("status_invalid");
+                            choice.Health = (string)health; choice.Reason = (string)reason; choice.Since = (int)since;
+                        }
+                        entries.Add(choice);
                     }
                 }
                 OwnStatus own = null;
                 // Version 6 carries the person's own addresses, null where not allowed.
-                if (version == 6 && !data.ContainsKey("Own")) return new ClientView("status_invalid");
-                if (version == 6 && data["Own"] != null)
+                if (version >= 6 && !data.ContainsKey("Own")) return new ClientView("status_invalid");
+                if (version >= 6 && data["Own"] != null)
                 {
                     own = ReadOwn(data["Own"] as Dictionary<string, object>);
                     if (own == null) return new ClientView("status_invalid");
                 }
+                string checkAnswer = "";
+                UpdateStatus update = null;
+                DateTime? checkNext = null;
+                if (version >= 7)
+                {
+                    object answer, next;
+                    DateTime parsed;
+                    if (!data.TryGetValue("CheckAnswer", out answer) || !(answer is string) || !Regex.IsMatch((string)answer, @"\A(?:|too_often|busy|failed)\z") ||
+                        !data.TryGetValue("CheckNextAtUtc", out next) || !(next is string)) return new ClientView("status_invalid");
+                    checkAnswer = (string)answer;
+                    object updateVersion, updateState, updateAuto;
+                    if (!data.TryGetValue("UpdateVersion", out updateVersion) || !(updateVersion is string) || !Regex.IsMatch((string)updateVersion, @"\A(?:[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4})?\z") ||
+                        !data.TryGetValue("UpdateState", out updateState) || !(updateState is string) || !Regex.IsMatch((string)updateState, @"\A(?:|available|ready|installing|failed)\z") ||
+                        !data.TryGetValue("UpdateAuto", out updateAuto) || !(updateAuto is bool)) return new ClientView("status_invalid");
+                    update = new UpdateStatus { Version = (string)updateVersion, State = (string)updateState, Auto = (bool)updateAuto };
+                    if ((string)next != "")
+                    {
+                        if (!DateTime.TryParseExact((string)next, "o", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out parsed) || parsed.Kind != DateTimeKind.Utc)
+                            return new ClientView("status_invalid");
+                        checkNext = parsed;
+                    }
+                }
                 return new ClientView(state, guard, connectionError, listed.Cast<string>().ToArray(), (int)data["Domains"], (int)data["Revision"], (bool)data["Wanted"], offered.Cast<string>().ToArray())
                     { Release = (string)data["Release"], Warnings = warned.Cast<string>().ToArray(), ServerName = server, ServerIP = ipText, ServicesSubnet = servicesSubnet, TunnelSubnet = tunnelSubnet,
-                      Entries = entries.ToArray(), ChoicePending = choicePending, Own = own };
+                      Entries = entries.ToArray(), ChoicePending = choicePending, Own = own, CheckAnswer = checkAnswer, CheckNextAt = checkNext, Update = update };
             }
             catch (ArgumentException) { return new ClientView("status_invalid"); }
             catch (InvalidOperationException) { return new ClientView("status_invalid"); }

@@ -1,0 +1,247 @@
+{
+ "Version": 7,
+ "State": "needs_reset",
+ "GuardInstalled": true,
+ "Protected": false,
+ "UpdatedAtUtc": "2026-11-07T11:02:00.0000000Z",
+ "ProcessId": 4242,
+ "ConnectionError": "damaged_plan",
+ "Services": [
+  "portal",
+  "books",
+  "mail",
+  "gpt",
+  "yt"
+ ],
+ "Domains": 12,
+ "Revision": 7,
+ "Wanted": true,
+ "Available": [],
+ "Release": "",
+ "Warnings": [],
+ "ServerName": "vpn.example.net",
+ "ServerIP": "192.0.2.10",
+ "ServicesSubnet": "172.30.16.0/20",
+ "TunnelSubnet": "10.40.50.0/24",
+ "Entries": [
+  {
+   "Id": "portal",
+   "Label": "Рабочий портал",
+   "Required": true,
+   "On": true,
+   "Closed": true,
+   "ChooseClosed": false,
+   "Health": "ok",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "books",
+   "Label": "Бухгалтерия",
+   "Required": true,
+   "On": true,
+   "Closed": true,
+   "ChooseClosed": false,
+   "Health": "ok",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "mail",
+   "Label": "Почта",
+   "Required": true,
+   "On": true,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "ok",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "gpt",
+   "Label": "ChatGPT",
+   "Required": true,
+   "On": true,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "ok",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "yt",
+   "Label": "YouTube",
+   "Required": false,
+   "On": true,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "ok",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt0",
+   "Label": "Telegram",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt1",
+   "Label": "Steam",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt2",
+   "Label": "Kinopoisk",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt3",
+   "Label": "Notion",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt4",
+   "Label": "Figma",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt5",
+   "Label": "GitHub",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt6",
+   "Label": "Slack",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt7",
+   "Label": "Zoom",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt8",
+   "Label": "Spotify",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt9",
+   "Label": "Twitch",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt10",
+   "Label": "Discord",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt11",
+   "Label": "Reddit",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": false,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  },
+  {
+   "Id": "opt12",
+   "Label": "Wikipedia",
+   "Required": false,
+   "On": false,
+   "Closed": false,
+   "ChooseClosed": true,
+   "Health": "unknown",
+   "Reason": "",
+   "Since": 0
+  }
+ ],
+ "Own": {
+  "Limit": 20,
+  "Ports": [
+   80,
+   443
+  ],
+  "Domains": [
+   "docs.example.org"
+  ],
+  "Networks": [
+   "93.184.215.34/32"
+  ],
+  "Pending": false,
+  "Answer": ""
+ },
+ "ChoicePending": false,
+ "CheckAnswer": "",
+ "CheckNextAtUtc": "",
+ "UpdateVersion": "",
+ "UpdateState": "",
+ "UpdateAuto": true
+}

@@ -60,6 +60,7 @@ internal static class WfpGuardTests
             Migration(port);
             RemoveRecordedScenario(port);
             ServiceIntegrationTests.Run(() => Probe(port), InboundDatagram, Target);
+            RecoveryTests.Run(() => Probe(port), Target);
             if (args.Length != 1) throw new ArgumentException("Policy fixtures directory required");
             PolicyJournalTests.Run(args[0]);
             NetworkGuardTests.Run();

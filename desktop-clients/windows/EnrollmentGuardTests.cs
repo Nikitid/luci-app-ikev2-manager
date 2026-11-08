@@ -60,10 +60,16 @@ internal static class EnrollmentGuardTests
             Console.WriteLine("PASS a registration that lost its policy stages it again");
             // Corrupt credentials: restart must refuse and retain the denials.
             File.WriteAllText(Path.Combine(directory, "enrollment.json"), "corrupted");
-            bool refused = false;
-            try { using (var runtime = new GuardRuntime(name)) { } }
-            catch (InvalidOperationException) { refused = true; }
-            if (!refused) throw new Exception("Corrupt enrollment accepted by runtime");
+            using (var runtime = new GuardRuntime(name))
+            {
+                var status = serializer.Deserialize<Dictionary<string, object>>(File.ReadAllText(Path.Combine(directory, "status.json")));
+                if ((string)status["State"] != "needs_reset" || (string)status["ConnectionError"] != "damaged_registration")
+                    throw new Exception("Corrupt enrollment did not ask for a reset");
+                bool refused = false;
+                try { runtime.BeginEnrollment(new Uri("https://vpn.example.com/client/v1/enroll"), new string('a', 64)); }
+                catch (InvalidOperationException) { refused = true; }
+                if (!refused) throw new Exception("A damaged registration was replaced without a reset");
+            }
             using (var guard = WfpGuard.Recover(plan)) guard.VerifyProtection();
             Console.WriteLine("PASS enrollment restart stages persistent WFP denials and corruption retains them");
         }

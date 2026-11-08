@@ -1184,20 +1184,24 @@ needs "Open" from the context menu. The jobs have built both for every release
 since 2.2.0.
 
 `GET /client/v1/release` tells an enrolled device the version of the router's
-package, as a number and nothing else. The address of a newer client is built
-in the client from the project's release page, so the router cannot point a
-user elsewhere. On macOS the daemon fetches `Waypoint-X.Y.Z.pkg`,
-`Waypoint-SHA256SUMS` and its signature from there, checks the signature with
-the client release key built into it, the package's SHA-256 against the list
-and the version in its `PackageInfo`, and installs it with `installer` as a
-one-off launchd job of its own (the package's scripts restart the daemon).
-It installs only when the tunnel is not needed - access switched off, between
-02:00 and 05:00, or when the person quits Waypoint - and only if "Install
-updates by themselves" is on (it is by default); "Update" installs at once. A
-package that fails any check is not installed, is reported as
-`update_signature` and is tried again in six hours. A build without the
-public key installs nothing and says so. The installer keeps the
-registration. A device that is known but has no
+package, as a number and nothing else. A client whose own version is older
+shows it; the address of the installer is built in the client from the
+project's release page, so the router cannot point a user elsewhere. Both
+clients check `Waypoint-SHA256SUMS` and its signature with the client release
+key built into them, and install only while the tunnel is not wanted - at
+night, as the program quits, or with access switched off on macOS - unless the
+person turned that off; "Update" installs at once. A build without the public
+key installs nothing and says so.
+
+On macOS the daemon fetches `Waypoint-X.Y.Z.pkg`, checks its SHA-256 against
+the list and the version in its `PackageInfo`, and installs it with
+`installer` as a one-off launchd job of its own (the package's scripts restart
+the daemon); the night window is 02:00 to 05:00. A package that fails any
+check is not installed, is reported as `update_signature` and is tried again
+in six hours. The Windows service looks at most every six hours, fetches the
+installer of its own processor and installs it with `msiexec /qn`; an
+installer that fails the check is deleted and a failure report waits. The
+installer keeps the registration on both systems. A device that is known but has no
 service is answered too, and both clients ask in that state, so a machine
 waiting for its first service is still offered the newer program.
 

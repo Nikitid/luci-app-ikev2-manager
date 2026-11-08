@@ -750,3 +750,20 @@ Waypoint device (IKE name `<device>@managed.ikev2-manager`, EAP name
 peers are tested on strongSwan 6 only (`scripts/openwrt/client-managed.sh`).
 Do not "fix" it with `eap_id = %any`: that lets any account take a device's
 connection and the networks it offers.
+
+## The VPN profile script outgrew the command line
+
+`ManagedVpnProfile.ps1` used to go to PowerShell as `-EncodedCommand`: UTF-16
+in base64, about 2.7 characters per byte of the script. A Windows command line
+holds 32767 characters, so the script stops starting somewhere above 12 KB:
+`Process.Start` fails with Win32 error 206 and every profile and name step of
+the service fails with it. The command line now carries only a loader; the
+script and the request go through standard input. Do not move the script back
+onto the command line or into a file the service runs from disk.
+
+## The Base Filtering Engine does not stop for a test
+
+`Restart-Service BFE -Force` is refused on Windows 10 and 11 even to SYSTEM, so
+the service's repair after a restarted filtering engine (a dead engine handle,
+`guard_engine_lost`) cannot be reproduced by restarting it in a test VM.
+`RecoveryTests` says so (`SKIP C2`) rather than passing.
