@@ -1,0 +1,4 @@
+# GitHub-hosted runners newer than actionlint's built-in list.
+self-hosted-runner:
+  labels:
+    - windows-11-arm
