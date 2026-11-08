@@ -27,6 +27,10 @@ internal static class PolicyTransportTests
                 if (PolicyTransportClient.ParseReportWanted(answer)) throw new Exception("Report sent without a clear request: " + answer);
             if (PolicyTransportClient.SendReport(endpoint, token, "") || PolicyTransportClient.SendReport(endpoint, token, new string('a', PolicyTransportClient.ReportLimit + 1)))
                 throw new Exception("An empty or oversized report was attempted");
+            var servicesRequest = (System.Net.HttpWebRequest)System.Net.WebRequest.Create("https://vpn.example.com/client/v1/services");
+            PolicyTransportClient.ApplyServicesHeaders(servicesRequest, token);
+            if (servicesRequest.Headers["X-Waypoint-Features"] != "health" || servicesRequest.Headers["Authorization"] != "Bearer " + token)
+                throw new Exception("The services request does not declare what the client understands");
             var serializer = new JavaScriptSerializer();
             var fixtures = (object[])serializer.DeserializeObject(File.ReadAllText(args[0]));
             string json = serializer.Serialize(((Dictionary<string, object>)fixtures[0])["policy"]);

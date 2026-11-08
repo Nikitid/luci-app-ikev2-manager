@@ -120,17 +120,30 @@ function with_health(entries) {
 	});
 }
 
+// Features a client declares it understands, in X-Waypoint-Features: a comma
+// separated list, names in any case, spaces around them ignored. The router
+// adds to an answer only what the client listed, so a client released before
+// the field existed - which refuses an answer with a field it does not know -
+// gets exactly the answer it was written for.
+function client_features(headers) {
+	let list = {}, header = headers['x-waypoint-features'];
+	if (type(header) != 'string') return list;
+	for (let name in split(lc(header), ','))
+		if (trim(name) != '') list[trim(name)] = true;
+	return list;
+}
+
 // The services answer. With an offer it lists every entry: on or off,
 // required or not, blocked without the tunnel or not and whose choice that is,
 // and whether it works now.
-function services_answer(id, revision, selected, available, entries, directory, own_list) {
+function services_answer(id, revision, selected, available, entries, directory, own_list, health) {
 	let label = null, mode = 'services';
 	try { label = read_client_labels(directory)[id]; } catch (error) { label = null; }
 	if (label?.full === true) mode = 'full';
 	let body = { version: 1, id: id, revision: revision, selected: selected, available: available,
 		block_without_tunnel: blocked_without_tunnel(entries, label), mode: mode,
 		names_https: names_over_https(), tunnel_subnet: tunnel_subnet() };
-	if (entries != null) body.entries = with_health(entries);
+	if (entries != null) body.entries = health ? with_health(entries) : entries;
 	// What the person may add for themselves, and what this device keeps.
 	if (label?.own != null)
 		body.own = { limit: label.own.limit, ports: label.own.ports, domains: own_list?.domains ?? [], networks: own_list?.networks ?? [] };
@@ -216,7 +229,7 @@ function accept_choice(id, offer, headers, receive) {
 // services published to clients - with an offer, those it was offered - by
 // name and size. Domain lists stay in the policy, which carries only what
 // this device may reach.
-function device_services(publication, id, revision, directory) {
+function device_services(publication, id, revision, directory, health) {
 	let assigned = filter(publication.devices, item => item.id == id);
 	if (length(assigned) != 1 || type(assigned[0].selected_services) != 'array' || type(publication.services) != 'array')
 		die('inconsistent device assignment');
@@ -231,7 +244,7 @@ function device_services(publication, id, revision, directory) {
 	}
 	let by_id = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 	return services_answer(id, revision, sort(selected, by_id), sort(available, by_id),
-		'offer' in own ? client_service_entries(own.offer, own.choices, publication) : null, directory, own_list);
+		'offer' in own ? client_service_entries(own.offer, own.choices, publication) : null, directory, own_list, health);
 }
 
 // A device's request to check its services now: the watcher is asked to probe
@@ -311,6 +324,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 	if (((choosing || owning || checking) && env.REQUEST_METHOD != 'POST') || (!choosing && !owning && !checking && env.REQUEST_METHOD != 'GET' && !sending))
 		return { status: 405, body: { error: 'method_not_allowed' }, allow: choosing || owning || checking ? 'POST' : report ? 'GET, POST' : 'GET' };
 	let headers = env.headers ?? {};
+	let health = client_features(headers).health === true;
 	if (headers['transfer-encoding'] != null ||
 		(!sending && !choosing && !owning && headers['content-length'] != null && headers['content-length'] != '0'))
 		return reply(400, 'body_not_allowed');
@@ -341,7 +355,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 			// has turned anything on.
 			if ((services || choosing) && (device.enabled || device.idle) && type(device.entries) == 'array') {
 				if (choosing) return accept_choice(device.id, device.offer, headers, receive);
-				return services_answer(device.id, device.revision, device.selected, device.available, device.entries, directory, device.own);
+				return services_answer(device.id, device.revision, device.selected, device.available, device.entries, directory, device.own, health);
 			}
 			if (choosing) return reply(409, 'no_offer');
 			if (owning) return device.enabled || device.idle ? accept_own(device.id, device.policy?.server ?? null, headers, receive, directory) : reply(401, 'unauthorized');
@@ -352,7 +366,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 				return { status: 200, body: read_client_device_evidence_for('/var/run/ikev2-client-access', device, headers['x-client-address'], time()) };
 			}
 			if (services)
-				return services_answer(device.id, device.revision, device.selected, device.available, null, directory, device.own);
+				return services_answer(device.id, device.revision, device.selected, device.available, null, directory, device.own, health);
 			if (release) return release_answer();
 			let compiled = compile_client_policy(device.policy);
 			if (length(sprintf('%J', compiled.policy)) > 1048576)
@@ -408,7 +422,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 		let own = matches == 1 ? filter(committed.publication?.devices ?? [], device => same_hash(token_hash, device.token_sha256))[0] : null;
 		if ((services || choosing) && (selected != null || idle != null) && own != null && 'offer' in own) {
 			if (choosing) return accept_choice(own.id, own.offer, headers, receive);
-			return device_services(committed.publication, own.id, selected?.policy?.revision ?? own.previous_policy?.revision ?? 1, directory);
+			return device_services(committed.publication, own.id, selected?.policy?.revision ?? own.previous_policy?.revision ?? 1, directory, health);
 		}
 		if (choosing) return reply(409, 'no_offer');
 		if (owning)
@@ -425,7 +439,7 @@ export function client_policy_response(env, directory, seen_directory, receive) 
 				selected.id, headers['x-client-address'], time()) };
 		}
 		if (services)
-			return device_services(committed.publication, selected.id, selected.policy.revision, directory);
+			return device_services(committed.publication, selected.id, selected.policy.revision, directory, health);
 		if (release) return release_answer();
 		// Validation rejects unknown fields before returning any policy content.
 		let compiled = compile_client_policy(selected.policy);

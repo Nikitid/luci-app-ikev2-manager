@@ -138,14 +138,23 @@ ucode -e "import {readfile} from 'fs'; let s=json(readfile('$work/body')); let e
 test_step=health
 first_id="$(jsonfilter -i "$work/body" -e '@.entries[0].id')"
 second_id="$(jsonfilter -i "$work/body" -e '@.entries[1].id')"
-[ -z "$(jsonfilter -i "$work/body" -e '@.entries[0].health.state')" ] ||
-	[ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.state')" = unknown ] ||
-	{ echo "client-api: health without the watcher's state: $(cat "$work/body")" >&2; exit 1; }
+# A client that does not declare the feature gets the answer it was written
+# for: no health anywhere, whatever the watcher knows.
 cp /etc/pbr-ikev2-exits.txt "$work/exits.saved" 2>/dev/null || :
 cp /var/run/ikev2-tunnels.state "$work/tunnels.saved" 2>/dev/null || :
 printf '%s 1\n%s 2s\n' "$first_id" "$second_id" >/etc/pbr-ikev2-exits.txt
 printf 'ready 1 1700000000\nexit 1 1\nexit 1s 1\nexit 2 0\nexit 2s 0\n' >/var/run/ikev2-tunnels.state
-request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+for features in none 'X-Waypoint-Features: ' 'X-Waypoint-Features: healthy, wealth'; do
+	if [ "$features" = none ]; then request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+	else request 200 -H "$features" -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services; fi
+	! grep -q health "$work/body" || { echo "client-api: health sent to a client that did not ask ($features): $(cat "$work/body")" >&2; exit 1; }
+	[ "$(jsonfilter -i "$work/body" -e '@.entries[0].id')" = "$first_id" ] || { echo "client-api: entries changed shape: $(cat "$work/body")" >&2; exit 1; }
+done
+# Names are read tolerantly: any case, spaces, other names beside it.
+request 200 -H 'X-Waypoint-Features: Other,  HEALTH ,more' -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+[ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.state')" = ok ] ||
+	{ echo "client-api: a tolerantly written feature list was not understood: $(cat "$work/body")" >&2; exit 1; }
+request 200 -H 'X-Waypoint-Features: health' -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 [ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.state')" = ok ] &&
 	[ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.tunnel')" = 1 ] &&
 	[ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.since')" = 1700000000 ] ||
@@ -155,19 +164,19 @@ request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/
 	{ echo "client-api: a service whose exit has no tunnel is not down: $(cat "$work/body")" >&2; exit 1; }
 # Up but nothing crosses it: the service is said to be in trouble.
 printf 'ready 1 1700000000\nsilent 1 1\nexit 1 1\nexit 2s 0\n' >/var/run/ikev2-tunnels.state
-request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+request 200 -H 'X-Waypoint-Features: health' -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 [ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.state')" = down ] &&
 	[ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.reason')" = silent ] ||
 	{ echo "client-api: a silent tunnel is shown as working: $(cat "$work/body")" >&2; exit 1; }
 # Sent straight to the WAN by the operator: it works, through no tunnel.
 printf '%s wan\n' "$first_id" >/etc/pbr-ikev2-exits.txt
-request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+request 200 -H 'X-Waypoint-Features: health' -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 [ "$(jsonfilter -i "$work/body" -e '@.entries[0].health.state')" = direct ] ||
 	{ echo "client-api: a service sent to the WAN is not direct: $(cat "$work/body")" >&2; exit 1; }
 rm -f /etc/pbr-ikev2-exits.txt /var/run/ikev2-tunnels.state
 [ ! -s "$work/exits.saved" ] || cp "$work/exits.saved" /etc/pbr-ikev2-exits.txt
 [ ! -s "$work/tunnels.saved" ] || cp "$work/tunnels.saved" /var/run/ikev2-tunnels.state
-request 200 -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
+request 200 -H 'X-Waypoint-Features: health' -H "Authorization: Bearer $first" https://127.0.0.1:18443/client/v1/services
 test_step=check
 # A device may ask for the services to be checked now, once in 30 seconds:
 # the watcher is asked, and a second call says how long is left.

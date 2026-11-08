@@ -352,6 +352,16 @@ namespace IkeV2Manager.Client
             catch (InvalidOperationException) { throw new PolicyFetchException("release_response_invalid"); }
         }
 
+        // The request for the services list names what this program
+        // understands. A router adds a field to its answer only for a client
+        // that listed it: Waypoint 2.2.8 refuses an answer with a field it
+        // does not know.
+        internal static void ApplyServicesHeaders(HttpWebRequest request, string token)
+        {
+            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            request.Headers["X-Waypoint-Features"] = "health";
+        }
+
         public static DeviceServices FetchServices(Uri policyEndpoint, string token, string id)
         {
             ValidateEndpoint(policyEndpoint, token);
@@ -365,7 +375,7 @@ namespace IkeV2Manager.Client
             request.Timeout = request.ReadWriteTimeout = 5000;
             request.MaximumResponseHeadersLength = 16;
             request.Accept = "application/json";
-            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            ApplyServicesHeaders(request, token);
             using (var deadline = new Timer(ignored => request.Abort(), null, 5000, Timeout.Infinite))
             try
             {

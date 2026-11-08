@@ -585,10 +585,17 @@ public struct DeviceTransport: DeviceRequests {
         return answer.status == 200
     }
 
+    /// The request for the services list names what this program understands.
+    /// A router adds a field to its answer only for a client that listed it:
+    /// Waypoint 2.2.8 refuses an answer with a field it does not know.
+    static func servicesHeaders(deviceToken: String) -> [String: String] {
+        ["Authorization": "Bearer " + deviceToken, "X-Waypoint-Features": "health"]
+    }
+
     public func services(endpoint: URL, deviceToken: String, id: String) async throws -> DeviceServices {
         guard Self.matches(deviceToken, Self.token) else { throw DeviceError.invalidEndpoint }
         let answer = try await send(try Self.endpoint(endpoint, path: "/client/v1/services"), method: "GET",
-            headers: ["Authorization": "Bearer " + deviceToken], limit: 65536, timeout: 5)
+            headers: Self.servicesHeaders(deviceToken: deviceToken), limit: 65536, timeout: 5)
         guard answer.status == 200 else { throw DeviceError.httpRejected }
         return try Self.decodeServices(answer.data, id: id)
     }

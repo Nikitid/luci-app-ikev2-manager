@@ -17,4 +17,10 @@ struct ConnectionAddressesTests {
         value["tunnel_subnet"] = "10.40.50.1/24"
         #expect(throws: DeviceError.invalidResponse) { try DeviceTransport.decodeServices(JSONSerialization.data(withJSONObject: value), id: "laptop") }
     }
+
+    @Test func servicesRequestDeclaresWhatItUnderstands() {
+        let headers = DeviceTransport.servicesHeaders(deviceToken: String(repeating: "a", count: 64))
+        #expect(headers["X-Waypoint-Features"] == "health")
+        #expect(headers["Authorization"] == "Bearer " + String(repeating: "a", count: 64))
+    }
 }

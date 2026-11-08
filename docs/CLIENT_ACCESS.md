@@ -1026,6 +1026,16 @@ tunnel and refuses) or `silent` (the tunnel is up and nothing crosses it);
 watcher has written anything. One service can be down while the others work.
 Both files are read per answer; nothing is run.
 
+`health` is sent only to a client that asks for it. A client names the
+features it understands in the request header `X-Waypoint-Features`, a comma
+separated list (`health`); names are read in any case, spaces around them are
+ignored and names the router does not know are skipped. Without `health` in
+that list the answer has exactly the shape it had before the field existed,
+because Waypoint 2.2.8 refuses a services answer with a field it does not
+know, and the router is upgraded before the clients. Waypoint macOS and
+Windows send `X-Waypoint-Features: health` on their services request
+(`client-api.sh` checks both answers).
+
 A device can ask the router to check now: `POST /client/v1/check`, no body,
 the same bearer key as the other calls. The API leaves a request file
 (`/var/run/ikev2-health.recheck`); at its next tick (a few seconds) the watcher
